@@ -20,6 +20,7 @@ from uuid import uuid4
 from phlo.capabilities import configured_capability_name, list_capabilities
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.capabilities.resolver import resolve_capability
+from phlo.capabilities.table_store import schema_policy_kwargs
 from phlo.hooks import DataMigrationEventContext, DataMigrationEventEmitter, HookCorrelation
 from phlo.logging import get_logger
 from phlo.migrations.adapters import list_source_adapter_types, resolve_source_adapter
@@ -180,6 +181,7 @@ class MigrationExecutor:
                         unique_key=spec.destination.unique_key,
                         chunk=mapped,
                         first_chunk=index == 1,
+                        schema_policy=spec.destination.schema_policy,
                     )
                     rows_written += len(mapped)
 
@@ -352,14 +354,25 @@ def _write_chunk_to_table_store(
     unique_key: str | None,
     chunk: list[dict[str, Any]],
     first_chunk: bool,
+    schema_policy: str = "strict",
 ) -> None:
     # "overwrite" replaces the table only for the first chunk; later chunks
     # append so a single run produces exactly one full replacement. Chunk
     # order is therefore significant.
+    methods = {
+        "append": ("append_parquet",),
+        "merge": ("merge_parquet",),
+        "overwrite": ("overwrite_parquet", "append_parquet"),
+    }
+    policy_kwargs = schema_policy_kwargs(
+        table_store, schema_policy, methods=methods.get(write_mode, ())
+    )
     parquet_path = _stage_chunk_parquet(chunk)
     try:
         if write_mode == "append":
-            table_store.append_parquet(table_name=table_name, data_path=parquet_path)
+            table_store.append_parquet(
+                table_name=table_name, data_path=parquet_path, **policy_kwargs
+            )
             return
         if write_mode == "overwrite":
             if not hasattr(table_store, "overwrite_parquet"):
@@ -367,9 +380,13 @@ def _write_chunk_to_table_store(
                     "write_mode 'overwrite' requires table store support for overwrite_parquet"
                 )
             if first_chunk:
-                table_store.overwrite_parquet(table_name=table_name, data_path=parquet_path)
+                table_store.overwrite_parquet(
+                    table_name=table_name, data_path=parquet_path, **policy_kwargs
+                )
             else:
-                table_store.append_parquet(table_name=table_name, data_path=parquet_path)
+                table_store.append_parquet(
+                    table_name=table_name, data_path=parquet_path, **policy_kwargs
+                )
             return
         if write_mode == "merge":
             if not unique_key:
@@ -378,6 +395,7 @@ def _write_chunk_to_table_store(
                 table_name=table_name,
                 data_path=parquet_path,
                 unique_key=unique_key,
+                **policy_kwargs,
             )
             return
         raise MigrationExecutionError(f"Unsupported write_mode: {write_mode}")

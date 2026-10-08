@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from phlo.capabilities.inventory import ObjectInventory
 
@@ -28,6 +28,7 @@ class TableStoreSupport:
     supports_snapshots: bool = False
     supports_compaction: bool = False
     supports_vacuum: bool = False
+    schema_policies: frozenset[str] = frozenset()
 
     def supports_partition_transform(self, transform: str) -> bool:
         return transform in self.partition_transforms
@@ -161,6 +162,65 @@ class TableStore(Protocol):
         retain_hours: int = 168,
     ) -> dict[str, Any]:
         """Remove orphan files older than the retention period."""
+        raise NotImplementedError
+
+
+@runtime_checkable
+class SchemaPolicyTableStore(TableStore, Protocol):
+    """Optional write-policy contract for stores advertising ``schema_policies``.
+
+    Additive writes add nullable fields only, never migrate existing definitions.
+    Advertised policies must be accepted by every supported write operation.
+    Runtime protocol checks do not validate signatures; callers also check the
+    selected methods before sending a policy keyword.
+    """
+
+    def ensure_table(
+        self,
+        *,
+        table_name: str,
+        schema: Any,
+        partition_spec: Any = None,
+        override_ref: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> Any:
+        """Validate a declaration without publishing additive evolution."""
+        ...
+
+    def append_parquet(
+        self,
+        *,
+        table_name: str,
+        data_path: str | Path,
+        override_ref: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> dict[str, int]:
+        """Validate and append using an advertised schema policy."""
+        ...
+
+    def merge_parquet(
+        self,
+        *,
+        table_name: str,
+        data_path: str | Path,
+        unique_key: str,
+        override_ref: str | None = None,
+        deduplication_method: str | None = None,
+        deduplication_order_by: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> dict[str, int]:
+        """Validate and merge using an advertised schema policy."""
+        ...
+
+    def overwrite_parquet(
+        self,
+        *,
+        table_name: str,
+        data_path: str | Path,
+        override_ref: str | None = None,
+        schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    ) -> dict[str, int]:
+        """Validate and overwrite if the provider supports replacement."""
         raise NotImplementedError
 
 

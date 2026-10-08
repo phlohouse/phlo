@@ -352,6 +352,58 @@ def test_unified_carrier_feed_depends_on_both_ingestion_assets() -> None:
     assert {"dlt_carrier_events_atlas", "dlt_carrier_events_corsair"} <= dep_keys
 
 
+def test_unified_carrier_asset_materializes_metadata_free_table(tmp_path, monkeypatch) -> None:
+    """Execute the shipped asset against real staged tables, retaining strict writes."""
+    from datetime import UTC, datetime
+
+    import pyarrow as arrow
+    from phlo.plugins import observatory_settings
+    from phlo_iceberg import IcebergResource
+    from pyiceberg.catalog.sql import SqlCatalog
+
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+    monkeypatch.setattr(observatory_settings, "_memory_service", None)
+    warehouse = tmp_path / "warehouse"
+    warehouse.mkdir()
+    catalog = SqlCatalog(
+        "example", uri=f"sqlite:///{tmp_path / 'catalog.db'}", warehouse=warehouse.as_uri()
+    )
+    catalog.create_namespace("raw")
+    for module in ("phlo_iceberg", "phlo_iceberg.tables", "phlo_iceberg.catalog"):
+        monkeypatch.setattr(f"{module}.get_catalog", lambda ref="main": catalog)
+    schema = IcebergResource().schema_from_validation_schema(carrier_metrics.CarrierEventSchema)
+    expected = []
+    try:
+        for index, name in enumerate(carrier_metrics.SOURCE_TABLES):
+            row = {
+                "event_id": f"event-{index}",
+                "carrier": "ATLAS" if index == 0 else "CORSAIR",
+                "shipment_id": "SHP-0001",
+                "event_type": "pickup",
+                "event_time": datetime(2026, 10, 7, 10, index, tzinfo=UTC),
+                "location": "London",
+            }
+            expected.append(dict(row))
+            row.update(
+                _dlt_load_id="load",
+                _dlt_id=f"dlt-{index}",
+                _phlo_row_id=f"row-{index}",
+                _phlo_ingested_at=datetime(2026, 10, 7, tzinfo=UTC),
+                _phlo_partition_date="2026-10-07",
+                _phlo_run_id="run",
+            )
+            source = catalog.create_table(name, schema)
+            source.append(arrow.Table.from_pylist([row], schema=source.schema().as_arrow()))
+        asset = carrier_metrics.carrier_events_unified
+        result = dg.materialize([asset, *(dg.AssetSpec(key) for key in asset.dependency_keys)])
+        assert result.success
+        stored = catalog.load_table(carrier_metrics.UNIFIED_TABLE).scan().to_arrow()
+        assert stored.column_names == list(carrier_metrics.CarrierEventSchema.to_schema().columns)
+        assert sorted(stored.to_pylist(), key=lambda row: row["event_id"]) == expected
+    finally:
+        catalog.engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # Ingestion contracts are differentiated per source behavior
 # ---------------------------------------------------------------------------

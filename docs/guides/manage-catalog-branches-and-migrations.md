@@ -45,6 +45,8 @@ phlo migrate status
 
 Confirm the migration spec, target, backup, and approval before execution. `phlo migrate` does not provide an automatic rollback.
 
+Set `destination.schema_policy` in the migration YAML to choose how an opted-in table store handles source drift. The default, `strict`, rejects extra source columns. Use `additive` to retain new nullable columns, or `drop_extra` to explicitly discard columns absent from the destination. Column mapping renames fields but preserves unmapped columns. All policies still reject unsafe casts and missing or null required fields; existing type or nullability changes require explicit migration. The selected policy applies to every chunk, including the append calls after the first overwrite chunk. Providers without policy support keep their existing default behaviour and reject explicit alternative policies.
+
 ## 5. Execute and verify the migration
 
 ```bash

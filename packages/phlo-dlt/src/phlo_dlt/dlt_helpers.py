@@ -48,6 +48,7 @@ from dlt.common.pipeline import LoadInfo
 import phlo.telemetry as phlo_observe
 from phlo.capabilities import CapabilitySupport, resolve_runtime_ref
 from phlo.capabilities.interfaces import TableStore
+from phlo.capabilities.table_store import schema_policy_kwargs
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 
@@ -206,7 +207,7 @@ def inject_metadata_columns(
     row_ids = [generate_row_id() for _ in range(num_rows)]
     row_id_col = pa.array(row_ids, type=pa.string())
 
-    ingested_at_col = pa.array([ingested_at] * num_rows, type=pa.timestamp("us"))
+    ingested_at_col = pa.array([ingested_at] * num_rows, type=pa.timestamp("us", tz="UTC"))
     partition_date_col = pa.array([partition_date] * num_rows, type=pa.string())
     run_id_col = pa.array([run_id] * num_rows, type=pa.string())
 
@@ -499,6 +500,15 @@ def merge_to_table_store(  # noqa: C901
     """
     merge_config = merge_config or {}
     table_name = table_config.full_table_name
+    policies = getattr(getattr(table_store, "support", None), "schema_policies", frozenset())
+    policy_kwargs = schema_policy_kwargs(
+        table_store,
+        table_config.schema_policy,
+        methods=(
+            "ensure_table",
+            "append_parquet" if merge_strategy == "append" else "merge_parquet",
+        ),
+    )
     logger.info(
         "dlt_merge_to_table_store_started",
         table_name=table_name,
@@ -539,6 +549,7 @@ def merge_to_table_store(  # noqa: C901
         schema=table_schema,
         partition_spec=table_config.partition_spec,
         override_ref=branch_name,
+        **policy_kwargs,
     )
 
     def _coerce_parquet_to_table_schema(parquet_file: Path) -> Path:
@@ -625,9 +636,12 @@ def merge_to_table_store(  # noqa: C901
         pq.write_table(projected, str(coerced_path))
         return coerced_path
 
-    coerced_parquet_paths = [
-        _coerce_parquet_to_table_schema(parquet_path) for parquet_path in parquet_paths
-    ]
+    # Opted-in providers own alignment. Never hide drift or unsafe casts from them.
+    coerced_parquet_paths = (
+        parquet_paths
+        if policies
+        else [_coerce_parquet_to_table_schema(parquet_path) for parquet_path in parquet_paths]
+    )
     merge_metrics = {"rows_inserted": 0, "rows_deleted": 0}
 
     if merge_strategy == "append":
@@ -637,6 +651,7 @@ def merge_to_table_store(  # noqa: C901
                 table_name=table_name,
                 data_path=str(parquet_path),
                 override_ref=branch_name,
+                **policy_kwargs,
             )
             merge_metrics["rows_inserted"] += file_metrics.get("rows_inserted", 0)
             merge_metrics["rows_deleted"] += file_metrics.get("rows_deleted", 0)
@@ -659,6 +674,7 @@ def merge_to_table_store(  # noqa: C901
                 data_path=str(parquet_path),
                 unique_key=table_config.unique_key,
                 override_ref=branch_name,
+                **policy_kwargs,
                 **dedup_kwargs,
             )
             merge_metrics["rows_inserted"] += file_metrics.get("rows_inserted", 0)

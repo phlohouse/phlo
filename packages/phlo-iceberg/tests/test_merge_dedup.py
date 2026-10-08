@@ -60,7 +60,7 @@ def _merge(tmp_path, rows: list[dict], **kwargs):
     with (
         patch("phlo_iceberg.tables.get_catalog", return_value=catalog),
         patch(
-            "pyiceberg.io.pyarrow.schema_to_pyarrow",
+            "phlo_iceberg.schema_alignment.schema_to_pyarrow",
             return_value=arrow_schema,
         ),
     ):

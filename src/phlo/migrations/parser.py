@@ -62,6 +62,7 @@ def load_migration_spec(path: Path) -> MigrationSpec:
         table=_require_str(destination_raw, "table"),
         write_mode=_optional_str(destination_raw.get("write_mode")) or "append",
         unique_key=_optional_str(destination_raw.get("unique_key")),
+        schema_policy=_optional_str(destination_raw.get("schema_policy", "strict")) or "",
     )
 
     options_raw = _optional_mapping(raw, "options") or {}
@@ -92,6 +93,10 @@ def load_migration_spec(path: Path) -> MigrationSpec:
         raise MigrationSpecError("destination.write_mode must be one of: append, overwrite, merge")
     if write_mode == "merge" and not destination.unique_key:
         raise MigrationSpecError("destination.unique_key is required for merge write_mode")
+    if destination.schema_policy not in {"strict", "additive", "drop_extra"}:
+        raise MigrationSpecError(
+            "destination.schema_policy must be strict, additive, or drop_extra"
+        )
 
     return MigrationSpec(
         name=name,
@@ -102,6 +107,7 @@ def load_migration_spec(path: Path) -> MigrationSpec:
             table=destination.table,
             write_mode=write_mode,
             unique_key=destination.unique_key,
+            schema_policy=destination.schema_policy,
         ),
         options=options,
         column_mapping=column_mapping,

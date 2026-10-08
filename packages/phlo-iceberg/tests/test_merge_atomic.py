@@ -128,7 +128,7 @@ def test_precommit_failure_preserves_rows_and_snapshot(
     "rows, error",
     [
         ([{"id": 1, "status": "a"}, {"id": 1, "status": "b"}], ValueError),
-        ([{"id": "not-an-integer", "status": "new"}], pa.ArrowInvalid),
+        ([{"id": "not-an-integer", "status": "new"}], ValueError),
         ([{"status": "new"}], ValueError),
     ],
 )
@@ -149,11 +149,15 @@ def test_validation_fails_before_deletes(local_catalog, tmp_path, monkeypatch, r
 @pytest.mark.parametrize("status", [None, "new"])
 def test_alignment_and_key_cast_precede_matching(local_catalog, tmp_path, status):
     path = tmp_path / "aligned.parquet"
-    row = {"id": "1", "source_only": "discarded"}
+    row = {"id": 1, "source_only": "discarded"}
     if status is not None:
         row["status"] = status
-    pq.write_table(pa.Table.from_pylist([row]), path)
-    assert merge_to_table(TABLE, path, "id") == {"rows_deleted": 1, "rows_inserted": 1}
+    incoming = pa.Table.from_pylist([row]).set_column(0, "id", pa.array([1], type=pa.int32()))
+    pq.write_table(incoming, path)
+    assert merge_to_table(TABLE, path, "id", schema_policy="drop_extra") == {
+        "rows_deleted": 1,
+        "rows_inserted": 1,
+    }
     expected = [{"id": i, "status": "old"} for i in range(1004)]
     expected[1] = {"id": 1, "status": status}
     assert _rows(local_catalog) == expected

@@ -338,6 +338,7 @@ def phlo_ingestion(  # noqa: C901
     partitioned: bool = True,
     quality_checks: Sequence[Callable[[pd.DataFrame], str | None]] | None = None,
     layer: Literal["bronze", "silver", "gold"] | None = None,
+    schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register a function as a DLT-backed ingestion asset.
 
@@ -368,6 +369,10 @@ def phlo_ingestion(  # noqa: C901
           in `validation_schema` when one is provided.
         - `table_schema` supplies an explicit table-store schema; otherwise the
           provider derives one from `validation_schema`.
+        - `schema_policy` defaults to ``"strict"`` for providers advertising
+          schema-policy support. ``"additive"`` permits new nullable columns;
+          ``"drop_extra"`` explicitly discards extra source columns. Providers
+          without support retain their defaults and reject non-default policies.
         - `partition_spec` format depends on the provider (e.g., Iceberg transforms).
         - `merge_strategy` selects insert-only ``"append"`` versus ``"merge"``
           upserts on `unique_key`; `merge_config` overrides merge behaviour, e.g.
@@ -501,6 +506,7 @@ def phlo_ingestion(  # noqa: C901
         unique_key=unique_key,
         group_name=group,
         partition_spec=partition_spec,
+        schema_policy=schema_policy,
     )
     normalized_consumers = normalize_consumers(consumers)
 

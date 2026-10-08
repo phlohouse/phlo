@@ -108,7 +108,22 @@ class TestLoadMigrationSpec:
 
         assert spec.version == "1.0"
         assert spec.destination.write_mode == "append"
+        assert spec.destination.schema_policy == "strict"
         assert spec.options.chunk_size == 50_000
         assert spec.options.parallelism == 1
         assert spec.options.validate is True
         assert spec.options.dry_run is False
+
+    @pytest.mark.parametrize("policy", ["strict", "additive", "drop_extra"])
+    def test_schema_policy_is_preserved(self, tmp_path: Path, policy: str) -> None:
+        data = _valid_spec()
+        data["destination"].update(write_mode="merge", unique_key="id", schema_policy=policy)
+        spec = load_migration_spec(_write_yaml(tmp_path / "spec.yaml", data))
+        assert spec.destination.schema_policy == policy
+
+    @pytest.mark.parametrize("policy", ["typo", "", None])
+    def test_invalid_schema_policy_is_not_ignored(self, tmp_path: Path, policy) -> None:
+        data = _valid_spec()
+        data["destination"]["schema_policy"] = policy
+        with pytest.raises(MigrationSpecError, match="destination.schema_policy"):
+            load_migration_spec(_write_yaml(tmp_path / "spec.yaml", data))

@@ -42,10 +42,12 @@ import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import pyarrow as pa
 import pyarrow.parquet as pq
-from pyiceberg.exceptions import TableAlreadyExistsError
+from pyiceberg.exceptions import CommitFailedException, TableAlreadyExistsError
+from pyiceberg.io.pyarrow import schema_to_pyarrow
 from pyiceberg.schema import Schema
 from pyiceberg.table import Table
 
@@ -55,6 +57,12 @@ from phlo.logging import get_logger
 from phlo.plugins.observatory_settings import get_operational_settings
 import phlo.telemetry as phlo_observe
 from phlo_iceberg.catalog import create_namespace, get_catalog
+from phlo_iceberg.schema_alignment import (
+    SchemaPolicy,
+    prepare_arrow_write,
+    validate_declared_schema,
+    validate_schema_policy,
+)
 
 logger = get_logger(__name__)
 
@@ -130,28 +138,61 @@ def _finish_iceberg_commit(scope, table) -> None:
         pass
 
 
-def _align_arrow_table_to_target_schema(arrow_table, target_schema, *, table_name: str):
-    """Align an Arrow table to an Iceberg target schema.
+def _write_arrow_table(
+    table: Table,
+    arrow_table: pa.Table,
+    *,
+    table_name: str,
+    schema_policy: SchemaPolicy,
+    operation: Literal["append", "merge", "overwrite"],
+    unique_key: str | None = None,
+) -> int:
+    """Publish staged schema and data together; reconcile competing additions."""
+    from pyiceberg.expressions import In, Reference
 
-    Missing nullable target columns are backfilled with nulls. Missing required
-    columns raise ValueError so callers get a useful schema error.
-    """
-    import pyarrow as pa
-
-    arrow_column_names = set(arrow_table.schema.names)
-    for field in target_schema:
-        if field.name in arrow_column_names:
-            continue
-        if not field.nullable and not field.name.startswith(("_dlt_", "_phlo_")):
-            raise ValueError(
-                f"Required target column '{field.name}' is missing from source data for {table_name}"
+    transaction, aligned, additions = prepare_arrow_write(
+        table, arrow_table, table_name=table_name, schema_policy=schema_policy
+    )
+    for attempt in range(3):
+        rows_deleted = 0
+        try:
+            with transaction as writer:
+                if operation == "overwrite":
+                    writer.overwrite(aligned)
+                else:
+                    if operation == "merge":
+                        assert unique_key is not None
+                        keys = list(set(aligned.column(unique_key).to_pylist()))
+                        for start in range(0, len(keys), 1000):
+                            batch = keys[start : start + 1000]
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings(
+                                    "ignore",
+                                    message=r"^Delete operation did not match any records$",
+                                    category=UserWarning,
+                                )
+                                writer.delete(In(term=Reference(unique_key), values=set(batch)))
+                            rows_deleted += len(batch)
+                    writer.append(aligned)
+            return rows_deleted
+        except CommitFailedException as exc:
+            # Ordinary data conflicts remain explicit failures as in #1064. Only
+            # additive schema races retry, always rebuilding the complete write.
+            if not additions or attempt == 2:
+                raise
+            table.refresh()
+            refreshed = schema_to_pyarrow(table.schema())
+            for field in additions:
+                if field.name in refreshed.names:
+                    existing = refreshed.field(field.name)
+                    if existing.type != field.type or existing.nullable != field.nullable:
+                        raise ValueError(
+                            f"Conflicting concurrent definition for {table_name}.{field.name}"
+                        ) from exc
+            transaction, aligned, _ = prepare_arrow_write(
+                table, arrow_table, table_name=table_name, schema_policy=schema_policy
             )
-        arrow_table = arrow_table.append_column(
-            field.name,
-            pa.nulls(len(arrow_table), type=field.type),
-        )
-
-    return arrow_table.select(target_schema.names)
+    raise AssertionError("Unreachable write retry state")
 
 
 def ensure_table(
@@ -159,6 +200,8 @@ def ensure_table(
     schema: Schema,
     partition_spec: list[tuple[str, str]] | None = None,
     ref: str = "main",
+    *,
+    schema_policy: SchemaPolicy = "strict",
 ) -> Table:
     """Ensure an Iceberg table exists, creating it if necessary.
 
@@ -185,6 +228,7 @@ def ensure_table(
                 ref="main"
             )
     """
+    validate_schema_policy(schema_policy)
     _require_direct_write(ref)
     catalog = get_catalog(ref=ref)
 
@@ -200,9 +244,14 @@ def ensure_table(
     # to create_table, and a concurrent creator is resolved by catching
     # TableAlreadyExistsError below and reloading the winner's table.
     try:
-        return catalog.load_table(table_name)
+        existing = catalog.load_table(table_name)
     except Exception:
-        pass
+        existing = None
+    if existing is not None:
+        validate_declared_schema(
+            existing, schema_to_pyarrow(schema), table_name=table_name, schema_policy=schema_policy
+        )
+        return existing
 
     from pyiceberg.partitioning import PartitionField, PartitionSpec
     from pyiceberg.transforms import (
@@ -258,13 +307,19 @@ def ensure_table(
         )
     except TableAlreadyExistsError:
         logger.info("iceberg_table_exists_during_create", table_name=table_name, ref=ref)
-        return catalog.load_table(table_name)
+        existing = catalog.load_table(table_name)
+        validate_declared_schema(
+            existing, schema_to_pyarrow(schema), table_name=table_name, schema_policy=schema_policy
+        )
+        return existing
 
 
 def append_to_table(
     table_name: str,
     data_path: str | Path,
     ref: str = "main",
+    *,
+    schema_policy: SchemaPolicy = "strict",
 ) -> dict[str, int]:
     """Append Parquet data to an Iceberg table.
 
@@ -316,36 +371,6 @@ def append_to_table(
 
         source_row_count = len(arrow_table)
 
-        iceberg_column_names = {field.name for field in table.schema().fields}
-        arrow_column_names = set(arrow_table.schema.names)
-        new_columns = arrow_column_names - iceberg_column_names
-
-        if new_columns:
-            logger.warning(
-                "arrow_columns_not_in_iceberg_schema",
-                new_column_count=len(new_columns),
-                new_columns=sorted(new_columns),
-                table_name=table_name,
-            )
-            existing_columns = [c for c in arrow_table.schema.names if c in iceberg_column_names]
-            arrow_table = arrow_table.select(existing_columns)
-
-        import pyarrow as pa
-        from pyiceberg.io.pyarrow import schema_to_pyarrow
-
-        target_schema = schema_to_pyarrow(table.schema())
-
-        arrow_table = _align_arrow_table_to_target_schema(
-            arrow_table, target_schema, table_name=table_name
-        )
-
-        try:
-            arrow_table = arrow_table.cast(target_schema)
-        except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
-            logger.warning(
-                "arrow_cast_to_target_schema_failed", table_name=table_name, error=str(e)
-            )
-
         with _iceberg_commit_scope(
             table_name,
             ref,
@@ -353,7 +378,13 @@ def append_to_table(
             snapshot_id_before=_current_snapshot_id(table),
             rows_added=len(arrow_table),
         ) as commit_op:
-            table.append(arrow_table)
+            _write_arrow_table(
+                table,
+                arrow_table,
+                table_name=table_name,
+                schema_policy=schema_policy,
+                operation="append",
+            )
             _finish_iceberg_commit(commit_op, table)
         rows_inserted = len(arrow_table)
         result = {"rows_inserted": rows_inserted, "rows_deleted": 0}
@@ -390,6 +421,7 @@ def merge_to_table(
     unique_key: str,
     ref: str = "main",
     *,
+    schema_policy: SchemaPolicy = "strict",
     deduplication: bool = True,
     deduplication_method: str | None = None,
     deduplication_order_by: str | None = None,
@@ -472,6 +504,8 @@ def merge_to_table(
                 f"Available columns: {arrow_table.schema.names}"
             )
 
+        # Validate the entire incoming batch, including rows deduplication might discard.
+        prepare_arrow_write(table, arrow_table, table_name=table_name, schema_policy=schema_policy)
         effective_method = deduplication_method or "last"
 
         if deduplication:
@@ -501,47 +535,6 @@ def merge_to_table(
                     table_name=table_name,
                 )
 
-        unique_values = arrow_table.column(unique_key).to_pylist()
-        unique_values_set = set(unique_values)
-
-        iceberg_column_names = {field.name for field in table.schema().fields}
-        arrow_column_names = set(arrow_table.schema.names)
-        new_columns = arrow_column_names - iceberg_column_names
-
-        if new_columns:
-            logger.warning(
-                "arrow_columns_not_in_iceberg_schema",
-                new_column_count=len(new_columns),
-                new_columns=sorted(new_columns),
-                table_name=table_name,
-            )
-            existing_columns = [c for c in arrow_table.schema.names if c in iceberg_column_names]
-            arrow_table = arrow_table.select(existing_columns)
-
-        import pyarrow as pa
-        from pyiceberg.io.pyarrow import schema_to_pyarrow
-
-        target_schema = schema_to_pyarrow(table.schema())
-
-        arrow_table = _align_arrow_table_to_target_schema(
-            arrow_table, target_schema, table_name=table_name
-        )
-
-        try:
-            arrow_table = arrow_table.cast(target_schema)
-        except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
-            logger.warning(
-                "arrow_cast_to_target_schema_failed", table_name=table_name, error=str(e)
-            )
-            raise
-
-        from pyiceberg.expressions import In, Reference
-
-        unique_values = arrow_table.column(unique_key).to_pylist()
-        unique_values_set = set(unique_values)
-        batch_size = 1000
-        unique_values_list = list(unique_values_set)
-
         with _iceberg_commit_scope(
             table_name,
             ref,
@@ -549,21 +542,14 @@ def merge_to_table(
             snapshot_id_before=_current_snapshot_id(table),
             rows_added=len(arrow_table),
         ) as commit_op:
-            with table.transaction() as transaction:
-                for i in range(0, len(unique_values_list), batch_size):
-                    batch = unique_values_list[i : i + batch_size]
-                    delete_expr = In(term=Reference(unique_key), values=set(batch))
-                    # A first insert has no existing rows; PyIceberg warns on that no-op.
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings(
-                            "ignore",
-                            message=r"^Delete operation did not match any records$",
-                            category=UserWarning,
-                        )
-                        transaction.delete(delete_expr)
-                    rows_deleted += len(batch)  # Approximation
-
-                transaction.append(arrow_table)
+            rows_deleted = _write_arrow_table(
+                table,
+                arrow_table,
+                table_name=table_name,
+                schema_policy=schema_policy,
+                operation="merge",
+                unique_key=unique_key,
+            )
             _finish_iceberg_commit(commit_op, table)
             try:
                 commit_op.set(rows_removed=rows_deleted)
@@ -605,6 +591,8 @@ def overwrite_table(
     table_name: str,
     data_path: str | Path,
     ref: str = "main",
+    *,
+    schema_policy: SchemaPolicy = "strict",
 ) -> dict[str, int]:
     """Overwrite an Iceberg table with Parquet data.
 
@@ -649,36 +637,6 @@ def overwrite_table(
 
         source_row_count = len(arrow_table)
 
-        iceberg_column_names = {field.name for field in table.schema().fields}
-        arrow_column_names = set(arrow_table.schema.names)
-        new_columns = arrow_column_names - iceberg_column_names
-
-        if new_columns:
-            logger.warning(
-                "arrow_columns_not_in_iceberg_schema",
-                new_column_count=len(new_columns),
-                new_columns=sorted(new_columns),
-                table_name=table_name,
-            )
-            existing_columns = [c for c in arrow_table.schema.names if c in iceberg_column_names]
-            arrow_table = arrow_table.select(existing_columns)
-
-        import pyarrow as pa
-        from pyiceberg.io.pyarrow import schema_to_pyarrow
-
-        target_schema = schema_to_pyarrow(table.schema())
-
-        arrow_table = _align_arrow_table_to_target_schema(
-            arrow_table, target_schema, table_name=table_name
-        )
-
-        try:
-            arrow_table = arrow_table.cast(target_schema)
-        except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
-            logger.warning(
-                "arrow_cast_to_target_schema_failed", table_name=table_name, error=str(e)
-            )
-
         with _iceberg_commit_scope(
             table_name,
             ref,
@@ -686,7 +644,13 @@ def overwrite_table(
             snapshot_id_before=_current_snapshot_id(table),
             rows_added=len(arrow_table),
         ) as commit_op:
-            table.overwrite(arrow_table)
+            _write_arrow_table(
+                table,
+                arrow_table,
+                table_name=table_name,
+                schema_policy=schema_policy,
+                operation="overwrite",
+            )
             _finish_iceberg_commit(commit_op, table)
         rows_inserted = len(arrow_table)
         result = {"rows_inserted": rows_inserted, "rows_deleted": 0}

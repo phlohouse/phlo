@@ -29,6 +29,7 @@ from phlo.capabilities import AssetSpec, MaterializeResult, RunSpec
 from phlo.capabilities.interfaces import SourceOffsetRange
 from phlo.capabilities.resolver import resolve_capability
 from phlo.capabilities.runtime import RuntimeContext
+from phlo.capabilities.table_store import schema_policy_kwargs
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger, log_event
 
@@ -261,6 +262,10 @@ def _make_stager(config: KafkaConsumerConfig, catalog: Any, table_store: Any):
 
         return stager
 
+    policy_kwargs = schema_policy_kwargs(
+        table_store, config.schema_policy, methods=("merge_parquet",), legacy_default="additive"
+    )
+
     def table_store_stager(checkpoint_id: str, records: list[dict[str, Any]]) -> dict[str, Any]:
         import tempfile
         from pathlib import Path
@@ -275,6 +280,7 @@ def _make_stager(config: KafkaConsumerConfig, catalog: Any, table_store: Any):
                 table_name=config.destination_table,
                 data_path=str(path),
                 unique_key=",".join(config.unique_key),
+                **policy_kwargs,
             )
             observed = table_store.observe_table_state(table_name=config.destination_table)
             if observed.revision is None:

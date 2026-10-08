@@ -19,6 +19,43 @@ from phlo_kafka.assets import (
 from phlo_kafka.checkpoints import KafkaCheckpointAdapter, idempotency_key
 
 
+def test_legacy_stager_default_keeps_existing_call_signature():
+    from phlo_kafka.assets import _make_stager
+
+    written = []
+
+    def merge(*, table_name, data_path, unique_key):
+        written.extend(pq.read_table(data_path).to_pylist())
+        return {"rows_inserted": 1}
+
+    provider = SimpleNamespace(
+        merge_parquet=merge,
+        observe_table_state=lambda **kwargs: SimpleNamespace(revision="snapshot"),
+    )
+    config = KafkaConsumerConfig("legacy", "raw", "events", "raw.events", ["id"])
+    assert (
+        _make_stager(config, None, provider)("checkpoint", [{"id": "1", "extra": "keep"}])[
+            "snapshot_id"
+        ]
+        == "snapshot"
+    )
+    assert written == [{"id": "1", "extra": "keep"}]
+
+
+def test_stager_rejects_misadvertised_provider_before_staging():
+    from phlo.capabilities.interfaces import TableStoreSupport
+    from phlo.exceptions import PhloConfigError
+    from phlo_kafka.assets import _make_stager
+
+    provider = SimpleNamespace(
+        support=TableStoreSupport(schema_policies=frozenset({"additive"})),
+        merge_parquet=lambda *, table_name, data_path, unique_key: pytest.fail("unexpected write"),
+    )
+    config = KafkaConsumerConfig("probe", "raw", "events", "raw.events", ["id"])
+    with pytest.raises(PhloConfigError, match="merge_parquet cannot accept schema_policy"):
+        _make_stager(config, None, provider)
+
+
 class RecordingStore:
     """Fake checkpoint store exposing the full lifecycle."""
 

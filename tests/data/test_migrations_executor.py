@@ -267,3 +267,32 @@ def test_validate_requires_configured_default_when_multiple_table_stores_registe
     errors = MigrationExecutor().validate(_spec(dry_run=False))
 
     assert any("Multiple table_store providers are registered" in error for error in errors)
+
+
+def test_policy_advertiser_cannot_overwrite_before_append_conformance(monkeypatch):
+    """Validate both chunk paths before replacing any existing data."""
+    from phlo.capabilities.interfaces import TableStoreSupport
+    from phlo.exceptions import PhloConfigError
+
+    calls = []
+    provider = types.SimpleNamespace(
+        support=TableStoreSupport(schema_policies=frozenset({"additive"})),
+        overwrite_parquet=lambda **kwargs: calls.append("overwrite"),
+        append_parquet=lambda *, table_name, data_path: calls.append("append"),
+    )
+    monkeypatch.setattr(
+        migration_executor,
+        "_stage_chunk_parquet",
+        lambda rows: pytest.fail("staged before conformance"),
+    )
+    with pytest.raises(PhloConfigError, match="append_parquet cannot accept schema_policy"):
+        _write_chunk_to_table_store(
+            table_store=provider,
+            table_name="raw.events",
+            write_mode="overwrite",
+            unique_key=None,
+            chunk=[{"id": "1"}],
+            first_chunk=True,
+            schema_policy="additive",
+        )
+    assert calls == []

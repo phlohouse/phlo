@@ -1,8 +1,9 @@
 """Schema policy enforcement for Kafka consumer assets.
 
-Additive compatible changes (new fields, type widening) auto-register on the
-destination. Incompatible changes halt the consumer, retain the source
-offsets uncommitted, and route the offending records to the dead-letter topic
+New nullable fields may auto-register through opted-in table stores. Existing
+field definitions require explicit migration, even when the audit below
+considers a type widening compatible. Incompatible changes halt the consumer,
+retain the source offsets uncommitted, and route the offending records to the dead-letter topic
 so an explicit schema migration is required before the pipeline resumes.
 """
 
