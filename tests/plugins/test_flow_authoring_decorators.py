@@ -406,11 +406,17 @@ def test_sql_fails_without_both_provider_bridges(
     sql_provider: PluginRegistry, missing_family: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A transformation declaration provider alone cannot expose runnable assets."""
-    from phlo.plugins.discovery import discover_plugins
+    from phlo.plugins.discovery import _plugin_loading, discover_plugins
+    from phlo.plugins.discovery._plugin_constants import ENTRY_POINT_GROUPS
 
     discover_plugins(plugin_type="transformation_provider")
     discover_plugins(plugin_type="asset_provider")
-    monkeypatch.setattr("phlo.plugins.discovery.discover_plugins", lambda **kwargs: None)
+    entry_points = _plugin_loading.entry_points_for_group
+    monkeypatch.setattr(
+        _plugin_loading,
+        "entry_points_for_group",
+        lambda group: [] if group == ENTRY_POINT_GROUPS[missing_family] else entry_points(group),
+    )
     transform = importlib.import_module("phlo.transform")
     transform.clear_transform_assets()
     sql_provider.remove(missing_family, "transform")
@@ -441,6 +447,62 @@ def test_sql_provider_bridge_exposes_executable_assets(sql_provider: PluginRegis
     assert assets[0].key == "transform_silver_orders"
     assert assets[0].metadata["sql"] == "select 42"
     assert list(assets[0].run.fn(FakeRuntimeContext()))[0].metadata["result"] == "select 42"
+
+
+def test_sql_declarations_do_not_replace_existing_providers(
+    sql_provider: PluginRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from phlo.plugins.discovery import _plugin_loading
+    from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
+    from phlo.transform import clear_transform_assets, sql
+
+    events: list[str] = []
+
+    class OtherProvider(AssetProviderPlugin):
+        @property
+        def metadata(self):
+            return PluginMetadata(name="other", version="0.1.0")
+
+        def initialize(self, config):
+            events.append("initialize")
+
+        def cleanup(self):
+            events.append("cleanup")
+
+        def get_assets(self):
+            return []
+
+    other = OtherProvider()
+    register_plugin_with_lifecycle("asset_provider", other)
+    entry_points = _plugin_loading.entry_points_for_group
+    monkeypatch.setattr(
+        _plugin_loading,
+        "entry_points_for_group",
+        lambda group: (
+            [
+                *entry_points(group),
+                SimpleNamespace(
+                    name="other",
+                    value="test:OtherProvider",
+                    load=lambda: OtherProvider,
+                ),
+            ]
+            if group == "phlo.plugins.assets"
+            else entry_points(group)
+        ),
+    )
+    clear_transform_assets()
+    sql(table="silver.orders")(lambda: "select 42")
+    bridge = sql_provider.get("asset_provider", "transform")
+    sql(table="silver.refunds")(lambda: "select 17")
+    assert sql_provider.get("asset_provider", "transform") is bridge
+    assert sql_provider.get("asset_provider", "other") is other
+    assert events == ["initialize"]
+    assert [asset.key for asset in bridge.get_assets()] == [
+        "transform_silver_orders",
+        "transform_silver_refunds",
+    ]
 
 
 def test_governance_metadata_decorators_do_not_warn() -> None:

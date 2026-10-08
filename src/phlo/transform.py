@@ -49,10 +49,15 @@ def sql(
     """
 
     from phlo.plugins.discovery import discover_plugins, get_global_registry
+    from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
 
-    discover_plugins(plugin_type="transformation_provider", auto_register=True)
-    discover_plugins(plugin_type="asset_provider", auto_register=True)
     registry = get_global_registry()
+    for family in ("transformation_provider", "asset_provider"):
+        if registry.get(family, "transform") is not None:
+            continue
+        for plugin in discover_plugins(plugin_type=family, auto_register=False)[family]:
+            if plugin.metadata.name == "transform":
+                register_plugin_with_lifecycle(family, plugin, replace=False)
     if (
         registry.get("transformation_provider", "transform") is None
         or registry.get("asset_provider", "transform") is None

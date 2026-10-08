@@ -9,6 +9,8 @@ All HTTP is stubbed; no server or network is involved.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -727,16 +729,11 @@ def test_render_trace_tree_formats_tree(tmp_path: Path) -> None:
 
 def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path, monkeypatch) -> None:
     """The legacy debug file is a drain from canonical operation scopes."""
-    from unittest.mock import Mock
-
-    counter = Mock()
     monkeypatch.setattr("phlo_mcp.tracing._CONFIGURED_PATH", None)
-    monkeypatch.setattr("phlo_mcp.tracing.phlo_observe.metric", counter)
     trace_file = tmp_path / "trace.jsonl"
     with pytest.warns(DeprecationWarning, match=r"0\.19\.0.*OBSERVE_DRAINS"):
         configure_tracing(trace_file=str(trace_file))
     assert configure_tracing(trace_file=str(tmp_path / "ignored.jsonl")) == str(trace_file)
-    counter.assert_not_called()
 
     tracer = get_tracer()
     with tracer.start_as_current_span("mcp.request"):
@@ -755,9 +752,55 @@ def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path, monkeypat
         by_name["mcp.tool.execute"]["context"]["parent_id"]
         == by_name["mcp.request"]["context"]["span_id"]
     )
-    assert counter.call_count == 2
-    counter.assert_called_with("phlo.legacy.mcp_jsonl_span.uses", 1, unit="uses")
-    monkeypatch.setattr("phlo_mcp.tracing._CONFIGURED_PATH", None)
-    with tracer.start_as_current_span("without-debug-drain"):
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_legacy_span_counter_reaches_canonical_summaries(tmp_path: Path, legacy: bool) -> None:
+    metrics = tmp_path / "metrics.jsonl"
+    trace_file = tmp_path / "legacy.jsonl"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+from observe_core import flush_metrics, flush
+from phlo.telemetry import configure
+from phlo_mcp.tracing import configure_tracing, get_tracer
+configure()
+configure_tracing(trace_file=sys.argv[1] or None)
+tracer = get_tracer()
+with tracer.start_as_current_span('mcp.request'):
+    with tracer.start_as_current_span('mcp.tool.execute'):
         pass
-    assert counter.call_count == 2
+flush_metrics()
+flush()
+""",
+            str(trace_file) if legacy else "",
+        ],
+        env={
+            **os.environ,
+            "PHLO_MCP_TRACE_FILE": "",
+            "PHLO_OBSERVE_ENABLED": "true",
+            "PHLO_OBSERVE_PRETTY": "false",
+            "OBSERVE_DRAINS": "jsonl",
+            "OBSERVE_JSONL_PATH": str(metrics),
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    summaries = [
+        record["attributes"]
+        for line in metrics.read_text().splitlines()
+        if (record := json.loads(line))["event"] == "metric.summary"
+        and record["attributes"]["metric"] == "phlo.legacy.mcp_jsonl_span.uses"
+    ]
+    assert sum(summary["sum"] for summary in summaries) == (2 if legacy else 0)
+    assert sum(summary["count"] for summary in summaries) == (2 if legacy else 0)
+    assert trace_file.exists() is legacy
+    if legacy:
+        assert {span["name"] for span in load_spans(trace_file)} == {
+            "mcp.request",
+            "mcp.tool.execute",
+        }

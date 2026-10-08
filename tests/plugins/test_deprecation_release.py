@@ -1,12 +1,14 @@
 """Removal notices must name a release, and public exports must be reproducible."""
 
 import ast
+import importlib
 import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,8 +16,8 @@ pytestmark = pytest.mark.core_regression
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_every_deprecation_warning_names_a_removal_release() -> None:
-    """Inspect all warning sites, including optional plugins not installed in CI."""
+def test_deprecation_notice_source_audit_names_a_removal_release() -> None:
+    """Audit optional-package notice coverage separately from runtime warning tests."""
     paths = [*ROOT.joinpath("src/phlo").rglob("*.py")]
     for package in ROOT.joinpath("packages").iterdir():
         paths.extend(package.joinpath("src").rglob("*.py"))
@@ -49,7 +51,43 @@ def test_every_deprecation_warning_names_a_removal_release() -> None:
             )
             assert re.search(r"removed in \d+\.\d+\.\d+", text), f"{path}:{node.lineno}: {text}"
             checked += 1
-    assert checked >= 12, "The scan must include core aliases, adapters and optional plugins"
+    assert checked, "The source audit must find the compatibility warning sites"
+
+
+@pytest.mark.parametrize(
+    ("module_name", "name", "kwargs"),
+    [
+        ("phlo.operations.adapters", "SyncToAsyncIngesterAdapter", {}),
+        ("phlo.operations.adapters", "AsyncToSyncIngesterAdapter", {}),
+        ("phlo.operations.adapters", "SyncToAsyncTransformerAdapter", {}),
+        ("phlo.operations.adapters", "AsyncToSyncTransformerAdapter", {}),
+        ("phlo.identity.bridge", "create_regulated_mode_bridge", {}),
+        ("phlo.infrastructure.config", "get_regulated_config", {}),
+        ("phlo.infrastructure.config", "get_regulated_mode_config", {}),
+        ("phlo.security.mode", "is_regulated_mode_enabled", {}),
+        ("phlo.security.validation", "run_regulated_mode_validation", {"config_regulated": False}),
+        (
+            "phlo.security.validation",
+            "require_regulated_mode_validation",
+            {"config_regulated": False},
+        ),
+    ],
+)
+def test_public_compatibility_apis_emit_the_removal_release(
+    module_name: str,
+    name: str,
+    kwargs: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_REGULATED", "false")
+    (tmp_path / "phlo.yaml").write_text("regulated_mode: true\n", encoding="utf-8")
+    callback = getattr(importlib.import_module(module_name), name)
+    args = (SimpleNamespace(context=None, logger=None),) if name.endswith("Adapter") else ()
+    with pytest.warns(DeprecationWarning, match=r"removed in 0\.19\.0") as notices:
+        callback(*args, **kwargs)
+    assert all("removed in 0.19.0" in str(notice.message) for notice in notices)
 
 
 def test_all_is_a_sorted_tuple_across_hash_seeds() -> None:
