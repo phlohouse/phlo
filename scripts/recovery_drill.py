@@ -24,10 +24,10 @@ from typing import Any
 from uuid import uuid4
 
 POSTGRES_IMAGE = "postgres:18-alpine"
-MINIO_IMAGE = "bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20"
+MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.0"
 NESSIE_IMAGE = "ghcr.io/projectnessie/nessie:0.108.3"
 NESSIE_ADMIN_IMAGE = "ghcr.io/projectnessie/nessie-server-admin@sha256:ffccc83adc048ae9c069205b2b7c79c8c72604574558f915b730f2266262c159"
-MC_IMAGE = "bitnamilegacy/minio-client@sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158"
+MC_IMAGE = MINIO_IMAGE
 HELPER_IMAGE = "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
 OWNER_MARKER = ".phlo-recovery-drill-owner.json"
 

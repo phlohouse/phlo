@@ -6,6 +6,41 @@ MinIO S3-compatible object storage plugin for Phlo.
 
 Provides S3-compatible object storage for the data lake. Stores Iceberg table data, staging files, and backups.
 
+## Container image
+
+The server and bucket setup use `ghcr.io/phlohouse/phlo-minio:0.17.0`.
+One image contains both MinIO and `mc`, built from checksum-verified upstream
+source archives. It preserves `/bitnami/minio/data` and runs as UID 1001,
+so existing named volumes keep the same mount path and ownership.
+
+The pinned server release is `RELEASE.2025-10-15T17-29-55Z`, which fixes
+[the upstream session-policy bypass](https://github.com/minio/minio/security/advisories/GHSA-jjjj-jwhf-8rgr).
+The client release is `RELEASE.2025-08-13T08-35-41Z`.
+These pins and their SHA-256 checksums live in `src/phlo_minio/Dockerfile`.
+Review upstream releases and security advisories before changing the pins.
+The build also pins dependency updates for vulnerabilities in those releases.
+These are Phlo builds, not official upstream binaries. Phlo must maintain
+the dependency pins and runtime compatibility while it distributes this image.
+
+The existing staged-service workflow builds native amd64 and arm64 images,
+scans each digest, and publishes a multi-platform development image. Release
+promotion publishes the verified image without rebuilding it and records its
+digest in the release bill of materials. The first release must publish the
+image and make the GHCR package public before consumers can pull anonymously.
+
+Before publication, or to rebuild locally, use:
+
+```bash
+phlo services start --service minio --build
+```
+
+MinIO and `mc` are AGPL-3.0-or-later, independently of the plugin's MIT licence.
+The image includes licences and credits in `/usr/share/licenses/minio`, plus
+corresponding source archives with vendored dependencies and the build recipe
+in `/usr/share/minio-source`. Preserve these files when redistributing the
+image. Review the AGPL obligations for your deployment, particularly if you
+modify MinIO or distribute a derived image.
+
 ## Installation
 
 ```bash
