@@ -37,7 +37,8 @@ def _check_output_path(output_dir: Path, relative: Path) -> None:
     destination = output_dir / relative
     if not destination.resolve().is_relative_to(output_dir.resolve()):
         raise ValueError(f"Generated destination escapes output directory: {relative}")
-    if any(path.is_symlink() for path in (destination, *destination.parents)):
+    paths = (destination, *(output_dir / parent for parent in relative.parents))
+    if any(path.is_symlink() for path in paths):
         raise ValueError(f"Generated destination cannot use symlinks: {relative}")
 
 

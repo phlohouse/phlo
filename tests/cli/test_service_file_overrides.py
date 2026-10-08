@@ -57,6 +57,8 @@ def test_public_cli_regenerates_shared_dagster_config_and_replaces_limits(tmp_pa
     source = tmp_path / "dagster-instance.yaml"
     source.write_text(yaml.safe_dump(overlay), encoding="utf-8")
     _project(tmp_path, {"dagster": {"files": {"dagster/dagster.yaml": {"source": source.name}}}})
+    validated = CliRunner().invoke(cli, ["config", "validate", "--json"])
+    assert validated.exit_code == 0, validated.output
     _init()
     output = tmp_path / ".phlo"
     config = yaml.safe_load((output / "dagster/dagster.yaml").read_text(encoding="utf-8"))
@@ -165,6 +167,8 @@ def test_public_cli_supports_text_replacement_and_directory_yaml_json_leaves(tmp
             },
         },
     )
+    validated = CliRunner().invoke(cli, ["config", "validate", "--json"])
+    assert validated.exit_code == 0, validated.output
     _init()
     output = tmp_path / ".phlo"
     assert (output / "trino/config.properties").read_text(encoding="utf-8") == replacements[
@@ -287,6 +291,61 @@ def test_generator_preflights_all_services_and_rejects_symlink_escapes(tmp_path)
                 "dagster": {"files": {"dagster/dagster.yaml": {"source": "instance.yaml"}}}
             },
         )
+
+
+def test_generator_allows_symlink_ancestors_above_output_directory(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(project, target_is_directory=True)
+    provider = tmp_path / "provider"
+    provider.mkdir()
+    (provider / "config.txt").write_text("token=${ENV:TOKEN}\n", encoding="utf-8")
+    service = ServiceDefinition(
+        name="custom",
+        description="test",
+        source_path=provider,
+        files=[{"source": "config.txt", "dest": "custom/config.txt"}],
+    )
+    composer = ComposeGenerator(ServiceDiscovery())
+    for _ in range(2):
+        assert composer.copy_service_files([service], alias / ".phlo") == ["custom/config.txt"]
+        assert (project / ".phlo/custom/config.txt").read_bytes() == b"token=${ENV:TOKEN}\n"
+
+
+@pytest.mark.parametrize("boundary", ["output-root", "internal-directory", "file", "escape"])
+def test_generator_rejects_symlinks_at_and_below_output_directory(tmp_path, boundary):
+    provider = tmp_path / "provider"
+    provider.mkdir()
+    (provider / "config.txt").write_text("new config\n", encoding="utf-8")
+    service = ServiceDefinition(
+        name="custom",
+        description="test",
+        source_path=provider,
+        files=[{"source": "config.txt", "dest": "custom/config.txt"}],
+    )
+    output = tmp_path / ".phlo"
+    output.mkdir()
+    target = tmp_path / "target" if boundary in {"output-root", "escape"} else output / "target"
+    target.mkdir()
+    (target / "config.txt").write_text("preserve me\n", encoding="utf-8")
+    link = output / "custom"
+    if boundary == "output-root":
+        output.rmdir()
+        link = output
+    elif boundary == "file":
+        link.mkdir()
+        link = link / "config.txt"
+    link.symlink_to(
+        target / "config.txt" if boundary == "file" else target,
+        target_is_directory=boundary != "file",
+    )
+    before = _snapshot(target)
+    error = "escapes output directory" if boundary == "escape" else "cannot use symlinks"
+    with pytest.raises(ValueError, match=error):
+        ComposeGenerator(ServiceDiscovery()).copy_service_files([service], output)
+    assert _snapshot(target) == before
+    assert link.is_symlink()
 
 
 def test_no_overrides_preserve_bundled_files_across_every_provider(tmp_path):

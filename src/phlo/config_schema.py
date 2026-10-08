@@ -238,8 +238,8 @@ class ServiceOverride(BaseModel):
         return [mapping.strip() for mapping in value]
 
 
-class ServiceConfig(BaseModel):
-    """Configuration for a single service."""
+class ServiceConfig(ServiceOverride):
+    """Service overrides and infrastructure connection metadata."""
 
     container_name: str | None = Field(
         default=None,
@@ -338,6 +338,17 @@ class InfrastructureConfig(BaseModel):
         default_factory=NetworkConfig,
         description="Docker network configuration",
     )
+
+    @field_validator("services", mode="before")
+    @classmethod
+    def default_service_names(cls, value: Any) -> Any:
+        """Infer omitted Compose service names without changing the input mapping."""
+        if not isinstance(value, dict):
+            return value
+        return {
+            name: {"service_name": name, **config} if isinstance(config, dict) else config
+            for name, config in value.items()
+        }
 
     @field_validator("container_naming_pattern")
     @classmethod
