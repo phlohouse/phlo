@@ -1,4 +1,4 @@
-"""Exercise producer authentication and native approval with no external writes."""
+"""Exercise producer and manual dispatch authentication with no external writes."""
 
 import copy
 import hashlib
@@ -264,74 +264,6 @@ def test_collect_does_not_allow_omitting_failed_attempts(
             provenance.collect(SHA, 10, tmp_path, evidence=True)
 
 
-def protected_environment() -> dict:
-    return {
-        "protection_rules": [
-            {
-                "type": "required_reviewers",
-                "prevent_self_review": True,
-                "reviewers": [{"type": "User", "reviewer": {"login": "owner"}}],
-            }
-        ]
-    }
-
-
-def approved_review() -> list[dict]:
-    return [
-        {
-            "state": "approved",
-            "user": {"login": "owner", "type": "User"},
-            "environments": [{"name": "release"}],
-        }
-    ]
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "unprotected",
-        "self_review_allowed",
-        "no_reviewers",
-        "wrong_owner",
-        "self_approval",
-        "wrong_environment",
-        "bot_approval",
-        "rejected",
-    ],
-)
-def test_native_approval_fails_closed(failure: str) -> None:
-    environment = protected_environment()
-    reviews = approved_review()
-    actor = "operator"
-    if failure == "unprotected":
-        environment = {}
-    elif failure == "self_review_allowed":
-        environment["protection_rules"][0]["prevent_self_review"] = False
-    elif failure == "no_reviewers":
-        environment["protection_rules"][0]["reviewers"] = []
-    elif failure == "wrong_owner":
-        reviews[0]["user"]["login"] = "someone"
-    elif failure == "self_approval":
-        actor = "owner"
-    elif failure == "wrong_environment":
-        reviews[0]["environments"] = [{"name": "pypi"}]
-    elif failure == "bot_approval":
-        reviews[0]["user"]["type"] = "Bot"
-    else:
-        reviews[0]["state"] = "rejected"
-    with pytest.raises(ValueError):
-        provenance.validate_approval(environment, reviews, actor)
-
-
-def test_authenticated_required_reviewer_can_approve() -> None:
-    assert (
-        provenance.validate_approval(protected_environment(), approved_review(), "operator")[
-            "user"
-        ]["login"]
-        == "owner"
-    )
-
-
 @pytest.mark.parametrize("mode", ["rerun", "already_reserved"])
 def test_staging_refuses_rebuild_before_any_write(monkeypatch, mode: str) -> None:
     monkeypatch.setattr(staging, "validate_candidate", lambda sha: None)
@@ -436,11 +368,13 @@ def test_support_validation_never_executes_candidate_scripts(tmp_path: Path, mon
         "rerun_with_matching_attempt",
         "wrong_workflow",
         "unprotected_branch",
-        "unprotected_environment",
-        "self_rerun",
+        "wrong_event",
+        "foreign_repository",
     ],
 )
-def test_live_approval_uses_current_authenticated_run(monkeypatch, failure: str) -> None:
+def test_live_dispatch_uses_current_authenticated_run_without_reviewers(
+    monkeypatch, failure: str
+) -> None:
     for key, value in {
         "GITHUB_REPOSITORY": provenance.REPOSITORY,
         "GITHUB_REF": "refs/heads/main",
@@ -466,25 +400,23 @@ def test_live_approval_uses_current_authenticated_run(monkeypatch, failure: str)
         monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     elif failure == "wrong_workflow":
         run["workflow_id"] = 99
-    elif failure == "self_rerun":
-        run["triggering_actor"]["login"] = "owner"
+    elif failure == "wrong_event":
+        run["event"] = "push"
+    elif failure == "foreign_repository":
+        run["repository"] = {"full_name": "attacker/phlo"}
     responses = {
         f"repos/{provenance.REPOSITORY}/branches/main": {
             "protected": failure != "unprotected_branch"
         },
         f"repos/{provenance.REPOSITORY}/actions/runs/10": run,
         f"repos/{provenance.REPOSITORY}/actions/workflows/release-promotion.yml": workflow,
-        f"repos/{provenance.REPOSITORY}/environments/release": {}
-        if failure == "unprotected_environment"
-        else protected_environment(),
-        f"repos/{provenance.REPOSITORY}/actions/runs/10/approvals": approved_review(),
     }
     monkeypatch.setattr(provenance, "api", lambda path: responses[path])
     if failure == "none":
-        assert provenance.live_approval()["user"]["login"] == "owner"
+        assert provenance.live_dispatch()["actor"]["login"] == "operator"
     else:
         with pytest.raises(ValueError):
-            provenance.live_approval()
+            provenance.live_dispatch()
 
 
 def test_deleted_draft_does_not_permit_restaging(monkeypatch) -> None:

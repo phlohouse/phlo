@@ -1,4 +1,4 @@
-"""The only publication lane consumes staged bytes behind native approval."""
+"""The only publication lane consumes staged bytes through a manual dispatch."""
 
 from pathlib import Path
 
