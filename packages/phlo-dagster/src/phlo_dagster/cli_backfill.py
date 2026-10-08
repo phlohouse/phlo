@@ -62,6 +62,7 @@ from phlo.cli.output import service_unavailable_error, json_envelope
 from phlo.cli.contract import PhloCommand
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.config.env import load_project_env
+from phlo.config_schema import WapConfig
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
@@ -119,7 +120,7 @@ BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
     help="Delay between parallel executions in seconds (rate limiting)",
 )
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
-def backfill(  # noqa: C901
+def backfill(
     asset_name: str | None,
     start_date: str | None,
     end_date: str | None,
@@ -151,57 +152,9 @@ def backfill(  # noqa: C901
         delay=delay,
     )
 
-    # Validate inputs
-    if resume:
-        # Resume mode: load from state file
-        if not BACKFILL_STATE_FILE.exists():
-            logger.error(
-                "dagster_backfill_resume_state_missing",
-                state_file=str(BACKFILL_STATE_FILE),
-            )
-            raise click.ClickException("Error: No backfill state found. Cannot resume.")
-
-        try:
-            state = _load_backfill_state()
-            asset_name = state.get("asset_name")
-            partition_dates = state.get("remaining_partitions", [])
-            completed_partitions = state.get("completed_partitions", [])
-            in_flight_wap = state.get("in_flight_wap", {})
-        except Exception as e:
-            logger.error(
-                "dagster_backfill_resume_state_read_failed",
-                state_file=str(BACKFILL_STATE_FILE),
-                error=str(e),
-                exc_info=True,
-            )
-            raise click.ClickException("Error: Could not read backfill state.")
-    else:
-        # Determine partition list
-        if partitions:
-            # Explicit partitions
-            partition_dates = [p.strip() for p in partitions.split(",")]
-            _validate_partition_dates(partition_dates)
-        elif start_date and end_date:
-            # Generate from date range
-            partition_dates = _generate_partition_dates(start_date, end_date)
-        else:
-            logger.error("dagster_backfill_partitions_missing")
-            raise click.ClickException(
-                "Error: Must specify either --start-date/--end-date or --partitions"
-            )
-
-        if not asset_name:
-            logger.error("dagster_backfill_asset_name_missing")
-            raise click.ClickException("Error: Asset name is required")
-
-        completed_partitions = []
-        in_flight_wap = {}
-
-    # Validate asset name
-    if not asset_name:
-        logger.error("dagster_backfill_asset_name_missing")
-        raise click.ClickException("Error: Asset name is required")
-    asset_name = str(asset_name)
+    asset_name, partition_dates, completed_partitions, in_flight_wap = _plan_backfill(
+        asset_name, start_date, end_date, partitions, resume=resume
+    )
 
     # Validate parallel value
     if parallel < 1:
@@ -220,39 +173,15 @@ def backfill(  # noqa: C901
     wap_config = load_wap_config()
 
     if dry_run:
-        if output_json:
-            click.echo(
-                json_envelope(
-                    data={
-                        "asset_name": asset_name,
-                        "partitions": partition_dates,
-                        "completed_partitions": completed_partitions,
-                        "parallel": 1 if wap_config.enabled else parallel,
-                        "mode": "wap" if wap_config.enabled else "container",
-                    },
-                    status="planned",
-                    reason_code="backfill_planned",
-                )
-            )
-            return
-        logger.info(
-            "dagster_backfill_dry_run",
-            asset_name=asset_name,
-            partition_count=len(partition_dates),
+        _display_dry_run(
+            console,
+            asset_name,
+            partition_dates,
+            completed_partitions,
+            parallel=parallel,
+            wap_config=wap_config,
+            output_json=output_json,
         )
-        console.print("\n[yellow]Dry run - showing first 5 commands:[/yellow]\n")
-        dagster_url = resolve_wap_dagster_url(wap_config) if wap_config.enabled else None
-        for date in partition_dates[:5]:
-            if wap_config.enabled:
-                console.print(
-                    f"[dim]GraphQL WAP launch {asset_name} partition {date} "
-                    f"through {dagster_url}[/dim]"
-                )
-            else:
-                cmd = _build_materialize_command(asset_name, date, container_name="dagster")
-                console.print(f"[dim]{' '.join(cmd)}[/dim]")
-        if len(partition_dates) > 5:
-            console.print(f"[dim]... and {len(partition_dates) - 5} more[/dim]")
         return
 
     if not partition_dates:
@@ -326,6 +255,103 @@ def backfill(  # noqa: C901
         completed_partitions=completed_partitions,
         output_json=output_json,
     )
+
+
+def _plan_backfill(
+    asset_name: str | None,
+    start_date: str | None,
+    end_date: str | None,
+    partitions: str | None,
+    *,
+    resume: bool,
+) -> tuple[str, list[str], list[str], dict[str, dict[str, str]]]:
+    """Read resume state or validate explicit inputs before validating worker count."""
+    if resume:
+        if not BACKFILL_STATE_FILE.exists():
+            logger.error(
+                "dagster_backfill_resume_state_missing",
+                state_file=str(BACKFILL_STATE_FILE),
+            )
+            raise click.ClickException("Error: No backfill state found. Cannot resume.")
+        try:
+            state = _load_backfill_state()
+            asset_name = state.get("asset_name")
+            partition_dates = state.get("remaining_partitions", [])
+            completed_partitions = state.get("completed_partitions", [])
+            in_flight_wap = state.get("in_flight_wap", {})
+        except Exception as e:
+            logger.error(
+                "dagster_backfill_resume_state_read_failed",
+                state_file=str(BACKFILL_STATE_FILE),
+                error=str(e),
+                exc_info=True,
+            )
+            raise click.ClickException("Error: Could not read backfill state.")
+    else:
+        if partitions:
+            partition_dates = [p.strip() for p in partitions.split(",")]
+            _validate_partition_dates(partition_dates)
+        elif start_date and end_date:
+            partition_dates = _generate_partition_dates(start_date, end_date)
+        else:
+            logger.error("dagster_backfill_partitions_missing")
+            raise click.ClickException(
+                "Error: Must specify either --start-date/--end-date or --partitions"
+            )
+        if not asset_name:
+            logger.error("dagster_backfill_asset_name_missing")
+            raise click.ClickException("Error: Asset name is required")
+        completed_partitions = []
+        in_flight_wap = {}
+    if not asset_name:
+        logger.error("dagster_backfill_asset_name_missing")
+        raise click.ClickException("Error: Asset name is required")
+    return str(asset_name), partition_dates, completed_partitions, in_flight_wap
+
+
+def _display_dry_run(
+    console: Console,
+    asset_name: str,
+    partition_dates: list[str],
+    completed_partitions: list[str],
+    *,
+    parallel: int,
+    wap_config: WapConfig,
+    output_json: bool,
+) -> None:
+    """Render a machine plan or the first five launches without executing them."""
+    if output_json:
+        click.echo(
+            json_envelope(
+                data={
+                    "asset_name": asset_name,
+                    "partitions": partition_dates,
+                    "completed_partitions": completed_partitions,
+                    "parallel": 1 if wap_config.enabled else parallel,
+                    "mode": "wap" if wap_config.enabled else "container",
+                },
+                status="planned",
+                reason_code="backfill_planned",
+            )
+        )
+        return
+    logger.info(
+        "dagster_backfill_dry_run",
+        asset_name=asset_name,
+        partition_count=len(partition_dates),
+    )
+    console.print("\n[yellow]Dry run - showing first 5 commands:[/yellow]\n")
+    dagster_url = resolve_wap_dagster_url(wap_config) if wap_config.enabled else None
+    for date in partition_dates[:5]:
+        if wap_config.enabled:
+            console.print(
+                f"[dim]GraphQL WAP launch {asset_name} partition {date} through {dagster_url}[/dim]"
+            )
+        else:
+            cmd = _build_materialize_command(asset_name, date, container_name="dagster")
+            console.print(f"[dim]{' '.join(cmd)}[/dim]")
+    if len(partition_dates) > 5:
+        console.print(f"[dim]... and {len(partition_dates) - 5} more[/dim]")
 
 
 def _run_wap_backfill(

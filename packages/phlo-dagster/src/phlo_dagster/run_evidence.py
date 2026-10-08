@@ -230,7 +230,7 @@ class DagsterRunEvidenceSource:
                 "Dagster event-log lookup was unavailable; reconciliation did not change the run"
             ) from exc
 
-    def observe_run(self, project_id: str, run_id: str) -> RunObservation:  # noqa: C901
+    def observe_run(self, project_id: str, run_id: str) -> RunObservation:
         """Observe one Dagster run; unknown projects raise, absent runs report MISSING evidence."""
         if project_id != self.project_id:
             raise ValueError("Dagster event source is configured for another project")
@@ -294,153 +294,21 @@ class DagsterRunEvidenceSource:
         events: list[RunEvent] = []
         stages: list[RunStage] = []
         for index, (entry, record_storage_id) in enumerate(entries):
-            observed_at = _datetime_from_epoch(getattr(entry, "timestamp", None))
-            if observed_at is None:
-                continue
-            event_type = getattr(entry, "event_type", None)
-            event_name = str(getattr(event_type, "value", event_type) or "UNKNOWN")
-            storage_id = record_storage_id or getattr(entry, "storage_id", None)
-            dagster_event = getattr(entry, "dagster_event", None)
-            step_key = getattr(entry, "step_key", None) or getattr(dagster_event, "step_key", None)
-            partition = (
-                getattr(entry, "partition", None)
-                or getattr(dagster_event, "partition", None)
-                or tags.get("dagster/partition")
+            event, stage = _normalize_event(
+                entry,
+                record_storage_id,
+                index,
+                project_id=project_id,
+                attempt=attempt,
+                provider_run_id=run_id,
+                resource_ref=run_resource_ref,
+                tags=tags,
+                no_data=no_data,
             )
-            stage_status = {
-                "STEP_START": "running",
-                "STEP_SUCCESS": "success",
-                "STEP_FAILURE": "failed",
-                "STEP_SKIPPED": "skipped",
-                "STEP_UP_FOR_RETRY": "retrying",
-                "STEP_RESTARTED": "running",
-            }.get(event_name)
-            # SQLite event storage numbers records independently per provider run.
-            # Keep the payload/stage identities unchanged: upgraded reconciliation
-            # retains legacy bare-ID rows and adds scoped rows once, without
-            # changing stage or terminal state on subsequent replay.
-            event_id = str(
-                f"{run_id}:{storage_id}"
-                if storage_id is not None
-                else hashlib.sha256(f"{run_id}\0{event_name}\0{index}".encode()).hexdigest()[:32]
-            )
-            provider_event_status = {
-                "RUN_SUCCESS": "success",
-                "PIPELINE_SUCCESS": "success",
-                "RUN_FAILURE": "failed",
-                "PIPELINE_FAILURE": "failed",
-                "RUN_CANCELED": "cancelled",
-                "PIPELINE_CANCELED": "cancelled",
-            }.get(event_name)
-            event_status = (
-                "no_data"
-                if no_data and provider_event_status == "success"
-                else provider_event_status
-            )
-            if event_name in {"RUN_START", "PIPELINE_START"}:
-                normalized_type = "run.start"
-            elif event_status is not None:
-                normalized_type = "run.terminal"
-            elif event_name in {"RUN_ENQUEUED", "PIPELINE_ENQUEUED"}:
-                normalized_type = "run.queued"
-            elif event_name in {"RUN_STARTING", "PIPELINE_STARTING"}:
-                normalized_type = "run.starting"
-            elif event_name in {"RUN_CANCELING", "PIPELINE_CANCELING"}:
-                normalized_type = "run.canceling"
-            elif event_name in {
-                "STEP_START",
-                "STEP_SUCCESS",
-                "STEP_FAILURE",
-                "STEP_SKIPPED",
-                "STEP_UP_FOR_RETRY",
-                "STEP_RESTARTED",
-            }:
-                normalized_type = "stage.step"
-            elif event_name == "ASSET_MATERIALIZATION":
-                normalized_type = "stage.materialization"
-            elif event_name == "ASSET_CHECK_EVALUATION":
-                normalized_type = "stage.check"
-            else:
-                normalized_type = f"dagster.{event_name.lower()}"
-            if normalized_type == "stage.materialization":
-                stage_status = "success"
-                stage_type = "materialization"
-            elif normalized_type == "stage.check":
-                stage_type = "check"
-                stage_status = (
-                    "success"
-                    if getattr(
-                        getattr(dagster_event, "asset_check_evaluation", None), "passed", False
-                    )
-                    else "failed"
-                )
-            elif normalized_type == "stage.step":
-                stage_type = "dagster_step"
-            else:
-                stage_type = None
-            asset = _asset_name(entry)
-            check_identity = _check_identity(entry) if stage_type == "check" else None
-            stage_id = (
-                _stage_id(
-                    logical_run_id,
-                    attempt,
-                    stage_type,
-                    step_key=step_key,
-                    asset=asset,
-                    partition=partition,
-                    check_identity=check_identity,
-                    storage_id=storage_id,
-                )
-                if stage_type and (step_key or asset)
-                else None
-            )
-            message, message_checksum = _safe_message(entry)
-            payload = {
-                "provider_event_type": event_name,
-                "message_summary": message,
-                "message_checksum": message_checksum,
-                "storage_id": storage_id,
-                "asset": asset,
-                "stage_id": stage_id,
-                "check_identity": check_identity,
-                "status": event_status,
-                "provider_status": provider_event_status,
-            }
-            events.append(
-                RunEvent(
-                    project_id=project_id,
-                    run_id=logical_run_id,
-                    event_id=event_id,
-                    event_type=normalized_type,
-                    producer="dagster",
-                    payload=payload,
-                    stage_id=stage_id,
-                    observed_at=observed_at,
-                    sequence=int(storage_id) if isinstance(storage_id, int) else index,
-                    attempt=attempt,
-                    resource_ref=run_resource_ref,
-                )
-            )
-            if stage_id is not None and stage_type is not None:
-                stages.append(
-                    RunStage(
-                        project_id=project_id,
-                        run_id=logical_run_id,
-                        stage_id=stage_id,
-                        stage_type=stage_type,
-                        provider="dagster",
-                        tool="dagster",
-                        asset=asset,
-                        attempt=attempt,
-                        status=stage_status or "unknown",
-                        started_at=observed_at,
-                        finished_at=observed_at
-                        if stage_status not in {"running", "retrying"}
-                        else None,
-                        error=message if stage_status == "failed" else None,
-                        resource_ref=run_resource_ref,
-                    )
-                )
+            if event is not None:
+                events.append(event)
+            if stage is not None:
+                stages.append(stage)
         if no_data:
             tag_timestamp = finished_at or started_at
             if tag_timestamp is not None:
@@ -474,6 +342,163 @@ class DagsterRunEvidenceSource:
             events=tuple(events),
             stages=tuple(stages),
         )
+
+
+def _normalized_event_type(event_name: str, event_status: str | None) -> str:
+    """Map provider event names without treating unknown events as terminal."""
+    if event_name in {"RUN_START", "PIPELINE_START"}:
+        return "run.start"
+    if event_status is not None:
+        return "run.terminal"
+    if event_name in {"RUN_ENQUEUED", "PIPELINE_ENQUEUED"}:
+        return "run.queued"
+    if event_name in {"RUN_STARTING", "PIPELINE_STARTING"}:
+        return "run.starting"
+    if event_name in {"RUN_CANCELING", "PIPELINE_CANCELING"}:
+        return "run.canceling"
+    if event_name in {
+        "STEP_START",
+        "STEP_SUCCESS",
+        "STEP_FAILURE",
+        "STEP_SKIPPED",
+        "STEP_UP_FOR_RETRY",
+        "STEP_RESTARTED",
+    }:
+        return "stage.step"
+    if event_name == "ASSET_MATERIALIZATION":
+        return "stage.materialization"
+    if event_name == "ASSET_CHECK_EVALUATION":
+        return "stage.check"
+    return f"dagster.{event_name.lower()}"
+
+
+def _normalize_event(
+    entry: Any,
+    record_storage_id: Any,
+    index: int,
+    *,
+    project_id: str,
+    attempt: int,
+    provider_run_id: str,
+    resource_ref: ResourceRef,
+    tags: dict[str, str],
+    no_data: bool,
+) -> tuple[RunEvent | None, RunStage | None]:
+    """Normalize one timestamped provider entry and its optional stage evidence."""
+    observed_at = _datetime_from_epoch(getattr(entry, "timestamp", None))
+    if observed_at is None:
+        return None, None
+    logical_run_id = resource_ref.resource_id
+    event_type = getattr(entry, "event_type", None)
+    event_name = str(getattr(event_type, "value", event_type) or "UNKNOWN")
+    storage_id = record_storage_id or getattr(entry, "storage_id", None)
+    dagster_event = getattr(entry, "dagster_event", None)
+    step_key = getattr(entry, "step_key", None) or getattr(dagster_event, "step_key", None)
+    partition = (
+        getattr(entry, "partition", None)
+        or getattr(dagster_event, "partition", None)
+        or tags.get("dagster/partition")
+    )
+    stage_status = {
+        "STEP_START": "running",
+        "STEP_SUCCESS": "success",
+        "STEP_FAILURE": "failed",
+        "STEP_SKIPPED": "skipped",
+        "STEP_UP_FOR_RETRY": "retrying",
+        "STEP_RESTARTED": "running",
+    }.get(event_name)
+    # SQLite storage IDs are independent per provider run. Keep payload/stage
+    # identities unchanged so legacy bare-ID evidence remains replay-safe.
+    event_id = str(
+        f"{provider_run_id}:{storage_id}"
+        if storage_id is not None
+        else hashlib.sha256(f"{provider_run_id}\0{event_name}\0{index}".encode()).hexdigest()[:32]
+    )
+    provider_event_status = {
+        "RUN_SUCCESS": "success",
+        "PIPELINE_SUCCESS": "success",
+        "RUN_FAILURE": "failed",
+        "PIPELINE_FAILURE": "failed",
+        "RUN_CANCELED": "cancelled",
+        "PIPELINE_CANCELED": "cancelled",
+    }.get(event_name)
+    event_status = (
+        "no_data" if no_data and provider_event_status == "success" else provider_event_status
+    )
+    normalized_type = _normalized_event_type(event_name, event_status)
+    if normalized_type == "stage.materialization":
+        stage_status = "success"
+        stage_type = "materialization"
+    elif normalized_type == "stage.check":
+        stage_type = "check"
+        stage_status = (
+            "success"
+            if getattr(getattr(dagster_event, "asset_check_evaluation", None), "passed", False)
+            else "failed"
+        )
+    elif normalized_type == "stage.step":
+        stage_type = "dagster_step"
+    else:
+        stage_type = None
+    asset = _asset_name(entry)
+    check_identity = _check_identity(entry) if stage_type == "check" else None
+    stage_id = (
+        _stage_id(
+            logical_run_id,
+            attempt,
+            stage_type,
+            step_key=step_key,
+            asset=asset,
+            partition=partition,
+            check_identity=check_identity,
+            storage_id=storage_id,
+        )
+        if stage_type and (step_key or asset)
+        else None
+    )
+    message, message_checksum = _safe_message(entry)
+    payload = {
+        "provider_event_type": event_name,
+        "message_summary": message,
+        "message_checksum": message_checksum,
+        "storage_id": storage_id,
+        "asset": asset,
+        "stage_id": stage_id,
+        "check_identity": check_identity,
+        "status": event_status,
+        "provider_status": provider_event_status,
+    }
+    event = RunEvent(
+        project_id=project_id,
+        run_id=logical_run_id,
+        event_id=event_id,
+        event_type=normalized_type,
+        producer="dagster",
+        payload=payload,
+        stage_id=stage_id,
+        observed_at=observed_at,
+        sequence=int(storage_id) if isinstance(storage_id, int) else index,
+        attempt=attempt,
+        resource_ref=resource_ref,
+    )
+    stage = None
+    if stage_id is not None and stage_type is not None:
+        stage = RunStage(
+            project_id=project_id,
+            run_id=logical_run_id,
+            stage_id=stage_id,
+            stage_type=stage_type,
+            provider="dagster",
+            tool="dagster",
+            asset=asset,
+            attempt=attempt,
+            status=stage_status or "unknown",
+            started_at=observed_at,
+            finished_at=observed_at if stage_status not in {"running", "retrying"} else None,
+            error=message if stage_status == "failed" else None,
+            resource_ref=resource_ref,
+        )
+    return event, stage
 
 
 __all__ = ["DagsterRunEvidenceSource"]
