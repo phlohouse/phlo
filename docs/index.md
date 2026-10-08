@@ -51,6 +51,7 @@ Each guide solves one problem and assumes you have finished the first pipeline:
 | Change a table's columns without breaking consumers | [Evolve a schema](guides/evolve-a-schema.md) |
 | Swap storage, catalog, query engine, or ingestion tool | [Choose your stack](guides/choose-your-stack.md) |
 | Serve tables to apps, analysts, and BI tools | [Expose data](guides/expose-data.md) |
+| Publish a complete set of local files | [Export files](guides/export-files.md) |
 | Add authentication, per-service credentials, and audit logs | [Secure the stack](guides/secure-the-stack.md) |
 | Read logs, trace lineage, and fix a failing run | [Monitor and debug](guides/monitor-and-debug.md) |
 | Diagnose a `PHLO-` error code | [Troubleshoot Phlo errors](guides/troubleshoot-errors.md) |

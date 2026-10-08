@@ -2,6 +2,41 @@
 
 The public APIs below are defined in `phlo`, `phlo-dlt`, `phlo-sling`, and `phlo-pandera`. Generated API pages are not emitted under the `python-reference` route by the current pymdx build, so this page does not link to that route.
 
+## phlo.export
+
+`phlo.export` registers one executable capability asset for a complete set of files. The writer accepts `phlo.exports.ExportContext` and returns `None`. The [runnable export guide](../guides/export-files.md) demonstrates discovery, execution, and consumption.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | `str` | required | Asset key and destination subdirectory. Must be a single non-empty path component. |
+| `destination` | `str \| Path` | required | Local parent directory, resolved at declaration time. Remote URLs are unsupported. |
+| `outputs` | `Mapping[str, str]` | required | Artifact names mapped to distinct relative file paths. At least one output is required. Absolute paths, parent traversal, and the reserved `manifest.json` path are rejected. |
+| `depends_on` | `Sequence[str]` | `()` | Upstream asset keys registered as orchestration dependencies. |
+| `group` | `str` | `"exports"` | Orchestration asset group. |
+| `resources` | `Iterable[str]` | `()` | Required runtime resource keys. |
+| `max_retries` | `int` | `0` | Retry count passed to `RunSpec`. |
+| `retry_delay_seconds` | `int` | `30` | Retry delay passed to `RunSpec`. |
+
+`ExportContext` contains `staging_dir`, the canonical `run_id`, the orchestrator-neutral `runtime`, and a mutable `upstream_versions: dict[str, str]`. Version keys must be declared dependencies. References describe the data selected by the writer. Missing references mean that the version is unavailable, not that an unversioned source has a fabricated version.
+
+`resolve_export_manifest(destination, name)` reads `current.json` once, then returns the referenced `ArtifactManifest`. Each entry has an absolute local path in `uri`, SHA-256 checksum, byte size, and its artifact name in `metadata["name"]`. Manifest metadata contains `run_id`, `partition_key`, `ref`, and `upstream_versions`.
+
+The materialisation metadata keys are `phlo/export_manifest`, `phlo/export_manifest_path`, `phlo/export_current_path`, and `phlo/export_run_id`. Static asset metadata includes `phlo/export_outputs` and `phlo/export_destination`.
+
+### Local publication and retries
+
+Each attempt gets a fresh temporary directory on the destination filesystem. Phlo copies only declared regular files into a separate complete-set directory, computes checksums, and writes its manifest. Symlink outputs and symlink parent directories are rejected. Undeclared scratch files are discarded.
+
+Phlo renames the complete directory to `destination/name/runs/<sha256-of-run-id>` without replacing an existing complete run. It then atomically replaces `destination/name/current.json` with a pointer to that run's manifest. Consumers must reuse one resolved manifest for all files in a read operation.
+
+Writer failures and missing outputs leave current unchanged. A failure to replace current can leave a complete but unreferenced run directory. Retrying the same identity with the same files and manifest metadata reuses that directory and retries the pointer replacement. Different content, different upstream references, or checksum corruption cause an error instead of overwriting the published run.
+
+The canonical runtime routing run ID is required. Dagster step retries retain that ID. Dagster run re-execution uses the root run ID when available. The `phlo/run_id` run tag explicitly overrides the logical identity. A new export set requires a new logical identity, even if a writer would produce different files under a reused ID.
+
+Successful concurrent runs use last-publication-wins at the atomic pointer replacement, not at start time. Prior run directories remain available without automatic deletion. Attempt directories are removed on normal success or exception, but a killed process can leave temporary directories.
+
+The guarantee covers complete-set visibility on a local filesystem with atomic same-filesystem rename and replacement. It is not a power-loss durability guarantee, an object-storage commit protocol, or a guarantee for network filesystems. Files remain immutable through Phlo's API, not through filesystem permissions. External edits can corrupt them, and `verify_manifest_checksums` detects those edits. Workers must close writers before returning and must not mutate files in background tasks.
+
 ## phlo.ingest.dlt
 
 `phlo.ingest.dlt` resolves `phlo_dlt.phlo_ingestion`.
