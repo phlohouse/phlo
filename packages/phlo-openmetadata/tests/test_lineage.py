@@ -266,3 +266,54 @@ class TestLineageExtractor:
         extractor.extract_from_iceberg({})
 
         assert len(extractor.graph.assets) == 0
+
+
+def test_manifest_missing_and_unnamed_dependencies(monkeypatch):
+    """Missing, unnamed and non-model dependencies never invent lineage edges."""
+    from phlo_openmetadata import lineage
+
+    logger = Mock()
+    monkeypatch.setattr(lineage, "logger", logger)
+    extractor = LineageExtractor()
+    extractor.extract_from_dbt_manifest(
+        {
+            "nodes": {
+                "model.p.child": {
+                    "name": "child",
+                    "depends_on": {
+                        "nodes": [
+                            "model.p.missing",
+                            "model.p.unnamed",
+                            "source.p.missing",
+                            "source.p.unnamed",
+                            "source.p.partial",
+                            "seed.p.seed",
+                        ]
+                    },
+                },
+                "model.p.unnamed": {},
+                "seed.p.seed": {"name": "seed"},
+            },
+            "sources": {"source.p.unnamed": {}, "source.p.partial": {"name": "raw"}},
+        }
+    )
+    assert set(extractor.graph.assets) == {"child", "raw"}
+    assert extractor.graph.edges.get("raw") == ["child"]
+    assert not extractor.graph.edges.get("child")
+    events = [call.args[0] for call in logger.warning.call_args_list]
+    assert events.count("dbt_model_name_missing") == 2
+    assert "dbt_source_name_missing" in events
+    assert "dbt_dependency_node_missing" in events
+    assert "dbt_source_node_missing" in events
+
+
+def test_manifest_extraction_logs_and_reraises_invalid_nodes(monkeypatch):
+    """Extraction failures retain the source-aware outer error boundary."""
+    from phlo_openmetadata import lineage
+
+    logger = Mock()
+    monkeypatch.setattr(lineage, "logger", logger)
+    with pytest.raises(AttributeError):
+        LineageExtractor().extract_from_dbt_manifest({"nodes": None})
+    assert logger.error.call_args.args == ("lineage_extraction_failed",)
+    assert logger.error.call_args.kwargs["source"] == "dbt"

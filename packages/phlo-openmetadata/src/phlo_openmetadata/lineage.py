@@ -102,8 +102,18 @@ class LineageExtractor:
         )
 
     @log_extraction_errors("dbt")
-    def extract_from_dbt_manifest(self, manifest: dict[str, Any]) -> None:  # noqa: C901
+    def extract_from_dbt_manifest(self, manifest: dict[str, Any]) -> None:
         """Extract assets and model dependencies from a parsed dbt manifest."""
+        self._add_dbt_assets(manifest)
+        self._add_dbt_dependencies(manifest)
+        logger.info(
+            "dbt_lineage_extracted",
+            asset_count=len(self.graph.assets),
+            edge_count=sum(len(v) for v in self.graph.edges.values()),
+        )
+
+    def _add_dbt_assets(self, manifest: dict[str, Any]) -> None:
+        """Register named model and source assets before adding edges."""
         for unique_id, node in manifest.get("nodes", {}).items():
             if unique_id.startswith("model."):
                 model_name = node.get("name")
@@ -129,6 +139,8 @@ class LineageExtractor:
                 status="unknown",
             )
 
+    def _add_dbt_dependencies(self, manifest: dict[str, Any]) -> None:
+        """Add upstream-to-model edges for dependencies present in the manifest."""
         nodes = manifest.get("nodes", {})
         sources = manifest.get("sources", {})
 
@@ -158,12 +170,6 @@ class LineageExtractor:
                         source_name = f"{src_name_part}.{tbl_name_part}".strip(".")
                         if source_name:
                             self.graph.add_edge(source_name, model_name)
-
-        logger.info(
-            "dbt_lineage_extracted",
-            asset_count=len(self.graph.assets),
-            edge_count=sum(len(v) for v in self.graph.edges.values()),
-        )
 
     @log_extraction_errors("Iceberg")
     def extract_from_iceberg(

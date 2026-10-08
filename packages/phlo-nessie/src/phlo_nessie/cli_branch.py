@@ -431,6 +431,37 @@ def delete(branch_name: str, force: bool):
         ) from e
 
 
+def _authorize_merge(source_branch: str, dry_run: bool, no_delete_source: bool) -> None:
+    """Authorize all intended mutations before contacting the catalog."""
+    if not dry_run:
+        enforce_surface_mutation_authorization("branch.merge", get_nessie_cli_adapter)
+        if not no_delete_source:
+            enforce_surface_mutation_authorization(
+                "branch.delete", get_nessie_cli_adapter, resource_id=source_branch
+            )
+
+
+def _delete_merged_source(client, source_branch: str, target_branch: str, source_hash: str) -> None:
+    """Attempt source cleanup without turning a successful merge into a failure."""
+    try:
+        client.delete_branch(branch=source_branch, hash_=source_hash)
+        console.print(f"[green]✓ Deleted source branch: {source_branch}[/green]")
+        logger.info(
+            "nessie_branch_merge_source_deleted",
+            source_branch=source_branch,
+            target_branch=target_branch,
+        )
+    except Exception as e:
+        logger.warning(
+            "nessie_branch_merge_source_delete_failed",
+            source_branch=source_branch,
+            target_branch=target_branch,
+            error=str(e),
+            exc_info=True,
+        )
+        console.print(f"[yellow]Warning: Could not delete source branch {source_branch}[/yellow]")
+
+
 @branch.command()
 @click.argument("source_branch")
 @click.argument("target_branch", required=False, default="main")
@@ -444,7 +475,7 @@ def delete(branch_name: str, force: bool):
     is_flag=True,
     help="Keep source branch after merge",
 )
-def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_source: bool):  # noqa: C901
+def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_source: bool):
     """Merge source branch into target branch.
 
     Detects conflicts and shows merge preview in dry-run mode.
@@ -458,14 +489,7 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
     # Merging deletes the source branch by default, so this also demands the
     # branch.delete permission unless --no-delete-source was passed. Dry-run
     # changes nothing and therefore skips authorization entirely.
-    if not dry_run:
-        enforce_surface_mutation_authorization("branch.merge", get_nessie_cli_adapter)
-        if not no_delete_source:
-            enforce_surface_mutation_authorization(
-                "branch.delete",
-                get_nessie_cli_adapter,
-                resource_id=source_branch,
-            )
+    _authorize_merge(source_branch, dry_run, no_delete_source)
     logger.info(
         "nessie_branch_merge_requested",
         source_branch=source_branch,
@@ -552,25 +576,7 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
             )
 
             if not no_delete_source:
-                try:
-                    client.delete_branch(branch=source_branch, hash_=source_hash)
-                    console.print(f"[green]✓ Deleted source branch: {source_branch}[/green]")
-                    logger.info(
-                        "nessie_branch_merge_source_deleted",
-                        source_branch=source_branch,
-                        target_branch=target_branch,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "nessie_branch_merge_source_delete_failed",
-                        source_branch=source_branch,
-                        target_branch=target_branch,
-                        error=str(e),
-                        exc_info=True,
-                    )
-                    console.print(
-                        f"[yellow]Warning: Could not delete source branch {source_branch}[/yellow]"
-                    )
+                _delete_merged_source(client, source_branch, target_branch, source_hash)
 
         except click.ClickException:
             raise

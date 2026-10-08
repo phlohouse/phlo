@@ -48,7 +48,6 @@ from decimal import Decimal
 from typing import Any, get_args, get_origin, get_type_hints
 
 from pandera.pandas import DataFrameModel
-from phlo.logging import get_logger
 from pyiceberg.schema import Schema
 from pyiceberg.types import (
     BinaryType,
@@ -60,6 +59,8 @@ from pyiceberg.types import (
     StringType,
     TimestamptzType,
 )
+
+from phlo.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -89,7 +90,44 @@ class SchemaConversionError(Exception):
     """
 
 
-def pandera_to_iceberg(  # noqa: C901
+def _metadata_fields(
+    existing_names: set[str], *, add_dlt_metadata: bool, add_phlo_metadata: bool
+) -> list[NestedField]:
+    """Supply missing reserved metadata in its historical insertion order."""
+    definitions = (
+        (add_dlt_metadata, 100, "_dlt_load_id", StringType(), "DLT load identifier"),
+        (add_dlt_metadata, 101, "_dlt_id", StringType(), "DLT record identifier"),
+        (
+            add_phlo_metadata,
+            103,
+            "_phlo_row_id",
+            StringType(),
+            "Phlo row-level lineage identifier (ULID)",
+        ),
+        (
+            add_phlo_metadata,
+            102,
+            "_phlo_ingested_at",
+            TimestamptzType(),
+            "UTC timestamp when phlo processed this record",
+        ),
+        (
+            add_phlo_metadata,
+            104,
+            "_phlo_partition_date",
+            StringType(),
+            "Partition date used for ingestion (YYYY-MM-DD)",
+        ),
+        (add_phlo_metadata, 105, "_phlo_run_id", StringType(), "Dagster run ID for traceability"),
+    )
+    return [
+        NestedField(field_id=field_id, name=name, field_type=field_type, required=True, doc=doc)
+        for enabled, field_id, name, field_type, doc in definitions
+        if enabled and name not in existing_names
+    ]
+
+
+def pandera_to_iceberg(
     pandera_schema: type[DataFrameModel],
     start_field_id: int = 1,
     add_dlt_metadata: bool = True,
@@ -226,71 +264,13 @@ def pandera_to_iceberg(  # noqa: C901
         )
         raise SchemaConversionError(f"No fields found in Pandera schema {pandera_schema.__name__}")
 
-    if add_dlt_metadata:
-        existing_names = {f.name for f in fields}
-        if "_dlt_load_id" not in existing_names:
-            fields.append(
-                NestedField(
-                    field_id=100,
-                    name="_dlt_load_id",
-                    field_type=StringType(),
-                    required=True,
-                    doc="DLT load identifier",
-                )
-            )
-        if "_dlt_id" not in existing_names:
-            fields.append(
-                NestedField(
-                    field_id=101,
-                    name="_dlt_id",
-                    field_type=StringType(),
-                    required=True,
-                    doc="DLT record identifier",
-                )
-            )
-
-    if add_phlo_metadata:
-        existing_names = {f.name for f in fields}
-        if "_phlo_row_id" not in existing_names:
-            fields.append(
-                NestedField(
-                    field_id=103,
-                    name="_phlo_row_id",
-                    field_type=StringType(),
-                    required=True,
-                    doc="Phlo row-level lineage identifier (ULID)",
-                )
-            )
-        if "_phlo_ingested_at" not in existing_names:
-            fields.append(
-                NestedField(
-                    field_id=102,
-                    name="_phlo_ingested_at",
-                    field_type=TimestamptzType(),
-                    required=True,
-                    doc="UTC timestamp when phlo processed this record",
-                )
-            )
-        if "_phlo_partition_date" not in existing_names:
-            fields.append(
-                NestedField(
-                    field_id=104,
-                    name="_phlo_partition_date",
-                    field_type=StringType(),
-                    required=True,
-                    doc="Partition date used for ingestion (YYYY-MM-DD)",
-                )
-            )
-        if "_phlo_run_id" not in existing_names:
-            fields.append(
-                NestedField(
-                    field_id=105,
-                    name="_phlo_run_id",
-                    field_type=StringType(),
-                    required=True,
-                    doc="Dagster run ID for traceability",
-                )
-            )
+    fields.extend(
+        _metadata_fields(
+            {f.name for f in fields},
+            add_dlt_metadata=add_dlt_metadata,
+            add_phlo_metadata=add_phlo_metadata,
+        )
+    )
 
     logger.info(
         "iceberg_schema_conversion_finished",

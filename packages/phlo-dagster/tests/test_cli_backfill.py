@@ -13,6 +13,7 @@ from datetime import datetime
 from unittest.mock import ANY, patch
 
 import click
+import pytest
 from click.testing import CliRunner
 
 from phlo_dagster.cli_backfill import (
@@ -25,6 +26,133 @@ from phlo_dagster.cli_backfill import (
 
 async def _ready(*_args, **_kwargs) -> None:
     """Stub the Dagster HTTP readiness wait: the backfill behaviour is under test."""
+
+
+@pytest.mark.parametrize("output_json", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_resume_empty_and_dry_run(monkeypatch, tmp_path, output_json, enabled):
+    state_file = tmp_path / "state.json"
+    state = {
+        "asset_name": "saved_asset",
+        "remaining_partitions": [],
+        "completed_partitions": ["2024-01-01"],
+        "in_flight_wap": {},
+    }
+    state_file.write_text(json.dumps(state))
+    monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", state_file)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.load_wap_config", lambda: SimpleNamespace(enabled=enabled)
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.resolve_wap_dagster_url", lambda config: "endpoint"
+    )
+    for dry_run in (False, True):
+        args = ["ignored_asset", "--resume"]
+        if output_json:
+            args.append("--json")
+        if dry_run:
+            args.append("--dry-run")
+        result = CliRunner().invoke(backfill, args)
+        assert result.exit_code == 0, result.output
+        if output_json:
+            payload = json.loads(result.stdout)
+            assert payload["reason_code"] == ("backfill_planned" if dry_run else "no_partitions")
+            assert payload["data"]["asset_name"] == "saved_asset"
+        else:
+            assert "Already completed: 1" in result.output
+            assert ("Dry run" if dry_run else "No partitions") in result.output
+        assert state_file.exists()
+
+
+@pytest.mark.parametrize(
+    "contents,message", [("invalid", "Could not read"), ("{}", "Asset name is required")]
+)
+def test_resume_invalid_state_precedes_parallel_validation(
+    monkeypatch, tmp_path, contents, message
+):
+    state_file = tmp_path / "state.json"
+    state_file.write_text(contents)
+    monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", state_file)
+    result = CliRunner().invoke(backfill, ["--resume", "--parallel", "0"])
+    assert result.exit_code == 1
+    assert message in result.output
+
+
+@pytest.mark.parametrize(
+    "saved", [None, {}, {"completed_partitions": ["2024-01-01"]}, {"in_flight_wap": {"date": {}}}]
+)
+@pytest.mark.parametrize("output_json", [False, True])
+def test_wap_failure_envelope_and_readiness_order(monkeypatch, tmp_path, saved, output_json):
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", state_file)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.load_wap_config",
+        lambda: SimpleNamespace(
+            enabled=True, job_name="job", repository_location_name=None, repository_name=None
+        ),
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.resolve_wap_dagster_url", lambda config: "endpoint"
+    )
+    order = []
+
+    async def ready(url):
+        order.append("ready")
+
+    def fail(*args, **kwargs):
+        order.append("execute")
+        assert args == ("asset", ["2024-01-02"])
+        assert kwargs["requested_parallel"] == 3
+        if saved is not None:
+            state_file.write_text(json.dumps(saved))
+        raise click.ClickException("promotion failed")
+
+    monkeypatch.setattr("phlo_dagster.cli_backfill.wait_for_dagster_http", ready)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.discover_capabilities", lambda: order.append("discover")
+    )
+    monkeypatch.setattr("phlo_dagster.cli_backfill._run_wap_backfill", fail)
+    args = ["asset", "--partitions", "2024-01-02", "--parallel", "3"]
+    result = CliRunner().invoke(backfill, args + (["--json"] if output_json else []))
+    assert result.exit_code == 1
+    assert order == ["ready", "discover", "execute"]
+    if output_json:
+        payload = json.loads(result.stdout)
+        assert payload["status"] == ("partial" if saved else "error")
+        assert payload["data"] == (saved or {})
+        assert payload["errors"] == ["promotion failed"]
+    else:
+        assert "Error: promotion failed" in result.output
+
+
+def test_wap_token_required_before_readiness(monkeypatch):
+    monkeypatch.delenv("PHLO_DAGSTER_ACCESS_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.load_wap_config",
+        lambda: SimpleNamespace(enabled=True, requires_access_token=True),
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.resolve_wap_dagster_url", lambda config: "endpoint"
+    )
+    result = CliRunner().invoke(backfill, ["asset", "--partitions", "2024-01-01", "--json"])
+    assert result.exit_code == 1
+    assert "ACCESS_TOKEN is required" in result.output
+    assert json.loads(result.stdout)["reason_code"] != "backfill_incomplete"
+
+
+def test_wap_text_preview_is_bounded_without_execution(monkeypatch):
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.load_wap_config", lambda: SimpleNamespace(enabled=True)
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.cli_backfill.resolve_wap_dagster_url", lambda config: "endpoint"
+    )
+    result = CliRunner().invoke(
+        backfill, ["asset", "--start-date", "2024-01-01", "--end-date", "2024-01-07", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.count("GraphQL WAP launch") == 5
+    assert "... and 2 more" in result.output
 
 
 class TestBackfillDateGeneration:

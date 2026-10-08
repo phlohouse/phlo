@@ -210,6 +210,59 @@ def test_run_transform_skip_build_returns_success(tmp_path: Path) -> None:
     assert run_calls == []
 
 
+@pytest.mark.parametrize("full_refresh", [True, "true"])
+def test_run_transform_selection_and_docs_artifacts(monkeypatch, tmp_path, full_refresh):
+    """Selection flags and docs share isolated artifacts; docs exit failure is ignored."""
+    transformer = DbtTransformer(
+        context=SimpleNamespace(
+            run_id="run/1", asset_key=SimpleNamespace(to_user_string=lambda: "mart/orders")
+        ),
+        logger=get_logger("test_dbt_arguments"),
+        project_dir=tmp_path,
+        profiles_dir=tmp_path,
+    )
+    calls = []
+
+    def run_command(args):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, int(args[0] == "docs"), "", "docs failed")
+
+    monkeypatch.setattr(transformer, "_run_command", run_command)
+    result = transformer.run_transform(
+        partition_key="2026-03-08",
+        parameters={
+            "select": ["orders", "customers"],
+            "exclude": ["legacy"],
+            "indirect_selection": "empty",
+            "full_refresh": full_refresh,
+        },
+    )
+    artifact_path = tmp_path / "target" / "runs" / "run_1" / "mart_orders"
+    expected = [
+        "build",
+        "--profiles-dir",
+        str(tmp_path),
+        "--target",
+        "dev",
+        "--select",
+        "orders",
+        "customers",
+        "--exclude",
+        "legacy",
+        "--indirect-selection",
+        "empty",
+    ]
+    if full_refresh is True:
+        expected.append("--full-refresh")
+    expected.extend(["--vars", '{"partition_date_str": "2026-03-08"}'])
+    artifact_args = ["--target-path", str(artifact_path), "--log-path", str(artifact_path / "logs")]
+    assert calls == [
+        expected + artifact_args,
+        ["docs", "generate", "--profiles-dir", str(tmp_path), "--target", "dev"] + artifact_args,
+    ]
+    assert result.status == "success"
+
+
 def test_run_transform_writes_canonical_profile(tmp_path: Path) -> None:
     """Verifies runtime execution materializes canonical `profiles.yml` before dbt runs."""
     transformer = DbtTransformer(

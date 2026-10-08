@@ -142,7 +142,25 @@ class ObservatoryWorkflowActionResult(BaseModel):
     files: list[str] = Field(default_factory=list)
 
 
-def list_workflow_wizard_contributions() -> list[dict[str, Any]]:  # noqa: C901
+def _append_workflow_contributions(
+    loader: Any, contributions: list[dict[str, Any]], seen_ids: set[str]
+) -> None:
+    """Keep first-seen contributions, including those yielded before a loader fails."""
+    if not callable(loader):
+        return
+    try:
+        for item in loader():
+            contribution = item.to_browser_dict()
+            contribution_id = str(contribution.get("id") or "")
+            if contribution_id in seen_ids:
+                continue
+            seen_ids.add(contribution_id)
+            contributions.append(contribution)
+    except Exception:
+        return
+
+
+def list_workflow_wizard_contributions() -> list[dict[str, Any]]:
     """Return package-provided workflow wizard contributions."""
 
     from phlo.plugins.discovery import discover_plugins, get_global_registry
@@ -166,35 +184,14 @@ def list_workflow_wizard_contributions() -> list[dict[str, Any]]:  # noqa: C901
                 except Exception:
                     module = None
                 loader = getattr(module, "get_workflow_wizard_contributions", None)
-            if callable(loader):
-                try:
-                    for item in loader():
-                        contribution = item.to_browser_dict()
-                        contribution_id = str(contribution.get("id") or "")
-                        if contribution_id in seen_ids:
-                            continue
-                        seen_ids.add(contribution_id)
-                        contributions.append(contribution)
-                except Exception:
-                    continue
+            _append_workflow_contributions(loader, contributions, seen_ids)
     for module_name in WORKFLOW_WIZARD_FALLBACK_MODULES:
         try:
             module = importlib.import_module(module_name)
         except Exception:
             continue
         loader = getattr(module, "get_workflow_wizard_contributions", None)
-        if not callable(loader):
-            continue
-        try:
-            for item in loader():
-                contribution = item.to_browser_dict()
-                contribution_id = str(contribution.get("id") or "")
-                if contribution_id in seen_ids:
-                    continue
-                seen_ids.add(contribution_id)
-                contributions.append(contribution)
-        except Exception:
-            continue
+        _append_workflow_contributions(loader, contributions, seen_ids)
     return contributions
 
 
@@ -793,7 +790,24 @@ def _write_text_atomically_at(directory_fd: int, filename: str, content: str) ->
             os.close(temporary_fd)
 
 
-def _apply_workflow_file(  # noqa: C901
+def _workflow_file_conflict(
+    preview: WorkflowFilePreview,
+    *,
+    conflict_policy: Literal["fail-on-conflict", "skip-if-exists"],
+    verify_only: bool,
+    error: Exception | None = None,
+) -> Literal["skipped"]:
+    """Verification always refuses changed files, even with a skip policy."""
+    if verify_only:
+        raise HTTPException(
+            status_code=409, detail="Applied workflow files changed after completion."
+        ) from error
+    if conflict_policy == "skip-if-exists":
+        return "skipped"
+    raise HTTPException(status_code=409, detail=f"File conflicts: {preview.path}") from error
+
+
+def _apply_workflow_file(
     project_root: Path,
     preview: WorkflowFilePreview,
     *,
@@ -817,20 +831,14 @@ def _apply_workflow_file(  # noqa: C901
             try:
                 _write_text_atomically_at(directory_fd, filename, preview.content)
             except FileExistsError as exc:
-                if conflict_policy == "skip-if-exists":
-                    return "skipped"
-                raise HTTPException(
-                    status_code=409, detail=f"File conflicts: {preview.path}"
-                ) from exc
+                return _workflow_file_conflict(
+                    preview, conflict_policy=conflict_policy, verify_only=False, error=exc
+                )
             return "written"
         except OSError as exc:
-            if verify_only:
-                raise HTTPException(
-                    status_code=409, detail="Applied workflow files changed after completion."
-                ) from exc
-            if conflict_policy == "skip-if-exists":
-                return "skipped"
-            raise HTTPException(status_code=409, detail=f"File conflicts: {preview.path}") from exc
+            return _workflow_file_conflict(
+                preview, conflict_policy=conflict_policy, verify_only=verify_only, error=exc
+            )
 
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             state = "conflict"
@@ -840,21 +848,13 @@ def _apply_workflow_file(  # noqa: C901
                 state = "matching" if handle.read() == preview.content else "conflict"
         if state == "matching":
             return "matching"
-        if verify_only:
-            raise HTTPException(
-                status_code=409, detail="Applied workflow files changed after completion."
-            )
-        if conflict_policy == "skip-if-exists":
-            return "skipped"
-        raise HTTPException(status_code=409, detail=f"File conflicts: {preview.path}")
+        return _workflow_file_conflict(
+            preview, conflict_policy=conflict_policy, verify_only=verify_only
+        )
     except UnicodeError as exc:
-        if verify_only:
-            raise HTTPException(
-                status_code=409, detail="Applied workflow files changed after completion."
-            ) from exc
-        if conflict_policy == "skip-if-exists":
-            return "skipped"
-        raise HTTPException(status_code=409, detail=f"File conflicts: {preview.path}") from exc
+        return _workflow_file_conflict(
+            preview, conflict_policy=conflict_policy, verify_only=verify_only, error=exc
+        )
     finally:
         if descriptor >= 0:
             os.close(descriptor)
