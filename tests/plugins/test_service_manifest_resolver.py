@@ -267,3 +267,21 @@ def test_service_refresh_finds_new_manifest_files(
     (tmp_path / "worker-setup.yaml").write_text("name: setup\ndescription: Setup\n")
     assert set(discovery.discover()) == {"worker"}
     assert set(discovery.refresh()) == {"worker", "setup"}
+
+
+def test_relative_manifest_roots_are_isolated_across_project_directories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_root, second_root = tmp_path / "first", tmp_path / "second"
+    for project in [first_root, second_root]:
+        (project / "services").mkdir(parents=True)
+    (first_root / "services" / "first-setup.yaml").write_text("name: first\ndescription: First\n")
+    (second_root / "services" / "service.yaml").write_text("name: second\ndescription: Second\n")
+    monkeypatch.chdir(first_root)
+    first = ServiceManifestResolver(Path("services")).resolve_directory_manifests()
+    assert [item.name for item in first] == ["first"]
+    monkeypatch.chdir(second_root)
+    second = ServiceManifestResolver(Path("services")).resolve_directory_manifests()
+    assert [item.name for item in second] == ["second"]
+    assert second[0].definition.source_path == second_root / "services"

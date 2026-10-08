@@ -7,7 +7,9 @@ loaded explicitly by the command catalogue and reference-document generator.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import redirect_stdout
 from importlib import import_module
+from io import StringIO
 
 import click
 
@@ -27,20 +29,20 @@ class LazyPhloGroup(PhloGroup):
         return sorted(set(self.commands) | self.lazy_commands.keys() | self.plugin_help().keys())
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
-        if cmd_name in self.lazy_commands:
-            target, _ = self.lazy_commands[cmd_name]
-            module, attribute = target.split(":")
-            command = getattr(import_module(module), attribute)
-            if cmd_name == "services":
-                from phlo.cli.commands.services import _register_commands
-
-                _register_commands()
-            self.add_command(command, cmd_name)
-            del self.lazy_commands[cmd_name]
-        command = super().get_command(ctx, cmd_name)
-        if command is None and self.load_plugins is not None:
-            self.load_plugins()
+        # Imports and provider initialization are not command output.
+        with redirect_stdout(StringIO()):
+            if cmd_name in self.lazy_commands:
+                target, _ = self.lazy_commands[cmd_name]
+                module, attribute = target.split(":")
+                command = getattr(import_module(module), attribute)
+                if not isinstance(command, click.Command):
+                    command = command()
+                self.add_command(command, cmd_name)
+                del self.lazy_commands[cmd_name]
             command = super().get_command(ctx, cmd_name)
+            if command is None and self.load_plugins is not None:
+                self.load_plugins()
+                command = super().get_command(ctx, cmd_name)
         return command
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
@@ -67,7 +69,7 @@ class LazyPhloGroup(PhloGroup):
 
     def materialize_commands(self) -> None:
         """Load the full command contract without executing command callbacks."""
-        with click.Context(self) as ctx:
+        with click.Context(self) as ctx, redirect_stdout(StringIO()):
             for name in list(self.lazy_commands):
                 self.get_command(ctx, name)
             if self.load_plugins is not None:

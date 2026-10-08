@@ -7,6 +7,7 @@ its expected service name.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -84,9 +85,12 @@ def test_package_yaml_reads_share_the_manifest_cache(
         return original_open(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", open_file)
-    plugin = plugin_class()
-    first = plugin.service_definition
-    first["compose"]["ports"].append(5678)
-    assert plugin.service_definition["compose"] == {"ports": [1234]}
-    assert ServiceDefinition.from_yaml(manifest).compose == {"ports": [1234]}
-    assert reads == [manifest]
+    try:
+        plugin = plugin_class()
+        first = plugin.service_definition
+        first["compose"]["ports"].append(5678)
+        assert plugin.service_definition["compose"] == {"ports": [1234]}
+        assert ServiceDefinition.from_yaml(manifest).compose == {"ports": [1234]}
+        assert reads == [manifest]
+    finally:
+        sys.modules.pop("cached_service_fixture", None)

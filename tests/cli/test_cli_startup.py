@@ -26,6 +26,7 @@ pytestmark = pytest.mark.core_regression
         ["doctor", "--help"],
         ["support", "--help"],
         ["init", "--help"],
+        ["commands", "doctor", "--json"],
     ],
 )
 def test_light_startup_does_not_import_providers(args: list[str]) -> None:
@@ -115,4 +116,63 @@ def test_builtin_lookup_does_not_load_extensions() -> None:
     assert result.exit_code == 0, result.output
     assert "status" in result.output
     assert "doctor" in group.lazy_commands
+    assert loads == []
+
+
+@pytest.mark.parametrize("args", [["broken", "--json"], ["--json", "broken"]])
+def test_lazy_import_failures_remain_inside_the_json_boundary(args: list[str]) -> None:
+    group = LazyPhloGroup("phlo")
+    group.lazy_commands["broken"] = ("phlo_absent_startup_fixture:command", "Broken command.")
+    result = CliRunner().invoke(group, args)
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["reason_code"] == "internal_error"
+    assert payload["exit_code"] == 1
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("args", [["noisy", "--json"], ["--json", "noisy"]])
+def test_lazy_import_output_does_not_pollute_command_json(
+    args: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "phlo_noisy_startup_fixture"
+    (tmp_path / f"{module_name}.py").write_text(
+        "import click\n"
+        "print('provider import chatter')\n"
+        "@click.command('noisy')\n"
+        "@click.option('--json', 'output_json', is_flag=True)\n"
+        "def command(output_json):\n"
+        "    click.echo('{\"answer\": 21}')\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    group = LazyPhloGroup("phlo")
+    group.lazy_commands["noisy"] = (f"{module_name}:command", "Noisy extension.")
+    try:
+        result = CliRunner().invoke(group, args)
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["data"] == {"answer": 21}
+        assert "provider import chatter" not in result.output
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+def test_scoped_command_inspection_leaves_unrelated_commands_unloaded() -> None:
+    from phlo.cli.commands.commands import describe_commands
+
+    group = LazyPhloGroup("phlo")
+    group.lazy_commands = {
+        "doctor": (
+            "phlo.cli.commands.doctor:doctor_cmd",
+            "Diagnose local Phlo setup and service health.",
+        ),
+        "broken": ("phlo_absent_startup_fixture:command", "Broken command."),
+    }
+    loads: list[str] = []
+    group.load_plugins = lambda: loads.append("loaded")
+    described = describe_commands(group, ("doctor",))
+    assert [item["command"] for item in described] == ["phlo doctor"]
+    assert described[0]["capabilities"]["json"] is True
+    assert "broken" in group.lazy_commands
     assert loads == []

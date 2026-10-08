@@ -146,6 +146,12 @@ class _InvocationBoundary(click.Command):
         exit_code = 0
         try:
             with redirect_stdout(stdout):
+                if not _requests_json(self, args):
+                    return None
+                # Discovery is not command output, even if an extension prints
+                # while importing. Capture intent resolution inside this boundary.
+                stdout.seek(0)
+                stdout.truncate()
                 result = super().main(
                     args=args,
                     prog_name=prog_name,
@@ -228,7 +234,10 @@ class _InvocationBoundary(click.Command):
 
     def main(self, args=None, prog_name=None, complete_var=None, standalone_mode=True, **extra):
         args = list(sys.argv[1:] if args is None else args)
-        if "--json" not in args or not _requests_json(self, args):
+        execution = (
+            self._execute_json(args, prog_name, complete_var, extra) if "--json" in args else None
+        )
+        if execution is None:
             return super().main(
                 args=args,
                 prog_name=prog_name,
@@ -236,7 +245,7 @@ class _InvocationBoundary(click.Command):
                 standalone_mode=standalone_mode,
                 **extra,
             )
-        content, error, exit_code = self._execute_json(args, prog_name, complete_var, extra)
+        content, error, exit_code = execution
         payload, exit_code = self._build_json_payload(args, content, error, exit_code)
         payload["exit_code"] = exit_code
         click.echo(json.dumps(payload, indent=2, sort_keys=True))

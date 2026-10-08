@@ -20,15 +20,19 @@ from phlo.plugins._service_yaml import load_service_yaml
 from phlo.plugins._service_yaml import refresh as refresh_yaml
 
 
-@cache
 def service_manifest_paths(root: Path) -> tuple[Path, ...]:
     """Scan a manifest root once; explicit discovery refresh finds new files."""
+    return _scan_manifest_root(root.resolve())
+
+
+@cache
+def _scan_manifest_root(root: Path) -> tuple[Path, ...]:
     return tuple(sorted(root.rglob("*.yaml")))
 
 
 def refresh() -> None:
     """Forget manifest scans and parsed YAML."""
-    service_manifest_paths.cache_clear()
+    _scan_manifest_root.cache_clear()
     refresh_yaml()
 
 

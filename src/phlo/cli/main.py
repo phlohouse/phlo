@@ -91,7 +91,7 @@ _BUILTIN_COMMANDS = {
         "Schema registry and data contract management.",
     ),
     "services": (
-        "phlo.cli.commands.services:services_group",
+        "phlo.cli.commands.services:_register_commands",
         "Manage Phlo infrastructure services (Docker).",
     ),
     "logs": (

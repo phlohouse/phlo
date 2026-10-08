@@ -7,6 +7,7 @@ The command-contract test checks these descriptions against their Click owners.
 
 from phlo.config import get_settings
 from phlo.plugins.discovery._entry_points import entry_points_for_group
+from phlo.plugins.discovery._plugin_loading import is_plugin_allowed
 
 # Key by entry-point target, not its alias: an unrelated extension may reuse a name.
 _HELP = {
@@ -73,9 +74,7 @@ def get_plugin_help() -> dict[str, str]:
     if not settings.plugins_enabled:
         return result
     for entry_point in entry_points_for_group("phlo.plugins.cli"):
-        if entry_point.name in settings.plugins_blacklist:
-            continue
-        if settings.plugins_whitelist and entry_point.name not in settings.plugins_whitelist:
+        if not is_plugin_allowed(entry_point.name):
             continue
         for name, description in _HELP.get(entry_point.value, {}).items():
             result.setdefault(name, description)
