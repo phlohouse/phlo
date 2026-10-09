@@ -1,7 +1,7 @@
 # Debian (glibc) is required, not Alpine (musl): ingestion providers such as
 # phlo-sling execute external binaries that upstream publishes glibc-only. The
 # Sling CLI fails under musl even with gcompat (fcntl64 relocation missing).
-FROM python:3.12-slim AS phlo-build-context
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS phlo-build-context
 
 WORKDIR /opt/phlo-build-context
 
@@ -12,7 +12,7 @@ COPY . .
 RUN mkdir -p /opt/phlo-build-context/wheelhouse \
     && touch /opt/phlo-build-context/pyproject.toml /opt/phlo-build-context/uv.lock
 
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS runtime
 
 WORKDIR /opt/dagster
 

@@ -117,6 +117,44 @@
     {
       "matchPackageNames": ["python"],
       "matchDatasources": ["docker"],
+      "matchManagers": ["!dockerfile"],
+      "enabled": false
+    },
+    {
+      "description": "Keep Dockerfile base images digest-pinned and refresh the digests.",
+      "matchManagers": ["dockerfile"],
+      "pinDigests": true,
+      "automerge": false
+    },
+    {
+      "description": "Group python Dockerfile base image updates.",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["python"],
+      "groupName": "python base image"
+    },
+    {
+      "description": "Group node Dockerfile base image updates.",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["node"],
+      "groupName": "node base image"
+    },
+    {
+      "description": "Group golang Dockerfile base image updates.",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["golang"],
+      "groupName": "golang base image"
+    },
+    {
+      "description": "Group alpine Dockerfile base image updates.",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["alpine"],
+      "groupName": "alpine base image"
+    },
+    {
+      "description": "Dockerfile Python bases track their pinned minor; only digests and patches move.",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["python"],
+      "matchUpdateTypes": ["major", "minor"],
       "enabled": false
     },
     {

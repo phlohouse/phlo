@@ -146,7 +146,8 @@ def test_artifact_acceptance_requires_authenticated_staging_without_missing_bom_
         "--output",
         "inputs",
     ]
-    assert shlex.split(scripts[1]["run"]) == [
+    assert "cosign verify" in scripts[1]["run"]
+    assert shlex.split(scripts[2]["run"]) == [
         "python3",
         "scripts/release_golden_path.py",
         "--candidate-bom",

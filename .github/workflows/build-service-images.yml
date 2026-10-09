@@ -199,6 +199,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless cosign signing with this workflow's GitHub OIDC identity.
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -259,6 +261,18 @@ jobs:
           )"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Sign published manifest digest
+        env:
+          IMAGE: ${{ matrix.target.image }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE%:*}@$DIGEST"
 
       - name: Record published digest
         env:

@@ -50,6 +50,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     with:
       candidate_sha: ${{ github.sha }}
       targets: ${{ needs.prepare.outputs.targets }}

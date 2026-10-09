@@ -83,6 +83,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     with:
       candidate_sha: ${{ inputs.candidate_sha }}
       distributions_artifact: distributions-${{ inputs.candidate_sha }}
@@ -94,6 +95,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless cosign signing; acceptance and promotion verify this identity.
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -120,6 +123,18 @@ jobs:
         run: >-
           python3 scripts/release_stage.py pin --candidate-sha "$CANDIDATE_SHA"
           --images images/generated-service-images.json --distributions distributions --output candidate
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Sign every staged first-party image digest
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          jq -r '.artifacts[] | select(.kind == "first-party-image") | "\(.name)@\(.digest)"' \
+            candidate/bom.json > "$RUNNER_TEMP/staged-images"
+          test -s "$RUNNER_TEMP/staged-images"
+          while read -r image; do
+            cosign sign --yes "$image"
+          done < "$RUNNER_TEMP/staged-images"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: candidate-${{ inputs.candidate_sha }}

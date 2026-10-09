@@ -1,4 +1,4 @@
-FROM python:3.12-alpine AS phlo-build-context
+FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 AS phlo-build-context
 
 WORKDIR /opt/phlo-build-context
 
@@ -8,7 +8,7 @@ RUN set -eux; \
     install -m 0755 "$entrypoint" /opt/phlo-build-context/phlo-api-entrypoint.sh; \
     mkdir -p /opt/phlo-build-context/wheelhouse
 
-FROM python:3.12-alpine AS runtime
+FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 AS runtime
 
 WORKDIR /app
 
