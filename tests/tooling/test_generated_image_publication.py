@@ -314,6 +314,11 @@ def test_publication_workflow_publishes_attested_images_after_digest_scans() -> 
         text=True,
     )
     assert parsed_services.stdout.splitlines() == ["dagster", "phlo-api"]
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/build-service-images.yml").read_text(encoding="utf-8")
+    )
+    assert jobs["images"]["uses"] == "./.github/workflows/build-service-images.yml"
+    jobs = workflow["jobs"]
     for job_name in ("build", "merge"):
         assert jobs[job_name]["permissions"]["packages"] == "write"
 
@@ -341,7 +346,7 @@ def test_publication_workflow_publishes_attested_images_after_digest_scans() -> 
     )
 
     merge_job = jobs["merge"]
-    assert str(merge_job.get("if", "")).startswith("always() && needs.prepare.result == 'success'")
+    assert merge_job["if"] == "always() && needs.build.result == 'success'"
     digest_uploads = [
         step
         for step in build_steps

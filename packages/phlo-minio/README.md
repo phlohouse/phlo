@@ -22,14 +22,57 @@ The build also pins dependency updates for vulnerabilities in those releases.
 These are Phlo builds, not official upstream binaries. Phlo must maintain
 the dependency pins and runtime compatibility while it distributes this image.
 
-The existing staged-service workflow builds native amd64 and arm64 images,
-scans each digest, and publishes a multi-platform development image. Release
-promotion publishes the verified image without rebuilding it and records its
-digest in the release bill of materials. The first release must publish the
-image and make the GHCR package public before consumers can pull anonymously.
-Image tags follow the core Phlo release version, not the independently versioned
-Python plugin. Nightly rescans use the latest published release's image inventory
-with the current scan policy, so unreleased images do not break the rescan.
+MinIO image versions are independent of both Phlo and the Python plugin.
+The initial image version is `0.17.0`. An image-only fix can advance to
+`0.17.1` without releasing either Python distribution. Published tags are
+immutable. Phlo release staging consumes the published MinIO image by digest
+as a provider dependency and does not rebuild or promote it.
+
+### Publish an image-only fix
+
+1. Update the upstream source pins, checksums, or dependency fixes in the Dockerfile.
+2. Advance the MinIO image version in both service YAML files, both support
+   manifests, and the matching documentation and integration fixtures.
+   Find the pins with `git grep 'ghcr.io/phlohouse/phlo-minio:'`.
+   Do not change the Phlo or Python plugin version for an image-only fix.
+3. Run the MinIO integration tests and merge the reviewed changes to `main`.
+4. Dispatch the independent publisher:
+
+   ```bash
+   gh workflow run publish-minio.yml --repo phlohouse/phlo --ref main
+   ```
+
+The publisher builds native amd64 and arm64 images, scans each immutable
+architecture digest, and creates the versioned multi-platform manifest only
+when both pass. It reuses the service-image build jobs, retains attestations
+and scan reports, and does not publish to PyPI or require whole-release
+acceptance runs. The first publication also requires making the GHCR package
+public before consumers can pull anonymously.
+
+Nightly rescans cover the latest independently published MinIO image even
+before the next Phlo release, alongside the latest Phlo release's pinned fleet.
+Registry and scanner failures still fail the rescan.
+
+### Use an image-only fix without upgrading Phlo
+
+For an existing development project, set both images in
+`.phlo/overrides/compose.yaml`. Replace `<published-image-version>` with the
+newly published version:
+
+```yaml
+services:
+  minio:
+    image: ghcr.io/phlohouse/phlo-minio:<published-image-version>
+  minio-setup:
+    image: ghcr.io/phlohouse/phlo-minio:<published-image-version>
+```
+
+Then run `phlo services start --service minio --service minio-setup` without
+`--build`. Existing projects retain their pinned image until you choose an
+upgrade. The override preserves the data volume, health checks, and bucket
+setup. Phlo rejects development Compose layers in production and staging.
+For those environments, update the image references in your reviewed,
+deployment-managed Compose configuration instead.
 
 Before publication, or to rebuild locally, use:
 
