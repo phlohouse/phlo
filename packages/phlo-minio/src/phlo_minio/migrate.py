@@ -34,10 +34,10 @@ def _storage(config: dict[str, Any]) -> tuple[str, str]:
     for mount in config.get("volumes", []):
         if isinstance(mount, str):
             parts = mount.split(":")
-            if len(parts) >= 2 and parts[1] == directory and len(parts) == 2:
+            if len(parts) >= 2 and parts[1] == directory and parts[2:] in ([], ["rw"]):
                 return parts[0], directory
         elif isinstance(mount, dict) and mount.get("target") == directory:
-            if mount.get("type") == "volume" and not mount.get("read_only"):
+            if mount.get("type") == "volume" and not mount.get("read_only") and mount.get("source"):
                 return mount["source"], directory
     raise click.ClickException("Expected a writable named MinIO data volume.")
 

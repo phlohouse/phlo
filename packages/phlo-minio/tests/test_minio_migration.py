@@ -60,6 +60,9 @@ def _project(root: Path, directory: str = "/data") -> Path:
     [
         "preview",
         "apply",
+        "apply-rw",
+        "anonymous-volume",
+        "read-only",
         "pull-failure",
         "missing-volume",
         "bind-mount",
@@ -77,6 +80,12 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
     upstream["services"]["minio-setup"]["image"] = "quay.io/minio/mc:old-client"
     if outcome == "bind-mount":
         upstream["services"]["minio"]["volumes"] = ["./data:/data"]
+    if outcome == "apply-rw":
+        upstream["services"]["minio"]["volumes"] = ["minio-data:/data:rw"]
+    if outcome == "anonymous-volume":
+        upstream["services"]["minio"]["volumes"] = [{"type": "volume", "target": "/data"}]
+    if outcome == "read-only":
+        upstream["services"]["minio"]["volumes"] = ["minio-data:/data:ro"]
     if outcome == "distributed":
         upstream["services"]["minio"]["command"] = ["server", "/data", "/other-data"]
     path.write_text(yaml.safe_dump(upstream, sort_keys=False))
@@ -120,17 +129,22 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
     result = CliRunner().invoke(
         minio_group, ["migrate-image", *([] if outcome == "preview" else ["--apply"])]
     )
-    assert (result.exit_code == 0) == (outcome in {"preview", "apply"}), result.output
+    assert (result.exit_code == 0) == (outcome in {"preview", "apply", "apply-rw"}), result.output
     if outcome == "denied":
         assert "Authorization denied" in result.output
     if outcome == "podman":
         assert "requires Docker Compose v2" in result.output
+    if outcome in {"anonymous-volume", "read-only"}:
+        assert "Expected a writable named MinIO data volume" in result.output
     assert (path.parent / ".env.local").read_text() == "MINIO_ROOT_PASSWORD=migration-password\n"
-    if outcome != "apply":
+    if outcome not in {"apply", "apply-rw"}:
         assert path.read_text() == original
     else:
         updated = yaml.safe_load(path.read_text())
-        assert updated["services"]["minio"]["volumes"] == ["minio-data:/data"]
+        assert (
+            updated["services"]["minio"]["volumes"]
+            == original_config["services"]["minio"]["volumes"]
+        )
         assert (
             updated["services"]["minio"]["environment"]
             == original_config["services"]["minio"]["environment"]
