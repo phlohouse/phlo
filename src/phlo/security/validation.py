@@ -686,7 +686,8 @@ def run_regulated_mode_validation(**kwargs):
     import warnings
 
     warnings.warn(
-        "run_regulated_mode_validation() is deprecated, use run_regulated_validation() instead",
+        "run_regulated_mode_validation() is deprecated and will be removed in 0.19.0; "
+        "use run_regulated_validation() instead",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -751,7 +752,8 @@ def require_regulated_mode_validation(**kwargs):
     import warnings
 
     warnings.warn(
-        "require_regulated_mode_validation() is deprecated, use require_regulated_validation() instead",
+        "require_regulated_mode_validation() is deprecated and will be removed in 0.19.0; "
+        "use require_regulated_validation() instead",
         DeprecationWarning,
         stacklevel=2,
     )

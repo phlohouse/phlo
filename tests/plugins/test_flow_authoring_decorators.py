@@ -1,24 +1,67 @@
 """Tests for terse flow authoring decorators.
 
-Each decorator (transform/publish/observe/backfill/contract/access/schedule)
-registers its asset, surface, or job metadata at decoration time without
-executing the wrapped callable; dependencies compose strings with logical
-relations and unsupported signatures fail clearly at run time.
+Supported decorators register provider-neutral declarations. Dormant
+backfill/schedule declarations and SQL without a provider fail immediately.
 """
 
 from __future__ import annotations
 
 import importlib
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 from phlo.contracts import SLA, Consumer
 from phlo.helpers.testing import FakeRuntimeContext
+from phlo.plugins.base import AssetProviderPlugin, PluginMetadata, TransformationProviderPlugin
+from phlo.plugins.discovery.registry import PluginRegistry
 
 pytestmark = [pytest.mark.core_regression, pytest.mark.filterwarnings("ignore::DeprecationWarning")]
 
 
+@pytest.fixture
+def sql_provider(monkeypatch: pytest.MonkeyPatch) -> PluginRegistry:
+    """Use the provider contracts supplied by PR #961, without its open branch."""
+    from phlo.transform import get_transform_assets
+
+    class TransformProvider(TransformationProviderPlugin):
+        @property
+        def metadata(self):
+            return PluginMetadata(name="transform", version="0.1.0", description="SQL")
+
+        def get_asset_retriever(self):
+            return get_transform_assets
+
+    class TransformAssetProvider(AssetProviderPlugin):
+        @property
+        def metadata(self):
+            return PluginMetadata(name="transform", version="0.1.0", description="SQL")
+
+        def get_assets(self):
+            return get_transform_assets()
+
+    registry = PluginRegistry()
+    providers = {
+        "phlo.plugins.transformation_providers": TransformProvider,
+        "phlo.plugins.assets": TransformAssetProvider,
+    }
+    monkeypatch.setattr(
+        "phlo.plugins.discovery._plugin_loading.entry_points_for_group",
+        lambda group: [
+            SimpleNamespace(
+                name="transform", value="test:TransformProvider", load=lambda: providers[group]
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "phlo.plugins.discovery._plugin_lifecycle.get_global_registry", lambda: registry
+    )
+    monkeypatch.setattr("phlo.plugins.discovery.get_global_registry", lambda: registry)
+    return registry
+
+
+@pytest.mark.usefixtures("sql_provider")
 def test_transform_sql_registers_provider_neutral_asset() -> None:
     """SQL transforms should register asset specs with the returned SQL text."""
     import phlo
@@ -64,6 +107,7 @@ def test_transform_sql_registers_provider_neutral_asset() -> None:
     }
 
 
+@pytest.mark.usefixtures("sql_provider")
 def test_transform_sql_accepts_ref_dependencies() -> None:
     """SQL transform deps should use logical relation asset keys."""
     import phlo
@@ -126,6 +170,7 @@ def test_observe_preserves_mixed_string_and_relation_dependencies() -> None:
     assert assets[0].deps == ["legacy.asset", "fct_orders", "raw.orders"]
 
 
+@pytest.mark.usefixtures("sql_provider")
 def test_transform_sql_defers_context_aware_sql_rendering() -> None:
     """Context-aware SQL transforms should not execute during decoration."""
     import phlo
@@ -149,6 +194,7 @@ def test_transform_sql_defers_context_aware_sql_rendering() -> None:
     assert results[0].metadata["result"] == "select * from bronze.orders where ds = '2026-05-18'"
 
 
+@pytest.mark.usefixtures("sql_provider")
 def test_transform_sql_does_not_call_required_keyword_only_functions() -> None:
     """Required keyword-only SQL parameters should not be treated as static SQL."""
     import phlo
@@ -248,35 +294,15 @@ def test_observe_registers_operational_check_surface() -> None:
     ]
 
 
-def test_backfill_registers_repeatable_backfill_job() -> None:
-    """Backfill should capture partition window and write policy metadata."""
+def test_backfill_fails_without_registering_a_dormant_job() -> None:
+    """The CLI is working; the similarly named decorator is not."""
     import phlo
 
     phlo.clear_backfill_assets()
 
-    @phlo.backfill(
-        target="silver.orders",
-        partitions={"start": "2026-01-01", "end": "2026-03-31"},
-        mode="replace-partitions",
-        depends_on=["bronze.orders"],
-    )
-    def orders_q1_backfill() -> str:
-        return "orders_sql"
-
-    assets = phlo.get_backfill_assets()
-
-    assert orders_q1_backfill() == "orders_sql"
-    assert len(assets) == 1
-    assert assets[0].key == "backfill_silver_orders"
-    assert assets[0].deps == ["bronze.orders"]
-    assert assets[0].kinds == {"backfill"}
-    assert assets[0].tags["asset_type"] == "backfill"
-    assert assets[0].metadata["target"] == "silver.orders"
-    assert assets[0].metadata["partitions"] == {
-        "start": "2026-01-01",
-        "end": "2026-03-31",
-    }
-    assert assets[0].metadata["mode"] == "replace-partitions"
+    with pytest.raises(NotImplementedError, match=r"0\.19\.0.*phlo backfill CLI"):
+        phlo.backfill(target="silver.orders", partitions={"start": "2026-01-01"})
+    assert phlo.get_backfill_assets() == []
 
 
 def test_contract_registers_governance_contract() -> None:
@@ -343,31 +369,15 @@ def test_access_registers_access_policy() -> None:
     assert policies[0].policy == "read"
 
 
-def test_schedule_registers_static_targets_and_dynamic_parameters() -> None:
-    """Schedule targets should be static while the function returns run parameters."""
+def test_schedule_fails_without_registering_a_dormant_schedule() -> None:
+    """Point users to the provider cron or native scheduler instead."""
     import phlo
 
     phlo.clear_schedules()
 
-    @phlo.schedule(
-        name="daily_customer_health",
-        cron="0 6 * * *",
-        targets=["transform_silver_orders", "publish_gold_customer_health"],
-        timezone="Europe/London",
-    )
-    def daily_customer_health() -> dict[str, str]:
-        return {"partition_date": "2026-05-18"}
-
-    schedules = phlo.get_schedules()
-
-    assert daily_customer_health() == {"partition_date": "2026-05-18"}
-    assert len(schedules) == 1
-    assert schedules[0].key == "schedule_daily_customer_health"
-    assert schedules[0].name == "daily_customer_health"
-    assert schedules[0].cron == "0 6 * * *"
-    assert schedules[0].targets == ["transform_silver_orders", "publish_gold_customer_health"]
-    assert schedules[0].timezone == "Europe/London"
-    assert schedules[0].fn() == {"partition_date": "2026-05-18"}
+    with pytest.raises(NotImplementedError, match=r"0\.19\.0.*native Dagster schedules"):
+        phlo.schedule(name="daily", cron="0 6 * * *", targets=["orders"])
+    assert phlo.get_schedules() == []
 
 
 def test_top_level_exports_lazy_load_new_authoring_surfaces() -> None:
@@ -391,37 +401,108 @@ def test_top_level_exports_lazy_load_new_authoring_surfaces() -> None:
     assert callable(phlo.transform.sql)
 
 
-def test_deprecated_dormant_decorators_warn_at_decoration_time() -> None:
-    """Deprecated decorators warn but retain their registration behavior."""
-    import phlo
+@pytest.mark.parametrize("missing_family", ["transformation_provider", "asset_provider"])
+def test_sql_fails_without_both_provider_bridges(
+    sql_provider: PluginRegistry, missing_family: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transformation declaration provider alone cannot expose runnable assets."""
+    from phlo.plugins.discovery import _plugin_loading, discover_plugins
+    from phlo.plugins.discovery._plugin_constants import ENTRY_POINT_GROUPS
 
+    discover_plugins(plugin_type="transformation_provider")
+    discover_plugins(plugin_type="asset_provider")
+    entry_points = _plugin_loading.entry_points_for_group
+    monkeypatch.setattr(
+        _plugin_loading,
+        "entry_points_for_group",
+        lambda group: [] if group == ENTRY_POINT_GROUPS[missing_family] else entry_points(group),
+    )
     transform = importlib.import_module("phlo.transform")
     transform.clear_transform_assets()
-    phlo.clear_backfill_assets()
-    phlo.clear_schedules()
+    sql_provider.remove(missing_family, "transform")
+    with pytest.raises(ModuleNotFoundError, match="Install phlo-transform.*dbt"):
+        transform.sql(table="silver.orders")
+    assert transform.get_transform_assets() == []
 
-    with pytest.warns(DeprecationWarning, match="phlo.backfill is deprecated"):
 
-        @phlo.backfill(target="silver.orders", partitions={"start": "2026-01-01"})
-        def _backfill() -> str:
-            return "orders_sql"
+def test_sql_provider_bridge_exposes_executable_assets(sql_provider: PluginRegistry) -> None:
+    """Keep working SQL providers, rather than retiring them based on an old audit."""
+    import warnings
 
-    with pytest.warns(DeprecationWarning, match="phlo.schedule is deprecated"):
+    from phlo.capabilities.registry import iter_provider_capabilities
+    from phlo.transform import clear_transform_assets, sql
 
-        @phlo.schedule(name="daily", cron="0 6 * * *", targets=["transform_silver_orders"])
-        def _schedule() -> None:
-            return None
+    clear_transform_assets()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
 
-    with pytest.warns(DeprecationWarning, match="phlo.transform.sql is deprecated"):
+        @sql(table="silver.orders")
+        def orders() -> str:
+            return "select 42"
 
-        @transform.sql(table="silver.orders")
-        def _transform() -> str:
-            return "select 1"
+    provider = sql_provider.get("asset_provider", "transform")
+    families = dict(iter_provider_capabilities(provider))
+    assets = families["asset"]
+    assert len(assets) == 1
+    assert assets[0].key == "transform_silver_orders"
+    assert assets[0].metadata["sql"] == "select 42"
+    assert list(assets[0].run.fn(FakeRuntimeContext()))[0].metadata["result"] == "select 42"
 
-    # Deprecated does not mean dead: registration behavior is unchanged.
-    assert len(phlo.get_backfill_assets()) == 1
-    assert len(phlo.get_schedules()) == 1
-    assert len(transform.get_transform_assets()) == 1
+
+def test_sql_declarations_do_not_replace_existing_providers(
+    sql_provider: PluginRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from phlo.plugins.discovery import _plugin_loading
+    from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
+    from phlo.transform import clear_transform_assets, sql
+
+    events: list[str] = []
+
+    class OtherProvider(AssetProviderPlugin):
+        @property
+        def metadata(self):
+            return PluginMetadata(name="other", version="0.1.0")
+
+        def initialize(self, config):
+            events.append("initialize")
+
+        def cleanup(self):
+            events.append("cleanup")
+
+        def get_assets(self):
+            return []
+
+    other = OtherProvider()
+    register_plugin_with_lifecycle("asset_provider", other)
+    entry_points = _plugin_loading.entry_points_for_group
+    monkeypatch.setattr(
+        _plugin_loading,
+        "entry_points_for_group",
+        lambda group: (
+            [
+                *entry_points(group),
+                SimpleNamespace(
+                    name="other",
+                    value="test:OtherProvider",
+                    load=lambda: OtherProvider,
+                ),
+            ]
+            if group == "phlo.plugins.assets"
+            else entry_points(group)
+        ),
+    )
+    clear_transform_assets()
+    sql(table="silver.orders")(lambda: "select 42")
+    bridge = sql_provider.get("asset_provider", "transform")
+    sql(table="silver.refunds")(lambda: "select 17")
+    assert sql_provider.get("asset_provider", "transform") is bridge
+    assert sql_provider.get("asset_provider", "other") is other
+    assert events == ["initialize"]
+    assert [asset.key for asset in bridge.get_assets()] == [
+        "transform_silver_orders",
+        "transform_silver_refunds",
+    ]
 
 
 def test_governance_metadata_decorators_do_not_warn() -> None:

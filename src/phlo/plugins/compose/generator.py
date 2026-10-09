@@ -25,6 +25,7 @@ from phlo.plugins.compose.env import (
 )
 from phlo.plugins.compose.service_files import prepare_service_files
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.telemetry import metric
 
 logger = get_logger(__name__)
 
@@ -355,6 +356,18 @@ class ComposeGenerator:
                 *legacy_env_files,
                 *(path.relative_to(output_dir).as_posix() for path in env_paths),
             ]
+            for name in config["env_file"]:
+                if name not in {".env", ".env.local"} or not (output_dir / name).is_file():
+                    continue
+                metric("phlo.legacy.dagster_env_file.uses", 1, unit="uses", tags={"file": name})
+                logger.warning(
+                    "deprecated_dagster_env_file",
+                    file=name,
+                    removal_version="0.19.0",
+                    message="Legacy Dagster env files will be removed in 0.19.0; "
+                    "run phlo services migrate to move defaults to .phlo/overrides/.env "
+                    "and secrets to .phlo/secrets/.env.",
+                )
 
         if compose.get("command"):
             config["command"] = compose["command"]

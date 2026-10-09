@@ -1,8 +1,8 @@
 """The ``phlo.ingestion`` alias must warn on use.
 
 The compatibility alias has a migration codemod
-(``phlo migrate decorators-2026-05``) and will be removed in an upcoming
-release. These tests pin the warning without preserving the alias indefinitely.
+(``phlo migrate decorators-2026-05``) and will be removed in 0.19.0.
+These tests pin the warning without preserving the alias indefinitely.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def test_module_call_form_warns(_capture_ingest_calls: dict[str, list[tuple]]) -
     """``@phlo.ingestion(...)`` must emit the deprecation warning."""
     import phlo.ingestion
 
-    with pytest.warns(DeprecationWarning, match="phlo.ingestion is deprecated"):
+    with pytest.warns(DeprecationWarning, match=r"phlo.ingestion.*0\.19\.0"):
         decorator = phlo.ingestion(table_name="events")
 
     assert decorator == "dlt-decorator"
@@ -47,7 +47,7 @@ def test_phlo_ingestion_function_warns(_capture_ingest_calls: dict[str, list[tup
     """``phlo.ingestion.phlo_ingestion(...)`` must emit the deprecation warning."""
     from phlo.ingestion import phlo_ingestion
 
-    with pytest.warns(DeprecationWarning, match="phlo.ingestion is deprecated"):
+    with pytest.warns(DeprecationWarning, match=r"phlo.phlo_ingestion.*0\.19\.0"):
         decorator = phlo_ingestion(table_name="events")
 
     assert decorator == "dlt-decorator"
@@ -57,7 +57,7 @@ def test_top_level_phlo_ingestion_warns(_capture_ingest_calls: dict[str, list[tu
     """The top-level ``phlo.phlo_ingestion`` export routes through the alias and warns."""
     import phlo
 
-    with pytest.warns(DeprecationWarning, match="phlo.ingestion is deprecated"):
+    with pytest.warns(DeprecationWarning, match=r"phlo.phlo_ingestion.*0\.19\.0"):
         decorator = phlo.phlo_ingestion(table_name="events")
 
     assert decorator == "dlt-decorator"
@@ -67,7 +67,7 @@ def test_get_ingestion_assets_warns(_capture_ingest_calls: dict[str, list[tuple]
     """``phlo.ingestion.get_ingestion_assets()`` must emit the deprecation warning."""
     from phlo.ingestion import get_ingestion_assets
 
-    with pytest.warns(DeprecationWarning, match="phlo.ingestion is deprecated"):
+    with pytest.warns(DeprecationWarning, match=r"phlo.get_ingestion_assets.*0\.19\.0"):
         assets = get_ingestion_assets()
 
     assert assets == ["asset"]

@@ -47,7 +47,7 @@ WAP backfills serialise partitions through promotion because each branch is base
 
 ## Schedules and sensors
 
-A provider decorator such as the DLT decorator can pass `cron` into the discovered asset specification. Phlo turns that value into a Dagster schedule. `phlo.schedule` is deprecated and creates no scheduler entry.
+A provider decorator such as the DLT decorator can pass `cron` into the discovered asset specification. Phlo turns that value into a Dagster schedule. The dormant `phlo.schedule` decorator raises an actionable error and is removed in 0.19.0.
 
 The WAP sensors promote an audited branch and clean up stale branches in Nessie, which supports refs and promotion. Their intervals are controlled by `PHLO_WAP_PROMOTION_INTERVAL_SECONDS` and `PHLO_WAP_CLEANUP_INTERVAL_SECONDS`.
 

@@ -163,11 +163,18 @@ phlo-mcp \
   --api-base-url http://127.0.0.1:4000
 ```
 
-Optional local span capture:
+Canonical local span capture:
 
 ```bash
-phlo-mcp --trace-file .phlo/phlo-mcp-trace.jsonl
+OBSERVE_DRAINS=jsonl OBSERVE_JSONL_PATH=.phlo/mcp-events.jsonl phlo-mcp
 ```
+
+The legacy `--trace-file` and `PHLO_MCP_TRACE_FILE` debug drain, `load_spans`,
+and `render_trace_tree` retire in 0.19.0. Until then configuration warns once,
+and each successful debug span write records
+`phlo.legacy.mcp_jsonl_span.uses` through canonical observe telemetry.
+Sum the metric summaries' `sum` fields to count use. Disabled telemetry is
+not evidence of zero use. Canonical operation scopes and trace queries remain supported.
 
 ## Live stack smoke
 

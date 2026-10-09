@@ -224,7 +224,8 @@ def create_regulated_mode_bridge(
     import warnings
 
     warnings.warn(
-        "create_regulated_mode_bridge() is deprecated, use create_regulated_bridge() instead",
+        "create_regulated_mode_bridge() is deprecated and will be removed in 0.19.0; "
+        "use create_regulated_bridge() instead",
         DeprecationWarning,
         stacklevel=2,
     )
