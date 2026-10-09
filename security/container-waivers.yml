@@ -2,3 +2,24 @@
 # Keep this list empty until an approved, time-limited exception is necessary.
 version: 1
 waivers: []
+
+# Runtime posture exceptions for bundled long-lived services: services that
+# must still run as root. tests/security/test_service_manifest_hardening.py
+# fails when a long-lived service declares `user: "0"` without an entry here.
+runtime_exceptions:
+  - id: RT-001
+    service: clickstack
+    exception: root_user
+    rationale: >-
+      The upstream ClickStack all-in-one image starts ClickHouse, MongoDB, an
+      OpenTelemetry collector and the HyperDX app from one entry script that
+      rewrites /etc/hosts and writes to root-owned paths, so it cannot start
+      as a non-root user.
+    compensating_control: >-
+      Opt-in observability profile only; host ports bind to loopback unless
+      --publish-all-interfaces is passed; no Docker socket or host path mounts.
+    owner: iamgp
+    approval: pending owner review
+    remediation: >-
+      Replace the all-in-one image with separate ClickHouse, MongoDB and
+      HyperDX services that run as their image users (phlohouse/phlo#984).

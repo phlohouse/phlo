@@ -80,19 +80,22 @@ class NativeProcessManager:
         return bool(service.dev and service.dev.get("command"))
 
     def _expand_env_vars(self, value: str, env: dict[str, str]) -> str:
-        """Expand ``${VAR}`` and ``${VAR:-default}`` placeholders in ``value``.
+        """Expand ``${VAR}``, ``${VAR:-default}`` and ``${VAR:?message}`` in ``value``.
 
         Substitutes from ``env``; raise KeyError when a placeholder has neither a
-        matching env value nor a default.
+        matching env value nor a default, or when a required (``:?``) value is
+        unset or empty, matching Compose.
         """
 
-        pattern = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
+        pattern = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*)|(:\?)[^}]*)?\}")
 
         def repl(match: Match[str]) -> str:
             """Resolve a single environment placeholder match."""
 
             var = match.group(1)
             default = match.group(2)
+            if match.group(3) and not env.get(var):
+                raise KeyError(var)
             if var in env:
                 return env[var]
             if default is not None:

@@ -102,6 +102,19 @@ class TestExpandEnvVars:
         with pytest.raises(KeyError, match="MISSING"):
             mgr._expand_env_vars("${MISSING}/path", {})
 
+    def test_required_placeholder_uses_env_value(self) -> None:
+        """Verify `${VAR:?message}` resolves like Compose when the value is set."""
+        mgr = NativeProcessManager(Path("/tmp"))
+        result = mgr._expand_env_vars("${SECRET:?SECRET is required}", {"SECRET": "s3"})
+        assert result == "s3"
+
+    @pytest.mark.parametrize("env", [{}, {"SECRET": ""}])
+    def test_required_placeholder_fails_closed(self, env: dict[str, str]) -> None:
+        """Verify unset or empty required values raise instead of leaking the literal."""
+        mgr = NativeProcessManager(Path("/tmp"))
+        with pytest.raises(KeyError, match="SECRET"):
+            mgr._expand_env_vars("${SECRET:?SECRET is required}", env)
+
     def test_no_substitution_when_no_vars(self) -> None:
         """Verify plain strings are returned unchanged."""
         mgr = NativeProcessManager(Path("/tmp"))

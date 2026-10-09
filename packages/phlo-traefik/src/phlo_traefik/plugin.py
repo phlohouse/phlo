@@ -19,3 +19,14 @@ TraefikServicePlugin = service_plugin_class(
     author="Phlo Team",
     tags=["networking", "proxy", "traefik"],
 )
+
+
+TraefikDockerProxyServicePlugin = service_plugin_class(
+    "TraefikDockerProxyServicePlugin",
+    name="traefik-docker-proxy",
+    version="0.1.0",
+    description="Read-only Docker API proxy for Traefik service discovery",
+    author="Phlo Team",
+    tags=["networking", "proxy", "docker"],
+    service_definition_file="docker_proxy.yaml",
+)

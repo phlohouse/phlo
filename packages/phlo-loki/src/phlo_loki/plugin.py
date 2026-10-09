@@ -19,3 +19,14 @@ LokiServicePlugin = service_plugin_class(
     author="Phlo Team",
     tags=["observability", "logs"],
 )
+
+
+LokiVolumeSetupServicePlugin = service_plugin_class(
+    "LokiVolumeSetupServicePlugin",
+    name="loki-volume-setup",
+    version="0.1.0",
+    description="Initialize Loki data volume permissions",
+    author="Phlo Team",
+    tags=["observability"],
+    service_definition_file="volume_setup.yaml",
+)

@@ -1,0 +1,21 @@
+# Companion service for prometheus - prepares writable data volume ownership
+# so Prometheus itself runs as the image's non-root user.
+name: prometheus-volume-setup
+description: Initialize Prometheus data volume permissions
+category: observability
+default: false
+profile: observability
+
+image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+compose:
+  restart: "no"
+  user: "0:0"
+  entrypoint: /bin/sh
+  command: >
+    -c "
+    chown -R 65534:65534 /prometheus &&
+    echo 'Prometheus data volume ownership initialized'
+    "
+  volumes:
+    - prometheus-data:/prometheus

@@ -18,6 +18,7 @@ name = "Phlo Team"
 
 [project.entry-points."phlo.plugins.services"]
 alloy = "phlo_alloy.plugin:AlloyServicePlugin"
+alloy-docker-proxy = "phlo_alloy.plugin:AlloyDockerProxyServicePlugin"
 
 [project.license]
 text = "MIT"
@@ -42,6 +43,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_alloy = [
     "service.yaml",
+    "docker_proxy.yaml",
     "config.alloy",
 ]
 

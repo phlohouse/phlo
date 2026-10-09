@@ -55,6 +55,7 @@ class ServiceDefinition:
     gitignore: list[str] = field(default_factory=list)
     hooks: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     dev: dict[str, Any] = field(default_factory=dict)
+    networks: dict[str, dict[str, Any]] = field(default_factory=dict)
     source_path: Path | None = None
     phlo_dev: bool = False
     core: bool = False
@@ -92,6 +93,7 @@ class ServiceDefinition:
             gitignore=data.get("gitignore", []),
             hooks=data.get("hooks", {}),
             dev=data.get("dev", {}),
+            networks=data.get("networks") or {},
             source_path=source_path,
             phlo_dev=data.get("phlo_dev", False),
             core=data.get("core", False),
@@ -118,6 +120,7 @@ class ServiceDefinition:
             gitignore=data.get("gitignore", []),
             hooks=data.get("hooks", {}),
             dev=data.get("dev", {}),
+            networks=data.get("networks") or {},
             source_path=source_path,
             phlo_dev=data.get("phlo_dev", False),
             core=data.get("core", False),

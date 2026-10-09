@@ -16,7 +16,7 @@ compose:
   environment:
     # Project initialization generates POSTGRES_PASSWORD.  Override the
     # static template's development fallback so PostgREST uses that secret.
-    PGRST_DB_URI: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}
+    PGRST_DB_URI: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}@postgres:5432/${POSTGRES_DB:-phlo}
   command: ["/bin/postgrest", "/etc/postgrest/postgrest.conf"]
   volumes:
     - ./postgrest/conf:/etc/postgrest:ro

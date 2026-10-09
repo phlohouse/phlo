@@ -20,3 +20,14 @@ AlloyServicePlugin = service_plugin_class(
     author="Phlo Team",
     tags=["observability", "logs", "agent"],
 )
+
+
+AlloyDockerProxyServicePlugin = service_plugin_class(
+    "AlloyDockerProxyServicePlugin",
+    name="alloy-docker-proxy",
+    version="0.1.0",
+    description="Read-only Docker API proxy for Alloy log discovery",
+    author="Phlo Team",
+    tags=["observability", "logs", "docker"],
+    service_definition_file="docker_proxy.yaml",
+)

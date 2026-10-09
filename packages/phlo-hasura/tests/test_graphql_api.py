@@ -14,7 +14,7 @@ pytestmark = pytest.mark.integration
 
 BASE_URL = os.getenv("PHLO_HASURA_URL", "http://localhost:8081")
 GRAPHQL_ENDPOINT = f"{BASE_URL}/v1/graphql"
-HASURA_ADMIN_SECRET = os.getenv("HASURA_ADMIN_SECRET", "phlo-hasura-admin-secret")
+HASURA_ADMIN_SECRET = os.getenv("HASURA_ADMIN_SECRET", "")
 
 
 @pytest.fixture(scope="session", autouse=True)

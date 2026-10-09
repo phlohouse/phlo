@@ -21,6 +21,7 @@ loki = "phlo_loki.observatory_plugin:LokiObservatoryExtension"
 
 [project.entry-points."phlo.plugins.services"]
 loki = "phlo_loki.plugin:LokiServicePlugin"
+loki-volume-setup = "phlo_loki.plugin:LokiVolumeSetupServicePlugin"
 
 [project.license]
 text = "MIT"
@@ -46,6 +47,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_loki = [
     "service.yaml",
+    "volume_setup.yaml",
     "loki-config.yml",
     "observatory_assets/*",
 ]

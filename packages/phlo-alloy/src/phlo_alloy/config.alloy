@@ -3,7 +3,7 @@
 
 // Log discovery from Docker
 discovery.docker "containers" {
-  host = "unix:///var/run/docker.sock"
+  host = "tcp://alloy-docker-proxy:2375"
 }
 
 // Relabel Docker labels to Loki labels
@@ -37,7 +37,7 @@ discovery.relabel "docker_logs" {
 
 // Collect logs from Docker containers
 loki.source.docker "containers" {
-  host       = "unix:///var/run/docker.sock"
+  host       = "tcp://alloy-docker-proxy:2375"
   targets    = discovery.relabel.docker_logs.output
   forward_to = [loki.process.docker_logs.receiver]
 }

@@ -1,0 +1,21 @@
+# Companion service for loki - prepares writable data volume ownership so
+# Loki itself runs as the image's non-root user.
+name: loki-volume-setup
+description: Initialize Loki data volume permissions
+category: observability
+default: false
+profile: observability
+
+image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+compose:
+  restart: "no"
+  user: "0:0"
+  entrypoint: /bin/sh
+  command: >
+    -c "
+    chown -R 10001:10001 /loki &&
+    echo 'Loki data volume ownership initialized'
+    "
+  volumes:
+    - loki-data:/loki

@@ -397,6 +397,13 @@ A target profile states the intended support boundary. Maturity and readiness st
 - Applicable gates: none.
 - Blockers: none.
 
+### `alloy-docker-proxy`
+
+- Target profile: `optional`; target status: `preview`.
+- Current maturity: `preview`; readiness: `not gated`.
+- Applicable gates: none.
+- Blockers: none.
+
 ### `clickhouse`
 
 - Target profile: `outside_v1`; target status: `preview`.
@@ -454,6 +461,13 @@ A target profile states the intended support boundary. Maturity and readiness st
 - Blockers: none.
 
 ### `loki`
+
+- Target profile: `optional`; target status: `preview`.
+- Current maturity: `preview`; readiness: `not gated`.
+- Applicable gates: none.
+- Blockers: none.
+
+### `loki-volume-setup`
 
 - Target profile: `optional`; target status: `preview`.
 - Current maturity: `preview`; readiness: `not gated`.
@@ -600,6 +614,13 @@ A target profile states the intended support boundary. Maturity and readiness st
 - Applicable gates: none.
 - Blockers: none.
 
+### `prometheus-volume-setup`
+
+- Target profile: `optional`; target status: `preview`.
+- Current maturity: `preview`; readiness: `not gated`.
+- Applicable gates: none.
+- Blockers: none.
+
 ### `rustfs`
 
 - Target profile: `outside_v1`; target status: `preview`.
@@ -629,6 +650,13 @@ A target profile states the intended support boundary. Maturity and readiness st
 - Blockers: none.
 
 ### `traefik`
+
+- Target profile: `optional`; target status: `supported`.
+- Current maturity: `alpha`; readiness: `not gated`.
+- Applicable gates: none.
+- Blockers: none.
+
+### `traefik-docker-proxy`
 
 - Target profile: `optional`; target status: `supported`.
 - Current maturity: `alpha`; readiness: `not gated`.

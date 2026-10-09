@@ -22,7 +22,7 @@ compose:
     DB_SCHEME: ${OPENMETADATA_DB_SCHEME:-mysql}
     DB_PARAMS: ${OPENMETADATA_DB_PARAMS:-allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC}
     DB_USER: ${OPENMETADATA_DB_USER:-openmetadata_user}
-    DB_USER_PASSWORD: ${OPENMETADATA_DB_PASSWORD:-openmetadata_password}
+    DB_USER_PASSWORD: ${OPENMETADATA_DB_PASSWORD:?OPENMETADATA_DB_PASSWORD is required; run phlo services init}
     DB_HOST: ${OPENMETADATA_DB_HOST:-openmetadata-mysql}
     DB_PORT: ${OPENMETADATA_DB_PORT:-3306}
     OM_DATABASE: ${OPENMETADATA_DB_NAME:-openmetadata_db}

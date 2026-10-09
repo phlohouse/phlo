@@ -18,6 +18,7 @@ name = "Phlo Team"
 
 [project.entry-points."phlo.plugins.services"]
 traefik = "phlo_traefik.plugin:TraefikServicePlugin"
+traefik-docker-proxy = "phlo_traefik.plugin:TraefikDockerProxyServicePlugin"
 
 [project.license]
 text = "MIT"
@@ -40,7 +41,7 @@ target-version = "py312"
 include-package-data = true
 
 [tool.setuptools.package-data]
-phlo_traefik = ["service.yaml"]
+phlo_traefik = ["service.yaml", "docker_proxy.yaml"]
 
 [tool.setuptools.package-dir]
 "" = "src"
