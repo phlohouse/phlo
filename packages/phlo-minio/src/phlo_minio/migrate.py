@@ -94,6 +94,11 @@ def migrate_image(apply: bool) -> None:
     """
     phlo_dir = ensure_compose_project()
     base = compose_base_cmd(phlo_dir=phlo_dir, project_name=get_project_name())
+    if base[:2] != ["docker", "compose"]:
+        raise click.ClickException(
+            "Automatic image migration requires Docker Compose v2; "
+            "migrate other container backends manually."
+        )
     path = phlo_dir / "docker-compose.yml"
     original = path.read_text(encoding="utf-8")
     document = yaml.safe_load(original)

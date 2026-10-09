@@ -67,6 +67,7 @@ def _project(root: Path, directory: str = "/data") -> Path:
         "denied",
         "override",
         "volume-driver",
+        "podman",
     ],
 )
 def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
@@ -91,6 +92,8 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
         (overrides / "compose.yaml").write_text(
             "services:\n  minio:\n    image: custom/minio:latest\n"
         )
+    if outcome == "podman":
+        monkeypatch.setenv("PHLO_CONTAINER_BACKEND", "podman")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("phlo_minio.migrate.require_container_backend", lambda: None)
     if outcome == "denied":
@@ -120,6 +123,8 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
     assert (result.exit_code == 0) == (outcome in {"preview", "apply"}), result.output
     if outcome == "denied":
         assert "Authorization denied" in result.output
+    if outcome == "podman":
+        assert "requires Docker Compose v2" in result.output
     assert (path.parent / ".env.local").read_text() == "MINIO_ROOT_PASSWORD=migration-password\n"
     if outcome != "apply":
         assert path.read_text() == original

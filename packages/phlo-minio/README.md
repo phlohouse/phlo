@@ -130,8 +130,9 @@ Compose file before stopping any service.
 
 The migration accepts writable named volumes mounted at `/data` or
 `/bitnami/minio/data`. Reconcile MinIO image, storage, or command overrides
-before running it. Bind mounts and distributed server layouts require a
-deployment-specific migration. Production still uses the normal mutation
+before running it. Automatic migration requires Docker Compose v2. Podman,
+bind mounts, and distributed server layouts require a deployment-specific
+migration. Production still uses the normal mutation
 authorization policy; this command does not add a development override.
 
 Read a known existing object and write a test object before resuming writers.
