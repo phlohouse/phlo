@@ -68,7 +68,7 @@ def test_package_distribution_contract() -> None:
     project = _load_pyproject(BLUEPRINT_DIR / "pyproject.toml")
 
     assert project["project"]["name"] == "phlo-retail-files"
-    assert project["project"]["version"] == "0.1.0"
+    assert project["project"]["version"] == "0.1.1"
     entry_points = project["project"]["entry-points"]["phlo.project_templates"]
     assert entry_points == {"retail_files": "phlo_retail_files.provider:templates"}
 
@@ -91,7 +91,7 @@ def test_root_blueprints_extra_and_support_boundaries() -> None:
     root = _load_pyproject(REPO_ROOT / "pyproject.toml")
     extras = root["project"]["optional-dependencies"]
 
-    assert extras["blueprints"] == ["phlo-retail-files==0.1.0"]
+    assert extras["blueprints"] == ["phlo-retail-files==0.1.1"]
     assert "phlo-retail-files" not in _requirement_names(extras["defaults"])
     assert "phlo-retail-files" not in _requirement_names(extras["core-services"])
 
@@ -184,8 +184,9 @@ def test_render_creates_complete_project(
     dev_group = rendered["dependency-groups"]["dev"]
 
     assert rendered["project"]["name"] == "retail-demo"
-    for pin in contract["phlo_family_pins"][:3]:  # runtime phlo pins
-        assert pin in dependencies
+    for pin in contract["phlo_family_pins"]:
+        assert pin in dependencies + dev_group
+    assert "phlo-minio==0.16.1" in dependencies
     names = _requirement_names(dependencies + dev_group)
     phlo_family = {name for name in names if name == "phlo" or name.startswith("phlo-")}
     assert set(names) - phlo_family <= set(THIRD_PARTY_ALLOWLIST)

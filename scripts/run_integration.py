@@ -29,6 +29,11 @@ def run_suites(env: dict[str, str]) -> int:
         "iceberg": ["packages/phlo-iceberg/tests/test_integration_iceberg.py"],
         "dagster": ["packages/phlo-dagster/tests/test_integration_dagster.py"],
         "api": ["packages/phlo-api/tests", "-m", "integration"],
+        "minio-migration": [
+            "packages/phlo-minio/tests/test_minio_migration.py",
+            "-m",
+            "integration",
+        ],
         # These are behavioral capability contracts, not integration-marked tests.
         "dbt-quality": ["packages/phlo-dbt/tests/test_quality_asset_checks.py"],
         "schema-generation": ["packages/phlo-pandera/tests/test_cli_004_schema_generate.py"],

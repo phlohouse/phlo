@@ -141,6 +141,17 @@ ReleaseX does not bump MinIO image tags. Nightly rescans include the latest
 independently published MinIO image as well as the released Phlo fleet.
 See [MinIO image publication](../../packages/phlo-minio/README.md#publish-an-image-only-fix).
 
+**Publish Storage Plugin** independently publishes either `phlo-minio` or
+`phlo-retail-files` from protected `main`. It validates package metadata and
+focused contracts, builds one distribution, and installs the wheel against
+published dependencies before an isolated job publishes the same bytes to PyPI.
+MinIO also requires real Docker migration tests. Publish MinIO first so the
+blueprint's exact dependency pin resolves. This bounded publisher uses the
+existing `release` environment and `PYPI_API_TOKEN`, without a core release,
+whole-release acceptance span, or mandatory reviewer protection. It neither
+publishes images nor changes the whole-release promotion contract.
+See [plugin publication](../../packages/phlo-minio/README.md#publish-the-plugin-and-blueprint-independently).
+
 The publication plan binds the exact BOM bytes and qualifying evidence set.
 Execution reauthenticates both; changes require a fresh dispatch.
 Promotion reruns are rejected; authorization belongs to the original dispatch

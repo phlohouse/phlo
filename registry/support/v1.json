@@ -18,7 +18,7 @@
       {"name": "phlo-dbt", "version": "0.16.0"},
       {"name": "phlo-dlt", "version": "0.16.0"},
       {"name": "phlo-iceberg", "version": "0.16.0"},
-      {"name": "phlo-minio", "version": "0.16.0"},
+      {"name": "phlo-minio", "version": "0.16.1"},
       {"name": "phlo-nessie", "version": "0.16.0"},
       {"name": "phlo-observatory", "version": "0.17.0"},
       {"name": "phlo-observe-plugin", "version": "0.2.0"},

@@ -139,6 +139,13 @@ def minio_group(ctx: click.Context, mc_args: tuple[str, ...]) -> None:
         for better output formatting. All other commands are passed
         directly to mc inside the MinIO container.
     """
+    if mc_args and mc_args[0] == "migrate-image":
+        from phlo_minio.migrate import migrate_image
+
+        migrate_image.main(
+            args=list(mc_args[1:]), prog_name="phlo minio migrate-image", standalone_mode=False
+        )
+        return
     if mc_args and mc_args[0] == "ls":
         minio_ls.main(
             args=list(mc_args[1:]),

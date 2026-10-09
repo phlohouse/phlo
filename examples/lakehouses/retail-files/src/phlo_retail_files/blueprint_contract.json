@@ -3,13 +3,14 @@
   "distribution": "phlo-retail-files",
   "package": "phlo_retail_files",
   "template": "retail-files",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "entry_point_group": "phlo.project_templates",
   "entry_point": "phlo_retail_files.provider:templates",
   "phlo_family_pins": [
     "phlo[defaults]==0.17.0",
     "phlo-dagster==0.17.0",
     "phlo-dbt==0.16.0",
+    "phlo-minio==0.16.1",
     "phlo-pandera==0.16.0"
   ],
   "third_party_dependencies": {
@@ -59,6 +60,7 @@
       "phlo[defaults]==0.17.0",
       "phlo-dagster==0.17.0",
       "phlo-dbt==0.16.0",
+      "phlo-minio==0.16.1",
       "pandas>=2.3,<3.1",
       "pyarrow>=21,<26"
     ],

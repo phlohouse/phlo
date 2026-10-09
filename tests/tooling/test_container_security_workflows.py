@@ -315,3 +315,35 @@ def test_rescan_includes_independent_minio_before_a_phlo_release(
                 "services": ["minio", "minio-setup"],
             }
         ]
+
+
+def test_storage_plugin_publication_is_bounded_and_publishes_tested_artifacts() -> None:
+    workflow = _load_workflow("publish-storage-plugins.yml")
+    assert set(_triggers(workflow)) == {"workflow_dispatch"}
+    assert _triggers(workflow)["workflow_dispatch"]["inputs"]["package"]["options"] == [
+        "phlo-minio",
+        "phlo-retail-files",
+    ]
+    assert workflow["permissions"] == {}
+    build = workflow["jobs"]["build"]
+    assert "github.ref == 'refs/heads/main'" in build["if"]
+    assert "github.repository == 'phlohouse/phlo'" in build["if"]
+    build_scripts = "\n".join(step.get("run", "") for step in build["steps"])
+    assert "-p scripts.ci_required" in build_scripts
+    assert "test_minio_migration.py -m integration" in build_scripts
+    assert "uv pip install" in build_scripts
+    assert "secrets.PYPI_API_TOKEN" not in str(build)
+    upload = next(
+        step for step in build["steps"] if "actions/upload-artifact@" in step.get("uses", "")
+    )
+    publish = workflow["jobs"]["publish"]
+    assert publish["needs"] == "build"
+    assert publish["environment"] == "release"
+    assert publish["permissions"] == {}
+    assert not any("actions/checkout@" in step.get("uses", "") for step in publish["steps"])
+    download = next(
+        step for step in publish["steps"] if "actions/download-artifact@" in step.get("uses", "")
+    )
+    assert download["with"]["name"] == upload["with"]["name"]
+    assert publish["steps"][-1]["run"] == "uv publish dist/*"
+    assert publish["steps"][-1]["env"]["UV_PUBLISH_TOKEN"] == "${{ secrets.PYPI_API_TOKEN }}"
