@@ -66,7 +66,7 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                 )
                 assert created.is_success
                 with (
-                    DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.0")
+                    DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.1")
                     .with_network(network)
                     .with_network_aliases("minio")
                     .with_env("MINIO_ROOT_USER", "localtest")

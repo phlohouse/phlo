@@ -1,9 +1,9 @@
 name: Configure Docker Hub mirror
-description: Use Google's public Docker Hub mirror without stopping running containers
+description: Use Google's public Docker Hub mirror while preserving running containers
 runs:
   using: composite
   steps:
-    - name: Reload Docker registry mirror configuration
+    - name: Apply Docker registry mirror configuration
       shell: bash
       run: |
         set -euo pipefail
@@ -13,14 +13,22 @@ runs:
           sudo cat /etc/docker/daemon.json
         else
           echo '{}'
-        fi | jq '."registry-mirrors" = ["https://mirror.gcr.io"]' > "$config"
+        fi | jq '."registry-mirrors" = ["https://mirror.gcr.io"] | ."live-restore" = true' > "$config"
         sudo install -m 0644 "$config" /etc/docker/daemon.json
+        # Enable live restore first so GitHub's service containers survive restart.
         sudo systemctl kill --kill-whom=main --signal=HUP docker.service
         for attempt in {1..10}; do
-          if docker info --format '{{json .RegistryConfig.Mirrors}}' | jq -e 'any(.[]; rtrimstr("/") == "https://mirror.gcr.io")'; then
+          if docker info --format '{{.LiveRestoreEnabled}}' | grep -qx true; then
+            # A reload alone corrupts netip.Addr values on older Docker versions.
+            # Restart re-derives host-gateway from the unchanged bridge network.
+            sudo systemctl restart docker.service
+            docker info --format '{{json .RegistryConfig.Mirrors}}' | jq -e 'any(.[]; rtrimstr("/") == "https://mirror.gcr.io")'
+            docker run --rm --add-host host.docker.internal:host-gateway \
+              mirror.gcr.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b \
+              getent hosts host.docker.internal
             exit 0
           fi
           sleep 1
         done
-        echo '::error::Docker did not load its registry mirror'
+        echo '::error::Docker did not enable live restore'
         exit 1
