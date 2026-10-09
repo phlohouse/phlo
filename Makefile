@@ -182,4 +182,4 @@ zizmor:
 	uvx zizmor --no-online-audits --no-progress --min-severity low .github/workflows
 
 actionlint:
-	docker run --rm -v "$(PWD):/repo" -w /repo rhysd/actionlint:1.7.7 -color
+	docker run --rm -v "$(PWD):/repo" -w /repo mirror.gcr.io/rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color

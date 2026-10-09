@@ -1,0 +1,73 @@
+name: Publish MinIO Plugin
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: publish-minio-plugin
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+          enable-cache: false
+      - name: Validate package and release metadata
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run --locked python scripts/validate_support_manifest.py
+          uv run --locked python scripts/check_version_drift.py
+          uv run --locked ruff check packages/phlo-minio/src
+          uv run --locked pytest packages/phlo-minio/tests tests/tooling/test_release_replacements.py
+      - name: Require the independently published image
+        run: docker buildx imagetools inspect ghcr.io/phlohouse/phlo-minio:0.17.1
+      - name: Build MinIO from checked-in sources
+        run: docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.1 packages/phlo-minio/src/phlo_minio
+      - name: Exercise existing MinIO volumes
+        run: uv run --locked python -m pytest -p scripts.ci_required packages/phlo-minio/tests/test_minio_migration.py -m integration
+      - name: Build the MinIO distribution
+        run: uv build packages/phlo-minio --out-dir dist
+      - name: Install the wheel against published dependencies
+        run: |
+          set -euo pipefail
+          uv venv "$RUNNER_TEMP/consumer"
+          uv pip install --python "$RUNNER_TEMP/consumer/bin/python" dist/*.whl
+          "$RUNNER_TEMP/consumer/bin/python" -I -c 'from phlo_minio.migrate import migrate_image; from phlo_minio.plugin import MinioServicePlugin, MinioSetupServicePlugin; assert migrate_image.name == "migrate-image"; image = MinioServicePlugin().service_definition["image"]; assert image.startswith("ghcr.io/phlohouse/phlo-minio:"); assert image == MinioSetupServicePlugin().service_definition["image"]'
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: minio-plugin-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions: {}
+    steps:
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+          enable-cache: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: minio-plugin-distributions
+          path: dist
+      - name: Publish tested bytes without rebuilding
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv publish dist/*
