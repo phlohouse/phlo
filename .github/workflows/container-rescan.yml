@@ -72,7 +72,35 @@ jobs:
           uv run --no-project --with pyyaml==6.0.3 python released/scripts/container_security.py \
             assemble-rescan-manifest --root released --records "$RUNNER_TEMP/resolved-fleet.json" \
             --output published/generated-service-images.json
+      - name: Include the latest independently published MinIO image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GH_REPO/actions/workflows/publish-minio.yml/runs?branch=main&event=workflow_dispatch&status=success&per_page=1" --jq '.workflow_runs[0].id // empty')"
+          if [[ -z "$run" ]]; then
+            echo 'MinIO has no successful independent publication yet.'
+            exit 0
+          fi
+          gh api --paginate --slurp 'orgs/phlohouse/packages/container/phlo-minio/versions?per_page=100' |
+            jq -e '[.[][] | . as $version | .metadata.container.tags[] |
+              select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) |
+              {image: ("ghcr.io/phlohouse/phlo-minio:" + .), digest: $version.name,
+               services: ["minio", "minio-setup"], created: $version.created_at}] |
+              if length == 0 then error("published MinIO package has no versioned images")
+              else max_by(.created) | del(.created) end |
+              if .digest | test("^sha256:[0-9a-f]{64}$") then .
+              else error("invalid published MinIO digest") end' > "$RUNNER_TEMP/minio-image.json"
+          jq --slurpfile minio "$RUNNER_TEMP/minio-image.json" \
+            '. + $minio | unique_by(.image)' published/generated-service-images.json \
+            > "$RUNNER_TEMP/rescan-images.json"
+          mv "$RUNNER_TEMP/rescan-images.json" published/generated-service-images.json
       - name: Rescan immutable images with fresh Trivy data
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -85,7 +113,7 @@ jobs:
             digest="$(jq -r .digest <<< "$target")"
             safe="$(tr -d '\n' <<< "$image" | tr '/:@' '___')"
             report="reports/${safe}.json"
-            if ! docker run --rm -v "$PWD:/work" -w /work aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+            if ! docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD:/work" -w /work aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
               image --format json --output "/work/$report" --scanners vuln "$image@$digest"; then
               echo "::error::Scanner failed for $image@$digest"
               failed=1

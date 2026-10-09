@@ -274,7 +274,7 @@ def test_staging_refuses_rebuild_before_any_write(monkeypatch, mode: str) -> Non
         staging.reserve(SHA)
 
 
-def test_prebuilt_staging_pins_bytes_without_build_or_registry_resolution(
+def test_prebuilt_staging_consumes_independent_minio_without_rebuilding(
     tmp_path: Path, monkeypatch
 ) -> None:
     support = tmp_path / "registry/support/v1.json"
@@ -301,7 +301,11 @@ def test_prebuilt_staging_pins_bytes_without_build_or_registry_resolution(
         bom_module.ReleaseTree,
         "image_references",
         lambda *a: {
-            "service.yaml": ["ghcr.io/phlohouse/phlo-api:0.15.0", "postgres:18@sha256:" + "f" * 64]
+            "service.yaml": [
+                "ghcr.io/phlohouse/phlo-api:0.15.0",
+                "ghcr.io/phlohouse/phlo-minio:0.29.1",
+                "postgres:18@sha256:" + "f" * 64,
+            ]
         },
     )
     monkeypatch.setattr(
@@ -312,7 +316,11 @@ def test_prebuilt_staging_pins_bytes_without_build_or_registry_resolution(
     monkeypatch.setattr(
         bom_module,
         "resolve_image_digest",
-        lambda *a: pytest.fail("must not resolve mutable image tags"),
+        lambda image: (
+            "sha256:" + "a" * 64
+            if image == "ghcr.io/phlohouse/phlo-minio:0.29.1"
+            else pytest.fail("only independent MinIO may resolve an already-published tag")
+        ),
     )
     output = tmp_path / "candidate"
     candidate = bom_module.stage(
@@ -324,6 +332,18 @@ def test_prebuilt_staging_pins_bytes_without_build_or_registry_resolution(
     )
     assert candidate.release_commit == SHA
     assert (output / "distributions/phlo-0.15.0-py3-none-any.whl").read_bytes() == b"wheel"
+    minio = next(
+        artifact
+        for artifact in candidate.bom["artifacts"]
+        if artifact["name"] == "ghcr.io/phlohouse/phlo-minio"
+    )
+    assert minio == {
+        "kind": "provider-image",
+        "name": "ghcr.io/phlohouse/phlo-minio",
+        "version": "0.29.1",
+        "digest": "sha256:" + "a" * 64,
+        "source": "service.yaml",
+    }
     bom_module.verify_staged_distributions(candidate.bom, output)
     with pytest.raises(bom_module.BomError, match="append-only"):
         bom_module.stage(tmp_path, None, output, built_distributions=built)

@@ -1264,9 +1264,13 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
     """Rewrite every generated image reference to its exact BOM digest."""
     bom = config.bom
     assert bom is not None
-    first_party = {
+    phlo_images = {
         str(artifact["name"]): artifact
-        for artifact in bom_artifacts(bom, bom_module.KIND_FIRST_PARTY_IMAGE)
+        for artifact in (
+            bom_artifacts(bom, bom_module.KIND_FIRST_PARTY_IMAGE)
+            + bom_artifacts(bom, bom_module.KIND_PROVIDER_IMAGE)
+        )
+        if str(artifact["name"]).startswith(bom_module.FIRST_PARTY_IMAGE_PREFIX)
     }
     providers = {
         (str(artifact["name"]), str(artifact["digest"])): artifact
@@ -1286,14 +1290,12 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
             raise CandidateError(f"service {service_name!r} has no image reference")
         name, tag, digest = bom_module.parse_image_reference(image)
         if name.startswith(bom_module.FIRST_PARTY_IMAGE_PREFIX):
-            entry = first_party.get(name)
+            entry = phlo_images.get(name)
             if entry is None:
-                raise CandidateError(
-                    f"first-party image {image!r} is not part of the candidate BOM"
-                )
+                raise CandidateError(f"Phlo-owned image {image!r} is not part of the candidate BOM")
             if str(entry["version"]) != tag:
                 raise CandidateError(
-                    f"first-party image {image!r} does not match the BOM version "
+                    f"Phlo-owned image {image!r} does not match the BOM version "
                     f"{entry['version']!r}"
                 )
             replacement = f"{name}@{entry['digest']}"

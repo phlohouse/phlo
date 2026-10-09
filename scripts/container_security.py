@@ -47,8 +47,10 @@ PUBLISHED_SERVICE_REPOSITORIES = {
 }
 BROAD_IMAGE_PATHS = {
     ".github/workflows/build-core-services.yml",
+    ".github/workflows/build-service-images.yml",
     ".github/workflows/container-rescan.yml",
     ".github/workflows/container-security.yml",
+    ".github/workflows/publish-minio.yml",
     "pyproject.toml",
     "scripts/container_security.py",
     "scripts/generated_image_matrix.py",

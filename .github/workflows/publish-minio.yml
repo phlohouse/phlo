@@ -1,0 +1,56 @@
+name: Publish MinIO Image
+run-name: publish MinIO from ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: publish-minio
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      targets: ${{ steps.matrix.outputs.targets }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Prepare the independently versioned MinIO image
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$(jq -er '.release_set.services[] | select(.name == "minio") | .image_reference' registry/support/v1.json)"
+          [[ "$image" =~ ^ghcr.io/phlohouse/phlo-minio:[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir -p "$RUNNER_TEMP/generated-service-project/minio"
+          cp packages/phlo-minio/src/phlo_minio/Dockerfile "$RUNNER_TEMP/generated-service-project/minio/"
+          targets="$(jq -cn --arg image "$image" '[{
+            service: "minio", services: ["minio", "minio-setup"], image: $image,
+            root: "generated", context: "minio", dockerfile: "minio/Dockerfile", build_args: {}
+          }]')"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+      - name: Upload MinIO build context
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: generated-service-build-contexts
+          path: ${{ runner.temp }}/generated-service-project
+          if-no-files-found: error
+
+  images:
+    needs: prepare
+    uses: ./.github/workflows/build-service-images.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      candidate_sha: ${{ github.sha }}
+      targets: ${{ needs.prepare.outputs.targets }}
+      immutable_tags: true

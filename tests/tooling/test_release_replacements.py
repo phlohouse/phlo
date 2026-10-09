@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
 
+import yaml
 from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,34 +108,39 @@ def test_release_replaces_every_support_manifest_package_version() -> None:
             assert content.count(search) == replacement["expected_matches"]
 
 
-def test_release_replaces_every_minio_image_pin_using_the_core_version() -> None:
+def test_phlo_releases_preserve_independent_minio_image_pins() -> None:
     versions = _workspace_versions()
-    # The Python plugin can advance independently of the promoted container.
-    versions["phlo-minio"] = "7.6.0"
-    repository = "ghcr.io/phlohouse/phlo-minio"
-    current_pin = f"{repository}:{versions['phlo']}"
-    next_pin = f"{repository}:99.1.0"
-    tracked = subprocess.check_output(["git", "ls-files"], cwd=ROOT, text=True).splitlines()
-    pinned_files = {
-        name
-        for name in tracked
-        if Path(name).suffix in {".json", ".md", ".py", ".toml", ".yaml", ".yml"}
-        and current_pin in (ROOT / name).read_text(encoding="utf-8")
-    }
-    rewritten_files: set[str] = set()
-    for replacement in _replacements():
-        if repository not in replacement["search"]:
-            continue
-        assert replacement["packages"] == ["phlo"]
-        search = replacement["search"].format(current_version=versions[replacement["packages"][0]])
-        replace = replacement["replace"].format(next_version="99.1.0")
-        for name in replacement["files"]:
-            assert name not in rewritten_files
-            source = (ROOT / name).read_text(encoding="utf-8")
-            assert source.count(search) == replacement["expected_matches"], name
-            result = source.replace(search, replace)
-            assert current_pin not in result, name
-            assert result.count(next_pin) == replacement["expected_matches"], name
-            rewritten_files.add(name)
-    assert pinned_files
-    assert rewritten_files == pinned_files
+    files = [
+        "registry/support/v1.json",
+        "src/phlo/support_data/v1.json",
+        "packages/phlo-minio/src/phlo_minio/service.yaml",
+        "packages/phlo-minio/src/phlo_minio/minio-setup.yaml",
+    ]
+    for file_name in files:
+        source = (ROOT / file_name).read_text(encoding="utf-8")
+        result = source
+        for replacement in _replacements():
+            if file_name not in replacement["files"]:
+                continue
+            for name in replacement["packages"]:
+                search = replacement["search"].format(name=name, current_version=versions[name])
+                replace = replacement["replace"].format(name=name, next_version="99.1.0")
+                result = result.replace(search, replace)
+        if file_name.endswith(".json"):
+            original = json.loads(source)
+            rewritten = json.loads(result)
+            pins = {
+                service["name"]: service["image_reference"]
+                for service in original["release_set"]["services"]
+                if service["name"] in {"minio", "minio-setup"}
+            }
+            assert set(pins) == {"minio", "minio-setup"}
+            assert {
+                service["name"]: service["image_reference"]
+                for service in rewritten["release_set"]["services"]
+                if service["name"] in pins
+            } == pins, file_name
+        else:
+            original = yaml.safe_load(source)
+            rewritten = yaml.safe_load(result)
+            assert rewritten["image"] == original["image"], file_name
