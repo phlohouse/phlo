@@ -105,7 +105,10 @@ def test_postgres_gate_is_required_and_runs_the_lock_guard_suites() -> None:
     gate = integration["jobs"][GATE_JOB]
 
     postgres_service = (gate.get("services") or {}).get("postgres") or {}
-    assert postgres_service.get("image") == "postgres:16-alpine"
+    assert re.fullmatch(
+        r"mirror\.gcr\.io/library/postgres:16-alpine@sha256:[0-9a-f]{64}",
+        postgres_service.get("image", ""),
+    )
     for dsn_name in GATE_DSN_ENV_VARS:
         assert dsn_name in (gate.get("env") or {})
 
