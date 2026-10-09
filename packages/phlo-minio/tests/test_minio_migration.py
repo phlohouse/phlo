@@ -164,6 +164,9 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
 @pytest.mark.integration
 @pytest.mark.parametrize("directory", ["/data", "/bitnami/minio/data"])
 def test_migration_keeps_root_owned_objects_readable(tmp_path, monkeypatch, directory):
+    # The suite harness owns a different MinIO server; use this fixture's env files.
+    for variable in ("MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"):
+        monkeypatch.delenv(variable, raising=False)
     path = _project(tmp_path, directory)
     name = "phlo-minio-migrate-" + uuid.uuid4().hex[:10]
     (tmp_path / "phlo.yaml").write_text(f"name: {name}\n")
