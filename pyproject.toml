@@ -25,7 +25,7 @@ dev = [
     "phlo-lineage>=0.3.2",
     "phlo-loki>=0.1.0",
     "phlo-mcp>=0.1.0",
-    "phlo-minio>=0.3.2",
+    "phlo-minio>=0.16.1",
     "phlo-sling>=0.1.0",
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
@@ -104,7 +104,7 @@ codemods = ["libcst>=1.5.0"]
 core-services = [
     "phlo-dagster>=0.3.2",
     "phlo-postgres>=0.1.0",
-    "phlo-minio>=0.3.2",
+    "phlo-minio>=0.16.1",
     "phlo-nessie>=0.3.2",
     "phlo-trino>=0.1.0",
 ]
@@ -117,7 +117,7 @@ defaults = [
     "phlo-pandera>=0.3.2",
     "phlo-dagster>=0.3.2",
     "phlo-postgres>=0.1.0",
-    "phlo-minio>=0.3.2",
+    "phlo-minio>=0.16.1",
     "phlo-nessie>=0.3.2",
     "phlo-observatory>=0.1.0",
     "phlo-observe-plugin>=0.1.0",
