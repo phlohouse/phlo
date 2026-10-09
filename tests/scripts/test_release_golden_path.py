@@ -1128,11 +1128,22 @@ def test_pin_candidate_images_rewrites_first_party_and_keeps_pinned_providers(
 ) -> None:
     config = _config(tmp_path)
     config.__dict__.update(bom=_candidate_bom())
+    config.bom["artifacts"].append(
+        {
+            "kind": "provider-image",
+            "name": "ghcr.io/phlohouse/phlo-minio",
+            "version": "0.29.1",
+            "digest": "sha256:" + "2" * 64,
+            "source": "packages/phlo-minio/src/phlo_minio/service.yaml",
+        }
+    )
     config.compose_file.parent.mkdir(parents=True, exist_ok=True)
     config.compose_file.write_text(
         "services:\n"
         "  phlo-api:\n"
         "    image: ghcr.io/phlohouse/phlo-api:0.14.0\n"
+        "  minio:\n"
+        "    image: ghcr.io/phlohouse/phlo-minio:0.29.1\n"
         "  postgres:\n"
         "    image: postgres:18.4-alpine3.24@sha256:" + "1" * 64 + "\n",
         encoding="utf-8",
@@ -1149,8 +1160,12 @@ def test_pin_candidate_images_rewrites_first_party_and_keeps_pinned_providers(
     assert "postgres:18.4-alpine3.24@sha256:" + "1" * 64 in rewritten
     assert result["digest_pinned_images"] == [
         "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64,
+        "ghcr.io/phlohouse/phlo-minio@sha256:" + "2" * 64,
         "postgres:18.4-alpine3.24@sha256:" + "1" * 64,
     ]
+    assert (
+        next(entry for entry in pinned if entry["service"] == "minio")["kind"] == "provider-image"
+    )
     assert {entry["kind"] for entry in pinned} == {
         release_golden_path.bom_module.KIND_FIRST_PARTY_IMAGE,
         release_golden_path.bom_module.KIND_PROVIDER_IMAGE,

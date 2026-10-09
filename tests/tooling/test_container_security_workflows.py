@@ -9,6 +9,8 @@ tests/tooling/test_toolchain_pins.py.
 from __future__ import annotations
 
 import ast
+import json
+import os
 import re
 import subprocess
 from collections.abc import Iterator
@@ -249,3 +251,67 @@ def test_zizmor_audit_runs_in_scheduled_security_and_required_quality() -> None:
     assert sum(step.get("run") == "make zizmor" for step in quality["steps"]) == 1
     pr = _load_workflow("pr.yml")
     assert all(step.get("run") != "make zizmor" for step in pr["jobs"]["security"]["steps"])
+
+
+@pytest.mark.parametrize("state", ["published", "not-published", "registry-failure", "bad-digest"])
+def test_rescan_includes_independent_minio_before_a_phlo_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    workflow = _load_workflow("container-rescan.yml")
+    script = next(
+        step["run"]
+        for step in _steps(workflow)
+        if step.get("name") == "Include the latest independently published MinIO image"
+    )
+    published = tmp_path / "published/generated-service-images.json"
+    published.parent.mkdir()
+    old_fleet = [{"image": "ghcr.io/phlohouse/phlo-api:0.17.0", "digest": "sha256:" + "a" * 64}]
+    published.write_text(json.dumps(old_fleet))
+    versions = [
+        {
+            "name": "sha256:" + "b" * 64 if state != "bad-digest" else "invalid-digest",
+            "created_at": "2026-10-08T10:00:00Z",
+            "metadata": {"container": {"tags": ["0.29.1"]}},
+        },
+        {
+            "name": "sha256:" + "c" * 64,
+            "created_at": "2026-10-09T10:00:00Z",
+            "metadata": {"container": {"tags": []}},
+        },
+        {
+            "name": "sha256:" + "d" * 64,
+            "created_at": "2026-10-07T10:00:00Z",
+            "metadata": {"container": {"tags": ["0.29.0"]}},
+        },
+    ]
+    (tmp_path / "versions.json").write_text(json.dumps([versions]))
+    gh = tmp_path / "gh"
+    gh.write_text(
+        "#!/bin/bash\n"
+        'if [[ "$*" = *"/runs?"* ]]; then\n'
+        '  if [[ "$STATE" != not-published ]]; then echo 123; fi\n'
+        "  exit 0\nfi\n"
+        'if [[ "$STATE" = registry-failure ]]; then exit 1; fi\n'
+        'cat "$RUNNER_TEMP/versions.json"\n'
+    )
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("STATE", state)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("GH_REPO", "phlohouse/phlo")
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True)
+    if state in {"registry-failure", "bad-digest"}:
+        assert result.returncode != 0
+        assert json.loads(published.read_text()) == old_fleet
+    elif state == "not-published":
+        assert result.returncode == 0, result.stderr
+        assert json.loads(published.read_text()) == old_fleet
+    else:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(published.read_text()) == old_fleet + [
+            {
+                "image": "ghcr.io/phlohouse/phlo-minio:0.29.1",
+                "digest": "sha256:" + "b" * 64,
+                "services": ["minio", "minio-setup"],
+            }
+        ]

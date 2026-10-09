@@ -3,10 +3,11 @@
 
 A release candidate is an exact, enumerable artifact set: the release commit
 source identity, one sdist and one wheel per published release-set package,
-every first-party ``ghcr.io/phlohouse`` service image by digest, every pinned
-third-party provider image by digest, and the committed support manifest. The
-canonical candidate digest is the SHA-256 of the canonicalised (keys sorted,
-whitespace-free) JSON array of artifact digests in BOM order.
+every release-built first-party service image by digest, the independently
+published MinIO and third-party provider images by digest, and the committed
+support manifest. The canonical candidate digest is the SHA-256 of the
+canonicalised (keys sorted, whitespace-free) JSON array of artifact digests
+in BOM order.
 
 The ``stage`` subcommand materializes one candidate staging directory
 (``bom.json`` plus downloaded distributions) and refuses to overwrite an
@@ -450,7 +451,7 @@ def build_bom_artifacts(  # noqa: C901
                         f"{existing['digest']!r} and {digest!r}"
                     )
                 continue
-            if name.startswith(FIRST_PARTY_IMAGE_PREFIX):
+            if name.startswith(FIRST_PARTY_IMAGE_PREFIX) and name != "ghcr.io/phlohouse/phlo-minio":
                 if digest is not None:
                     raise BomError(
                         f"first-party image {reference!r} must be tag-pinned in service YAML; "
@@ -468,6 +469,12 @@ def build_bom_artifacts(  # noqa: C901
                     "source": relative_path,
                 }
             else:
+                # MinIO is published independently. Consume its existing image
+                # as a provider dependency, never rebuild or promote it here.
+                if name == "ghcr.io/phlohouse/phlo-minio":
+                    if not tag:
+                        raise BomError(f"independent MinIO image {reference!r} has no tag")
+                    digest = digest or resolve_image_digest(reference)
                 if digest is None:
                     raise BomError(
                         f"provider image {reference!r} in {relative_path} is not digest-pinned; "

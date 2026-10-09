@@ -83,36 +83,7 @@ search = "image: ghcr.io/phlohouse/{name}:{current_version}"
 replace = "image: ghcr.io/phlohouse/{name}:{next_version}"
 expected_matches = 1
 
-# MinIO images follow the core release version used by image promotion, not
-# the independently versioned phlo-minio Python distribution.
-[[release.replacements]]
-files = [
-    "registry/support/v1.json",
-    "src/phlo/support_data/v1.json",
-    "packages/phlo-delta/tests/compose/docker-compose.yml",
-]
-packages = ["phlo"]
-search = "ghcr.io/phlohouse/phlo-minio:{current_version}"
-replace = "ghcr.io/phlohouse/phlo-minio:{next_version}"
-expected_matches = 2
-
-[[release.replacements]]
-files = [
-    "packages/phlo-minio/src/phlo_minio/service.yaml",
-    "packages/phlo-minio/src/phlo_minio/minio-setup.yaml",
-    "packages/phlo-minio/README.md",
-    "packages/phlo-minio/tests/test_minio_plugin.py",
-    "packages/phlo-api/tests/test_usage_trino_integration.py",
-    ".github/workflows/integration.yml",
-    "scripts/run_integration.py",
-    "scripts/recovery_drill.py",
-    "tests/scripts/test_recovery_drill.py",
-]
-packages = ["phlo"]
-search = "ghcr.io/phlohouse/phlo-minio:{current_version}"
-replace = "ghcr.io/phlohouse/phlo-minio:{next_version}"
-expected_matches = 1
-
+# MinIO image versions are maintained independently by publish-minio.yml.
 [[release.replacements]]
 files = [
     "examples/lakehouses/clickhouse-ops/pyproject.toml",

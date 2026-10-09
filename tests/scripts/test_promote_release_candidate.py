@@ -508,7 +508,20 @@ def _run_promotion(tmp_path: Path, bundles: list[dict[str, object]], **kwargs: o
 
 
 def test_qualifying_dry_run_promotes_identical_bytes_without_publishing(tmp_path: Path) -> None:
-    staging, _, bom = _stage_candidate(tmp_path)
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    bom["artifacts"].append(
+        {
+            "kind": "provider-image",
+            "name": "ghcr.io/phlohouse/phlo-minio",
+            "version": "0.29.1",
+            "digest": "sha256:" + "1" * 64,
+            "source": "packages/phlo-minio/src/phlo_minio/service.yaml",
+        }
+    )
+    bom["canonical_candidate_digest"] = release_candidate_bom.canonical_candidate_digest(
+        bom["artifacts"]
+    )
+    bom_path.write_text(json.dumps(bom), encoding="utf-8")
     bundles = _qualifying_bundles(bom)
     code, receipt_path = _run_promotion(
         tmp_path, bundles, authorization=_authorization(bom, bundles)
@@ -538,6 +551,7 @@ def test_qualifying_dry_run_promotes_identical_bytes_without_publishing(tmp_path
     # exact staged bytes, digest-identical to the BOM.
     commands = [command for step in receipt["steps"] for command in step["commands"]]
     assert all("build" not in command for command in commands)
+    assert all("phlo-minio" not in " ".join(command) for command in commands)
     publish_command = next(command for command in commands if command[0] == "uv")
     staged_wheel = staging / "distributions" / "phlo-0.15.0-py3-none-any.whl"
     assert [Path(path).name for path in publish_command[2:]] == [

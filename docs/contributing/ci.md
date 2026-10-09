@@ -130,6 +130,17 @@ Ordinary main pushes cannot invoke the image publisher. PR, queue and main check
 reuse installed-provider image builds for local scans by image ID, with no
 registry writes or duplicate builds.
 
+MinIO is an independently published provider dependency. **Publish MinIO Image**
+is a separate manual dispatch on `main`, with its own image version and no PyPI
+publication or whole-release acceptance gate. Both publishers reuse
+`build-service-images.yml` for native builds, immutable-digest scans and manifest
+assembly. The MinIO publisher also tests health and an object roundtrip on each
+architecture, and refuses to overwrite a published tag. Phlo staging records
+the existing MinIO digest in its BOM without rebuilding or promoting the image.
+ReleaseX does not bump MinIO image tags. Nightly rescans include the latest
+independently published MinIO image as well as the released Phlo fleet.
+See [MinIO image publication](../../packages/phlo-minio/README.md#publish-an-image-only-fix).
+
 The publication plan binds the exact BOM bytes and qualifying evidence set.
 Execution reauthenticates both; changes require a fresh dispatch.
 Promotion reruns are rejected; authorization belongs to the original dispatch

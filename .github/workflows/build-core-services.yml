@@ -12,10 +12,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: generated-service-images-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   prepare:
     if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
@@ -84,9 +80,7 @@ jobs:
           done
           uv --project "$GITHUB_WORKSPACE" run --locked phlo services add "${add_args[@]}" --no-start
           # Generated service images must embed the workspace packages from
-          # this revision.  Otherwise the runtime Dockerfiles resolve the
-          # last PyPI release (which can omit modules introduced by the image
-          # revision itself).
+          # this revision. Otherwise the runtime Dockerfiles resolve PyPI.
           wheelhouse="$project/.phlo/wheelhouse"
           mkdir -p "$wheelhouse"
           cp "$RUNNER_TEMP"/candidate-distributions/*.whl "$wheelhouse/"
@@ -116,6 +110,8 @@ jobs:
               "$project" \
               "$GITHUB_WORKSPACE"
           )"
+          # MinIO is an independently published dependency, not a staged build.
+          matrix="$(jq '.include |= map(select(.services | index("minio") | not))' <<< "$matrix")"
           # Staging can never mutate a release repository/tag.
           matrix="$(jq --arg sha "$CANDIDATE_SHA" '.include |= map(.image = ((.image | split("@")[0] | split(":")[0]) + "-development:" + $sha))' <<< "$matrix")"
           echo "targets=$(jq -c '.include' <<< "$matrix")" >> "$GITHUB_OUTPUT"
@@ -130,247 +126,13 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  build:
-    name: Build ${{ matrix.target.service }} (${{ matrix.architecture.name }})
+  images:
     needs: prepare
     if: needs.prepare.outputs.has_targets == 'true'
-    runs-on: ${{ matrix.architecture.runner }}
-    timeout-minutes: 45
+    uses: ./.github/workflows/build-service-images.yml
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      max-parallel: 8
-      matrix:
-        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
-        architecture:
-          - name: amd64
-            platform: linux/amd64
-            runner: ubuntu-24.04
-          - name: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          path: source
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-          enable-cache: false
-
-      - name: Download generated build contexts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: generated-service-build-contexts
-          path: generated
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Render build arguments
-        id: args
-        env:
-          BUILD_ARGS_JSON: ${{ toJSON(matrix.target.build_args) }}
-        shell: bash
-        run: |
-          {
-            echo 'value<<EOF'
-            jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$BUILD_ARGS_JSON"
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Resolve digest repository
-        id: image
-        env:
-          IMAGE: ${{ matrix.target.image }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          repository="${IMAGE%@*}"
-          repository="${repository%:*}"
-          echo "repository=$repository" >> "$GITHUB_OUTPUT"
-
-      - name: Build and publish native architecture image
-        id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
-        with:
-          context: ${{ matrix.target.root }}/${{ matrix.target.context }}
-          file: ${{ matrix.target.root }}/${{ matrix.target.dockerfile }}
-          build-args: ${{ steps.args.outputs.value }}
-          platforms: ${{ matrix.architecture.platform }}
-          outputs: type=image,name=${{ steps.image.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
-          # The runtime stage re-resolves the base image and re-runs apk/apt
-          # security upgrades on every publish; cached layers would keep
-          # stale, vulnerable OS libraries alive indefinitely.
-          no-cache-filters: |
-            runtime
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ inputs.candidate_sha }}
-          provenance: mode=max
-          sbom: true
-          cache-from: type=gha,scope=${{ matrix.target.service }}-${{ matrix.architecture.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target.service }}-${{ matrix.architecture.name }}
-
-      - name: Record architecture digest
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          hex="${DIGEST#sha256:}"
-          [[ "$hex" =~ ^[0-9a-f]{64}$ ]]
-          mkdir -p digests
-          touch "digests/$hex"
-
-      # Buildx has produced this immutable architecture digest exactly once.
-      # Scan that digest before it can be assembled into a published manifest.
-      - name: Scan immutable architecture digest
-        env:
-          IMAGE: ${{ steps.image.outputs.repository }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-          PLATFORM: ${{ matrix.architecture.platform }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p security-reports
-          docker run --rm -v "$PWD:/work" -w /work aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
-            image --platform "$PLATFORM" --format json --output "/work/security-reports/${{ matrix.target.service }}-${{ matrix.architecture.name }}.json" --scanners vuln "$IMAGE@$DIGEST"
-          uv --project source run --no-project --with pyyaml==6.0.3 python source/scripts/container_security.py \
-            apply-policy --register source/security/container-waivers.yml --image "$IMAGE@$DIGEST" --report "security-reports/${{ matrix.target.service }}-${{ matrix.architecture.name }}.json"
-
-      - name: Upload immutable digest scan report
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: security-${{ matrix.target.service }}-${{ matrix.architecture.name }}
-          path: security-reports
-          if-no-files-found: warn
-
-      - name: Upload architecture digest
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: digest-${{ matrix.target.service }}-${{ matrix.architecture.name }}
-          path: digests/*
-          if-no-files-found: error
-
-  merge:
-    name: Publish ${{ matrix.target.service }} manifest
-    needs: [prepare, build]
-    if: always() && needs.prepare.result == 'success' && needs.build.result == 'success' && needs.prepare.outputs.has_targets == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
-    steps:
-      - name: Download amd64 digest
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: digest-${{ matrix.target.service }}-amd64
-          path: digests
-
-      - name: Download arm64 digest
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: digest-${{ matrix.target.service }}-arm64
-          path: digests
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish multi-architecture manifest
-        id: manifest
-        env:
-          IMAGE: ${{ matrix.target.image }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          refs=()
-          for digest_file in digests/*; do
-            refs+=("${IMAGE%:*}@sha256:${digest_file##*/}")
-          done
-          if [[ "${#refs[@]}" -ne 2 ]]; then
-            echo "expected two architecture digests, found ${#refs[@]}" >&2
-            exit 1
-          fi
-          docker buildx imagetools create --tag "$IMAGE" "${refs[@]}"
-          digest="$(
-            docker buildx imagetools inspect \
-              --format '{{json .Manifest.Digest}}' \
-              "$IMAGE" | jq -r .
-          )"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-
-      - name: Record published digest
-        env:
-          DIGEST: ${{ steps.manifest.outputs.digest }}
-          IMAGE: ${{ matrix.target.image }}
-          SERVICE: ${{ matrix.target.service }}
-          SERVICES: ${{ toJSON(matrix.target.services) }}
-        shell: bash
-        run: |
-          jq -n \
-            --arg image "$IMAGE" \
-            --arg digest "$DIGEST" \
-            --argjson services "$SERVICES" \
-            '{image: $image, digest: $digest, services: $services}' \
-            > "published-${SERVICE}.json"
-
-      - name: Upload published digest
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: published-${{ matrix.target.service }}
-          path: published-${{ matrix.target.service }}.json
-          if-no-files-found: error
-
-  manifest:
-    name: Published image digest manifest
-    needs: [prepare, merge]
-    if: always() && needs.merge.result == 'success' && needs.prepare.outputs.has_targets == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Download published digests
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          pattern: published-*
-          path: published
-          merge-multiple: true
-
-      - name: Assemble digest manifest
-        shell: bash
-        run: jq -s 'sort_by(.image)' published/*.json > generated-service-images.json
-
-      - name: Upload digest manifest
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: generated-service-images
-          path: generated-service-images.json
-          if-no-files-found: error
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      targets: ${{ needs.prepare.outputs.targets }}
