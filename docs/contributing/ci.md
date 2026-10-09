@@ -121,9 +121,29 @@ two-day span. No reduced release policy is introduced.
 **Release Promotion** defaults to a dry run. Set `execute: true` on a fresh
 manual dispatch to publish. GitHub authenticates the dispatch actor, and promotion
 verifies the live workflow run on protected `main`. The `release` environment
-does not require reviewers or prevent-self-review protection. Configure the
-existing `PYPI_API_TOKEN` publication credential separately. Promotion publishes
+does not require reviewers or prevent-self-review protection. PyPI uploads use
+trusted publishing: only the `promote` job holds `id-token: write`, and no PyPI
+token secret is read. Register a trusted publisher on PyPI for every published
+distribution with owner `phlohouse`, repository `phlo`, workflow
+`release-promotion.yml` and environment `release`. Promotion publishes
 the authorized staged bytes without rebuilding and reconciles published digests.
+
+Every manifest published through `build-service-images.yml` is signed with
+keyless cosign under that workflow's GitHub OIDC identity. Release Stage also
+signs each staged first-party digest in its release repository, under the
+`release-stage.yml@refs/heads/main` identity. Acceptance and promotion run
+`cosign verify` against that identity for every first-party image in the BOM
+before using it. To check a published image yourself:
+
+```bash
+cosign verify ghcr.io/phlohouse/phlo-api@sha256:<digest> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/phlohouse/phlo/.github/workflows/release-stage.yml@refs/heads/main
+```
+
+Every Dockerfile `FROM` is pinned as `tag@sha256:<digest>`;
+`tests/tooling/test_dockerfile_base_pins.py` fails on an unpinned base, and
+Renovate refreshes the digests in one group per base image.
 Development images use a separate `-development:<SHA>` namespace.
 Only an explicit Release Stage dispatch builds and uploads these staging images.
 Ordinary main pushes cannot invoke the image publisher. PR, queue and main checks

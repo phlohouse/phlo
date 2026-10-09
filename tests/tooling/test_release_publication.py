@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -35,7 +36,8 @@ def test_promotion_accepts_no_operator_evidence_or_authorization_refs() -> None:
     assert promotion["jobs"]["promote"]["if"] == "inputs.execute"
     scripts = [step["run"] for step in promotion["jobs"]["promote"]["steps"] if "run" in step]
     assert "collect" in scripts[0] and "authorize" in scripts[0]
-    assert "--execute" in scripts[1]
+    assert "cosign verify" in scripts[1]
+    assert "--execute" in scripts[2]
     assert "uv build" not in str(promotion)
     assert "ref: ${{ inputs.candidate_sha }}" not in str(promotion)
 
@@ -160,3 +162,71 @@ def test_stage_uses_built_distributions_for_images_and_immutable_bom() -> None:
     assert stage["jobs"]["images"]["with"]["distributions_artifact"].startswith("distributions-")
     assert "--distributions distributions" in str(stage["jobs"]["pin"])
     assert stage["jobs"]["pin"]["steps"][-1]["with"]["if-no-files-found"] == "error"
+
+
+STAGE_IDENTITY = (
+    "https://github.com/phlohouse/phlo/.github/workflows/release-stage.yml@refs/heads/main"
+)
+
+
+def test_pypi_publication_uses_trusted_publishing_without_a_token() -> None:
+    promotion = workflow("release-promotion.yml")
+    assert "PYPI_API_TOKEN" not in str(promotion)
+    assert "UV_PUBLISH_TOKEN" not in str(promotion)
+    jobs_with_oidc = {
+        name
+        for name, job in promotion["jobs"].items()
+        if (job.get("permissions") or {}).get("id-token") == "write"
+    }
+    assert jobs_with_oidc == {"promote"}
+    publish = next(
+        step for step in promotion["jobs"]["promote"]["steps"] if "--execute" in step.get("run", "")
+    )
+    assert publish["env"]["UV_PUBLISH_TRUSTED_PUBLISHING"] == "always"
+    relx = tomllib.loads((WORKFLOWS.parent.parent / "relx.toml").read_text(encoding="utf-8"))
+    assert relx["publish"]["trusted_publishing"] is True
+    assert relx["publish"]["oidc"] is True
+    assert "token_env" not in relx["publish"]
+
+
+def test_published_image_digests_are_signed_keylessly() -> None:
+    shared = workflow("build-service-images.yml")
+    merge = shared["jobs"]["merge"]
+    assert merge["permissions"]["id-token"] == "write"
+    names = [step.get("name") for step in merge["steps"]]
+    assert names.index("Sign published manifest digest") > names.index(
+        "Publish multi-architecture manifest"
+    )
+    sign = next(
+        step for step in merge["steps"] if step.get("name") == "Sign published manifest digest"
+    )
+    assert "cosign sign --yes" in sign["run"] and "@$DIGEST" in sign["run"]
+    for caller, job in (
+        ("build-core-services.yml", "images"),
+        ("release-stage.yml", "images"),
+        ("publish-minio.yml", "images"),
+    ):
+        assert workflow(caller)["jobs"][job]["permissions"]["id-token"] == "write"
+    pin = workflow("release-stage.yml")["jobs"]["pin"]
+    assert pin["permissions"]["id-token"] == "write"
+    assert "cosign sign --yes" in str(pin["steps"])
+
+
+@pytest.mark.parametrize(
+    ("name", "job"),
+    [("release-artifact-acceptance.yml", "acceptance"), ("release-promotion.yml", "promote")],
+)
+def test_staged_image_signatures_are_verified_before_use(name: str, job: str) -> None:
+    steps = workflow(name)["jobs"][job]["steps"]
+    verify = next(i for i, step in enumerate(steps) if "cosign verify" in step.get("run", ""))
+    consume = next(
+        i
+        for i, step in enumerate(steps)
+        if "release_golden_path.py" in step.get("run", "") or "--execute" in step.get("run", "")
+    )
+    assert verify < consume
+    script = steps[verify]["run"]
+    assert STAGE_IDENTITY in script
+    assert "https://token.actions.githubusercontent.com" in script
+    assert "first-party-image" in script
+    assert "test -s" in script

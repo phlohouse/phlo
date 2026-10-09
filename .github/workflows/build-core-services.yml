@@ -133,6 +133,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     with:
       candidate_sha: ${{ inputs.candidate_sha }}
       targets: ${{ needs.prepare.outputs.targets }}

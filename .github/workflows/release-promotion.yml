@@ -66,6 +66,8 @@ jobs:
       contents: write
       actions: read
       packages: write
+      # PyPI trusted publishing; no long-lived upload token exists.
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -92,10 +94,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Verify Release Stage signed every staged image digest
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          jq -r '.artifacts[] | select(.kind == "first-party-image") | "\(.name)@\(.digest)"' \
+            "inputs/candidate-$CANDIDATE_SHA/bom.json" > "$RUNNER_TEMP/staged-images"
+          test -s "$RUNNER_TEMP/staged-images"
+          while read -r image; do
+            cosign verify "$image" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity "https://github.com/phlohouse/phlo/.github/workflows/release-stage.yml@refs/heads/main" \
+              > /dev/null
+          done < "$RUNNER_TEMP/staged-images"
       - name: Publish only the authorized staged bytes, never rebuild
         env:
           GH_TOKEN: ${{ github.token }}
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          UV_PUBLISH_TRUSTED_PUBLISHING: always
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
