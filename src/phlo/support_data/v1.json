@@ -161,6 +161,7 @@
         "package:phlo-observatory-example",
         "package:phlo-pgweb",
         "package:phlo-testing",
+        "package:phlo-transform",
         "service:pgweb"
       ],
       "reason": "These surfaces support local development or testing and do not establish a production deployment guarantee."
@@ -598,6 +599,17 @@
         "packages/phlo-testing/pyproject.toml",
         "packages/phlo-testing/src/phlo_testing/harness_utils.py",
         "packages/phlo-testing/tests"
+      ]
+    },
+    {
+      "name": "phlo-transform",
+      "scope": "outside_v1",
+      "target_status": "development_only",
+      "current_maturity": "development_only",
+      "reason": "The package exposes provider-neutral SQL transform declarations to orchestrators. It is not part of the tested v1 support contract.",
+      "evidence": [
+        "packages/phlo-transform/pyproject.toml",
+        "packages/phlo-transform/tests"
       ]
     }
   ],
