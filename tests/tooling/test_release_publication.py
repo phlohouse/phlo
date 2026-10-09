@@ -57,7 +57,10 @@ def test_development_images_cannot_rebuild_release_images() -> None:
     shared = workflow("build-service-images.yml")
     assert "needs.build.result == 'success'" in shared["jobs"]["merge"]["if"]
     assert len(shared["jobs"]["build"]["strategy"]["matrix"]["architecture"]) == 2
-    assert "Scan immutable architecture digest" in str(shared)
+    assert any(
+        step.get("name") == "Scan immutable architecture digest"
+        for step in shared["jobs"]["build"]["steps"]
+    )
 
 
 def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path) -> None:
@@ -66,9 +69,15 @@ def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path
     assert set(triggers) == {"workflow_dispatch"}
     assert "refs/heads/main" in publisher["jobs"]["prepare"]["if"]
     assert publisher["jobs"]["images"]["with"]["immutable_tags"] is True
-    assert "release-stage" not in str(publisher)
-    assert "distributions_artifact" not in str(publisher)
-    assert "environment" not in publisher["jobs"]["prepare"]
+    assert set(publisher["jobs"]) == {"prepare", "images"}
+    assert publisher["jobs"]["images"]["needs"] == "prepare"
+    assert publisher["jobs"]["images"]["uses"] == "./.github/workflows/build-service-images.yml"
+    assert set(publisher["jobs"]["images"]["with"]) == {
+        "candidate_sha",
+        "targets",
+        "immutable_tags",
+    }
+    assert all("environment" not in job for job in publisher["jobs"].values())
     step = next(
         step for step in publisher["jobs"]["prepare"]["steps"] if step.get("id") == "matrix"
     )

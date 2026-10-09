@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import re
 import tomllib
 from pathlib import Path
 from typing import Any
 
+import yaml
 from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,7 +126,21 @@ def test_phlo_releases_preserve_independent_minio_image_pins() -> None:
                 search = replacement["search"].format(name=name, current_version=versions[name])
                 replace = replacement["replace"].format(name=name, next_version="99.1.0")
                 result = result.replace(search, replace)
-        pattern = r"ghcr.io/phlohouse/phlo-minio:[0-9.]+"
-        pins = re.findall(pattern, source)
-        assert pins, file_name
-        assert re.findall(pattern, result) == pins, file_name
+        if file_name.endswith(".json"):
+            original = json.loads(source)
+            rewritten = json.loads(result)
+            pins = {
+                service["name"]: service["image_reference"]
+                for service in original["release_set"]["services"]
+                if service["name"] in {"minio", "minio-setup"}
+            }
+            assert set(pins) == {"minio", "minio-setup"}
+            assert {
+                service["name"]: service["image_reference"]
+                for service in rewritten["release_set"]["services"]
+                if service["name"] in pins
+            } == pins, file_name
+        else:
+            original = yaml.safe_load(source)
+            rewritten = yaml.safe_load(result)
+            assert rewritten["image"] == original["image"], file_name
