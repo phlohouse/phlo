@@ -794,7 +794,7 @@
         {
           "alias": "hasura_admin_secret",
           "annotation": "str | None",
-          "default": "phlo-hasura-admin-secret",
+          "default": null,
           "description": "Hasura admin secret used for Metadata API requests",
           "name": "hasura_admin_secret",
           "required": false

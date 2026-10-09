@@ -14,7 +14,7 @@ compose:
   restart: "no"
   entrypoint: /bin/sh
   environment:
-    PGPASSWORD: ${POSTGRES_PASSWORD:-phlo}
+    PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}
     PHLO_OBSERVER_DB: ${PHLO_OBSERVER_DB:-phlo_observer}
   command:
     # $$PHLO_OBSERVER_DB expands at container runtime, not compose-render

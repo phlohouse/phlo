@@ -10,7 +10,10 @@ compose:
   restart: unless-stopped
   command: "--sort_buffer_size=10M"
   environment:
-    MYSQL_ROOT_PASSWORD: ${OPENMETADATA_DB_ROOT_PASSWORD:-password}
+    MYSQL_ROOT_PASSWORD: ${OPENMETADATA_DB_ROOT_PASSWORD:?OPENMETADATA_DB_ROOT_PASSWORD is required; run phlo services init}
+    OPENMETADATA_DB_PASSWORD: ${OPENMETADATA_DB_PASSWORD:?OPENMETADATA_DB_PASSWORD is required; run phlo services init}
+  volumes:
+    - ./openmetadata/mysql-credentials.sh:/docker-entrypoint-initdb.d/zz-phlo-credentials.sh:ro
   healthcheck:
     test:
       [
@@ -25,3 +28,15 @@ compose:
     interval: 15s
     timeout: 10s
     retries: 10
+
+env_vars:
+  OPENMETADATA_DB_ROOT_PASSWORD:
+    description: OpenMetadata MySQL root password
+    secret: true
+  OPENMETADATA_DB_PASSWORD:
+    description: OpenMetadata MySQL application user password
+    secret: true
+
+files:
+  - source: mysql-credentials.sh
+    dest: openmetadata/mysql-credentials.sh

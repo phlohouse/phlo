@@ -87,10 +87,14 @@ NAMED_CLAIM_BINDINGS: dict[str, dict[str, object]] = {
     },
 }
 SERVICE_PRIMARY_OVERRIDES = {
+    "phlo-alloy": {"alloy-docker-proxy": "src/phlo_alloy/docker_proxy.yaml"},
+    "phlo-loki": {"loki-volume-setup": "src/phlo_loki/volume_setup.yaml"},
     "phlo-postgres": {
         "postgres-exporter": "src/phlo_postgres/exporter_service.yaml",
         "postgres-volume-setup": "src/phlo_postgres/volume_setup.yaml",
-    }
+    },
+    "phlo-prometheus": {"prometheus-volume-setup": "src/phlo_prometheus/volume_setup.yaml"},
+    "phlo-traefik": {"traefik-docker-proxy": "src/phlo_traefik/docker_proxy.yaml"},
 }
 
 

@@ -52,6 +52,9 @@ def generate_local_secret(var_name: str | None = None) -> str:
         "DAGSTER_MINIO_SECRET_KEY",
     }:
         return secrets.token_hex(20)
+    if var_name and var_name.upper() == "POLARIS_ROOT_CREDENTIALS":
+        # Polaris reads its bootstrap principal as client_id:client_secret.
+        return f"root:{secrets.token_urlsafe(32)}"
     return f"phlo_{secrets.token_urlsafe(32)}"
 
 

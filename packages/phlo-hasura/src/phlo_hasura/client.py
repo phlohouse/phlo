@@ -39,7 +39,7 @@ class HasuraClientSettings(BaseConfig):
     """Configuration for Hasura client connectivity and authentication."""
 
     hasura_admin_secret: str | None = Field(
-        default="phlo-hasura-admin-secret",
+        default=None,
         description="Hasura admin secret used for Metadata API requests",
     )
 
@@ -111,14 +111,6 @@ class HasuraClient:
                 "or the HASURA_ADMIN_SECRET environment/.phlo config."
             )
         self.admin_secret = resolved_admin_secret
-        if self.admin_secret == "phlo-hasura-admin-secret":
-            logger.warning(
-                "hasura_using_generated_default_admin_secret",
-                message=(
-                    "Using the generated default Hasura admin secret. "
-                    "Set HASURA_ADMIN_SECRET for non-local deployments."
-                ),
-            )
         self.metadata_url = f"{self.hasura_url}/v1/metadata"
 
     def _request(

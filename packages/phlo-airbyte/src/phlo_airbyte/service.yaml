@@ -9,6 +9,7 @@ depends_on:
   - postgres
   - airbyte-temporal
   - airbyte-manifest
+  - minio
 compose:
   restart: unless-stopped
   labels:
@@ -21,7 +22,7 @@ compose:
     CONFIG_ROOT: /data
     WORKSPACE_ROOT: /data
     DATABASE_USER: ${POSTGRES_USER:-phlo}
-    DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+    DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}
     DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}
     CONFIG_DATABASE_REPLICA_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}
     CONFIG_DATABASE_REPLICA_USER: ${POSTGRES_USER:-phlo}
@@ -34,8 +35,8 @@ compose:
     STORAGE_BUCKET_AUDIT_LOGGING: airbyte-bucket
     STORAGE_BUCKET_WORKLOAD_OUTPUT: airbyte-bucket
     STORAGE_BUCKET_ACTIVITY_PAYLOAD: airbyte-bucket
-    AWS_ACCESS_KEY_ID: ${ICEBERG_S3_ACCESS_KEY:-minio}
-    AWS_SECRET_ACCESS_KEY: ${ICEBERG_S3_SECRET_KEY:-minio123}
+    AWS_ACCESS_KEY_ID: ${ICEBERG_S3_ACCESS_KEY:-${MINIO_ROOT_USER:-minio}}
+    AWS_SECRET_ACCESS_KEY: ${ICEBERG_S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required; run phlo services init}}
     AWS_DEFAULT_REGION: ${ICEBERG_S3_REGION:-us-east-1}
     MINIO_ENDPOINT: http://minio:9000
     S3_PATH_STYLE_ACCESS: "true"

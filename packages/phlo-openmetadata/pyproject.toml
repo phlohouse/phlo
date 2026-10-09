@@ -62,6 +62,7 @@ phlo_openmetadata = [
     "service.yaml",
     "openmetadata-setup.yaml",
     "openmetadata-mysql-setup.yaml",
+    "mysql-credentials.sh",
     "openmetadata-elasticsearch-setup.yaml",
 ]
 

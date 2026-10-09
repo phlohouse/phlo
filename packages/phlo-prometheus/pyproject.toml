@@ -18,6 +18,7 @@ name = "Phlo Team"
 
 [project.entry-points."phlo.plugins.services"]
 prometheus = "phlo_prometheus.plugin:PrometheusServicePlugin"
+prometheus-volume-setup = "phlo_prometheus.plugin:PrometheusVolumeSetupServicePlugin"
 
 [project.license]
 text = "MIT"
@@ -42,6 +43,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_prometheus = [
     "service.yaml",
+    "volume_setup.yaml",
     "prometheus.yml",
 ]
 

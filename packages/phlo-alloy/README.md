@@ -35,14 +35,13 @@ This package is **fully auto-configured**:
 | **Loki Shipping**       | Ships logs to Loki for storage and querying            |
 | **Metrics Labels**      | Exposes Alloy metrics for Prometheus                   |
 
-### Docker Socket Access
+### Docker API Access
 
-Alloy mounts the Docker socket to discover and collect logs from all containers:
-
-```yaml
-volumes:
-  - /var/run/docker.sock:/var/run/docker.sock:ro
-```
+Alloy never mounts the Docker socket. It discovers and reads container logs
+through `alloy-docker-proxy`, a read-only Docker API proxy
+(`tecnativa/docker-socket-proxy`) that allows only `GET` requests for
+containers, networks, events, ping and version. The proxy is reachable only on
+the internal `alloy-docker-api` network shared with Alloy.
 
 ## Usage
 

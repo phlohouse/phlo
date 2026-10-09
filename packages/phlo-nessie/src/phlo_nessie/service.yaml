@@ -23,7 +23,7 @@ compose:
     NESSIE_VERSION_STORE_TYPE: JDBC
     QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-phlo}?currentSchema=${NESSIE_JDBC_SCHEMA:-public}
     QUARKUS_DATASOURCE_USERNAME: ${POSTGRES_USER:-phlo}
-    QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+    QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}
     nessie.catalog.default-warehouse: warehouse
     nessie.catalog.warehouses.warehouse.location: ${ICEBERG_WAREHOUSE_PATH:-s3://lake/warehouse}
     nessie.catalog.service.s3.default-options.endpoint: ${ICEBERG_S3_ENDPOINT:-http://minio:9000/}
@@ -31,7 +31,7 @@ compose:
     nessie.catalog.service.s3.default-options.region: us-east-1
     nessie.catalog.service.s3.default-options.access-key: urn:nessie-secret:quarkus:nessie.catalog.secrets.access-key
     nessie.catalog.secrets.access-key.name: ${MINIO_ROOT_USER:-minio}
-    nessie.catalog.secrets.access-key.secret: ${MINIO_ROOT_PASSWORD:-minio123}
+    nessie.catalog.secrets.access-key.secret: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required; run phlo services init}
     # OIDC Authentication (Quarkus)
     QUARKUS_OIDC_ENABLED: ${NESSIE_OIDC_ENABLED:-false}
     QUARKUS_OIDC_AUTH_SERVER_URL: ${NESSIE_OIDC_SERVER_URL:-}

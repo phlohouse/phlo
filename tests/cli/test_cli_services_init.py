@@ -986,6 +986,47 @@ def test_compose_generator_declares_named_volumes(tmp_path) -> None:
     assert data["volumes"] == {"postgres-data": {}}
 
 
+def test_compose_generator_declares_service_networks(tmp_path) -> None:
+    class MinimalFakeDiscovery(FakeDiscovery):
+        def resolve_dependencies(
+            self, services: list[ServiceDefinition]
+        ) -> list[ServiceDefinition]:
+            return services
+
+    proxy = ServiceDefinition(
+        name="docker-proxy",
+        description="proxy",
+        compose={"networks": ["docker-api"]},
+        networks={"docker-api": {"internal": True}},
+    )
+    agent = ServiceDefinition(
+        name="agent",
+        description="agent",
+        compose={"networks": ["default", "docker-api"]},
+    )
+
+    generator = ComposeGenerator(cast(ServiceDiscovery, MinimalFakeDiscovery()))
+    data = yaml.safe_load(generator.generate_compose(services=[proxy, agent], output_dir=tmp_path))
+
+    assert data["networks"] == {"docker-api": {"internal": True}}
+    assert data["services"]["agent"]["networks"] == ["default", "docker-api"]
+
+
+def test_generate_env_local_gives_polaris_root_credentials_client_id_and_secret() -> None:
+    service = ServiceDefinition(
+        name="polaris",
+        description="polaris",
+        env_vars={"POLARIS_ROOT_CREDENTIALS": {"secret": True}},
+    )
+
+    rendered = generate_env_local([service])
+
+    (line,) = [item for item in rendered.splitlines() if item.startswith("POLARIS_ROOT_")]
+    client_id, _, client_secret = line.partition("=")[2].partition(":")
+    assert client_id == "root"
+    assert len(client_secret) >= 32
+
+
 def test_generate_env_pins_package_versions_for_service_builds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

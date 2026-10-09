@@ -13,7 +13,7 @@ compose:
   labels:
     phlo.metrics.enabled: "false"
   environment:
-    DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}?sslmode=disable
+    DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}@postgres:5432/${POSTGRES_DB:-phlo}?sslmode=disable
   ports:
     - "${PGWEB_PORT:-8081}:8081"
 

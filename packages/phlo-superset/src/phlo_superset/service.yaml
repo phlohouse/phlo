@@ -19,14 +19,14 @@ compose:
     traefik.http.routers.superset.entrypoints: "web"
     traefik.http.services.superset.loadbalancer.server.port: "8088"
   environment:
-    SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-phlo-superset-secret-change-me}
+    SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY is required; run phlo services init}
     POSTGRES_HOST: postgres
     POSTGRES_PORT: 5432
     POSTGRES_USER: ${POSTGRES_USER:-phlo}
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}
     POSTGRES_DB: ${POSTGRES_DB:-phlo}
     SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
-    SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-admin}
+    SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?SUPERSET_ADMIN_PASSWORD is required; run phlo services init}
     SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.com}
   command: >
     /bin/sh -c "
@@ -45,14 +45,12 @@ env_vars:
     default: 8088
     description: Superset web UI port
   SUPERSET_SECRET_KEY:
-    default: phlo-superset-secret-change-me
     description: Superset secret key for session encryption
     secret: true
   SUPERSET_ADMIN_USER:
     default: admin
     description: Superset admin username
   SUPERSET_ADMIN_PASSWORD:
-    default: admin
     description: Superset admin password
     secret: true
   SUPERSET_ADMIN_EMAIL:

@@ -19,3 +19,14 @@ PrometheusServicePlugin = service_plugin_class(
     author="Phlo Team",
     tags=["observability", "metrics"],
 )
+
+
+PrometheusVolumeSetupServicePlugin = service_plugin_class(
+    "PrometheusVolumeSetupServicePlugin",
+    name="prometheus-volume-setup",
+    version="0.1.0",
+    description="Initialize Prometheus data volume permissions",
+    author="Phlo Team",
+    tags=["observability"],
+    service_definition_file="volume_setup.yaml",
+)

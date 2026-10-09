@@ -1,0 +1,31 @@
+name: alloy-docker-proxy
+description: Read-only Docker API proxy for Alloy log discovery
+category: observability
+default: false
+profile: observability
+
+image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
+
+compose:
+  restart: unless-stopped
+  # Only this proxy touches the Docker socket. It answers read-only GET
+  # requests for the endpoints Alloy needs and is reachable solely on an
+  # internal network shared with Alloy.
+  environment:
+    CONTAINERS: "1"
+    NETWORKS: "1"
+    EVENTS: "1"
+    PING: "1"
+    VERSION: "1"
+    POST: "0"
+    # Listen on IPv4 only; the internal network needs nothing else and some
+    # hosts have IPv6 disabled, which stops the proxy from starting.
+    DISABLE_IPV6: "1"
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+  networks:
+    - alloy-docker-api
+
+networks:
+  alloy-docker-api:
+    internal: true

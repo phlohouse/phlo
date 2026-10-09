@@ -120,6 +120,16 @@ class ComposeGenerator:
         if named_volumes:
             compose["volumes"] = {name: {} for name in sorted(named_volumes)}
 
+        # Services may declare top-level networks (for example an internal-only
+        # network that keeps a Docker API proxy unreachable from other services).
+        networks = {
+            name: dict(config or {})
+            for service in sorted_services
+            for name, config in service.networks.items()
+        }
+        if networks:
+            compose["networks"] = {name: networks[name] for name in sorted(networks)}
+
         # Add header comment with dev mode flag for stale detection
         dev_mode_str = "true" if dev_mode else "false"
         header = f"""# Phlo Infrastructure Stack

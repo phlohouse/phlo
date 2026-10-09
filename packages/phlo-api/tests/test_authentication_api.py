@@ -434,7 +434,9 @@ def test_phlo_api_passes_postgres_settings_to_durable_storage() -> None:
     assert dev_env["POSTGRES_PORT"] == "${POSTGRES_PORT:-10000}"
     for environment in (compose_env, dev_env):
         assert environment["POSTGRES_USER"] == "${POSTGRES_USER:-phlo}"
-        assert environment["POSTGRES_PASSWORD"] == "${POSTGRES_PASSWORD:-phlo}"
+        assert environment["POSTGRES_PASSWORD"] == (
+            "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}"
+        )
         assert environment["POSTGRES_DB"] == "${POSTGRES_DB:-phlo}"
 
 

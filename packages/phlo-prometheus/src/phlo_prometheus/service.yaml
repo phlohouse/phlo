@@ -4,11 +4,14 @@ category: observability
 default: false
 profile: observability
 
+depends_on:
+  - prometheus-volume-setup
+
 image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893}
 
 compose:
   restart: unless-stopped
-  user: "0"
+  user: "65534:65534"
   labels:
     phlo.metrics.enabled: "true"
     phlo.metrics.port: "prometheus:9090"

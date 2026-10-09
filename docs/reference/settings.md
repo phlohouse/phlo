@@ -174,7 +174,7 @@ Source: `packages/phlo-hasura/src/phlo_hasura/client.py`
 
 | Field | Alias | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `hasura_admin_secret` | `hasura_admin_secret` | `str \| None` | false | `phlo-hasura-admin-secret` | Hasura admin secret used for Metadata API requests |
+| `hasura_admin_secret` | `hasura_admin_secret` | `str \| None` | false | `none` | Hasura admin secret used for Metadata API requests |
 
 ## `phlo-hasura`: `HasuraPostgresSettings`
 

@@ -1,5 +1,5 @@
 {
-  "component_count": 90,
+  "component_count": 94,
   "components": [
     {
       "applicable_gates": [
@@ -743,6 +743,15 @@
     {
       "applicable_gates": [],
       "blockers": [],
+      "component": "service:alloy-docker-proxy",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
       "component": "service:clickhouse",
       "current_maturity": "preview",
       "readiness": "not gated",
@@ -840,6 +849,15 @@
       "applicable_gates": [],
       "blockers": [],
       "component": "service:loki",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:loki-volume-setup",
       "current_maturity": "preview",
       "readiness": "not gated",
       "target_profile": "optional",
@@ -1116,6 +1134,15 @@
     {
       "applicable_gates": [],
       "blockers": [],
+      "component": "service:prometheus-volume-setup",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
       "component": "service:rustfs",
       "current_maturity": "preview",
       "readiness": "not gated",
@@ -1153,6 +1180,15 @@
       "applicable_gates": [],
       "blockers": [],
       "component": "service:traefik",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:traefik-docker-proxy",
       "current_maturity": "alpha",
       "readiness": "not gated",
       "target_profile": "optional",

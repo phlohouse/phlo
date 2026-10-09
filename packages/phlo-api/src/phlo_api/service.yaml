@@ -73,7 +73,7 @@ compose:
         POSTGRES_HOST: postgres
         POSTGRES_PORT: "5432"
         POSTGRES_USER: ${POSTGRES_USER:-phlo}
-        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}
         POSTGRES_DB: ${POSTGRES_DB:-phlo}
         TRINO_URL: ${TRINO_URL:-http://trino:8080}
         DAGSTER_GRAPHQL_URL: ${DAGSTER_GRAPHQL_URL:-http://dagster:3000/graphql}
@@ -82,7 +82,7 @@ compose:
         CLICKSTACK_QUERY_USER: ${CLICKSTACK_QUERY_USER:-}
         CLICKSTACK_QUERY_PASSWORD: ${CLICKSTACK_QUERY_PASSWORD:-}
         PHLO_PROJECT_PATH: /app
-        PHLO_RUN_EVIDENCE_DB_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}
+        PHLO_RUN_EVIDENCE_DB_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}@postgres:5432/${POSTGRES_DB:-phlo}
     ports:
         - "${PHLO_API_PORT:-4000}:4000"
     volumes:
@@ -257,7 +257,7 @@ dev:
         POSTGRES_HOST: 127.0.0.1
         POSTGRES_PORT: ${POSTGRES_PORT:-10000}
         POSTGRES_USER: ${POSTGRES_USER:-phlo}
-        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}
         POSTGRES_DB: ${POSTGRES_DB:-phlo}
         TRINO_URL: "http://127.0.0.1:${TRINO_PORT:-10005}"
         TRINO_USER: ${PHLO_API_TRINO_USER:-phlo-api}

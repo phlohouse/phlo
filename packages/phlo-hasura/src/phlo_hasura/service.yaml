@@ -16,11 +16,11 @@ compose:
     phlo.metrics.port: "hasura:8080"
     phlo.metrics.path: "/v1/metrics"
   environment:
-    HASURA_GRAPHQL_DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}
-    HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
-    HASURA_GRAPHQL_DEV_MODE: "true"
+    HASURA_GRAPHQL_DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required; run phlo services init}@postgres:5432/${POSTGRES_DB:-phlo}
+    HASURA_GRAPHQL_ENABLE_CONSOLE: "false"
+    HASURA_GRAPHQL_DEV_MODE: "false"
     HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
-    HASURA_GRAPHQL_ADMIN_SECRET: ${HASURA_ADMIN_SECRET:-phlo-hasura-admin-secret}
+    HASURA_GRAPHQL_ADMIN_SECRET: ${HASURA_ADMIN_SECRET:?HASURA_ADMIN_SECRET is required; run phlo services init}
     HASURA_GRAPHQL_UNAUTHORIZED_ROLE: anonymous
   ports:
     - "${HASURA_PORT:-8082}:8080"
@@ -38,9 +38,15 @@ env_vars:
     default: 8082
     description: Hasura console and API port
   HASURA_ADMIN_SECRET:
-    default: phlo-hasura-admin-secret
     description: Hasura admin secret for console access
     secret: true
+
+# The console and dev mode (verbose internal errors) are local-development
+# conveniences; enable them only with `phlo services init --service-dev`.
+dev:
+  environment:
+    HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+    HASURA_GRAPHQL_DEV_MODE: "true"
 
 hooks:
   post_start:

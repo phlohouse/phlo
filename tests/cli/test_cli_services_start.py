@@ -449,13 +449,16 @@ def test_get_profile_service_names_returns_profile_services(
     result = get_profile_service_names(("observability",))
     assert sorted(result) == [
         "alloy",
+        "alloy-docker-proxy",
         "clickstack",
         "grafana",
         "loki",
+        "loki-volume-setup",
         "phlo-observer",
         "phlo-observer-db-setup",
         "postgres-exporter",
         "prometheus",
+        "prometheus-volume-setup",
     ]
 
     result = get_profile_service_names(("api",))
@@ -464,10 +467,12 @@ def test_get_profile_service_names_returns_profile_services(
     result = get_profile_service_names(("observability", "api"))
     assert sorted(result) == [
         "alloy",
+        "alloy-docker-proxy",
         "clickstack",
         "grafana",
         "hasura",
         "loki",
+        "loki-volume-setup",
         "observatory",
         "phlo-api",
         "phlo-observer",
@@ -475,6 +480,7 @@ def test_get_profile_service_names_returns_profile_services(
         "postgres-exporter",
         "postgrest",
         "prometheus",
+        "prometheus-volume-setup",
     ]
 
     result = get_profile_service_names(())

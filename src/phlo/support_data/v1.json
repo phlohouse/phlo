@@ -107,7 +107,8 @@
         "service:hasura",
         "service:postgrest",
         "service:oauth2-proxy",
-        "service:traefik"
+        "service:traefik",
+        "service:traefik-docker-proxy"
       ],
       "reason": "These optional packages have current code and focused tests, but identity, ingress, or production gates still apply."
     },
@@ -133,12 +134,15 @@
         "service:kafka",
         "service:postgres-exporter",
         "service:alloy",
+        "service:alloy-docker-proxy",
         "service:airbyte-temporal",
         "service:airbyte-manifest",
         "service:airbyte-bootloader",
         "service:grafana",
         "service:loki",
+        "service:loki-volume-setup",
         "service:prometheus",
+        "service:prometheus-volume-setup",
         "service:clickhouse",
         "service:clickhouse-setup",
         "service:rustfs",
@@ -759,6 +763,18 @@
       ]
     },
     {
+      "name": "alloy-docker-proxy",
+      "package": "phlo-alloy",
+      "source": "packages/phlo-alloy/src/phlo_alloy/docker_proxy.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-alloy/src/phlo_alloy/docker_proxy.yaml"
+      ]
+    },
+    {
       "name": "grafana",
       "package": "phlo-grafana",
       "source": "packages/phlo-grafana/src/phlo_grafana/service.yaml",
@@ -783,6 +799,18 @@
       ]
     },
     {
+      "name": "loki-volume-setup",
+      "package": "phlo-loki",
+      "source": "packages/phlo-loki/src/phlo_loki/volume_setup.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-loki/src/phlo_loki/volume_setup.yaml"
+      ]
+    },
+    {
       "name": "prometheus",
       "package": "phlo-prometheus",
       "source": "packages/phlo-prometheus/src/phlo_prometheus/service.yaml",
@@ -792,6 +820,18 @@
       "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
       "evidence": [
         "packages/phlo-prometheus/src/phlo_prometheus/service.yaml"
+      ]
+    },
+    {
+      "name": "prometheus-volume-setup",
+      "package": "phlo-prometheus",
+      "source": "packages/phlo-prometheus/src/phlo_prometheus/volume_setup.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Generated service exists, but its v1 support remains preview or outside the approved core.",
+      "evidence": [
+        "packages/phlo-prometheus/src/phlo_prometheus/volume_setup.yaml"
       ]
     },
     {
@@ -1044,6 +1084,18 @@
       "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
       "evidence": [
         "packages/phlo-traefik/src/phlo_traefik/service.yaml"
+      ]
+    },
+    {
+      "name": "traefik-docker-proxy",
+      "package": "phlo-traefik",
+      "source": "packages/phlo-traefik/src/phlo_traefik/docker_proxy.yaml",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-traefik/src/phlo_traefik/docker_proxy.yaml"
       ]
     },
     {
