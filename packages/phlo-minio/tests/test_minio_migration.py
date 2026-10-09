@@ -14,7 +14,7 @@ from click.testing import CliRunner
 from phlo.cli.infrastructure.command import CommandError
 from phlo_minio.cli import minio_group
 
-IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.0"
+IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.1"
 
 
 def _project(root: Path, directory: str = "/data") -> Path:
@@ -168,6 +168,11 @@ def test_migration_keeps_root_owned_objects_readable(tmp_path, monkeypatch, dire
     for variable in ("MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"):
         monkeypatch.delenv(variable, raising=False)
     path = _project(tmp_path, directory)
+    # Exercise the image built from this checkout, including before its publication.
+    config = yaml.safe_load(path.read_text())
+    for service in config["services"].values():
+        service["pull_policy"] = "never"
+    path.write_text(yaml.safe_dump(config, sort_keys=False))
     name = "phlo-minio-migrate-" + uuid.uuid4().hex[:10]
     (tmp_path / "phlo.yaml").write_text(f"name: {name}\n")
     monkeypatch.chdir(tmp_path)

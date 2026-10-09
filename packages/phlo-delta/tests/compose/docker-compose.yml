@@ -1,6 +1,6 @@
 services:
   minio:
-    image: ghcr.io/phlohouse/phlo-minio:0.17.0
+    image: ghcr.io/phlohouse/phlo-minio:0.17.1
     build:
       context: ../../../phlo-minio/src/phlo_minio
     environment:
@@ -16,7 +16,7 @@ services:
       retries: 10
 
   minio-setup:
-    image: ghcr.io/phlohouse/phlo-minio:0.17.0
+    image: ghcr.io/phlohouse/phlo-minio:0.17.1
     build:
       context: ../../../phlo-minio/src/phlo_minio
     depends_on:

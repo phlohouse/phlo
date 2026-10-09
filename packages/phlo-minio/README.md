@@ -8,7 +8,7 @@ Provides S3-compatible object storage for the data lake. Stores Iceberg table da
 
 ## Container image
 
-The server and bucket setup use `ghcr.io/phlohouse/phlo-minio:0.17.0`.
+The server and bucket setup use `ghcr.io/phlohouse/phlo-minio:0.17.1`.
 One image contains both MinIO and `mc`, built from checksum-verified upstream
 source archives. New projects use `/bitnami/minio/data` and UID 1001.
 Older projects can retain `/data`; migrate their volume ownership before
@@ -20,6 +20,9 @@ The client release is `RELEASE.2025-08-13T08-35-41Z`.
 These pins and their SHA-256 checksums live in `src/phlo_minio/Dockerfile`.
 Review upstream releases and security advisories before changing the pins.
 The build also pins dependency updates for vulnerabilities in those releases.
+Image `0.17.1` updates `golang.org/x/net` to v0.60.0 in both binaries to fix
+CVE-2026-78669. Publish this image before publishing the Python plugin or
+upgrading consumers; the earlier `0.17.0` image remains immutable.
 These are Phlo builds, not official upstream binaries. Phlo must maintain
 the dependency pins and runtime compatibility while it distributes this image.
 
@@ -58,7 +61,7 @@ Registry and scanner failures still fail the rescan.
 
 The initial rollout requires publishing `phlo-minio` 0.16.1. This does not
 require a Phlo core release or publishing any lakehouse example. After this
-change merges to `main`, dispatch the plugin publisher:
+change merges to `main`, publish image `0.17.1` first, then dispatch the plugin publisher:
 
 ```bash
 gh workflow run publish-minio-plugin.yml --repo phlohouse/phlo --ref main
@@ -66,7 +69,8 @@ gh workflow run publish-minio-plugin.yml --repo phlohouse/phlo --ref main
 
 The publisher validates metadata, runs focused tests, builds the MinIO
 distribution once, and installs its wheel against published dependencies
-in a clean environment. It also tests the existing-volume
+in a clean environment. It requires the referenced GHCR image to exist
+before publication. It also tests the existing-volume
 migration with Docker. A separate job publishes those tested bytes using
 the existing `PYPI_API_TOKEN` in the `release` environment. The token must
 permit publishing `phlo-minio`. No reviewer protection is

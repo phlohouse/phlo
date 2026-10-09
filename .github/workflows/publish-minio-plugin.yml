@@ -32,6 +32,10 @@ jobs:
           uv run --locked python scripts/check_version_drift.py
           uv run --locked ruff check packages/phlo-minio/src
           uv run --locked pytest packages/phlo-minio/tests tests/tooling/test_release_replacements.py
+      - name: Require the independently published image
+        run: docker buildx imagetools inspect ghcr.io/phlohouse/phlo-minio:0.17.1
+      - name: Build MinIO from checked-in sources
+        run: docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.1 packages/phlo-minio/src/phlo_minio
       - name: Exercise existing MinIO volumes
         run: uv run --locked python -m pytest -p scripts.ci_required packages/phlo-minio/tests/test_minio_migration.py -m integration
       - name: Build the MinIO distribution

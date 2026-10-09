@@ -4,7 +4,7 @@ description: Initialize MinIO buckets for data lake
 category: core
 default: true
 
-image: ghcr.io/phlohouse/phlo-minio:0.17.0
+image: ghcr.io/phlohouse/phlo-minio:0.17.1
 build:
   context: ./minio
   dockerfile: Dockerfile
