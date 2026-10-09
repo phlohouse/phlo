@@ -27,7 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Register guarded operational tools (requires authenticated phlo-api)",
     )
-    parser.add_argument("--trace-file", help="Optional JSONL file to write local span events")
+    parser.add_argument(
+        "--trace-file",
+        help="Deprecated JSONL debug drain, removed in 0.19.0; use OBSERVE_DRAINS instead",
+    )
     parser.add_argument("--host", help="Bind host for streamable-http transport")
     parser.add_argument("--port", type=int, help="Bind port for streamable-http transport")
     parser.add_argument("--path", help="HTTP path for streamable-http transport (default: /mcp)")

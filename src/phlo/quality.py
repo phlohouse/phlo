@@ -157,8 +157,8 @@ def _deprecate_phlo_quality_alias(decorator: Callable[..., Any]) -> Callable[...
     @functools.wraps(decorator)
     def _phlo_quality_alias(*args: Any, **kwargs: Any) -> Any:
         warnings.warn(
-            "phlo_quality is deprecated and will be removed in an upcoming "
-            "release; use phlo.quality.pandera (or the provider package "
+            "phlo_quality is deprecated and will be removed in 0.19.0; "
+            "use phlo.quality.pandera (or the provider package "
             "decorator) instead. Migrate with: phlo migrate decorators-2026-05",
             DeprecationWarning,
             stacklevel=2,

@@ -1,10 +1,78 @@
 """Shared initialization keeps portable configuration separate from host settings."""
 
+import json
+import os
 import subprocess
+import sys
 
+import pytest
 import yaml
 
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_legacy_env_file_counter_preserves_precedence(tmp_path, shared):
+    """Count actual legacy attachments in both old and shared project layouts."""
+    state = tmp_path / ".phlo"
+    state.mkdir()
+    if shared:
+        (state / ".gitignore").write_text(render_shared_gitignore([]), encoding="utf-8")
+    for name in (".env", ".env.local"):
+        (state / name).write_text("PRIVATE=value\n", encoding="utf-8")
+    metrics = tmp_path / "metrics.jsonl"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import json, sys, yaml
+from pathlib import Path
+from observe_core import flush_metrics, flush
+from phlo.plugins.compose.generator import ComposeGenerator
+from tests.helpers import FakeDiscovery, _service
+state = Path(sys.argv[1])
+service = _service('dagster')
+service.phlo_dev = True
+generator = ComposeGenerator(FakeDiscovery({'dagster': service}))
+config = yaml.safe_load(generator.generate_compose([service], state))['services']['dagster']
+print(json.dumps(config['env_file']))
+for name in ('.env', '.env.local'):
+    (state / name).unlink()
+generator.generate_compose([service], state)
+service.phlo_dev = False
+(state / '.env.local').write_text('PRIVATE=value\\n')
+generator.generate_compose([service], state)
+flush_metrics()
+flush()
+""",
+            str(state),
+        ],
+        env={
+            **os.environ,
+            "PHLO_OBSERVE_ENABLED": "true",
+            "PHLO_OBSERVE_PRETTY": "false",
+            "OBSERVE_DRAINS": "jsonl",
+            "OBSERVE_JSONL_PATH": str(metrics),
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert json.loads(result.stdout) == (
+        [".env", ".env.local", "overrides/.env", "secrets/.env"]
+        if shared
+        else [".env", ".env.local"]
+    )
+    summaries = [
+        record
+        for line in metrics.read_text().splitlines()
+        if (record := json.loads(line))["event"] == "metric.summary"
+        and record["attributes"]["metric"] == "phlo.legacy.dagster_env_file.uses"
+    ]
+    assert sum(summary["attributes"]["sum"] for summary in summaries) == 2
+    assert sum(summary["attributes"]["count"] for summary in summaries) == 2
+    assert {summary["tags"]["file"] for summary in summaries} == {".env", ".env.local"}
 
 
 def test_host_generation_preserves_shared_compose_on_second_checkout(tmp_path):

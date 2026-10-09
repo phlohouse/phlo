@@ -8,7 +8,7 @@ inside an active event loop instead of failing opaquely.
 Deprecated: the adapter quartet (SyncToAsyncIngesterAdapter, AsyncToSyncIngesterAdapter,
 SyncToAsyncTransformerAdapter, AsyncToSyncTransformerAdapter) has zero
 production callers. Instantiating any of them emits a DeprecationWarning and
-they will be removed in an upcoming release; implement the target contract
+they will be removed in 0.19.0; implement the target contract
 directly instead. No shim is provided.
 """
 
@@ -25,8 +25,8 @@ from phlo.operations.transformation import AsyncTransformer, BaseTransformer, Tr
 def _warn_adapter_deprecated(class_name: str) -> None:
     """Emit the deprecation warning for one adapter use."""
     warnings.warn(
-        f"{class_name} is deprecated and will be removed in an upcoming "
-        "release: implement the target ingestion/transform "
+        f"{class_name} is deprecated and will be removed in 0.19.0: "
+        "implement the target ingestion/transform "
         "contract directly instead. No shim is provided.",
         DeprecationWarning,
         stacklevel=3,

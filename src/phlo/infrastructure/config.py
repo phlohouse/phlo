@@ -240,7 +240,8 @@ def get_regulated_config(project_root: Path | None = None) -> bool | None:
             import warnings
 
             warnings.warn(
-                "phlo.yaml 'regulated_mode' is deprecated, use 'regulated' instead",
+                "phlo.yaml 'regulated_mode' is deprecated and will be removed in 0.19.0; "
+                "use 'regulated' instead",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -248,7 +249,9 @@ def get_regulated_config(project_root: Path | None = None) -> bool | None:
                 "deprecated_config_key",
                 old="regulated_mode",
                 new="regulated",
-                message="phlo.yaml 'regulated_mode' is deprecated, use 'regulated' instead",
+                removal_version="0.19.0",
+                message="phlo.yaml 'regulated_mode' is deprecated and will be removed in 0.19.0; "
+                "use 'regulated' instead",
             )
             value = deprecated_value
     if value is None:
@@ -264,7 +267,8 @@ def get_regulated_mode_config(project_root: Path | None = None) -> bool | None:
     import warnings
 
     warnings.warn(
-        "get_regulated_mode_config() is deprecated, use get_regulated_config() instead",
+        "get_regulated_mode_config() is deprecated and will be removed in 0.19.0; "
+        "use get_regulated_config() instead",
         DeprecationWarning,
         stacklevel=2,
     )

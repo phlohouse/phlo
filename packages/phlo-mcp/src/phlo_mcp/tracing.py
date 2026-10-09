@@ -1,9 +1,10 @@
-"""Canonical MCP operation scopes with a compatible JSONL debug drain."""
+"""Canonical MCP operation scopes with a JSONL debug drain removed in 0.19.0."""
 
 from __future__ import annotations
 
 import json
 import os
+import warnings
 from collections import defaultdict
 from contextlib import AbstractContextManager
 from contextvars import ContextVar
@@ -36,6 +37,13 @@ def configure_tracing(
     if not resolved_trace_file:
         return None
 
+    warnings.warn(
+        "MCP JSONL tracing via PHLO_MCP_TRACE_FILE/trace_file is deprecated and will be "
+        "removed in 0.19.0; configure canonical observe drains with OBSERVE_DRAINS "
+        "or OBSERVE_HTTP_ENDPOINT instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     Path(resolved_trace_file).parent.mkdir(parents=True, exist_ok=True)
     _CONFIGURED_PATH = resolved_trace_file
     return resolved_trace_file
@@ -109,6 +117,7 @@ def _write_debug_span(span: dict[str, Any]) -> None:
         return
     with Path(_CONFIGURED_PATH).open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(span, sort_keys=True, default=str) + "\n")
+    phlo_observe.metric("phlo.legacy.mcp_jsonl_span.uses", 1, unit="uses")
 
 
 def load_spans(path: str | os.PathLike[str]) -> list[dict[str, Any]]:

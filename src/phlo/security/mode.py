@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 
 from phlo.logging import get_logger
+from phlo.telemetry import metric
 
 logger = get_logger(__name__)
 
@@ -55,11 +56,14 @@ def is_regulated(config_regulated: bool | None = None) -> bool:
 
     deprecated_env_value = os.environ.get(_PHLO_REGULATED_MODE_ENV_DEPRECATED, "").strip().lower()
     if deprecated_env_value:
+        metric("phlo.legacy.regulated_mode_env.uses", 1, unit="uses")
         logger.warning(
             "deprecated_env_var",
             old=_PHLO_REGULATED_MODE_ENV_DEPRECATED,
             new=PHLO_REGULATED_ENV,
-            message=f"{_PHLO_REGULATED_MODE_ENV_DEPRECATED} is deprecated, use {PHLO_REGULATED_ENV} instead",
+            removal_version="0.19.0",
+            message=f"{_PHLO_REGULATED_MODE_ENV_DEPRECATED} is deprecated and will be removed "
+            f"in 0.19.0; use {PHLO_REGULATED_ENV} instead",
         )
         if deprecated_env_value in ("1", "true", "yes", "on"):
             return True
@@ -80,7 +84,8 @@ def is_regulated_mode_enabled(config_regulated_mode: bool | None = None) -> bool
     import warnings
 
     warnings.warn(
-        "is_regulated_mode_enabled() is deprecated, use is_regulated() instead",
+        "is_regulated_mode_enabled() is deprecated and will be removed in 0.19.0; "
+        "use is_regulated() instead",
         DeprecationWarning,
         stacklevel=2,
     )

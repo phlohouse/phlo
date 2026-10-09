@@ -60,8 +60,8 @@ class TransformationPlugin(Plugin, ABC):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         warnings.warn(
-            "TransformationPlugin is deprecated and will be removed in an "
-            "upcoming release: the legacy transformation SDK family has no "
+            "TransformationPlugin is deprecated and will be removed in "
+            "0.19.0: the legacy transformation SDK family has no "
             "bundled implementation. Build asset-provider plugins for new "
             "integrations.",
             DeprecationWarning,

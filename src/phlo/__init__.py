@@ -142,19 +142,23 @@ _REFERENCE_EXPORTS = {"LogicalRelation", "quote_identifier", "ref", "source"}
 _SUBMODULE_EXPORTS = {"helpers", "ingest", "ingestion", "metrics", "quality", "transform"}
 _HELPER_EXPORTS = {"read_dataframe", "synthetic_key"}
 
-__all__ = [
-    "__version__",
-    "export",
-    *_SUBMODULE_EXPORTS,
-    *_HELPER_EXPORTS,
-    *_CONTRACT_EXPORTS,
-    *_INGESTION_EXPORTS,
-    *_QUALITY_EXPORTS,
-    *_QUALITY_RULE_EXPORTS,
-    *_FLOW_EXPORTS,
-    *_CONFIG_EXPORTS,
-    *_REFERENCE_EXPORTS,
-]
+__all__ = tuple(
+    sorted(
+        {
+            "__version__",
+            "export",
+            *_SUBMODULE_EXPORTS,
+            *_HELPER_EXPORTS,
+            *_CONTRACT_EXPORTS,
+            *_INGESTION_EXPORTS,
+            *_QUALITY_EXPORTS,
+            *_QUALITY_RULE_EXPORTS,
+            *_FLOW_EXPORTS,
+            *_CONFIG_EXPORTS,
+            *_REFERENCE_EXPORTS,
+        }
+    )
+)
 
 
 def __getattr__(name: str) -> Any:
