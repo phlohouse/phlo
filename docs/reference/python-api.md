@@ -401,10 +401,11 @@ def daily_sales_source():
 ```
 
 The `publish`, `observe`, `contract`, and `access` declarations feed the governance metadata plane.
-`phlo.transform.sql` requires installed `transform` transformation and asset providers,
-as supplied by the proposed `phlo-transform` package in PR #961. Without both
-providers, it raises `ModuleNotFoundError` before capturing SQL or registering an asset.
-SQL authoring with a provider is not scheduled for removal.
+No shipped Phlo package currently supplies the `transform` transformation and
+asset providers required by `phlo.transform.sql`. Without both providers, it raises
+`ModuleNotFoundError` before capturing SQL or registering an asset. Use dbt or
+explicit asset-provider declarations instead. A separately installed plugin that
+supplies both providers can enable SQL authoring through this decorator.
 
 ## Removal schedule
 

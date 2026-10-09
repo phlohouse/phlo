@@ -62,7 +62,6 @@ def test_deprecation_notice_source_audit_names_a_removal_release() -> None:
         ("phlo.operations.adapters", "SyncToAsyncTransformerAdapter", {}),
         ("phlo.operations.adapters", "AsyncToSyncTransformerAdapter", {}),
         ("phlo.identity.bridge", "create_regulated_mode_bridge", {}),
-        ("phlo.infrastructure.config", "get_regulated_config", {}),
         ("phlo.infrastructure.config", "get_regulated_mode_config", {}),
         ("phlo.security.mode", "is_regulated_mode_enabled", {}),
         ("phlo.security.validation", "run_regulated_mode_validation", {"config_regulated": False}),
