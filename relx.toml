@@ -85,20 +85,6 @@ expected_matches = 1
 
 # MinIO image versions are maintained independently by publish-minio.yml.
 [[release.replacements]]
-files = ["examples/lakehouses/retail-files/pyproject.toml"]
-packages = ["phlo-minio"]
-search = "{name}=={current_version}"
-replace = "{name}=={next_version}"
-expected_matches = 1
-
-[[release.replacements]]
-files = ["examples/lakehouses/retail-files/src/phlo_retail_files/blueprint_contract.json"]
-packages = ["phlo-minio"]
-search = "{name}=={current_version}"
-replace = "{name}=={next_version}"
-expected_matches = 2
-
-[[release.replacements]]
 files = [
     "examples/lakehouses/clickhouse-ops/pyproject.toml",
     "examples/lakehouses/customer360/pyproject.toml",

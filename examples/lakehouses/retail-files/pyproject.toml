@@ -7,12 +7,11 @@ description = "Retail Files blueprint: a production-shaped, network-independent 
 name = "phlo-retail-files"
 readme = "README.md"
 requires-python = ">=3.12"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
     "phlo[defaults]==0.17.0",
     "phlo-dagster==0.17.0",
     "phlo-dbt==0.16.0",
-    "phlo-minio==0.16.1",
     "pandas>=2.3,<3.1",
     "pyarrow>=21,<26",
 ]

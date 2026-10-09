@@ -317,13 +317,11 @@ def test_rescan_includes_independent_minio_before_a_phlo_release(
         ]
 
 
-def test_storage_plugin_publication_is_bounded_and_publishes_tested_artifacts() -> None:
-    workflow = _load_workflow("publish-storage-plugins.yml")
+def test_minio_plugin_publication_is_bounded_and_publishes_tested_artifacts() -> None:
+    workflow = _load_workflow("publish-minio-plugin.yml")
     assert set(_triggers(workflow)) == {"workflow_dispatch"}
-    assert _triggers(workflow)["workflow_dispatch"]["inputs"]["package"]["options"] == [
-        "phlo-minio",
-        "phlo-retail-files",
-    ]
+    assert _triggers(workflow)["workflow_dispatch"] is None
+    assert "phlo-retail-files" not in str(workflow)
     assert workflow["permissions"] == {}
     build = workflow["jobs"]["build"]
     assert "github.ref == 'refs/heads/main'" in build["if"]
@@ -331,6 +329,7 @@ def test_storage_plugin_publication_is_bounded_and_publishes_tested_artifacts() 
     build_scripts = "\n".join(step.get("run", "") for step in build["steps"])
     assert "-p scripts.ci_required" in build_scripts
     assert "test_minio_migration.py -m integration" in build_scripts
+    assert "uv build packages/phlo-minio --out-dir dist" in build_scripts
     assert "uv pip install" in build_scripts
     assert "secrets.PYPI_API_TOKEN" not in str(build)
     upload = next(

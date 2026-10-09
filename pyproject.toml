@@ -99,7 +99,7 @@ version = "0.17.0"
 [project.entry-points."phlo.plugins.transforms"]
 
 [project.optional-dependencies]
-blueprints = ["phlo-retail-files==0.1.1"]
+blueprints = ["phlo-retail-files==0.1.0"]
 codemods = ["libcst>=1.5.0"]
 core-services = [
     "phlo-dagster>=0.3.2",

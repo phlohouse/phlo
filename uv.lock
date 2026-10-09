@@ -4077,14 +4077,13 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-retail-files"
-version = "0.1.1"
+version = "0.1.0"
 source = { directory = "examples/lakehouses/retail-files" }
 dependencies = [
     { name = "pandas" },
     { name = "phlo", extra = ["defaults"] },
     { name = "phlo-dagster" },
     { name = "phlo-dbt" },
-    { name = "phlo-minio" },
     { name = "pyarrow" },
 ]
 
@@ -4094,7 +4093,6 @@ requires-dist = [
     { name = "phlo", extras = ["defaults"], specifier = "==0.17.0" },
     { name = "phlo-dagster", specifier = "==0.17.0" },
     { name = "phlo-dbt", specifier = "==0.16.0" },
-    { name = "phlo-minio", specifier = "==0.16.1" },
     { name = "pyarrow", specifier = ">=21,<26" },
 ]
 

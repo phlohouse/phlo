@@ -1,18 +1,12 @@
-name: Publish Storage Plugin
+name: Publish MinIO Plugin
 
 on:
   workflow_dispatch:
-    inputs:
-      package:
-        description: Publish MinIO first, then the blueprint that requires it
-        required: true
-        type: choice
-        options: [phlo-minio, phlo-retail-files]
 
 permissions: {}
 
 concurrency:
-  group: publish-storage-plugin-${{ inputs.package }}
+  group: publish-minio-plugin
   cancel-in-progress: false
 
 jobs:
@@ -33,39 +27,24 @@ jobs:
       - name: Validate package and release metadata
         run: |
           set -euo pipefail
-          uv sync --locked --all-extras
+          uv sync --locked
           uv run --locked python scripts/validate_support_manifest.py
           uv run --locked python scripts/check_version_drift.py
-          uv run --locked ruff check packages/phlo-minio/src examples/lakehouses/retail-files/src
-          uv run --locked pytest packages/phlo-minio/tests tests/cli/test_blueprint_retail_files.py tests/tooling/test_release_replacements.py
+          uv run --locked ruff check packages/phlo-minio/src
+          uv run --locked pytest packages/phlo-minio/tests tests/tooling/test_release_replacements.py
       - name: Exercise existing MinIO volumes
-        if: inputs.package == 'phlo-minio'
         run: uv run --locked python -m pytest -p scripts.ci_required packages/phlo-minio/tests/test_minio_migration.py -m integration
-      - name: Build the selected distribution
-        env:
-          PACKAGE: ${{ inputs.package }}
-        run: |
-          set -euo pipefail
-          case "$PACKAGE" in
-            phlo-minio) uv build packages/phlo-minio --out-dir dist ;;
-            phlo-retail-files) uv build examples/lakehouses/retail-files --out-dir dist ;;
-            *) exit 1 ;;
-          esac
+      - name: Build the MinIO distribution
+        run: uv build packages/phlo-minio --out-dir dist
       - name: Install the wheel against published dependencies
-        env:
-          PACKAGE: ${{ inputs.package }}
         run: |
           set -euo pipefail
           uv venv "$RUNNER_TEMP/consumer"
           uv pip install --python "$RUNNER_TEMP/consumer/bin/python" dist/*.whl
-          if [[ "$PACKAGE" = phlo-minio ]]; then
-            "$RUNNER_TEMP/consumer/bin/python" -I -c 'from phlo_minio.migrate import migrate_image; from phlo_minio.plugin import MinioServicePlugin, MinioSetupServicePlugin; assert migrate_image.name == "migrate-image"; image = MinioServicePlugin().service_definition["image"]; assert image.startswith("ghcr.io/phlohouse/phlo-minio:"); assert image == MinioSetupServicePlugin().service_definition["image"]'
-          else
-            "$RUNNER_TEMP/consumer/bin/python" -I -c 'from phlo_retail_files.provider import templates; assert templates()'
-          fi
+          "$RUNNER_TEMP/consumer/bin/python" -I -c 'from phlo_minio.migrate import migrate_image; from phlo_minio.plugin import MinioServicePlugin, MinioSetupServicePlugin; assert migrate_image.name == "migrate-image"; image = MinioServicePlugin().service_definition["image"]; assert image.startswith("ghcr.io/phlohouse/phlo-minio:"); assert image == MinioSetupServicePlugin().service_definition["image"]'
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: storage-plugin-distributions
+          name: minio-plugin-distributions
           path: dist/
           if-no-files-found: error
 
@@ -82,7 +61,7 @@ jobs:
           enable-cache: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
-          name: storage-plugin-distributions
+          name: minio-plugin-distributions
           path: dist
       - name: Publish tested bytes without rebuilding
         env:

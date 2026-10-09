@@ -54,28 +54,25 @@ Nightly rescans cover the latest independently published MinIO image even
 before the next Phlo release, alongside the latest Phlo release's pinned fleet.
 Registry and scanner failures still fail the rescan.
 
-### Publish the plugin and blueprint independently
+### Publish the MinIO plugin independently
 
-The initial rollout requires publishing `phlo-minio` 0.16.1, then
-`phlo-retail-files` 0.1.1. Neither requires a Phlo core release. After this
-change merges to `main`, dispatch each separately and wait for the first
-run to succeed before starting the second:
+The initial rollout requires publishing `phlo-minio` 0.16.1. This does not
+require a Phlo core release or publishing any lakehouse example. After this
+change merges to `main`, dispatch the plugin publisher:
 
 ```bash
-gh workflow run publish-storage-plugins.yml --repo phlohouse/phlo --ref main -f package=phlo-minio
-gh workflow run publish-storage-plugins.yml --repo phlohouse/phlo --ref main -f package=phlo-retail-files
+gh workflow run publish-minio-plugin.yml --repo phlohouse/phlo --ref main
 ```
 
-The publisher validates metadata, runs focused tests, builds the selected
+The publisher validates metadata, runs focused tests, builds the MinIO
 distribution once, and installs its wheel against published dependencies
-in a clean environment. MinIO publication also tests the existing-volume
+in a clean environment. It also tests the existing-volume
 migration with Docker. A separate job publishes those tested bytes using
 the existing `PYPI_API_TOKEN` in the `release` environment. The token must
-permit publishing the selected PyPI project. No reviewer protection is
+permit publishing `phlo-minio`. No reviewer protection is
 required, and dispatching the image publisher does not dispatch this workflow.
 Existing PyPI versions cannot be overwritten; advance the package version
-for a subsequent plugin fix. The blueprint's clean install requires its
-pinned MinIO plugin to have been published first.
+for a subsequent plugin fix.
 
 ### Create a lakehouse with the published image
 
@@ -92,8 +89,7 @@ uv run phlo services start --service minio --service minio-setup
 ```
 
 The plugin generates GHCR image references for both services and prepares
-the named volume for UID 1001. The Retail Files blueprint also pins this
-plugin version. Existing example lockfiles still need the upgrade below;
+the named volume for UID 1001. Existing example lockfiles need the upgrade below;
 do not assume a frozen lock selects the latest plugin.
 
 ### Migrate an existing lakehouse
