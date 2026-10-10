@@ -266,6 +266,16 @@ def evaluate_reconciliation(  # noqa: C901
 
     attempt_events = [row for row in event_rows if row.attempt == observation.attempt]
     attempt_stages = [row for row in stage_rows if row.attempt == observation.attempt]
+    stages_by_type: dict[str, list[StoredStage]] = {}
+    stages_by_provider: dict[tuple[str, str | None], list[StoredStage]] = {}
+    for row in attempt_stages:
+        stages_by_type.setdefault(row.stage_type, []).append(row)
+        stages_by_provider.setdefault((row.stage_type, row.provider), []).append(row)
+    event_statuses: dict[tuple[str, str | None], set[RunStatus | None]] = {}
+    for row in attempt_events:
+        event_statuses.setdefault(
+            (row.event_type, row.stage_id or row.payload.stage_id), set()
+        ).add(_event_status(row))
     status = normalize_status(observation.status)
     tagged_no_data = any(_event_is_no_data(row) for row in attempt_events)
     successful_event = any(
@@ -318,12 +328,11 @@ def evaluate_reconciliation(  # noqa: C901
             if value is None or value == "":
                 missing.append(f"run:{field_name}")
     for requirement in profile.stages:
-        matching_stages = [
-            row
-            for row in attempt_stages
-            if row.stage_type == requirement.stage_type
-            and (requirement.provider is None or row.provider == requirement.provider)
-        ]
+        matching_stages = (
+            stages_by_type.get(requirement.stage_type, [])
+            if requirement.provider is None
+            else stages_by_provider.get((requirement.stage_type, requirement.provider), [])
+        )
         waived = no_data and requirement.allow_no_data
         if not matching_stages and not waived:
             missing.append(f"stage:{requirement.stage_type}")
@@ -331,22 +340,13 @@ def evaluate_reconciliation(  # noqa: C901
         expected_statuses = requirement.allowed_statuses or (
             (requirement.required_status,) if requirement.required_status else ()
         )
+        normalized_expected = {normalize_status(value) for value in expected_statuses}
         if (
             expected_statuses
             and matching_stages
-            and not any(
-                row.status in {normalize_status(value) for value in expected_statuses}
-                for row in matching_stages
-            )
+            and not any(row.status in normalized_expected for row in matching_stages)
         ):
             missing.append(f"stage_status:{requirement.stage_type}={'|'.join(expected_statuses)}")
-        expected_statuses = {
-            normalize_status(value)
-            for value in (
-                requirement.allowed_statuses
-                or ((requirement.required_status,) if requirement.required_status else ())
-            )
-        }
         matching_stage_ids = {row.stage_id for row in matching_stages}
         # An event satisfies a requirement when its type matches and it is
         # attributed to one of the matching stages. An unattributed event is
@@ -355,24 +355,26 @@ def evaluate_reconciliation(  # noqa: C901
         # single matching stage's status when that status alone satisfies the
         # requirement.
         for event_type in requirement.required_event_types:
+            statuses = set().union(
+                *(
+                    event_statuses.get((event_type, stage_id), set())
+                    for stage_id in matching_stage_ids
+                )
+            )
+            if len(matching_stages) == 1:
+                statuses.update(event_statuses.get((event_type, None), set()))
             if (
-                not any(
-                    row.event_type == event_type
+                not (
+                    statuses
                     and (
-                        (row.stage_id or row.payload.stage_id) in matching_stage_ids
-                        if row.stage_id or row.payload.stage_id
-                        else len(matching_stages) == 1
-                    )
-                    and (
-                        not expected_statuses
-                        or _event_status(row) in expected_statuses
+                        not normalized_expected
+                        or statuses & normalized_expected
                         or (
-                            _event_status(row) is None
+                            None in statuses
                             and len(matching_stages) == 1
-                            and matching_stages[0].status in expected_statuses
+                            and matching_stages[0].status in normalized_expected
                         )
                     )
-                    for row in attempt_events
                 )
                 and not waived
             ):
