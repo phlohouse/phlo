@@ -280,6 +280,7 @@ def _infer_dlt_table(
     try:
         from dlt.extract.resource import DltResource
         from dlt.extract.source import DltSource
+    # reason: dlt is a required dependency; this only reports a broken install.
     except Exception as exc:  # pragma: no cover
         logger.exception(
             "schema_codegen_dlt_import_failed",

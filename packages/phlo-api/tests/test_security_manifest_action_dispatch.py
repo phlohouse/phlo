@@ -19,7 +19,7 @@ class _DenyingBackend:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
 
-    def explain_decision(self, principal, action, resource, context=None):  # noqa: ANN001
+    def explain_decision(self, principal, action, resource, context=None):
         self.calls.append((action, resource.resource_type, resource.resource_id))
         return AuthorizationDecision(
             allowed=False, reason_code="default_deny", policy_id=None, explanation="test"
@@ -33,7 +33,7 @@ def backend(monkeypatch) -> _DenyingBackend:
     auth = AuthPrincipal(subject="operator", principal_type="user", groups=())
     canonical = Principal(subject="operator", principal_type="user", roles=("operator",))
 
-    def enforce(*, principal, action, resource, context, **_kwargs):  # noqa: ANN001
+    def enforce(*, principal, action, resource, context, **_kwargs):
         denying.explain_decision(canonical, action, resource, context)
         return EnforcementResult.deny(reason_code="default_deny")
 
