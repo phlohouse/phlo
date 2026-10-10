@@ -8,12 +8,11 @@ match the recorded digest. The wheel is tested in a clean environment.
 
 ## Use the blueprint
 
-```bash
-# Route 1: direct install
-uv pip install phlo-retail-files
+`phlo-retail-files` is not published to PyPI yet, so install it from a checkout
+of this repository:
 
-# Route 2: bundled extra
-uv pip install "phlo[blueprints]"
+```bash
+uv pip install ./examples/lakehouses/retail-files
 
 phlo init my-project --template retail-files
 ```
