@@ -33,7 +33,7 @@ def test_dagster_runtime_image_is_glibc_based_for_external_binaries() -> None:
     """Sling publishes no musl build; an Alpine base would break ingest assets."""
     lines = _dockerfile_instruction_lines(_runtime_resource("Dockerfile"))
     first_from = next(line for line in lines if line.startswith("FROM "))
-    assert first_from.split()[1] == "python:3.12-slim"
+    assert first_from.split()[1].split("@", 1)[0] == "python:3.12-slim"
 
 
 def test_dagster_service_uses_the_image_bootstrap_script() -> None:
@@ -55,10 +55,15 @@ def test_dagster_runtime_entrypoint_gives_an_unmapped_uid_an_isolated_writable_h
 
     entrypoint = resources.files("phlo_dagster").joinpath("entrypoint.sh")
     (tmp_path / "entrypoint.sh").write_text(entrypoint.read_text())
+    base = next(
+        line.split()[1]
+        for line in _dockerfile_instruction_lines(_runtime_resource("Dockerfile"))
+        if line.startswith("FROM ")
+    )
     (tmp_path / "Dockerfile").write_text(
         "\n".join(
             [
-                "FROM python:3.12-slim",
+                f"FROM {base}",
                 "RUN apt-get update && apt-get install --yes --no-install-recommends bash gosu",
                 "RUN mkdir -p /opt/dagster",
                 "COPY entrypoint.sh /usr/local/bin/phlo-dagster-entrypoint.sh",
