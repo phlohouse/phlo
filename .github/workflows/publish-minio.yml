@@ -54,3 +54,45 @@ jobs:
       candidate_sha: ${{ github.sha }}
       targets: ${{ needs.prepare.outputs.targets }}
       immutable_tags: true
+
+  sign:
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: generated-service-images
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22
+        with:
+          cosign-release: v3.0.5
+      - name: Sign and verify the independently published immutable MinIO digest
+        run: |
+          set -euo pipefail
+          jq -ce '.[]' generated-service-images.json > targets.jsonl
+          while read -r target; do
+            image="$(jq -r .image <<< "$target")"
+            digest="$(jq -r .digest <<< "$target")"
+            [[ "$image" =~ ^ghcr.io/phlohouse/phlo-minio:[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            subject="${image%:*}@$digest"
+            cosign sign --yes "$subject"
+            cosign verify --certificate-identity \
+              'https://github.com/phlohouse/phlo/.github/workflows/publish-minio.yml@refs/heads/main' \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              "$subject" > minio-signatures.json
+          done < targets.jsonl
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: minio-signature-verification
+          path: minio-signatures.json
+          if-no-files-found: error

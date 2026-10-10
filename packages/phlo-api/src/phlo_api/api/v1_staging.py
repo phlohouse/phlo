@@ -30,7 +30,7 @@ from phlo_api.api.operation_controls import (
 from phlo_api.api.v1_branch_workflows import BranchReference, _nessie, _reference, _run_check_job
 from phlo_api.errors import BackendUnavailableError, BadGatewayError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
-from phlo_api.settings import get_deployment_settings
+from phlo_api.settings import get_deployment_settings, get_process_settings
 from phlo_api.v1_contract import WireModel
 
 router = APIRouter(tags=["v1 staging"])
@@ -126,7 +126,7 @@ def _configured() -> tuple[Path, Path, str, str, str]:
             503, "Staging promotion requires an asserted single API replica/process."
         )
     values = [
-        os.environ.get(name, "")
+        get_process_settings().get(name, "")
         for name in (
             "PHLO_PROMOTION_PROD_WORKTREE",
             "PHLO_PROMOTION_STAGING_WORKTREE",
@@ -356,9 +356,7 @@ _CHECK_KINDS: tuple[Literal["tests", "contracts", "audits"], ...] = (
 
 
 def _configured_check_names() -> list[str | None]:
-    names = [
-        item.strip() for item in os.environ.get("PHLO_PROMOTION_DAGSTER_CHECK_JOBS", "").split(",")
-    ]
+    names = get_process_settings().phlo_promotion_dagster_check_jobs
     valid = (
         len(names) == len(_CHECK_KINDS)
         and len(set(names)) == len(names)
@@ -372,11 +370,7 @@ def _configured_check_names() -> list[str | None]:
 
 
 def _check_names() -> list[str]:
-    names = [
-        item.strip()
-        for item in os.environ.get("PHLO_PROMOTION_DAGSTER_CHECK_JOBS", "").split(",")
-        if item.strip()
-    ]
+    names = [item for item in get_process_settings().phlo_promotion_dagster_check_jobs if item]
     if (
         len(names) != 3
         or len(set(names)) != 3

@@ -214,13 +214,14 @@ sections.style = false
 sections.test = false
 
 [publish]
-enabled = true
+# ReleaseX creates version PRs only. Publication is owned by the qualified,
+# build-once release-promotion.yml path, never ReleaseX's build/publish path.
+enabled = false
 provider = "uv"
 repository = "pypi"
 dist_dir = "dist"
-trusted_publishing = false
-oidc = false
-token_env = "PYPI_API_TOKEN"
+trusted_publishing = true
+oidc = true
 
 [github]
 token_env = "GITHUB_TOKEN"
@@ -230,11 +231,11 @@ tagged_label = "autorelease: tagged"
 
 [[channels]]
 branch = "main"
-publish = true
+publish = false
 
 [[channels]]
 branch = "beta"
-publish = true
+publish = false
 prerelease = "b"
 
 [monorepo]

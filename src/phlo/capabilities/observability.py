@@ -31,6 +31,7 @@ from phlo.capabilities.registry import (
 )
 from phlo.capabilities.specs import MaintenanceReadModelSpec, ObservabilityBackendSpec
 from phlo.capabilities.support import CapabilitySupport
+from phlo.config.process import get_process_settings
 
 _PUBLIC_HOST_ENV = "PHLO_OBSERVABILITY_PUBLIC_HOST"
 _PUBLIC_SCHEME_ENV = "PHLO_OBSERVABILITY_PUBLIC_SCHEME"
@@ -282,8 +283,8 @@ def _resolve_service_base_url(
     if port is None:
         return None
 
-    host = os.environ.get(_PUBLIC_HOST_ENV, "localhost")
-    scheme = os.environ.get(_PUBLIC_SCHEME_ENV, "http")
+    host = get_process_settings().get(_PUBLIC_HOST_ENV, "localhost")
+    scheme = get_process_settings().get(_PUBLIC_SCHEME_ENV, "http")
     return f"{scheme}://{host}:{port}"
 
 

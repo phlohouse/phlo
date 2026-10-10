@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from phlo.config.base import BaseConfig
 from phlo.config.cache import project_root_cached
@@ -25,6 +26,18 @@ from phlo_openmetadata.capabilities import (
     resolve_query_engine_catalog,
     resolve_query_engine_service_type,
 )
+
+
+class OpenMetadataProcessSettings(BaseSettings):
+    """Read fresh publish-event defaults without validating unrelated server settings."""
+
+    model_config = SettingsConfigDict(case_sensitive=True, extra="ignore", env_file=None)
+
+    postgres_mart_schema: str = Field(
+        "marts",
+        validation_alias="PHLO_POSTGRES_MART_SCHEMA",
+        description="Publish-event schema fallback for unqualified table names; explicit empty string is preserved.",
+    )
 
 
 class OpenMetadataSettings(BaseConfig):

@@ -19,9 +19,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from phlo.config.base import BaseConfig
 from phlo.config.cache import project_root_cached
+
+
+class SlingProcessSettings(BaseSettings):
+    """Read process object-store selection before the existing phlo.yaml env fallback."""
+
+    model_config = SettingsConfigDict(case_sensitive=True, extra="ignore", env_file=None)
+
+    object_store: str | None = Field(
+        None,
+        validation_alias="PHLO_OBJECT_STORE",
+        description="Object-store capability override; missing/blank falls back to phlo.yaml env then capability resolution.",
+    )
 
 
 class SlingSettings(BaseConfig):
