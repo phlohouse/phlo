@@ -83,7 +83,7 @@ def _read_key(node: ast.AST) -> ast.expr | None:
     if (
         isinstance(node, ast.Compare)
         and len(node.ops) == 1
-        and isinstance(node.ops[0], ast.In | ast.NotIn)
+        and isinstance(node.ops[0], ast.In | ast.NotIn)  # codespell:ignore notin
         and _is_environ(node.comparators[0])
     ):
         return node.left
