@@ -51,6 +51,7 @@
     "0048-blessed-run-evidence-composition",
     "0049-v1-continuity-and-upgrade-contract",
     "0050-freeze-release-promotion-contract",
-    "0051-dataset-authority"
+    "0051-dataset-authority",
+    "0052-domain-vocabulary"
   ]
 }

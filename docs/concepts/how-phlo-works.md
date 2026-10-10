@@ -45,6 +45,7 @@ This separation lets a project describe data once while choosing compatible runt
 - [Assets, partitions, and schedules](assets-partitions-and-schedules.md)
 - [Governance and datasets](governance-and-datasets.md)
 - [Evidence, audit, and compliance](evidence-audit-and-compliance.md)
+- [Domain glossary](glossary.md)
 
 ## How discovery preserves intent
 
