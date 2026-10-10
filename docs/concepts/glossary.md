@@ -75,7 +75,8 @@ A workflow is a definition. It is never an execution; that is a run.
 An orchestrator definition that selects a set of assets to execute together.
 In the default stack these are Dagster jobs, defined in workflow modules or
 shipped by packages (for example the Iceberg maintenance jobs in
-`phlo-dagster`). `/api/v1/jobs` lists them by `job_id`.
+`phlo-dagster`). `/api/v1/jobs` lists them, with the job name as
+each item's `id`.
 
 ### Run
 
@@ -87,9 +88,10 @@ is the structured record of a run.
 
 ### Operation
 
-A recorded platform action that is not a data run, such as a WAP promotion,
-table maintenance, or a backup. Operations are kept in the durable operation
-journal (`src/phlo/operations/journal.py`).
+A recorded platform action that is not a data run, such as a backup, a
+restore, an upgrade, or table maintenance. Core keeps these in the durable
+operation journal (`src/phlo/operations/journal.py`). Observatory also shows
+WAP promotion reports as operations, read from its own operation journal.
 
 ### Pipeline
 
@@ -110,7 +112,7 @@ types, fields, or routes named "pipeline".
 | Word | Meaning to use | Other meaning in the codebase | How to tell them apart |
 | --- | --- | --- | --- |
 | publish | Data-plane materialisation through a publish-target provider (`publish_table`) | The Dataset publication transition (`draft → published → retired`) | Say "publish internally" or "publication transition" for the governance change, as ADR 0051 requires |
-| workflow | Authored workflow modules | Dataset workflow state (`claim → review → promote/reject`); Nessie branch workflows in the API | Say "Dataset workflow state" or "branch workflow" for the other senses |
+| workflow | Authored workflow modules | Dataset workflow state (`claimed → review → promoted` or `rejected`); Nessie branch workflows in the API | Say "Dataset workflow state" or "branch workflow" for the other senses |
 | pipeline | None (presentation only) | UI label for jobs; Dataset production-flow read model | Say "job" or "production stages" |
 | asset | Executable lineage node | The table an asset writes | Say "table" for storage |
 

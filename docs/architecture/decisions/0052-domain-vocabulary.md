@@ -21,7 +21,7 @@ provider representations, or lifecycle stages. Examples in the code today:
   lists orchestrator jobs backed by `/api/v1/jobs`. The same word names two
   unrelated things.
 - "Workflow" names authored workflow modules, Dataset workflow state
-  (`claim → review → promote/reject`), and Nessie branch workflows in the API.
+  (`claimed → review → promoted` or `rejected`), and Nessie branch workflows in the API.
 
 Readers, including issue #957, cannot tell how these parts fit together.
 
