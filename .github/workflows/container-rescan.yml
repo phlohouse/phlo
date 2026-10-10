@@ -107,10 +107,26 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          mkdir -p published/candidate/distributions reports
+          mkdir -p published/downloads published/candidate/distributions reports
           gh release download "$RELEASE_TAG" --pattern bom.json --dir published/candidate
           gh release download "$RELEASE_TAG" --pattern '*.whl' --pattern '*.tar.gz' \
-            --dir published/candidate/distributions
+            --dir published/downloads
+          python3 - <<'PY'
+          import shutil
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          import release_candidate_bom as candidate_bom
+          candidate = Path("published/candidate")
+          bom = candidate_bom.load_bom(candidate / "bom.json")
+          digests = {
+              artifact["digest"] for artifact in bom["artifacts"]
+              if artifact["kind"] in (candidate_bom.KIND_WHEEL, candidate_bom.KIND_SDIST)
+          }
+          for path in Path("published/downloads").iterdir():
+              if candidate_bom.file_sha256(path) in digests:
+                  shutil.copyfile(path, candidate / "distributions" / path.name)
+          PY
           python3 scripts/promote_release_candidate.py verify-published \
             --candidate-bom published/candidate/bom.json --staging-dir published/candidate \
             --report-output reports/publication-audit.json

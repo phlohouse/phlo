@@ -1,9 +1,12 @@
 """Phlo promotion consumes staged bytes; MinIO has an independent publisher."""
 
+import hashlib
+import io
 import json
 import os
 import shlex
 import subprocess
+import sys
 import tarfile
 import tomllib
 from itertools import pairwise
@@ -247,6 +250,170 @@ def test_rescan_verifies_exact_subject_and_workflow_and_rejects_unsigned_images(
         if s.get("name") == "Rescan immutable images with fresh Trivy data"
     )
     assert scan["if"] == "${{ !cancelled() }}"
+
+
+@pytest.mark.parametrize("source", ["local-build", "staged", "pypi"])
+@pytest.mark.parametrize("state", ["matched", "missing_wheel", "tampered_sdist"])
+def test_rescan_reconciles_only_bom_distributions(tmp_path, monkeypatch, source, state):
+    step = next(
+        item
+        for item in workflow("container-rescan.yml")["jobs"]["rescan"]["steps"]
+        if item.get("name") == "Reconcile published bytes and signatures against the release BOM"
+    )
+    release = tmp_path / "release-assets"
+    release.mkdir()
+    commit = "e" * 40
+    distributions = {
+        "phlo-0.15.0.tar.gz": b"qualified sdist bytes",
+        "phlo-0.15.0-py3-none-any.whl": b"qualified wheel bytes",
+    }
+    artifacts = [
+        {"kind": kind, "name": name, "version": version, "digest": digest, "source": origin}
+        for kind, name, version, digest, origin in [
+            ("source", "phlohouse/phlo", "0.15.0", commit, "git"),
+            (
+                "support-manifest",
+                "registry/support/v1.json",
+                "0.15.0",
+                "2" * 64,
+                "git:registry/support/v1.json",
+            ),
+            (
+                "first-party-image",
+                "ghcr.io/phlohouse/phlo-api",
+                "0.15.0",
+                "sha256:" + "a" * 64,
+                "service.yaml",
+            ),
+            ("provider-image", "postgres", "18", "sha256:" + "b" * 64, "service.yaml"),
+        ]
+    ]
+    pypi_files = []
+    for filename, data in distributions.items():
+        digest = hashlib.sha256(data).hexdigest()
+        (release / filename).write_bytes(data)
+        origin = {
+            "local-build": f"local-build:{commit}/{filename}",
+            "staged": f"staged:{filename}",
+            "pypi": "pypi:phlo/0.15.0",
+        }[source]
+        artifacts.append(
+            {
+                "kind": "wheel" if filename.endswith(".whl") else "sdist",
+                "name": "phlo",
+                "version": "0.15.0",
+                "digest": digest,
+                "source": origin,
+            }
+        )
+        pypi_files.append(
+            {
+                "filename": filename,
+                "digests": {"sha256": digest},
+                "url": "https://example.test/" + filename,
+            }
+        )
+    bom = {
+        "schema": "phlo.release-candidate-bom/v1",
+        "release_commit": commit,
+        "release_ref": "v0.15.0",
+        "artifacts": artifacts,
+        "canonical_candidate_digest": hashlib.sha256(
+            json.dumps(
+                [artifact["digest"] for artifact in artifacts], separators=(",", ":")
+            ).encode()
+        ).hexdigest(),
+    }
+    (release / "bom.json").write_text(json.dumps(bom))
+    for filename, member in (
+        ("qualification-evidence-123-1.tar.gz", "authorization.json"),
+        ("release-evidence-123-1.tar.gz", "promotion-receipt.json"),
+    ):
+        with tarfile.open(release / filename, "w:gz") as archive:
+            info = tarfile.TarInfo(member)
+            info.size = 2
+            archive.addfile(info, io.BytesIO(b"{}"))
+    public_release = {
+        "tag_name": "v0.15.0",
+        "draft": False,
+        "assets": [
+            {"name": path.name, "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}
+            for path in release.iterdir()
+        ],
+    }
+    (tmp_path / "public-release.json").write_text(json.dumps([[public_release]]))
+    (tmp_path / "pypi.json").write_text(json.dumps({"urls": pypi_files}))
+    if state == "missing_wheel":
+        (release / "phlo-0.15.0-py3-none-any.whl").unlink()
+    elif state == "tampered_sdist":
+        (release / "phlo-0.15.0.tar.gz").write_bytes(b"tampered sdist bytes")
+
+    # The real workflow, CLI, BOM loader and staged verifier run unchanged.
+    # Only network and external-command boundaries read fixture public state.
+    (tmp_path / "scripts").symlink_to(WORKFLOWS.parent.parent / "scripts", target_is_directory=True)
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    remote = (
+        f"#!{sys.executable}\n"
+        + """import fnmatch, json, pathlib, shutil, sys
+args = sys.argv[1:]
+command = pathlib.Path(sys.argv[0]).name
+if command == "gh" and args[:2] == ["release", "download"]:
+    destination = pathlib.Path(args[args.index("--dir") + 1])
+    destination.mkdir(parents=True, exist_ok=True)
+    patterns = [args[i + 1] for i, arg in enumerate(args) if arg == "--pattern"]
+    for path in pathlib.Path("release-assets").iterdir():
+        if any(fnmatch.fnmatchcase(path.name, pattern) for pattern in patterns):
+            shutil.copyfile(path, destination / path.name)
+elif command == "gh" and args[0] == "api":
+    print(pathlib.Path("public-release.json").read_text())
+elif command == "git" and args[0] == "ls-remote":
+    print("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\\trefs/tags/v0.15.0")
+elif command == "docker":
+    print("Digest: sha256:" + "a" * 64)
+elif command == "cosign":
+    print(json.dumps([{"critical": {"image": {"docker-manifest-digest": "sha256:" + "a" * 64}}}]))
+else:
+    raise SystemExit("unexpected external command")
+"""
+    )
+    for command in ("gh", "git", "docker", "cosign"):
+        executable = binaries / command
+        executable.write_text(remote)
+        executable.chmod(0o755)
+    (binaries / "sitecustomize.py").write_text("""import io, pathlib, urllib.request
+def fixture_urlopen(request, **kwargs):
+    if request.full_url != "https://pypi.org/pypi/phlo/0.15.0/json":
+        raise ValueError("unexpected network request")
+    return io.BytesIO(pathlib.Path("pypi.json").read_bytes())
+urllib.request.urlopen = fixture_urlopen
+""")
+    monkeypatch.setenv("PATH", f"{binaries}:{os.environ['PATH']}")
+    monkeypatch.setenv("PYTHONPATH", str(binaries))
+    monkeypatch.setenv("RELEASE_TAG", "v0.15.0")
+    result = subprocess.run(
+        ["bash", "-c", step["run"]], cwd=tmp_path, capture_output=True, text=True
+    )
+    report = tmp_path / "reports/publication-audit.json"
+    staged = tmp_path / "published/candidate/distributions"
+    if state == "matched":
+        assert result.returncode == 0, result.stderr
+        assert {path.name for path in staged.iterdir()} == set(distributions)
+        audit = json.loads(report.read_text())
+        assert audit["status"] == "matched"
+        assert len(audit["comparisons"]) == 3
+        assert {
+            item["identity"]: (item["candidate_sha256"], item["published_sha256"])
+            for item in audit["comparisons"]
+            if "candidate_sha256" in item
+        } == {
+            f"pypi:phlo/0.15.0/{filename}": (hashlib.sha256(data).hexdigest(),) * 2
+            for filename, data in distributions.items()
+        }
+    else:
+        assert result.returncode != 0
+        assert "missing or digest-mismatched" in result.stderr
+        assert not report.exists()
 
 
 @pytest.mark.parametrize("missing_input", [False, True])
