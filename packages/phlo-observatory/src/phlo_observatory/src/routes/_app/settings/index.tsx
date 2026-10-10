@@ -382,11 +382,11 @@ function EnvironmentBindingCard({
   return (
     <SettingsCard
       title={`Where ${env} connects`}
-      description="The pipeline definitions and table reference used in this environment."
+      description="The job definitions and table reference used in this environment."
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <dl className="m-0 flex min-w-0 flex-col gap-1">
-          <dt className="text-sm text-muted-foreground">Pipelines</dt>
+          <dt className="text-sm text-muted-foreground">Jobs</dt>
           <dd className="m-0 break-all font-mono text-sm">
             {binding.dagsterLocation ?? 'Not reported by the API'}
           </dd>
