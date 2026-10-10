@@ -296,7 +296,131 @@ class Qualification:
         return {bundle_checksum(bundle) for bundle in self.qualifying}
 
 
-def qualify_evidence_set(  # noqa: C901
+def _check_bundle_candidate(
+    bundle: dict[str, object], bom: dict[str, object], checksum: str
+) -> None:
+    candidate = bundle.get("candidate")
+    if (
+        not isinstance(candidate, dict)
+        or candidate.get("canonical_candidate_digest") != bom.get("canonical_candidate_digest")
+        or candidate.get("release_commit") != bom.get("release_commit")
+    ):
+        raise PromotionGateError(
+            "wrong_candidate",
+            f"evidence bundle {checksum!r} is bound to candidate "
+            f"({candidate.get('release_commit') if isinstance(candidate, dict) else None}, "
+            f"{candidate.get('canonical_candidate_digest') if isinstance(candidate, dict) else None}) "
+            f"but the staged BOM is candidate ({bom.get('release_commit')}, "
+            f"{bom.get('canonical_candidate_digest')}); evidence from any other "
+            "canonical digest is non-qualifying",
+        )
+
+
+def _screen_bundles(
+    bundles: list[dict[str, object]], bom: dict[str, object]
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Validate each bundle against the BOM; return the valid and rejected bundles."""
+    rejected: list[dict[str, object]] = []
+    valid: list[dict[str, object]] = []
+    seen_checksums: set[str] = set()
+    for bundle in bundles:
+        checksum = bundle_checksum(bundle)
+        if not checksum:
+            raise PromotionGateError(
+                "invalid_bundle", "a submitted evidence bundle carries no usable checksum"
+            )
+        if checksum in seen_checksums:
+            raise PromotionGateError(
+                "duplicate_evidence",
+                "the same evidence bundle was submitted twice (checksum "
+                f"{checksum}); repeated runs must be distinct executions",
+            )
+        seen_checksums.add(checksum)
+        _check_bundle_candidate(bundle, bom, checksum)
+        try:
+            release_evidence.validate_bundle(bundle, bom)
+            if bundle.get("conclusion") != release_evidence.CONCLUSION_PASSED:
+                raise PromotionGateError(
+                    "failed_run",
+                    f"evidence bundle {checksum!r} concluded "
+                    f"{bundle.get('conclusion')!r}; only fully passed runs qualify",
+                )
+            _check_bundle_environment(bundle)
+        except release_evidence.EvidenceError as exc:
+            rejected.append({"checksum": checksum, "reason": "invalid_bundle", "detail": str(exc)})
+            continue
+        valid.append(bundle)
+    return valid, rejected
+
+
+def _bundle_started(bundle: dict[str, object]) -> datetime:
+    return parse_utc(str(bundle["started_utc"]))
+
+
+def _check_replay_and_counts(
+    valid: list[dict[str, object]], prior_receipt_bundles: set[str] | None
+) -> list[str]:
+    """Reject replayed evidence and too few runs or hosts; return the sorted hosts."""
+    if prior_receipt_bundles:
+        replayed = sorted({bundle_checksum(bundle) for bundle in valid} & prior_receipt_bundles)
+        if replayed:
+            raise PromotionGateError(
+                "replayed_evidence",
+                f"evidence bundle(s) {replayed!r} were already consumed by a prior "
+                "promotion receipt for this candidate and cannot be replayed",
+            )
+    if len(valid) < MIN_QUALIFYING_RUNS:
+        raise PromotionGateError(
+            "insufficient_runs",
+            f"{len(valid)} qualifying run(s) is below the minimum of {MIN_QUALIFYING_RUNS}",
+        )
+    hosts = sorted({bundle_host(bundle) for bundle in valid})
+    if len(hosts) < MIN_DISTINCT_HOSTS:
+        raise PromotionGateError(
+            "insufficient_hosts",
+            f"qualifying runs executed on {len(hosts)} distinct host(s) {hosts!r}, below "
+            f"the minimum of {MIN_DISTINCT_HOSTS}",
+        )
+    return hosts
+
+
+def _check_timing(
+    valid: list[dict[str, object]], now_utc: datetime, staged_utc: str | None
+) -> tuple[int, list[datetime]]:
+    """Enforce day distinctness, freshness and staging order; return days and finish times."""
+    finished = [parse_utc(str(bundle["finished_utc"])) for bundle in valid]
+    days = {_bundle_started(bundle).date() for bundle in valid}
+    if len(days) < MIN_DISTINCT_DAYS:
+        raise PromotionGateError(
+            "insufficient_days",
+            f"qualifying runs span {len(days)} distinct UTC calendar day(s) "
+            f"{sorted(str(day) for day in days)!r}, below the minimum of "
+            f"{MIN_DISTINCT_DAYS}",
+        )
+    newest = max(finished)
+    if now_utc - newest > timedelta(days=MAX_EVIDENCE_AGE_DAYS):
+        raise PromotionGateError(
+            "stale_evidence",
+            f"the newest qualifying run finished {format_utc(newest)}, older than the "
+            f"freshness window of {MAX_EVIDENCE_AGE_DAYS} days at "
+            f"{format_utc(now_utc)}",
+        )
+    if staged_utc is not None:
+        staged_at = parse_utc(staged_utc)
+        predating = [
+            bundle_checksum(bundle) for bundle in valid if _bundle_started(bundle) < staged_at
+        ]
+        if predating:
+            raise PromotionGateError(
+                "predates_staging",
+                f"qualifying run(s) {predating!r} predate the staging of the canonical "
+                f"digest at {staged_utc}; no run may qualify against a candidate before "
+                "that candidate existed",
+            )
+    return len(days), finished
+
+
+def qualify_evidence_set(
     bundles: list[dict[str, object]],
     bom: dict[str, object],
     *,
@@ -316,121 +440,20 @@ def qualify_evidence_set(  # noqa: C901
     """
     if not bundles:
         raise PromotionGateError("missing_evidence", "no evidence bundles were submitted")
-
-    rejected: list[dict[str, object]] = []
-    valid: list[dict[str, object]] = []
-    seen_checksums: set[str] = set()
-    for bundle in bundles:
-        checksum = bundle_checksum(bundle)
-        if not checksum:
-            raise PromotionGateError(
-                "invalid_bundle", "a submitted evidence bundle carries no usable checksum"
-            )
-        if checksum in seen_checksums:
-            raise PromotionGateError(
-                "duplicate_evidence",
-                "the same evidence bundle was submitted twice (checksum "
-                f"{checksum}); repeated runs must be distinct executions",
-            )
-        seen_checksums.add(checksum)
-        candidate = bundle.get("candidate")
-        if (
-            not isinstance(candidate, dict)
-            or candidate.get("canonical_candidate_digest") != bom.get("canonical_candidate_digest")
-            or candidate.get("release_commit") != bom.get("release_commit")
-        ):
-            raise PromotionGateError(
-                "wrong_candidate",
-                f"evidence bundle {checksum!r} is bound to candidate "
-                f"({candidate.get('release_commit') if isinstance(candidate, dict) else None}, "
-                f"{candidate.get('canonical_candidate_digest') if isinstance(candidate, dict) else None}) "
-                f"but the staged BOM is candidate ({bom.get('release_commit')}, "
-                f"{bom.get('canonical_candidate_digest')}); evidence from any other "
-                "canonical digest is non-qualifying",
-            )
-        try:
-            release_evidence.validate_bundle(bundle, bom)
-            if bundle.get("conclusion") != release_evidence.CONCLUSION_PASSED:
-                raise PromotionGateError(
-                    "failed_run",
-                    f"evidence bundle {checksum!r} concluded "
-                    f"{bundle.get('conclusion')!r}; only fully passed runs qualify",
-                )
-            _check_bundle_environment(bundle)
-        except release_evidence.EvidenceError as exc:
-            rejected.append({"checksum": checksum, "reason": "invalid_bundle", "detail": str(exc)})
-            continue
-        valid.append(bundle)
-
+    valid, rejected = _screen_bundles(bundles, bom)
     if not valid:
         detail = "; ".join(f"{item['reason']}: {item['detail']}" for item in rejected)
         raise PromotionGateError(
             "failed_run" if not rejected else "invalid_bundle",
             f"no submitted evidence bundle qualifies ({len(rejected)} rejected): {detail}",
         )
-
-    if prior_receipt_bundles:
-        replayed = sorted({bundle_checksum(bundle) for bundle in valid} & prior_receipt_bundles)
-        if replayed:
-            raise PromotionGateError(
-                "replayed_evidence",
-                f"evidence bundle(s) {replayed!r} were already consumed by a prior "
-                "promotion receipt for this candidate and cannot be replayed",
-            )
-
-    if len(valid) < MIN_QUALIFYING_RUNS:
-        raise PromotionGateError(
-            "insufficient_runs",
-            f"{len(valid)} qualifying run(s) is below the minimum of {MIN_QUALIFYING_RUNS}",
-        )
-
-    hosts = sorted({bundle_host(bundle) for bundle in valid})
-    if len(hosts) < MIN_DISTINCT_HOSTS:
-        raise PromotionGateError(
-            "insufficient_hosts",
-            f"qualifying runs executed on {len(hosts)} distinct host(s) {hosts!r}, below "
-            f"the minimum of {MIN_DISTINCT_HOSTS}",
-        )
-
-    def started(bundle: dict[str, object]) -> datetime:
-        return parse_utc(str(bundle["started_utc"]))
-
-    finished = [parse_utc(str(bundle["finished_utc"])) for bundle in valid]
-    days = {started(bundle).date() for bundle in valid}
-    if len(days) < MIN_DISTINCT_DAYS:
-        raise PromotionGateError(
-            "insufficient_days",
-            f"qualifying runs span {len(days)} distinct UTC calendar day(s) "
-            f"{sorted(str(day) for day in days)!r}, below the minimum of "
-            f"{MIN_DISTINCT_DAYS}",
-        )
-
-    newest = max(finished)
-    if now_utc - newest > timedelta(days=MAX_EVIDENCE_AGE_DAYS):
-        raise PromotionGateError(
-            "stale_evidence",
-            f"the newest qualifying run finished {format_utc(newest)}, older than the "
-            f"freshness window of {MAX_EVIDENCE_AGE_DAYS} days at "
-            f"{format_utc(now_utc)}",
-        )
-
-    if staged_utc is not None:
-        staged_at = parse_utc(staged_utc)
-        predating = [bundle_checksum(bundle) for bundle in valid if started(bundle) < staged_at]
-        if predating:
-            raise PromotionGateError(
-                "predates_staging",
-                f"qualifying run(s) {predating!r} predate the staging of the canonical "
-                f"digest at {staged_utc}; no run may qualify against a candidate before "
-                "that candidate existed",
-            )
-
-    ordered = sorted(valid, key=started)
+    hosts = _check_replay_and_counts(valid, prior_receipt_bundles)
+    distinct_days, finished = _check_timing(valid, now_utc, staged_utc)
     return Qualification(
-        qualifying=ordered,
+        qualifying=sorted(valid, key=_bundle_started),
         rejected=rejected,
         hosts=hosts,
-        distinct_utc_days=len(days),
+        distinct_utc_days=distinct_days,
         newest_run_utc=format_utc(max(finished)),
         oldest_run_utc=format_utc(min(finished)),
     )
@@ -670,7 +693,176 @@ def _release_commands(executor: ExecutingExecutor, tag: str, paths: list[str]) -
     return commands
 
 
-def promote(  # noqa: C901
+def _verify_tag_identity(
+    tag: str,
+    commit: str,
+    executor: DryRunExecutor | ExecutingExecutor,
+    tag_commands: list[list[str]],
+) -> None:
+    """Reject a tag naming another commit; drop tag commands already satisfied."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0 and result.stdout.strip() != commit:
+        raise PromotionGateError(
+            "tag_exists",
+            f"ref refs/tags/{tag} does not name candidate commit {commit}",
+        )
+    if result.returncode == 0:
+        tag_commands.pop(0)
+    if isinstance(executor, ExecutingExecutor):
+        remote = _remote_tag(executor, tag)
+        if remote and remote != commit:
+            raise PublishBlockedError(f"remote tag {tag} does not name candidate commit")
+        if remote:
+            tag_commands.clear()
+
+
+def _verify_distribution_digests(bom: dict[str, object], staging_dir: Path) -> None:
+    """Require a staged file for every BOM distribution digest."""
+    _verify_staged_bytes(bom, staging_dir)
+    staged = {
+        release_candidate_bom.file_sha256(path)
+        for path in sorted((staging_dir / "distributions").iterdir())
+        if path.is_file()
+    }
+    for artifact in _distribution_artifacts(bom):
+        if str(artifact["digest"]) not in staged:
+            raise PromotionGateError(
+                "staged_bytes_mismatch",
+                f"no staged file matches BOM digest {artifact['digest']} for "
+                f"{artifact['name']} {artifact['version']} ({artifact['kind']})",
+            )
+
+
+def _verify_images_digest_pinned(bom: dict[str, object]) -> None:
+    if not _first_party_images(bom):
+        raise PromotionGateError("invalid_bom", "BOM carries no first-party release images")
+
+
+def _dry_run_image_commands(
+    image_artifacts: list[dict[str, object]], version: str
+) -> list[list[str]]:
+    return [
+        [
+            "docker",
+            "buildx",
+            "imagetools",
+            "create",
+            "-t",
+            f"{artifact['name']}:{version}",
+            "--prefer-index=false",
+            f"{artifact['name']}@{artifact['digest']}",
+        ]
+        for artifact in image_artifacts
+    ]
+
+
+def _dry_run_release_commands(tag: str, final_assets: list[str]) -> list[list[str]]:
+    return (
+        [
+            [
+                "gh",
+                "release",
+                "create",
+                tag,
+                "--verify-tag",
+                "--draft",
+                "--title",
+                tag,
+                "--notes",
+                "Promoted immutable candidate.",
+            ]
+        ]
+        + [["gh", "release", "upload", tag, str(path)] for path in final_assets]
+        + [["gh", "release", "edit", tag, "--draft=false"]]
+    )
+
+
+class _StepRunner:
+    """Run ordered publish steps, recording each outcome and aborting forward on failure."""
+
+    def __init__(self, executor: DryRunExecutor | ExecutingExecutor) -> None:
+        self.executor = executor
+        self.steps: list[StepResult] = []
+        self.aborted = False
+
+    @property
+    def executing(self) -> bool:
+        return isinstance(self.executor, ExecutingExecutor)
+
+    def _fail(self, step_id: str, order: int, detail: str) -> None:
+        self.aborted = True
+        self.steps.append(
+            StepResult(
+                step_id=step_id,
+                order=order,
+                status=STEP_FAILED,
+                detail=detail,
+                public_identity="",
+            )
+        )
+
+    def attempt(
+        self,
+        step_id: str,
+        order: int,
+        verify: Callable[[], None],
+        *,
+        public_identity: str,
+        bound_digests: list[str],
+        commands: list[list[str]] | Callable[[], list[list[str]]],
+        dry_run_detail: str,
+    ) -> None:
+        if self.aborted:
+            self.steps.append(
+                StepResult(
+                    step_id=step_id,
+                    order=order,
+                    status=STEP_NOT_RUN,
+                    detail="skipped: an earlier publish step failed (forward completion only)",
+                    public_identity="",
+                )
+            )
+            return
+        try:
+            verify()
+            selected = commands() if callable(commands) else commands
+        except PromotionGateError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - recorded as a step failure
+            self._fail(step_id, order, str(exc))
+            return
+        recorded = [list(command) for command in selected]
+        for command in recorded:
+            self.executor.record(command)
+        if isinstance(self.executor, ExecutingExecutor):
+            try:
+                for command in recorded:
+                    self.executor.run(command)
+            except PublishBlockedError as exc:
+                self._fail(step_id, order, str(exc))
+                return
+            status, detail = STEP_COMPLETED, "executed and digest-verified"
+        else:
+            status, detail = STEP_PLANNED, dry_run_detail
+        self.steps.append(
+            StepResult(
+                step_id=step_id,
+                order=order,
+                status=status,
+                detail=detail,
+                public_identity=public_identity,
+                bound_digests=bound_digests,
+                commands=recorded,
+            )
+        )
+
+
+def promote(
     bom: dict[str, object],
     bom_path: Path,
     staging_dir: Path,
@@ -692,141 +884,15 @@ def promote(  # noqa: C901
     commit = str(bom["release_commit"])
     tag = f"v{version}"
     distributions_dir = staging_dir / "distributions"
-
     tag_commands = [["git", "tag", tag, commit], ["git", "push", "origin", f"refs/tags/{tag}"]]
-
-    def verify_tag_identity() -> None:
-        result = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{}}"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip() != commit:
-            raise PromotionGateError(
-                "tag_exists",
-                f"ref refs/tags/{tag} does not name candidate commit {commit}",
-            )
-        if result.returncode == 0:
-            tag_commands.pop(0)
-        if isinstance(executor, ExecutingExecutor):
-            remote = _remote_tag(executor, tag)
-            if remote and remote != commit:
-                raise PublishBlockedError(f"remote tag {tag} does not name candidate commit")
-            if remote:
-                tag_commands.clear()
-
     _verify_staged_bytes(bom, staging_dir)
-
-    def verify_distribution_digests() -> None:
-        _verify_staged_bytes(bom, staging_dir)
-        staged = {
-            release_candidate_bom.file_sha256(path)
-            for path in sorted(distributions_dir.iterdir())
-            if path.is_file()
-        }
-        for artifact in _distribution_artifacts(bom):
-            if str(artifact["digest"]) not in staged:
-                raise PromotionGateError(
-                    "staged_bytes_mismatch",
-                    f"no staged file matches BOM digest {artifact['digest']} for "
-                    f"{artifact['name']} {artifact['version']} ({artifact['kind']})",
-                )
-
-    def verify_images_digest_pinned() -> None:
-        if not _first_party_images(bom):
-            raise PromotionGateError("invalid_bom", "BOM carries no first-party release images")
-
-    steps: list[StepResult] = []
-    aborted = False
-
-    def attempt(
-        step_id: str,
-        order: int,
-        verify: Callable[[], None],
-        *,
-        public_identity: str,
-        bound_digests: list[str],
-        commands: list[list[str]] | Callable[[], list[list[str]]],
-        dry_run_detail: str,
-    ) -> None:
-        nonlocal aborted
-        if aborted:
-            steps.append(
-                StepResult(
-                    step_id=step_id,
-                    order=order,
-                    status=STEP_NOT_RUN,
-                    detail="skipped: an earlier publish step failed (forward completion only)",
-                    public_identity="",
-                )
-            )
-            return
-        try:
-            verify()
-            selected = commands() if callable(commands) else commands
-        except PromotionGateError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - recorded as a step failure
-            aborted = True
-            steps.append(
-                StepResult(
-                    step_id=step_id,
-                    order=order,
-                    status=STEP_FAILED,
-                    detail=str(exc),
-                    public_identity="",
-                )
-            )
-            return
-        recorded = [list(command) for command in selected]
-        for command in recorded:
-            executor.record(command)
-        if isinstance(executor, ExecutingExecutor):
-            try:
-                for command in recorded:
-                    executor.run(command)
-            except PublishBlockedError as exc:
-                aborted = True
-                steps.append(
-                    StepResult(
-                        step_id=step_id,
-                        order=order,
-                        status=STEP_FAILED,
-                        detail=str(exc),
-                        public_identity="",
-                    )
-                )
-                return
-            steps.append(
-                StepResult(
-                    step_id=step_id,
-                    order=order,
-                    status=STEP_COMPLETED,
-                    detail="executed and digest-verified",
-                    public_identity=public_identity,
-                    bound_digests=bound_digests,
-                    commands=recorded,
-                )
-            )
-            return
-        steps.append(
-            StepResult(
-                step_id=step_id,
-                order=order,
-                status=STEP_PLANNED,
-                detail=dry_run_detail,
-                public_identity=public_identity,
-                bound_digests=bound_digests,
-                commands=recorded,
-            )
-        )
+    runner = _StepRunner(executor)
 
     # Create the release tag on the release commit first.
-    attempt(
+    runner.attempt(
         "release_tag",
         1,
-        verify_tag_identity,
+        lambda: _verify_tag_identity(tag, commit, executor, tag_commands),
         public_identity=f"refs/tags/{tag} -> {commit}",
         bound_digests=[commit],
         commands=tag_commands,
@@ -837,10 +903,10 @@ def promote(  # noqa: C901
     staged_files = _verify_staged_bytes(bom, staging_dir)
     by_digest = {release_candidate_bom.file_sha256(path): path for path in staged_files}
     distribution_artifacts = _distribution_artifacts(bom)
-    attempt(
+    runner.attempt(
         "pypi_publish",
         2,
-        verify_distribution_digests,
+        lambda: _verify_distribution_digests(bom, staging_dir),
         public_identity=", ".join(
             f"pypi:{artifact['name']} {artifact['version']} sha256:{artifact['digest']}"
             for artifact in distribution_artifacts
@@ -851,39 +917,27 @@ def promote(  # noqa: C901
                 [["uv", "publish", *missing]] if (missing := _missing_pypi(bom, by_digest)) else []
             )
         )
-        if isinstance(executor, ExecutingExecutor)
+        if runner.executing
         else [
             ["uv", "publish", *[str(by_digest[str(a["digest"])]) for a in distribution_artifacts]]
         ],
         dry_run_detail="dry run: would upload the exact staged bytes, digest-verified",
     )
-    steps[-1].assets = {path.name: digest for digest, path in by_digest.items()}
+    runner.steps[-1].assets = {path.name: digest for digest, path in by_digest.items()}
 
     # Step 3 — promote first-party images by digest; never re-run a Dockerfile.
     image_artifacts = _first_party_images(bom)
-    attempt(
+    runner.attempt(
         "image_promotion",
         3,
-        verify_images_digest_pinned,
+        lambda: _verify_images_digest_pinned(bom),
         public_identity=", ".join(
             f"{artifact['name']}@{artifact['digest']}" for artifact in image_artifacts
         ),
         bound_digests=[str(artifact["digest"]) for artifact in image_artifacts],
         commands=(lambda: _image_commands(bom, version))
-        if isinstance(executor, ExecutingExecutor)
-        else [
-            [
-                "docker",
-                "buildx",
-                "imagetools",
-                "create",
-                "-t",
-                f"{artifact['name']}:{version}",
-                "--prefer-index=false",
-                f"{artifact['name']}@{artifact['digest']}",
-            ]
-            for artifact in image_artifacts
-        ],
+        if runner.executing
+        else _dry_run_image_commands(image_artifacts, version),
         dry_run_detail="dry run: would re-tag images by digest; no Dockerfile is run",
     )
 
@@ -891,36 +945,21 @@ def promote(  # noqa: C901
     final_assets = [str(bom_path)] + [
         str(path) for path in sorted(distributions_dir.iterdir()) if path.is_file()
     ]
-    attempt(
+    runner.attempt(
         "release_finalisation",
         4,
         lambda: _verify_staged_bytes(bom, staging_dir),
         public_identity=f"github-release:{tag} (final; assets: bom.json, staged distributions)",
         bound_digests=[str(bom["canonical_candidate_digest"])],
         commands=(lambda: _release_commands(executor, tag, final_assets))
-        if isinstance(executor, ExecutingExecutor)
-        else [
-            [
-                "gh",
-                "release",
-                "create",
-                tag,
-                "--verify-tag",
-                "--draft",
-                "--title",
-                tag,
-                "--notes",
-                "Promoted immutable candidate.",
-            ]
-        ]
-        + [["gh", "release", "upload", tag, str(path)] for path in final_assets]
-        + [["gh", "release", "edit", tag, "--draft=false"]],
+        if runner.executing
+        else _dry_run_release_commands(tag, final_assets),
         dry_run_detail="dry run: would finalise the draft release attaching BOM + bytes",
     )
-    steps[-1].assets = {
+    runner.steps[-1].assets = {
         Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in final_assets
     }
-    return steps
+    return runner.steps
 
 
 def _verify_public_step(
