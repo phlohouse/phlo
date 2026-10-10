@@ -101,7 +101,7 @@ function MembersPage() {
                 role="row"
                 className={cn(
                   peopleGrid,
-                  'hidden h-[34px] border-b border-line text-xs text-muted-foreground',
+                  'sr-only h-[34px] @[640px]:not-sr-only border-b border-line text-xs text-muted-foreground',
                 )}
               >
                 <span role="columnheader">Identity</span>
@@ -141,7 +141,7 @@ function MembersPage() {
                     </span>
                     <span
                       role="cell"
-                      className="hidden text-text-2 @[640px]:block"
+                      className="sr-only text-text-2 @[640px]:not-sr-only"
                     >
                       Invitation
                     </span>
@@ -153,7 +153,7 @@ function MembersPage() {
                     </span>
                     <span
                       role="cell"
-                      className="hidden text-xs text-muted-foreground @[640px]:block"
+                      className="sr-only text-xs text-muted-foreground @[640px]:not-sr-only"
                     >
                       Expires {formatDate(invite.expires_at)}
                     </span>
@@ -189,7 +189,7 @@ function MembersPage() {
                 role="row"
                 className={cn(
                   serviceGrid,
-                  'hidden h-[34px] border-b border-line text-xs text-muted-foreground',
+                  'sr-only h-[34px] md:not-sr-only border-b border-line text-xs text-muted-foreground',
                 )}
               >
                 <span role="columnheader">Account</span>
@@ -302,7 +302,7 @@ function MemberRow({
           </span>
         </span>
       </span>
-      <span role="cell" className="hidden text-text-2 @[640px]:block">
+      <span role="cell" className="sr-only text-text-2 @[640px]:not-sr-only">
         {member.principal_type}
       </span>
       <span role="cell">
@@ -321,7 +321,7 @@ function MemberRow({
       </span>
       <span
         role="cell"
-        className="hidden text-xs text-muted-foreground @[640px]:block"
+        className="sr-only text-xs text-muted-foreground @[640px]:not-sr-only"
       >
         {formatDate(member.updated_at)}
       </span>
