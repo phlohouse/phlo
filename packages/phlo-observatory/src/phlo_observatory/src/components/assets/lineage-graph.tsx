@@ -160,31 +160,30 @@ function build(
     x += w + GAP
   }
   const width = x - GAP
-  const edges: Array<Edge> = pairs
-    .filter(([a, b]) => byId.has(a) && byId.has(b))
-    .map(([a, b]) => {
-      const t = byId.get(b)!
-      const hot =
-        t.tone === 'bad' ||
-        (t.tone === 'self' && t.subBad) ||
-        (t.tone === 'job' && t.subBad)
-      const warm = t.tone === 'warn'
-      return {
-        id: `${a}->${b}`,
-        source: a,
-        target: b,
-        type: 'smoothstep',
-        focusable: false,
-        style: {
-          stroke: hot
-            ? 'var(--bad)'
-            : warm
-              ? 'var(--warn)'
-              : 'var(--border-strong)',
-          strokeWidth: 1.5,
-        },
-      }
-    })
+  // Draw exactly the edges the lineage table lists.
+  const edges: Array<Edge> = lineageRows(columns, pairs).edges.map(([a, b]) => {
+    const t = byId.get(b)!
+    const hot =
+      t.tone === 'bad' ||
+      (t.tone === 'self' && t.subBad) ||
+      (t.tone === 'job' && t.subBad)
+    const warm = t.tone === 'warn'
+    return {
+      id: JSON.stringify([a, b]),
+      source: a,
+      target: b,
+      type: 'smoothstep',
+      focusable: false,
+      style: {
+        stroke: hot
+          ? 'var(--bad)'
+          : warm
+            ? 'var(--warn)'
+            : 'var(--border-strong)',
+        strokeWidth: 1.5,
+      },
+    }
+  })
   return { nodes, edges, width }
 }
 
@@ -271,7 +270,10 @@ export function lineageRows(
     ...new Map(
       pairs
         .filter(([a, b]) => byId.has(a) && byId.has(b))
-        .map(([a, b]): [string, [string, string]] => [`${a}->${b}`, [a, b]]),
+        .map(([a, b]): [string, [string, string]] => [
+          JSON.stringify([a, b]),
+          [a, b],
+        ]),
     ).values(),
   ]
   const rows = all.map(({ node, position }) => ({

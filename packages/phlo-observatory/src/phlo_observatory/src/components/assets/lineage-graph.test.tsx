@@ -221,4 +221,21 @@ describe('lineageRows', () => {
         .upstream.map((n) => n.id),
     ).toEqual(['bronze.orders', 'bronze.customers'])
   })
+
+  it('keeps distinct edges whose ids contain the arrow separator', () => {
+    const ids = ['a->b', 'c', 'a', 'b->c']
+    const { edges: drawn } = lineageRows(
+      [
+        {
+          heading: 'All',
+          nodes: ids.map((id) => ({ id, name: id, sub: '', tone: 'job' })),
+        },
+      ],
+      [
+        ['a->b', 'c'],
+        ['a', 'b->c'],
+      ],
+    )
+    expect(drawn).toHaveLength(2)
+  })
 })
