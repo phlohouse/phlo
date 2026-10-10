@@ -15,7 +15,7 @@ from click.testing import CliRunner
 from phlo.cli.commands.services import ports as ports_module
 from phlo.cli.infrastructure.container_backend import ContainerInfo
 from phlo.plugins.discovery import ServiceDefinition
-from tests.helpers import FakeDiscovery
+from tests.helpers import DummyServicePlugin, FakeDiscovery
 
 
 def test_parse_compose_port_with_env_var() -> None:
@@ -72,7 +72,6 @@ def test_parse_compose_port_spec_with_host_ip_and_env_var() -> None:
     assert spec.host_port == "10001"
     assert spec.container_port == "9000"
     assert ports_module._resolve_host_port(
-        port_str=port_str,
         port_spec=spec,
         service_name="minio",
         container_port=9000,
@@ -244,6 +243,57 @@ def test_ports_cmd_json_output_is_payload_only(monkeypatch: pytest.MonkeyPatch, 
     assert result.exit_code == 0
     assert isinstance(json.loads(result.output)["data"], list)
     assert '"service": "postgres"' in result.output
+
+
+@pytest.mark.parametrize("override", [None, "18080"])
+def test_ports_cmd_accepts_provider_long_syntax_without_port_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, override: str | None
+) -> None:
+    (tmp_path / ".phlo").mkdir()
+    (tmp_path / "phlo.yaml").write_text("name: test\n")
+    plugin = DummyServicePlugin(
+        name="external",
+        service_definition={
+            "name": "external",
+            "compose": {"ports": [{"target": 8080, "published": "${EXTERNAL_PORT}"}]},
+        },
+    )
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.discover_plugins", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.get_registered_service_plugins",
+        lambda: {"external": plugin},
+    )
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.resolve_plugin_source_path",
+        lambda _plugin: tmp_path,
+    )
+    monkeypatch.setattr(ports_module, "_get_running_container_ports", lambda *_args: {})
+    monkeypatch.delenv("EXTERNAL_PORT", raising=False)
+    if override is not None:
+        monkeypatch.setenv("EXTERNAL_PORT", override)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(ports_module.ports_cmd, ["--json", "--all"])
+
+    assert result.exit_code == 0, result.exception
+    expected = (
+        []
+        if override is None
+        else [
+            {
+                "service": "external",
+                "host_port": 18080,
+                "container_port": 8080,
+                "source": "env",
+                "status": "stopped",
+                "env_var": "EXTERNAL_PORT",
+                "url": None,
+            }
+        ]
+    )
+    assert json.loads(result.output)["data"] == expected
 
 
 def test_get_running_container_ports_uses_backend(monkeypatch: pytest.MonkeyPatch) -> None:

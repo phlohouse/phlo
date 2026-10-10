@@ -419,7 +419,6 @@ def _preflight_requested_host_ports(  # noqa: C901
                     invalid_ports.append((service_name, str(port_entry), None, port_spec.host_port))
                     continue
                 host_port, _, env_var = _resolve_host_port(
-                    port_str=port_entry,
                     port_spec=port_spec,
                     service_name=service_name,
                     container_port=int(port_spec.container_port),

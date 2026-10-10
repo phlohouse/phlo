@@ -30,6 +30,8 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
+from phlo.telemetry import metric
+
 from phlo_api.observatory_api.observatory_actions import execute_observatory_action
 from phlo_api.observatory_api.observatory_cache import ReadModelCache
 from phlo_api.observatory_api.observatory_capabilities import build_capability_inventory
@@ -63,7 +65,8 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryDatasetControl,
     ObservatoryDatasetFacets,
     ObservatoryDatasetList,
-    ObservatoryDatasetPipeline,
+    ObservatoryDatasetProduction,
+    ObservatoryDatasetProductionList,
     ObservatoryDatasetProfile,
     ObservatoryDatasetUsage,
     ObservatoryPublishingReadinessItem,
@@ -83,8 +86,7 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryOperationList,
     ObservatoryOverview,
     ObservatoryOverviewRow,
-    ObservatoryPipelineList,
-    ObservatoryPipelineStage,
+    ObservatoryProductionStage,
     ObservatoryPublishingAction,
     ObservatoryPublishingReadiness,
     ObservatoryQualityCheck,
@@ -1469,7 +1471,7 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
         for operation in _load_operations()
         if operation.target is not None and operation.target.id in related_ids
     ]
-    pipeline = _pipeline_for_dataset(dataset, operations=operations, tables=dataset_tables)
+    production = _production_for_dataset(dataset, operations=operations, tables=dataset_tables)
     return ObservatoryDatasetProfile(
         dataset=dataset,
         asset=asset,
@@ -1482,7 +1484,7 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
         governance=governance,
         usage=usage,
         publishing=publishing,
-        pipeline=pipeline,
+        production=production,
         canonical=projection,
         sections={
             "overview": True,
@@ -1491,7 +1493,8 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
             "quality": bool(dataset_quality),
             "access": False,
             "usage": _has_usage(usage),
-            "pipelines": bool(pipeline.stages or operations),
+            "production": bool(production.stages or operations),
+            "pipelines": bool(production.stages or operations),
             "governance": bool(governance),
             "publishing": True,
         },
@@ -1968,8 +1971,8 @@ def _publish_disabled_reason(dataset: ObservatoryDataset, verdict: Any) -> str:
     return "Readiness policy needs more evidence."
 
 
-def _load_pipelines() -> ObservatoryPipelineList:
-    profiles: list[ObservatoryDatasetPipeline] = []
+def _load_dataset_production() -> ObservatoryDatasetProductionList:
+    profiles: list[ObservatoryDatasetProduction] = []
     operations = _load_operations()
     tables = _load_tables_without_catalog()
     for dataset in _load_datasets():
@@ -1983,17 +1986,17 @@ def _load_pipelines() -> ObservatoryPipelineList:
             table for table in tables if table.id in related_ids or table.asset_id in related_ids
         ]
         profiles.append(
-            _pipeline_for_dataset(dataset, operations=dataset_operations, tables=dataset_tables)
+            _production_for_dataset(dataset, operations=dataset_operations, tables=dataset_tables)
         )
-    return ObservatoryPipelineList(items=profiles)
+    return ObservatoryDatasetProductionList(items=profiles)
 
 
-def _pipeline_for_dataset(
+def _production_for_dataset(
     dataset: ObservatoryDataset,
     *,
     operations: Sequence[ObservatoryOperation],
     tables: Sequence[ObservatoryTable],
-) -> ObservatoryDatasetPipeline:
+) -> ObservatoryDatasetProduction:
     last_operation = next(iter(operations), None)
     freshness_at = (
         last_operation.completed_at or last_operation.started_at
@@ -2002,7 +2005,7 @@ def _pipeline_for_dataset(
     )
     freshness_state: HealthState = dataset.readiness_state
     stages = [
-        ObservatoryPipelineStage(
+        ObservatoryProductionStage(
             id="ingest",
             label="Ingestion",
             state="ok" if tables else "unknown",
@@ -2010,19 +2013,21 @@ def _pipeline_for_dataset(
             if tables
             else None,
         ),
-        ObservatoryPipelineStage(id="transform", label="Transforms", state=dataset.readiness_state),
-        ObservatoryPipelineStage(id="checks", label="Checks", state=dataset.readiness_state),
-        ObservatoryPipelineStage(
+        ObservatoryProductionStage(
+            id="transform", label="Transforms", state=dataset.readiness_state
+        ),
+        ObservatoryProductionStage(id="checks", label="Checks", state=dataset.readiness_state),
+        ObservatoryProductionStage(
             id="publish",
             label="Publishing",
             state="ok" if dataset.publication_state == "published" else "unknown",
         ),
     ]
-    return ObservatoryDatasetPipeline(
+    return ObservatoryDatasetProduction(
         dataset=dataset,
         freshness_state=freshness_state,
         freshness_at=freshness_at,
-        last_run=ObservatoryResourceRef(
+        last_operation=ObservatoryResourceRef(
             kind="operation",
             id=last_operation.id,
             label=last_operation.name,
@@ -2030,11 +2035,11 @@ def _pipeline_for_dataset(
         if last_operation is not None
         else None,
         stages=stages,
-        actions=_pipeline_actions(last_operation),
+        actions=_production_actions(last_operation),
     )
 
 
-def _pipeline_actions(operation: ObservatoryOperation | None) -> list[ObservatoryAction]:
+def _production_actions(operation: ObservatoryOperation | None) -> list[ObservatoryAction]:
     run_id = operation.id if operation is not None else None
     is_failed = operation is not None and operation.status == "failed"
     is_running = operation is not None and operation.status == "running"
@@ -4726,14 +4731,26 @@ def put_observatory_dataset_workflow_config(
     return _dataset_workflow_config()
 
 
-@router.get("/pipelines", response_model=ObservatoryPipelineList)
-def get_observatory_pipelines() -> ObservatoryPipelineList:
+@router.get("/dataset-production", response_model=ObservatoryDatasetProductionList)
+def get_observatory_dataset_production() -> ObservatoryDatasetProductionList:
     """Get Dataset production-flow summaries."""
     return _cached_read_model(
-        "pipelines",
+        "dataset-production",
         _EXPENSIVE_READ_MODEL_TTL_SECONDS,
-        _load_pipelines,
+        _load_dataset_production,
     )
+
+
+@router.get(
+    "/pipelines",
+    response_model=ObservatoryDatasetProductionList,
+    deprecated=True,
+    description="Deprecated; removed in 0.19.0. Use /api/observatory/dataset-production. This lists Dataset production stages, not jobs.",
+)
+def get_observatory_pipelines() -> ObservatoryDatasetProductionList:
+    """Compatibility route for Dataset production summaries, removed in 0.19.0."""
+    metric("phlo.legacy.dataset_production_route.uses", 1, unit="uses")
+    return get_observatory_dataset_production()
 
 
 @router.get("/asset-graph", response_model=ObservatoryAssetGraph)

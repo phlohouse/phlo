@@ -7,9 +7,12 @@ Observatory renders one uniform surface.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+import warnings
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, computed_field, model_validator
+
+from phlo.telemetry import metric
 
 HealthState = Literal["ok", "warning", "error", "unknown"]
 ControlStatus = Literal["pass", "fail", "warning", "unknown", "not_applicable"]
@@ -469,7 +472,7 @@ class ObservatoryPublishingReadiness(BaseModel):
     actions: list[ObservatoryPublishingAction] = Field(default_factory=list)
 
 
-class ObservatoryPipelineStage(BaseModel):
+class ObservatoryProductionStage(BaseModel):
     """One stage in a Dataset production flow."""
 
     id: str
@@ -478,21 +481,42 @@ class ObservatoryPipelineStage(BaseModel):
     resource: ObservatoryResourceRef | None = None
 
 
-class ObservatoryDatasetPipeline(BaseModel):
+class ObservatoryDatasetProduction(BaseModel):
     """Production-flow read model for one Dataset."""
 
     dataset: ObservatoryDataset | None = None
     freshness_state: HealthState = "unknown"
     freshness_at: str | None = None
-    last_run: ObservatoryResourceRef | None = None
-    stages: list[ObservatoryPipelineStage] = Field(default_factory=list)
+    last_operation: ObservatoryResourceRef | None = Field(
+        default=None, validation_alias=AliasChoices("last_operation", "last_run")
+    )
+    stages: list[ObservatoryProductionStage] = Field(default_factory=list)
     actions: list["ObservatoryAction"] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def warn_legacy_input(cls, value: Any) -> Any:
+        """Count legacy inputs without counting compatibility response serialization."""
+        if isinstance(value, dict) and "last_run" in value and "last_operation" not in value:
+            _warn_legacy_name("last_run", "last_operation")
+        return value
 
-class ObservatoryPipelineList(BaseModel):
+    @computed_field(json_schema_extra={"deprecated": True})
+    @property
+    def last_run(self) -> ObservatoryResourceRef | None:
+        """Compatibility field, removed in 0.19.0; use last_operation."""
+        return self.last_operation
+
+    @last_run.setter
+    def last_run(self, value: ObservatoryResourceRef | None) -> None:
+        _warn_legacy_name("last_run", "last_operation")
+        self.last_operation = value
+
+
+class ObservatoryDatasetProductionList(BaseModel):
     """Production-flow summaries for Datasets."""
 
-    items: list[ObservatoryDatasetPipeline] = Field(default_factory=list)
+    items: list[ObservatoryDatasetProduction] = Field(default_factory=list)
 
 
 class ObservatoryDatasetProfile(BaseModel):
@@ -511,10 +535,63 @@ class ObservatoryDatasetProfile(BaseModel):
     publishing: ObservatoryPublishingReadiness = Field(
         default_factory=ObservatoryPublishingReadiness
     )
-    pipeline: ObservatoryDatasetPipeline = Field(default_factory=ObservatoryDatasetPipeline)
+    production: ObservatoryDatasetProduction = Field(
+        default_factory=ObservatoryDatasetProduction,
+        validation_alias=AliasChoices("production", "pipeline"),
+    )
     canonical: dict[str, Any] | None = None
     """Canonical Dataset projection; identical to `phlo dataset show --json`."""
     sections: dict[str, bool] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def warn_legacy_input(cls, value: Any) -> Any:
+        """Warn when a caller constructs a profile with the old field name."""
+        if isinstance(value, dict) and "pipeline" in value and "production" not in value:
+            _warn_legacy_name("pipeline", "production")
+        return value
+
+    @computed_field(json_schema_extra={"deprecated": True})
+    @property
+    def pipeline(self) -> ObservatoryDatasetProduction:
+        """Compatibility field, removed in 0.19.0; use production."""
+        return self.production
+
+    @pipeline.setter
+    def pipeline(self, value: ObservatoryDatasetProduction) -> None:
+        _warn_legacy_name("pipeline", "production")
+        self.production = value
+
+
+_LEGACY_PRODUCTION_MODELS = {
+    "ObservatoryPipelineStage": ObservatoryProductionStage,
+    "ObservatoryDatasetPipeline": ObservatoryDatasetProduction,
+    "ObservatoryPipelineList": ObservatoryDatasetProductionList,
+}
+
+
+def _warn_legacy_name(name: str, replacement: str) -> None:
+    metric("phlo.legacy.dataset_production_name.uses", 1, unit="uses", tags={"name": name})
+    warnings.warn(
+        f"{name} is deprecated and will be removed in 0.19.0; use {replacement}",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+def __getattr__(name: str) -> Any:
+    """Keep public Python imports until the named removal release."""
+    if name in _LEGACY_PRODUCTION_MODELS:
+        replacement = _LEGACY_PRODUCTION_MODELS[name]
+        _warn_legacy_name(name, replacement.__name__)
+        return replacement
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+if TYPE_CHECKING:
+    ObservatoryPipelineStage = ObservatoryProductionStage
+    ObservatoryDatasetPipeline = ObservatoryDatasetProduction
+    ObservatoryPipelineList = ObservatoryDatasetProductionList
 
 
 class ObservatoryPublishingReadinessItem(BaseModel):

@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 209,
+  "endpoint_count": 210,
   "endpoints": [
     {
       "method": "GET",
@@ -460,6 +460,15 @@
       "operation_id": "post_observatory_contributing_rows_query_api_observatory_contributing_rows_query_post",
       "path": "/api/observatory/contributing-rows/query",
       "summary": "Post Observatory Contributing Rows Query",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "get_observatory_dataset_production_api_observatory_dataset_production_get",
+      "path": "/api/observatory/dataset-production",
+      "summary": "Get Observatory Dataset Production",
       "tags": [
         "observatory"
       ]

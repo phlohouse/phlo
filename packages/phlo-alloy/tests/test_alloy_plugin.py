@@ -36,9 +36,9 @@ def test_alloy_service_uses_writable_storage_for_the_non_root_runtime() -> None:
 
 
 def test_alloy_starts_after_distroless_loki_without_a_custom_probe() -> None:
-    definition = AlloyServicePlugin().service_definition
-
-    assert definition["compose"]["depends_on"]["loki"] == {"condition": "service_started"}
+    plugin = AlloyServicePlugin()
+    assert plugin.get_dependencies() == ["loki"]
+    assert "depends_on" not in plugin.get_compose_fragment()
 
 
 def test_alloy_plugin_metadata():

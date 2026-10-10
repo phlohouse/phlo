@@ -95,17 +95,20 @@ WAP promotion reports as operations, read from its own operation journal.
 
 ### Pipeline
 
-Not a domain object. "Pipeline" is a presentation word only, and currently
-has two meanings that do not refer to the same thing:
+Not a Phlo domain object. Older presentation and API names used "pipeline"
+for two unrelated concepts:
 
-- The Observatory **Pipelines** page (`/pipelines/$jobName`) lists jobs and
-  their runs. Here "pipeline" is a UI label for a job.
-- The Observatory API model `ObservatoryDatasetPipeline` is a read model of
-  one Dataset's production stages (ingestion, transforms, checks,
-  publishing) and its latest operation.
+- The Observatory **Jobs** page lists jobs and their runs. Its existing
+  `/pipelines/$jobName` URLs remain stable compatibility contracts.
+- `ObservatoryDatasetProduction` describes a Dataset's production stages
+  and latest operation. `ObservatoryDatasetPipeline`, the profile `pipeline`
+  field, and the production `last_run` field are deprecated until 0.19.0.
 
 New code should say job, run, or Dataset production stages. Do not add new
-types, fields, or routes named "pipeline".
+Phlo domain types, fields, or routes named "pipeline". Native provider concepts
+such as DLT pipelines retain their provider terminology. The
+[public name inventory](../reference/public-name-compatibility.md) records
+replacements, removal releases, and retained contracts.
 
 ## Words with more than one meaning
 
@@ -113,7 +116,7 @@ types, fields, or routes named "pipeline".
 | --- | --- | --- | --- |
 | publish | Data-plane materialisation through a publish-target provider (`publish_table`) | The Dataset publication transition (`draft → published → retired`) | Say "publish internally" or "publication transition" for the governance change, as ADR 0051 requires |
 | workflow | Authored workflow modules | Dataset workflow state (`claimed → review → promoted` or `rejected`); Nessie branch workflows in the API | Say "Dataset workflow state" or "branch workflow" for the other senses |
-| pipeline | None (presentation only) | UI label for jobs; Dataset production-flow read model | Say "job" or "production stages" |
+| pipeline | None as a Phlo domain object | Legacy job URLs, deprecated Dataset production names, and native provider terms | Say "job" or "production stages" outside provider contracts |
 | asset | Executable lineage node | The table an asset writes | Say "table" for storage |
 
 ## Related terms

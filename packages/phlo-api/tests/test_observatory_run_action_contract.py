@@ -98,11 +98,11 @@ def test_run_action_descriptors_name_full_guard_metadata() -> None:
         )
 
 
-def test_pipeline_read_model_uses_contract_descriptors(observatory_loaders) -> None:
+def test_production_read_model_uses_contract_descriptors(observatory_loaders) -> None:
     """The read model renders retry/cancel actions straight from the contract."""
     observatory._clear_read_model_cache()
     observatory_loaders(capability_registry=None)
-    action = observatory._pipeline_actions(
+    action = observatory._production_actions(
         SimpleNamespace(id="run-1", status="failed", name="run", kind="pipeline")
     )
     retry = next(item for item in action if item.id == "retry")

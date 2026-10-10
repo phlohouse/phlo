@@ -1,0 +1,691 @@
+{
+  "schema_version": 1,
+  "services": [
+    {
+      "default": false,
+      "depends_on": [
+        "airbyte-manifest",
+        "airbyte-temporal",
+        "postgres"
+      ],
+      "name": "airbyte",
+      "package": "phlo-airbyte",
+      "ports": [
+        {
+          "container_port": 8001,
+          "env_var": "AIRBYTE_PORT",
+          "host_ip": null,
+          "host_port": 10020,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "airbyte-bootloader",
+      "package": "phlo-airbyte",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/airbyte-bootloader-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "airbyte-manifest",
+      "package": "phlo-airbyte",
+      "ports": [
+        {
+          "container_port": 8080,
+          "env_var": "AIRBYTE_MANIFEST_PORT",
+          "host_ip": null,
+          "host_port": 8007,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/airbyte-manifest-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "airbyte-temporal",
+      "package": "phlo-airbyte",
+      "ports": [
+        {
+          "container_port": 7233,
+          "env_var": "AIRBYTE_TEMPORAL_PORT",
+          "host_ip": null,
+          "host_port": 7233,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-airbyte/src/phlo_airbyte/airbyte-temporal-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "loki"
+      ],
+      "name": "alloy",
+      "package": "phlo-alloy",
+      "ports": [
+        {
+          "container_port": 12345,
+          "env_var": "ALLOY_PORT",
+          "host_ip": null,
+          "host_port": 12345,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "observability",
+      "source": "packages/phlo-alloy/src/phlo_alloy/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "clickhouse",
+      "package": "phlo-clickhouse",
+      "ports": [
+        {
+          "container_port": 8123,
+          "env_var": "CLICKHOUSE_HTTP_PORT",
+          "host_ip": null,
+          "host_port": 8123,
+          "protocol": "tcp"
+        },
+        {
+          "container_port": 9000,
+          "env_var": "CLICKHOUSE_NATIVE_PORT",
+          "host_ip": null,
+          "host_port": 19000,
+          "protocol": "tcp"
+        },
+        {
+          "container_port": 9363,
+          "env_var": "CLICKHOUSE_METRICS_PORT",
+          "host_ip": null,
+          "host_port": 9363,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-clickhouse/src/phlo_clickhouse/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "clickhouse"
+      ],
+      "name": "clickhouse-setup",
+      "package": "phlo-clickhouse",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-clickhouse/src/phlo_clickhouse/clickhouse-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "clickstack",
+      "package": "phlo-clickstack",
+      "ports": [
+        {
+          "container_port": 8080,
+          "env_var": "CLICKSTACK_PORT",
+          "host_ip": null,
+          "host_port": 18080,
+          "protocol": "tcp"
+        },
+        {
+          "container_port": 8123,
+          "env_var": "CLICKSTACK_HTTP_PORT",
+          "host_ip": null,
+          "host_port": 18123,
+          "protocol": "tcp"
+        },
+        {
+          "container_port": 9000,
+          "env_var": "CLICKSTACK_NATIVE_PORT",
+          "host_ip": null,
+          "host_port": 19002,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "observability",
+      "source": "packages/phlo-clickstack/src/phlo_clickstack/service.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "minio",
+        "nessie",
+        "postgres",
+        "trino"
+      ],
+      "name": "dagster",
+      "package": "phlo-dagster",
+      "ports": [
+        {
+          "container_port": 3000,
+          "env_var": "DAGSTER_PORT",
+          "host_ip": null,
+          "host_port": 10006,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-dagster/src/phlo_dagster/service.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "dagster"
+      ],
+      "name": "dagster-daemon",
+      "package": "phlo-dagster",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-dagster/src/phlo_dagster/dagster-daemon.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "loki",
+        "prometheus"
+      ],
+      "name": "grafana",
+      "package": "phlo-grafana",
+      "ports": [
+        {
+          "container_port": 3000,
+          "env_var": "GRAFANA_PORT",
+          "host_ip": null,
+          "host_port": 3003,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "observability",
+      "source": "packages/phlo-grafana/src/phlo_grafana/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "hasura",
+      "package": "phlo-hasura",
+      "ports": [
+        {
+          "container_port": 8080,
+          "env_var": "HASURA_PORT",
+          "host_ip": null,
+          "host_port": 8082,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "api",
+      "source": "packages/phlo-hasura/src/phlo_hasura/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "kafka",
+      "package": "phlo-kafka",
+      "ports": [
+        {
+          "container_port": 9094,
+          "env_var": "KAFKA_PORT",
+          "host_ip": null,
+          "host_port": 10021,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-kafka/src/phlo_kafka/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "loki",
+      "package": "phlo-loki",
+      "ports": [
+        {
+          "container_port": 3100,
+          "env_var": "LOKI_PORT",
+          "host_ip": null,
+          "host_port": 3100,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "observability",
+      "source": "packages/phlo-loki/src/phlo_loki/service.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "minio-volume-setup"
+      ],
+      "name": "minio",
+      "package": "phlo-minio",
+      "ports": [
+        {
+          "container_port": 9000,
+          "env_var": "MINIO_API_PORT",
+          "host_ip": null,
+          "host_port": 10001,
+          "protocol": "tcp"
+        },
+        {
+          "container_port": 9001,
+          "env_var": "MINIO_CONSOLE_PORT",
+          "host_ip": null,
+          "host_port": 10002,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-minio/src/phlo_minio/service.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "minio"
+      ],
+      "name": "minio-setup",
+      "package": "phlo-minio",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-minio/src/phlo_minio/minio-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "minio-volume-setup",
+      "package": "phlo-minio",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-minio/src/phlo_minio/minio-volume-setup.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "minio",
+        "postgres"
+      ],
+      "name": "nessie",
+      "package": "phlo-nessie",
+      "ports": [
+        {
+          "container_port": 19120,
+          "env_var": "NESSIE_PORT",
+          "host_ip": null,
+          "host_port": 10003,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-nessie/src/phlo_nessie/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "oauth2-proxy",
+      "package": "phlo-oauth2-proxy",
+      "ports": [],
+      "profile": "proxy",
+      "source": "packages/phlo-oauth2-proxy/src/phlo_oauth2_proxy/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "phlo-api"
+      ],
+      "name": "observatory",
+      "package": "phlo-observatory",
+      "ports": [
+        {
+          "container_port": 3000,
+          "env_var": "OBSERVATORY_PORT",
+          "host_ip": null,
+          "host_port": 3001,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "api",
+      "source": "packages/phlo-observatory/src/phlo_observatory/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "openmetadata-elasticsearch",
+        "openmetadata-mysql",
+        "openmetadata-setup"
+      ],
+      "name": "openmetadata",
+      "package": "phlo-openmetadata",
+      "ports": [
+        {
+          "container_port": 8585,
+          "env_var": "OPENMETADATA_PORT",
+          "host_ip": null,
+          "host_port": 8585,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "openmetadata-elasticsearch",
+      "package": "phlo-openmetadata",
+      "ports": [],
+      "profile": "openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-elasticsearch-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "openmetadata-mysql",
+      "package": "phlo-openmetadata",
+      "ports": [],
+      "profile": "openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-mysql-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "openmetadata-elasticsearch",
+        "openmetadata-mysql"
+      ],
+      "name": "openmetadata-setup",
+      "package": "phlo-openmetadata",
+      "ports": [],
+      "profile": "openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-setup.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "pgweb",
+      "package": "phlo-pgweb",
+      "ports": [
+        {
+          "container_port": 8081,
+          "env_var": "PGWEB_PORT",
+          "host_ip": null,
+          "host_port": 8081,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-pgweb/src/phlo_pgweb/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "phlo-api",
+      "package": "phlo-api",
+      "ports": [
+        {
+          "container_port": 4000,
+          "env_var": "PHLO_API_PORT",
+          "host_ip": null,
+          "host_port": 4000,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "api",
+      "source": "packages/phlo-api/src/phlo_api/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "phlo-observer-db-setup",
+        "postgres"
+      ],
+      "name": "phlo-observer",
+      "package": "phlo-observe-plugin",
+      "ports": [
+        {
+          "container_port": 8080,
+          "env_var": "PHLO_OBSERVER_PORT",
+          "host_ip": null,
+          "host_port": 10010,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "observability",
+      "source": "packages/phlo-observe-plugin/src/phlo_observe_plugin/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "phlo-observer-db-setup",
+      "package": "phlo-observe-plugin",
+      "ports": [],
+      "profile": "observability",
+      "source": "packages/phlo-observe-plugin/src/phlo_observe_plugin/db-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "minio",
+        "postgres"
+      ],
+      "name": "polaris",
+      "package": "phlo-polaris",
+      "ports": [
+        {
+          "container_port": 8181,
+          "env_var": "POLARIS_PORT",
+          "host_ip": null,
+          "host_port": 10018,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-polaris/src/phlo_polaris/service.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "postgres-volume-setup"
+      ],
+      "name": "postgres",
+      "package": "phlo-postgres",
+      "ports": [
+        {
+          "container_port": 5432,
+          "env_var": "POSTGRES_PORT",
+          "host_ip": null,
+          "host_port": 10000,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-postgres/src/phlo_postgres/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "postgres-exporter",
+      "package": "phlo-postgres",
+      "ports": [
+        {
+          "container_port": 9187,
+          "env_var": "POSTGRES_EXPORTER_PORT",
+          "host_ip": null,
+          "host_port": 9187,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "observability",
+      "source": "packages/phlo-postgres/src/phlo_postgres/exporter_service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "postgres-volume-setup",
+      "package": "phlo-postgres",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-postgres/src/phlo_postgres/volume_setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "postgrest",
+      "package": "phlo-postgrest",
+      "ports": [
+        {
+          "container_port": 3000,
+          "env_var": "POSTGREST_PORT",
+          "host_ip": null,
+          "host_port": 3002,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "api",
+      "source": "packages/phlo-postgrest/src/phlo_postgrest/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "prometheus",
+      "package": "phlo-prometheus",
+      "ports": [
+        {
+          "container_port": 9090,
+          "env_var": "PROMETHEUS_PORT",
+          "host_ip": null,
+          "host_port": 9090,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "observability",
+      "source": "packages/phlo-prometheus/src/phlo_prometheus/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "rustfs-volume-setup"
+      ],
+      "name": "rustfs",
+      "package": "phlo-rustfs",
+      "ports": [
+        {
+          "container_port": 9000,
+          "env_var": "RUSTFS_API_PORT",
+          "host_ip": null,
+          "host_port": 9000,
+          "protocol": "tcp"
+        },
+        {
+          "container_port": 9001,
+          "env_var": "RUSTFS_CONSOLE_PORT",
+          "host_ip": null,
+          "host_port": 9001,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-rustfs/src/phlo_rustfs/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "rustfs"
+      ],
+      "name": "rustfs-setup",
+      "package": "phlo-rustfs",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-rustfs/src/phlo_rustfs/rustfs-setup.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "rustfs-volume-setup",
+      "package": "phlo-rustfs",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-rustfs/src/phlo_rustfs/rustfs-volume-setup.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "postgres",
+        "trino"
+      ],
+      "name": "superset",
+      "package": "phlo-superset",
+      "ports": [
+        {
+          "container_port": 8088,
+          "env_var": "SUPERSET_PORT",
+          "host_ip": null,
+          "host_port": 8088,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-superset/src/phlo_superset/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "traefik",
+      "package": "phlo-traefik",
+      "ports": [
+        {
+          "container_port": 80,
+          "env_var": "TRAEFIK_HTTP_PORT",
+          "host_ip": null,
+          "host_port": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "proxy",
+      "source": "packages/phlo-traefik/src/phlo_traefik/service.yaml"
+    },
+    {
+      "default": true,
+      "depends_on": [
+        "minio",
+        "nessie"
+      ],
+      "name": "trino",
+      "package": "phlo-trino",
+      "ports": [
+        {
+          "container_port": 8080,
+          "env_var": "TRINO_PORT",
+          "host_ip": null,
+          "host_port": 10005,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": null,
+      "source": "packages/phlo-trino/src/phlo_trino/service.yaml"
+    }
+  ]
+}
