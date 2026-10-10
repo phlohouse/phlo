@@ -27,8 +27,6 @@ from phlo.plugins.discovery._service_definition import ServicePort
 
 logger = get_logger(__name__)
 
-DEFAULT_PORT_PATTERN = re.compile(r"\$\{([^}:]+):-(\d+)\}")
-
 
 @dataclass
 class PortMapping:
@@ -69,8 +67,8 @@ def _parse_compose_port(port_str: str) -> tuple[str | None, str]:
     return (spec.env_var, spec.container_port)
 
 
-def _parse_compose_port_spec(port_str: str) -> ComposePortSpec:
-    """Parse a compose port string into its env/literal host and container parts."""
+def _parse_compose_port_spec(port_str: str | int | dict[str, Any]) -> ComposePortSpec:
+    """Parse a Compose port into its env/literal host and container parts."""
     port = ServicePort.parse(port_str)
     return ComposePortSpec(
         env_var=port.env_var,
@@ -162,22 +160,8 @@ def _get_runtime_host_port(
     return None
 
 
-def _get_default_host_port(port_str: str, port_spec: ComposePortSpec) -> int | None:
-    """Resolve a configured host port from a compose mapping when no runtime mapping exists."""
-    if port_spec.host_port and port_spec.host_port.isdigit():
-        return int(port_spec.host_port)
-
-    if port_spec.env_var:
-        default_match = DEFAULT_PORT_PATTERN.search(port_str)
-        if default_match:
-            return int(default_match.group(2))
-
-    return None
-
-
 def _resolve_host_port(
     *,
-    port_str: str,
     port_spec: ComposePortSpec,
     service_name: str,
     container_port: int,
@@ -203,7 +187,7 @@ def _resolve_host_port(
         if resolved_value and resolved_value.isdigit():
             return int(resolved_value), "env", port_spec.env_var
 
-    resolved_host_port = _get_default_host_port(port_str, port_spec)
+    resolved_host_port = int(port_spec.host_port) if port_spec.host_port is not None else None
     if resolved_host_port is not None and port_spec.env_var is None and port_spec.host_port:
         source = "compose"
 
@@ -235,7 +219,6 @@ def _get_active_traefik_context(
         if port_spec.container_port != "80":
             continue
         host_port, _, _ = _resolve_host_port(
-            port_str=port_str,
             port_spec=port_spec,
             service_name="traefik",
             container_port=80,
@@ -358,7 +341,6 @@ def _get_service_ports(
         port_spec = _parse_compose_port_spec(port_str)
         container_port = int(port_spec.container_port)
         resolved_host_port, source, resolved_env_var = _resolve_host_port(
-            port_str=port_str,
             port_spec=port_spec,
             service_name=service.name,
             container_port=container_port,
