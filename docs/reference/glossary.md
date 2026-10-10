@@ -1,5 +1,9 @@
 # Glossary
 
+For the core nouns (table, asset, Dataset, workflow, job, run, pipeline) and how
+they relate, see the [domain glossary](../concepts/glossary.md). This page lists
+tool names and secondary terms.
+
 ## Core Terms
 
 - `capability`: a stable abstract contract implemented by one or more packages

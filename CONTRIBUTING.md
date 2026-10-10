@@ -123,6 +123,9 @@ worked from the root. Project lifecycle (init, start, stop, logs, service
 health) belongs to the `phlo` CLI (`phlo services init|start|stop|logs`,
 `phlo doctor`) run inside a Phlo project.
 
+Name things with the words in the [domain glossary](docs/concepts/glossary.md)
+([ADR 0052](docs/architecture/decisions/0052-domain-vocabulary.md)).
+
 Use the [engineering map](docs/contributing/engineering-map.md) to find source
 ownership and generated-file boundaries. `make check` is a broad baseline, not
 the exhaustive acceptance suite; the [verification
