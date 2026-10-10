@@ -56,7 +56,7 @@ consumer migration separately. Disabled telemetry does not prove zero use.
 | `ObservatoryDatasetWorkflowConfig`, Dataset workflow actions, and `workflow_state` | Dataset governance transitions | Distinct, explicitly qualified Dataset workflow state under ADR 0051. Retain. |
 | `/api/v1/branch-workflows`, branch-workflow actions, and alert-workflow actions | Catalog branch checks and alert-provider procedures | Distinct qualified provider procedures. Retain; never present them as authored data workflow modules or job runs. |
 | `ObservatoryTable.asset_id`, `ObservatoryDatasetProfile.dataset`, `asset`, and `tables` | Physical tables, executable lineage nodes, and governed Dataset profiles | Correct references between distinct glossary concepts. Retain, including candidate table promotion. |
-| `publish_table`, `@phlo.publish`, `publishing`, and publication actions | Data-plane materialisation, declaration metadata, readiness, and governance transitions | Retain distinct contracts. Use "publish internally" or "publication transition" for Dataset state changes. Publication work remains owned by #987. |
+| `publish_table`, `@phlo.publish`, `publishing`, and publication actions | Data-plane materialisation, declaration metadata, readiness, and governance transitions | Retain distinct contracts. Use "publish internally" or "publication transition" for Dataset state changes. Software release publication is a separate contract tracked by #987. |
 
 The inventory follows the current provider-neutral models, legacy Dagster
 adapter, v1 job/run contracts, workflow authoring and branch APIs, evidence
