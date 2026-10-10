@@ -274,7 +274,7 @@ def evaluate_reconciliation(  # noqa: C901
     event_statuses: dict[tuple[str, str | None], set[RunStatus | None]] = {}
     for row in attempt_events:
         event_statuses.setdefault(
-            (row.event_type, row.stage_id or row.payload.stage_id), set()
+            (row.event_type, row.stage_id or row.payload.stage_id or None), set()
         ).add(_event_status(row))
     status = normalize_status(observation.status)
     tagged_no_data = any(_event_is_no_data(row) for row in attempt_events)
