@@ -43,7 +43,7 @@ class SchemaConversionError(Exception):
     pass
 
 
-def pandera_to_delta(  # noqa: C901
+def pandera_to_delta(
     pandera_schema: type[DataFrameModel],
     add_dlt_metadata: bool = True,
     add_phlo_metadata: bool = True,
@@ -71,8 +71,6 @@ def pandera_to_delta(  # noqa: C901
 
         arrow_schema = pandera_to_delta(EventSchema)
     """
-    fields: list[pa.Field] = []
-    user_field_count = 0
     logger.info(
         "delta_schema_conversion_started",
         schema_name=pandera_schema.__name__,
@@ -80,6 +78,51 @@ def pandera_to_delta(  # noqa: C901
         add_phlo_metadata=add_phlo_metadata,
     )
 
+    annotations, pandera_schema_obj = _load_schema(pandera_schema)
+    fields = _user_fields(pandera_schema, annotations, pandera_schema_obj)
+    user_field_count = len(fields)
+
+    if add_dlt_metadata:
+        _append_missing(fields, _DLT_METADATA_FIELDS)
+    if add_phlo_metadata:
+        _append_missing(fields, _PHLO_METADATA_FIELDS)
+
+    logger.info(
+        "delta_schema_conversion_finished",
+        schema_name=pandera_schema.__name__,
+        total_field_count=len(fields),
+        user_field_count=user_field_count,
+    )
+    return pa.schema(fields)
+
+
+_DLT_METADATA_FIELDS = (
+    pa.field("_dlt_load_id", pa.string(), nullable=False),
+    pa.field("_dlt_id", pa.string(), nullable=False),
+)
+_PHLO_METADATA_FIELDS = (
+    pa.field("_phlo_row_id", pa.string(), nullable=False),
+    pa.field("_phlo_ingested_at", pa.timestamp("us", tz="UTC"), nullable=False),
+    pa.field("_phlo_partition_date", pa.string(), nullable=False),
+    pa.field("_phlo_run_id", pa.string(), nullable=False),
+)
+
+# Decimal is stored as float64 instead of a fixed-precision Arrow decimal; exact
+# decimal precision is not preserved through this conversion.
+_SCALAR_TYPES: dict[Any, pa.DataType] = {
+    str: pa.string(),
+    int: pa.int64(),
+    float: pa.float64(),
+    bool: pa.bool_(),
+    datetime: pa.timestamp("us", tz="UTC"),
+    date: pa.date32(),
+    bytes: pa.binary(),
+    Decimal: pa.float64(),
+}
+
+
+def _load_schema(pandera_schema: type[DataFrameModel]) -> tuple[dict[str, Any], Any]:
+    """Resolve a model's type hints and built Pandera schema, or raise SchemaConversionError."""
     try:
         annotations = get_type_hints(pandera_schema)
     except Exception as e:
@@ -111,15 +154,23 @@ def pandera_to_delta(  # noqa: C901
             f"Failed to instantiate Pandera schema {pandera_schema.__name__}: {e}"
         ) from e
 
+    return annotations, pandera_schema_obj
+
+
+def _user_fields(
+    pandera_schema: type[DataFrameModel],
+    annotations: dict[str, Any],
+    pandera_schema_obj: Any,
+) -> list[pa.Field]:
+    """Convert user-declared annotations to Arrow fields; raise when none remain."""
+    fields: list[pa.Field] = []
     for field_name, field_type in annotations.items():
         if field_name.startswith("__") or field_name == "Config":
             continue
-        user_field_count += 1
 
         nullable = True
         if field_name in pandera_schema_obj.columns:
-            column = pandera_schema_obj.columns[field_name]
-            nullable = column.nullable
+            nullable = pandera_schema_obj.columns[field_name].nullable
 
         try:
             arrow_type = _map_type(field_name, field_type)
@@ -135,40 +186,19 @@ def pandera_to_delta(  # noqa: C901
 
         fields.append(pa.field(field_name, arrow_type, nullable=nullable))
 
-    if user_field_count == 0:
+    if not fields:
         logger.error(
             "delta_schema_conversion_no_fields",
             schema_name=pandera_schema.__name__,
         )
         raise SchemaConversionError(f"No fields found in Pandera schema {pandera_schema.__name__}")
+    return fields
 
-    if add_dlt_metadata:
-        existing_names = {f.name for f in fields}
-        if "_dlt_load_id" not in existing_names:
-            fields.append(pa.field("_dlt_load_id", pa.string(), nullable=False))
-        if "_dlt_id" not in existing_names:
-            fields.append(pa.field("_dlt_id", pa.string(), nullable=False))
 
-    if add_phlo_metadata:
-        existing_names = {f.name for f in fields}
-        if "_phlo_row_id" not in existing_names:
-            fields.append(pa.field("_phlo_row_id", pa.string(), nullable=False))
-        if "_phlo_ingested_at" not in existing_names:
-            fields.append(
-                pa.field("_phlo_ingested_at", pa.timestamp("us", tz="UTC"), nullable=False)
-            )
-        if "_phlo_partition_date" not in existing_names:
-            fields.append(pa.field("_phlo_partition_date", pa.string(), nullable=False))
-        if "_phlo_run_id" not in existing_names:
-            fields.append(pa.field("_phlo_run_id", pa.string(), nullable=False))
-
-    logger.info(
-        "delta_schema_conversion_finished",
-        schema_name=pandera_schema.__name__,
-        total_field_count=len(fields),
-        user_field_count=user_field_count,
-    )
-    return pa.schema(fields)
+def _append_missing(fields: list[pa.Field], extra: tuple[pa.Field, ...]) -> None:
+    """Append each extra field whose name is not already present."""
+    existing_names = {f.name for f in fields}
+    fields.extend(field for field in extra if field.name not in existing_names)
 
 
 def _map_type(field_name: str, pandera_type: Any) -> pa.DataType:
@@ -221,23 +251,7 @@ def _map_scalar(field_name: str, t: Any) -> pa.DataType:
         arrow_type = _map_scalar("price", float)
         # Returns: pa.float64()
     """
-    if t in (str,):
-        return pa.string()
-    if t in (int,):
-        return pa.int64()
-    if t in (float,):
-        return pa.float64()
-    if t in (bool,):
-        return pa.bool_()
-    if t in (datetime,):
-        return pa.timestamp("us", tz="UTC")
-    if t in (date,):
-        return pa.date32()
-    if t in (bytes,):
-        return pa.binary()
-    if t in (Decimal,):
-        # Stored as float64 instead of a fixed-precision Arrow decimal; exact
-        # decimal precision is not preserved through this conversion.
-        return pa.float64()
-
+    arrow_type = _SCALAR_TYPES.get(t)
+    if arrow_type is not None:
+        return arrow_type
     raise SchemaConversionError(f"Unsupported type for field {field_name}: {t}")
