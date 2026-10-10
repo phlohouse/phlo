@@ -1239,7 +1239,90 @@ async def enforce_http_operation(
         )
 
 
-async def _specialize_operation(request: Request, spec: OperationSpec) -> OperationSpec:  # noqa: C901
+@dataclass(frozen=True)
+class _ActionFamily:
+    """Authorization target for ``<prefix>:<resource_id>:<action_name>`` action ids.
+
+    ``actions`` is either one canonical action for any action name, or a map
+    from each accepted action name to its canonical action.
+    """
+
+    actions: str | dict[str, str]
+    resource_type: str
+    keys: tuple[str, ...]
+
+    def action_for(self, action_name: str) -> str | None:
+        """Return the canonical action for an action name, or None when it is not accepted."""
+        if isinstance(self.actions, str):
+            return self.actions
+        return self.actions.get(action_name)
+
+
+_ACTION_FAMILIES: dict[str, _ActionFamily] = {
+    "dataset": _ActionFamily(
+        {
+            "publish": CanonicalAction.DATASET_PUBLISH.value,
+            "retire": CanonicalAction.DATASET_WRITE.value,
+        },
+        "dataset",
+        ("dataset_id",),
+    ),
+    "candidate": _ActionFamily(
+        dict.fromkeys(("claim", "promote", "reject"), CanonicalAction.DATASET_WRITE.value),
+        "dataset",
+        ("table_id",),
+    ),
+    "asset": _ActionFamily(CanonicalAction.ASSET_EXECUTE.value, "asset", ("asset_id", "asset_key")),
+    "workflow": _ActionFamily(
+        CanonicalAction.OBJECT_WRITE.value, "object", ("workflow_id", "path")
+    ),
+    "service": _ActionFamily(
+        CanonicalAction.SERVICE_MANAGE.value, "service", ("service_id", "name")
+    ),
+}
+_SERVICE_SHORTHAND_ACTIONS = frozenset({"add", "start", "stop", "restart"})
+
+
+def _invalid_action() -> HTTPException:
+    return HTTPException(status_code=400, detail={"error": "invalid_action"})
+
+
+def _branch_name(action_id: str) -> str:
+    """Return the branch named by a ``branch:<verb>:<name>`` action id."""
+    parts = action_id.split(":", 2)
+    if len(parts) != 3 or parts[0] != "branch" or not parts[2].strip():
+        raise _invalid_action()
+    return parts[2].strip()
+
+
+def _action_target(action_id: str) -> tuple[str, str, tuple[str, ...], str]:
+    """Resolve an Observatory action id to (action, resource type, keys, bound identity).
+
+    Raises: HTTPException 400 when a known action family is malformed.
+    """
+    prefix, has_prefix, rest = action_id.partition(":")
+    if has_prefix and prefix == "branch":
+        return (
+            CanonicalAction.CATALOG_MANAGE.value,
+            "catalog",
+            ("branch_name",),
+            _branch_name(action_id),
+        )
+    family = _ACTION_FAMILIES.get(prefix) if has_prefix else None
+    if family is not None:
+        resource_id, separator, action_name = rest.rpartition(":")
+        action = family.action_for(action_name)
+        if not separator or not resource_id or action is None:
+            raise _invalid_action()
+        return action, family.resource_type, family.keys, resource_id
+
+    resource_id, separator, action_name = action_id.rpartition(":")
+    if separator and action_name in _SERVICE_SHORTHAND_ACTIONS and resource_id:
+        return CanonicalAction.SERVICE_MANAGE.value, "service", ("service_id",), resource_id
+    return CanonicalAction.ADMIN_MANAGE.value, "admin", ("action_id",), action_id
+
+
+async def _specialize_operation(request: Request, spec: OperationSpec) -> OperationSpec:
     """Resolve the action/resource pair for payload-dispatched operations."""
     if spec.operation_name not in {
         "post_observatory_action",
@@ -1261,10 +1344,7 @@ async def _specialize_operation(request: Request, spec: OperationSpec) -> Operat
         body[key] = value
 
     if spec.operation_name == "post_observatory_branch_action":
-        parts = action_id.split(":", 2)
-        if len(parts) != 3 or parts[0] != "branch" or not parts[2].strip():
-            raise HTTPException(status_code=400, detail={"error": "invalid_action"})
-        bind_identity("branch_name", parts[2].strip())
+        bind_identity("branch_name", _branch_name(action_id))
         request.state._phlo_security_body_override = body
         return replace(
             spec,
@@ -1272,71 +1352,8 @@ async def _specialize_operation(request: Request, spec: OperationSpec) -> Operat
             resource_sources=(("branch_name", "body"),),
         )
 
-    if action_id.startswith("dataset:"):
-        resource_id, separator, action_name = action_id.removeprefix("dataset:").rpartition(":")
-        if not separator or not resource_id or action_name not in {"publish", "retire"}:
-            raise HTTPException(status_code=400, detail={"error": "invalid_action"})
-        action = (
-            CanonicalAction.DATASET_PUBLISH.value
-            if action_name == "publish"
-            else CanonicalAction.DATASET_WRITE.value
-        )
-        resource_type = "dataset"
-        keys = ("dataset_id",)
-        bind_identity("dataset_id", resource_id)
-    elif action_id.startswith("candidate:"):
-        resource_id, separator, action_name = action_id.removeprefix("candidate:").rpartition(":")
-        if not separator or not resource_id or action_name not in {"claim", "promote", "reject"}:
-            raise HTTPException(status_code=400, detail={"error": "invalid_action"})
-        action = CanonicalAction.DATASET_WRITE.value
-        resource_type = "dataset"
-        keys = ("table_id",)
-        bind_identity("table_id", resource_id)
-    elif action_id.startswith("asset:"):
-        resource_id, separator, _action_name = action_id.removeprefix("asset:").rpartition(":")
-        if not separator or not resource_id:
-            raise HTTPException(status_code=400, detail={"error": "invalid_action"})
-        action = CanonicalAction.ASSET_EXECUTE.value
-        resource_type = "asset"
-        keys = ("asset_id", "asset_key")
-        bind_identity("asset_id", resource_id)
-    elif action_id.startswith("branch:"):
-        parts = action_id.split(":", 2)
-        if len(parts) != 3 or not parts[2].strip():
-            raise HTTPException(status_code=400, detail={"error": "invalid_action"})
-        action = CanonicalAction.CATALOG_MANAGE.value
-        resource_type = "catalog"
-        keys = ("branch_name",)
-        bind_identity("branch_name", parts[2].strip())
-    elif action_id.startswith("workflow:"):
-        resource_id, separator, _action_name = action_id.removeprefix("workflow:").rpartition(":")
-        if not separator or not resource_id:
-            raise HTTPException(status_code=400, detail={"error": "invalid_action"})
-        action = CanonicalAction.OBJECT_WRITE.value
-        resource_type = "object"
-        keys = ("workflow_id", "path")
-        bind_identity("workflow_id", resource_id)
-    elif action_id.startswith("service:"):
-        resource_id, separator, _action_name = action_id.removeprefix("service:").rpartition(":")
-        if not separator or not resource_id:
-            raise HTTPException(status_code=400, detail={"error": "invalid_action"})
-        action = CanonicalAction.SERVICE_MANAGE.value
-        resource_type = "service"
-        keys = ("service_id", "name")
-        bind_identity("service_id", resource_id)
-    else:
-        resource_id, separator, action_name = action_id.rpartition(":")
-        if separator and action_name in {"add", "start", "stop", "restart"} and resource_id:
-            action = CanonicalAction.SERVICE_MANAGE.value
-            resource_type = "service"
-            keys = ("service_id",)
-            bind_identity("service_id", resource_id)
-        else:
-            action = CanonicalAction.ADMIN_MANAGE.value
-            resource_type = "admin"
-            keys = ("action_id",)
-            bind_identity("action_id", action_id)
-
+    action, resource_type, keys, resource_id = _action_target(action_id)
+    bind_identity(keys[0], resource_id)
     request.state._phlo_security_body_override = body
     return replace(
         spec,
