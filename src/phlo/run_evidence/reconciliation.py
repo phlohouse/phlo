@@ -160,7 +160,7 @@ class RunObservation:
     pipeline_name: str | None = None
     provider: str | None = None
     provider_run_id: str | None = None
-    status: str | None = None
+    status: RunStatus | str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     heartbeat_at: datetime | None = None
@@ -175,6 +175,7 @@ class RunObservation:
             raise ValueError("project_id and run_id must be non-empty")
         if self.attempt <= 0:
             raise ValueError("attempt must be positive")
+        object.__setattr__(self, "status", normalize_status(self.status))
         for value in (self.started_at, self.finished_at, self.heartbeat_at):
             if value is not None and value.tzinfo is None:
                 raise ValueError("observation timestamps must be timezone-aware")

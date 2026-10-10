@@ -665,6 +665,7 @@ def test_event_and_stage_timestamp_violations_are_incomplete_and_change_identity
         ("run_event", "payload", "not-json"),
         ("run_event", "payload", '{"no_data": "false"}'),
         ("run_event", "payload", '{"status": "typo"}'),
+        ("run_event", "payload", '{"status": 3}'),
         ("run_stage", "status", "typo"),
     ],
 )

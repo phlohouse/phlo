@@ -17,14 +17,18 @@ from pydantic import ValidationError
 from phlo.config.cache import project_root_cached
 from phlo.config_schema import (
     ApiAuthorizationConfig,
-    ApiConfig,
     InfrastructureConfig,
+    ProjectConfig,
     ServiceConfig,
     WapConfig,
 )
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class ProjectConfigError(ValueError):
+    """The project configuration violates a core-owned schema."""
 
 
 def _default_project_root() -> Path:
@@ -44,8 +48,8 @@ def _default_project_root() -> Path:
 
 
 @project_root_cached
-def load_project_config(project_root: Path) -> dict[str, Any]:
-    """Load raw project configuration from phlo.yaml."""
+def load_project_model(project_root: Path) -> ProjectConfig:
+    """Read and validate phlo.yaml once for all core configuration consumers."""
     started = time.perf_counter()
     config_path = project_root / "phlo.yaml"
     logger.debug(
@@ -61,23 +65,24 @@ def load_project_config(project_root: Path) -> dict[str, Any]:
             reason="missing_file",
             elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
         )
-        return {}
+        return ProjectConfig()
 
     try:
-        with config_path.open() as f:
+        with config_path.open(encoding="utf-8") as f:
             project_config = yaml.safe_load(f)
     except yaml.YAMLError as exc:
         logger.error("invalid_phlo_yaml", path=str(config_path), error=str(exc))
-        raise
+        raise ProjectConfigError("phlo.yaml contains invalid YAML") from exc
 
+    if project_config is None:
+        return ProjectConfig()
     if not isinstance(project_config, dict):
-        logger.info(
-            "project_config_load_completed",
-            source="default",
-            reason="empty_or_non_mapping",
-            elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
-        )
-        return {}
+        raise ProjectConfigError("phlo.yaml root must be a mapping")
+    try:
+        validated = ProjectConfig.model_validate(project_config)
+    except ValidationError as exc:
+        fields = ", ".join(".".join(map(str, error["loc"])) for error in exc.errors())
+        raise ProjectConfigError(f"Invalid phlo.yaml fields: {fields}") from exc
 
     logger.info(
         "project_config_load_completed",
@@ -85,7 +90,27 @@ def load_project_config(project_root: Path) -> dict[str, Any]:
         key_count=len(project_config),
         elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
     )
-    return project_config
+    return validated
+
+
+@project_root_cached
+def load_project_config(project_root: Path) -> dict[str, Any]:
+    """Legacy dictionary adapter over the validated project model."""
+    model = load_project_model(project_root)
+    payload = model.model_dump(exclude_unset=True)
+    if "services" in payload:
+        services = model.services.overrides
+        payload["services"] = {
+            name: service.model_dump(exclude_unset=True) for name, service in services.items()
+        }
+        for name, service in services.items():
+            if service.type == "installed":
+                payload["services"][name].pop("type", None)
+        for key in ("enabled", "disabled"):
+            value = getattr(model.services, key)
+            if value is not None:
+                payload["services"][key] = value
+    return payload
 
 
 @project_root_cached
@@ -106,7 +131,7 @@ def load_infrastructure_config(project_root: Path) -> InfrastructureConfig:
             )
             return InfrastructureConfig()
 
-        infra_config_data = project_config.get("infrastructure", {})
+        infra_config_data = load_project_model(project_root).infrastructure
 
         if not infra_config_data:
             logger.info(
@@ -117,7 +142,7 @@ def load_infrastructure_config(project_root: Path) -> InfrastructureConfig:
                 elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
             )
             return InfrastructureConfig()
-        config = InfrastructureConfig(**infra_config_data)
+        config = infra_config_data
         logger.info(
             "infrastructure_config_load_completed",
             source="file",
@@ -143,11 +168,7 @@ def load_wap_config(project_root: Path | None = None) -> WapConfig:
     available to both the host CLI and the Dagster process running in ``/app``.
     """
     root = project_root or _default_project_root()
-    project_config = load_project_config(root)
-    wap_config = project_config.get("wap", {}) if project_config else {}
-    if wap_config is None:
-        wap_config = {}
-    return WapConfig(**wap_config)
+    return load_project_model(root).wap
 
 
 def get_project_name_from_config(project_root: Path | None = None) -> str | None:
@@ -155,34 +176,15 @@ def get_project_name_from_config(project_root: Path | None = None) -> str | None
     if project_root is None:
         project_root = _default_project_root()
 
-    try:
-        project_config = load_project_config(project_root)
-        return project_config.get("name") if project_config else None
-    except Exception:
-        logger.warning("failed_to_read_project_name", path=str(project_root / "phlo.yaml"))
-        return None
+    return load_project_model(project_root).name
 
 
 def get_capability_defaults_from_config(project_root: Path | None = None) -> dict[str, str]:
     """Return capability defaults declared in phlo.yaml.
 
-    Entries whose key or value is missing, empty, or not a string are dropped
-    silently rather than raising.
+    Invalid entries fail during project-model validation.
     """
-    project_config = load_project_config(project_root)
-    capabilities = project_config.get("capabilities", {})
-    if not isinstance(capabilities, dict):
-        return {}
-
-    defaults = capabilities.get("defaults", {})
-    if not isinstance(defaults, dict):
-        return {}
-
-    normalized: dict[str, str] = {}
-    for key, value in defaults.items():
-        if isinstance(key, str) and isinstance(value, str) and key and value:
-            normalized[key] = value
-    return normalized
+    return dict(load_project_model(project_root).capabilities.defaults)
 
 
 def get_authentication_config(project_root: Path | None = None) -> dict[str, Any]:
@@ -202,17 +204,10 @@ def get_authentication_config(project_root: Path | None = None) -> dict[str, Any
     if project_root is None:
         project_root = _default_project_root()
 
-    project_config = load_project_config(project_root)
-    if not isinstance(project_config, dict) or not project_config:
-        return {}
-
-    auth_config = project_config.get("authentication")
+    auth_config = load_project_model(project_root).authentication
     if auth_config is None:
         return {}
-    if not isinstance(auth_config, dict):
-        raise ValueError("phlo.yaml authentication must be a mapping")
-
-    return auth_config
+    return auth_config.model_dump(exclude_unset=True)
 
 
 def get_regulated_config(project_root: Path | None = None) -> bool | None:
@@ -229,13 +224,10 @@ def get_regulated_config(project_root: Path | None = None) -> bool | None:
     if project_root is None:
         project_root = _default_project_root()
 
-    project_config = load_project_config(project_root)
-    if not isinstance(project_config, dict) or not project_config:
-        return None
-
-    value = project_config.get("regulated")
+    project_config = load_project_model(project_root)
+    value = project_config.regulated
     if value is None:
-        deprecated_value = project_config.get("regulated_mode")
+        deprecated_value = project_config.regulated_mode
         if deprecated_value is not None:
             import warnings
 
@@ -254,12 +246,7 @@ def get_regulated_config(project_root: Path | None = None) -> bool | None:
                 "use 'regulated' instead",
             )
             value = deprecated_value
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-
-    raise ValueError("phlo.yaml 'regulated' must be a boolean")
+    return value
 
 
 def get_regulated_mode_config(project_root: Path | None = None) -> bool | None:
@@ -355,24 +342,11 @@ def get_api_authorization_config(project_root: Path | None = None) -> ApiAuthori
     1. services.phlo-api.authorization
     2. api.authorization
     """
-    project_config = load_project_config(project_root)
-    if not isinstance(project_config, dict) or not project_config:
-        return None
-
-    services = project_config.get("services", {})
-    if isinstance(services, dict):
-        phlo_api_service = services.get("phlo-api")
-        if isinstance(phlo_api_service, dict):
-            service_auth = phlo_api_service.get("authorization")
-            if isinstance(service_auth, dict):
-                return ApiAuthorizationConfig(**service_auth)
-
-    api_config = project_config.get("api")
-    if isinstance(api_config, dict):
-        validated = ApiConfig(**api_config)
-        return validated.authorization
-
-    return None
+    project = load_project_model(project_root)
+    service = project.services.overrides.get("phlo-api")
+    if service is not None and service.authorization is not None:
+        return service.authorization
+    return project.api.authorization if project.api is not None else None
 
 
 def get_service_config(service_key: str, project_root: Path | None = None) -> ServiceConfig | None:
@@ -393,6 +367,7 @@ def get_container_name(
 
 def clear_config_cache() -> None:
     """Clear the configuration cache."""
+    load_project_model.cache_clear()
     load_project_config.cache_clear()
     load_infrastructure_config.cache_clear()
     load_wap_config.cache_clear()

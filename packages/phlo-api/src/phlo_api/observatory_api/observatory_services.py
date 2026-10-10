@@ -25,6 +25,14 @@ from typing import Any
 import yaml
 
 from phlo.config.env import load_project_env
+from phlo.plugins.registry_models import RegistryPayloadError, RegistryServiceEntry, parse_registry
+from phlo_api.observatory_api.service_payloads import (
+    DockerInspectContainer,
+    DockerPayloadError,
+    DockerPsContainer,
+    parse_docker_payload,
+    ps_container,
+)
 from phlo_api.observatory_api.observatory_metadata import safe_metadata
 from phlo_api.observatory_api.observatory_models import (
     HealthState,
@@ -60,32 +68,20 @@ _DOCKER_CLI_DISABLED = False
 
 def get_registry_data() -> dict[str, Any]:
     """Return local registry data without remote fetches or plugin logging hooks."""
-    return _load_registry_data_quiet()
-
-
-def _registry_package_entries() -> dict[str, dict[str, Any]]:
-    """Return trusted registry entries keyed by package and friendly aliases."""
     try:
-        registry = get_registry_data()
-    except Exception:
-        return {}
+        return _load_registry_data_quiet()
+    except json.JSONDecodeError as exc:
+        raise RegistryPayloadError("Local service registry must contain JSON.") from exc
 
-    plugins = registry.get("plugins") if isinstance(registry, Mapping) else None
-    if not isinstance(plugins, Mapping):
-        return {}
 
-    entries: dict[str, dict[str, Any]] = {}
-    for name, payload in plugins.items():
-        if not isinstance(payload, Mapping):
-            continue
-        package = coerce_str(payload.get("package"), "")
-        if not package:
-            continue
-        normalized = dict(payload)
-        normalized["name"] = str(name)
-        for key in {str(name), package, package.removeprefix("phlo-")}:
+def _registry_package_entries() -> dict[str, RegistryServiceEntry]:
+    """Return trusted registry entries keyed by package and friendly aliases."""
+    registry = parse_registry(get_registry_data())
+    entries: dict[str, RegistryServiceEntry] = {}
+    for name, entry in registry.plugins.items():
+        for key in {name, entry.package, entry.package.removeprefix("phlo-")}:
             if key:
-                entries[key] = normalized
+                entries[key] = entry
     return entries
 
 
@@ -94,7 +90,7 @@ def _load_registry_data_quiet() -> dict[str, Any]:
     try:
         registry_path = importlib.resources.files("phlo.plugins").joinpath("registry_data.json")
         return json.loads(registry_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, ModuleNotFoundError):
         pass
 
     current = Path(__file__).resolve()
@@ -106,14 +102,14 @@ def _load_registry_data_quiet() -> dict[str, Any]:
 
 
 def _registry_service_entries(
-    entries: Mapping[str, Mapping[str, Any]],
-) -> dict[str, Mapping[str, Any]]:
+    entries: Mapping[str, RegistryServiceEntry],
+) -> dict[str, RegistryServiceEntry]:
     """Return registry entries that should appear before stack discovery."""
-    services: dict[str, Mapping[str, Any]] = {}
+    services: dict[str, RegistryServiceEntry] = {}
     for entry in entries.values():
-        if entry.get("type") != "service":
+        if entry.type != "service":
             continue
-        name = coerce_str(entry.get("name"), "")
+        name = entry.name
         if name:
             services[name] = entry
     return services
@@ -121,8 +117,8 @@ def _registry_service_entries(
 
 def _registry_entry_for_service(
     service_name: str,
-    entries: Mapping[str, Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
+    entries: Mapping[str, RegistryServiceEntry],
+) -> RegistryServiceEntry | None:
     candidates = [service_name]
     parts = service_name.split("-")
     candidates.extend("-".join(parts[:index]) for index in range(len(parts) - 1, 0, -1))
@@ -130,7 +126,7 @@ def _registry_entry_for_service(
 
     for candidate in candidates:
         entry = entries.get(candidate)
-        if isinstance(entry, Mapping):
+        if entry is not None:
             return entry
     return None
 
@@ -145,37 +141,37 @@ def _package_installed(package: str) -> bool:
 
 def _registry_metadata(
     service_name: str,
-    entries: Mapping[str, Mapping[str, Any]],
+    entries: Mapping[str, RegistryServiceEntry],
 ) -> dict[str, Any]:
     entry = _registry_entry_for_service(service_name, entries)
-    if not isinstance(entry, Mapping):
+    if entry is None:
         return {}
 
-    package = coerce_str(entry.get("package"), "")
+    package = entry.package
     installed = _package_installed(package) if package else False
     return {
-        "registry_name": coerce_str(entry.get("name"), service_name),
+        "registry_name": entry.name or service_name,
         "package": package,
-        "package_version": coerce_str(entry.get("version"), ""),
+        "package_version": entry.version,
         "package_installed": installed,
         "installable": not installed,
-        "verified": bool(entry.get("verified")),
-        "description": coerce_str(entry.get("description"), ""),
-        "tags": list(entry.get("tags", [])) if isinstance(entry.get("tags"), list) else [],
+        "verified": entry.verified,
+        "description": entry.description,
+        "tags": entry.tags,
     }
 
 
 def _available_registry_service(
     service_name: str,
-    entry: Mapping[str, Any],
+    entry: RegistryServiceEntry,
 ) -> ObservatoryService:
-    package = coerce_str(entry.get("package"), "")
-    description = coerce_str(entry.get("description"), "")
-    tags = list(entry.get("tags", [])) if isinstance(entry.get("tags"), list) else []
+    package = entry.package
+    description = entry.description
+    tags = entry.tags
     return ObservatoryService(
         id=service_name,
         name=service_name,
-        kind=coerce_str(entry.get("type"), "service") or "service",
+        kind=entry.type,
         status="unknown",
         health=ObservatoryHealth(
             state="unknown",
@@ -190,10 +186,10 @@ def _available_registry_service(
                 "source": "registry",
                 "registry_name": service_name,
                 "package": package,
-                "package_version": coerce_str(entry.get("version"), ""),
+                "package_version": entry.version,
                 "package_installed": False,
                 "installable": True,
-                "verified": bool(entry.get("verified")),
+                "verified": entry.verified,
                 "description": description,
                 "tags": tags,
             }
@@ -241,11 +237,12 @@ def fallback_services() -> list[ObservatoryService]:
 
 
 def docker_status_from_container(
-    container: Mapping[str, Any],
+    container: DockerPsContainer | Mapping[str, Any],
 ) -> tuple[ServiceStatus, ObservatoryHealth]:
     """Map a Docker container payload to a service status and health summary."""
-    state = coerce_str(container.get("State"), "unknown").lower()
-    status_text = coerce_str(container.get("Status"), "")
+    container = ps_container(container)
+    state = container.state.lower()
+    status_text = container.status
     status_lower = status_text.lower()
 
     if state == "running" and "(unhealthy)" in status_lower:
@@ -264,13 +261,13 @@ def docker_status_from_container(
     return "unknown", ObservatoryHealth(state="unknown", message=status_text or None)
 
 
-def docker_inspect_container(container_id: str) -> dict[str, Any]:
-    """Inspect a container via the Docker CLI, returning an empty dict on any failure."""
+def docker_inspect_container(container_id: str) -> DockerInspectContainer | None:
+    """Inspect via the CLI, distinguishing unavailability from malformed responses."""
     if not container_id:
-        return {}
+        return None
     docker_cli = docker_cli_path()
     if docker_cli is None:
-        return {}
+        return None
     command = [docker_cli, "inspect", container_id]
     try:
         result = subprocess.run(
@@ -281,51 +278,45 @@ def docker_inspect_container(container_id: str) -> dict[str, Any]:
             timeout=DOCKER_PS_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return {}
+        return None
     if result.returncode != 0:
-        return {}
+        return None
     try:
         payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return {}
-    if isinstance(payload, list) and payload and isinstance(payload[0], Mapping):
-        return dict(payload[0])
-    return {}
+    except json.JSONDecodeError as exc:
+        raise DockerPayloadError("Docker inspect returned invalid JSON") from exc
+    if not isinstance(payload, list) or len(payload) != 1:
+        raise DockerPayloadError("Docker inspect must return one container")
+    return parse_docker_payload(DockerInspectContainer, payload[0])
 
 
-def docker_runtime_metadata(container: Mapping[str, Any]) -> dict[str, Any]:
+def docker_runtime_metadata(
+    container: DockerPsContainer | DockerInspectContainer | Mapping[str, Any],
+) -> dict[str, Any]:
     """Extract restart, exit, and health-probe metadata, inspecting the container if needed."""
+    if not isinstance(container, (DockerPsContainer, DockerInspectContainer)):
+        container = (
+            parse_docker_payload(DockerInspectContainer, container)
+            if "RestartCount" in container or isinstance(container.get("State"), Mapping)
+            else ps_container(container)
+        )
     inspected = (
         container
-        if "RestartCount" in container or isinstance(container.get("State"), Mapping)
-        else docker_inspect_container(coerce_str(container.get("ID"), ""))
+        if isinstance(container, DockerInspectContainer)
+        else docker_inspect_container(container.id)
     )
-    if not inspected:
+    if inspected is None:
         return {}
-
-    state = inspected.get("State") if isinstance(inspected.get("State"), Mapping) else {}
-    health = (
-        state.get("Health")
-        if isinstance(state, Mapping) and isinstance(state.get("Health"), Mapping)
-        else {}
-    )
-    health_log = health.get("Log") if isinstance(health, Mapping) else None
-    recent_health_exits = (
-        [
-            entry.get("ExitCode")
-            for entry in health_log
-            if isinstance(entry, Mapping) and entry.get("ExitCode") not in {None, 0}
-        ]
-        if isinstance(health_log, list)
-        else []
-    )
+    state = inspected.state
+    health = state.health
+    recent_health_exits = [entry.exit_code for entry in health.log if entry.exit_code != 0]
     metadata = {
-        "restart_count": inspected.get("RestartCount"),
-        "started_at": state.get("StartedAt") if isinstance(state, Mapping) else None,
-        "finished_at": state.get("FinishedAt") if isinstance(state, Mapping) else None,
-        "exit_code": state.get("ExitCode") if isinstance(state, Mapping) else None,
-        "oom_killed": state.get("OOMKilled") if isinstance(state, Mapping) else None,
-        "health_status": health.get("Status") if isinstance(health, Mapping) else None,
+        "restart_count": inspected.restart_count,
+        "started_at": state.started_at,
+        "finished_at": state.finished_at,
+        "exit_code": state.exit_code,
+        "oom_killed": state.oom_killed,
+        "health_status": health.status,
         "recent_health_exit_codes": recent_health_exits,
     }
     return safe_metadata(
@@ -362,7 +353,7 @@ def health_with_runtime_evidence(
 
 
 def scoped_service_observations(
-    compose_project: str, containers: Sequence[Mapping[str, Any]]
+    compose_project: str, containers: Sequence[DockerPsContainer | Mapping[str, Any]]
 ) -> dict[str, tuple[ServiceStatus, ObservatoryHealth]]:
     """Observe only the explicitly bound project, keeping failed replicas visible."""
     observations: dict[str, tuple[ServiceStatus, ObservatoryHealth]] = {}
@@ -389,20 +380,9 @@ def scoped_service_observations(
     return observations
 
 
-def container_labels(container: Mapping[str, Any]) -> dict[str, str]:
-    """Parse a container's labels into a dict, accepting mapping or comma-separated forms."""
-    labels = container.get("Labels")
-    if isinstance(labels, Mapping):
-        return {str(key): str(value) for key, value in labels.items()}
-    if not isinstance(labels, str) or not labels:
-        return {}
-    parsed: dict[str, str] = {}
-    for item in labels.split(","):
-        if "=" not in item:
-            continue
-        key, value = item.split("=", 1)
-        parsed[key] = value
-    return parsed
+def container_labels(container: DockerPsContainer | Mapping[str, Any]) -> dict[str, str]:
+    """Return validated labels, adapting legacy callers at this boundary."""
+    return ps_container(container).labels
 
 
 class UnixSocketHTTPConnection(http.client.HTTPConnection):
@@ -456,38 +436,30 @@ def docker_socket_json(path: str, socket_path: str = DOCKER_SOCKET) -> Any:
             return None
         body = response.read().decode()
         return json.loads(body) if body else None
-    except (OSError, json.JSONDecodeError, http.client.HTTPException):
+    except json.JSONDecodeError as exc:
+        raise DockerPayloadError("Docker Engine returned invalid JSON") from exc
+    except (OSError, http.client.HTTPException):
         return None
     finally:
         connection.close()
 
 
-def normalize_docker_api_container(container: Mapping[str, Any]) -> dict[str, Any]:
+def normalize_docker_api_container(container: object) -> DockerPsContainer:
     """Normalize a Docker Engine API container payload to the CLI ps field names."""
-    names = container.get("Names")
-    if isinstance(names, list) and names:
-        name = str(names[0]).lstrip("/")
-    else:
-        name = coerce_str(container.get("Names") or container.get("Name"), "").lstrip("/")
-    return {
-        "ID": coerce_str(container.get("Id") or container.get("ID"), ""),
-        "Names": name,
-        "State": coerce_str(container.get("State"), ""),
-        "Status": coerce_str(container.get("Status"), ""),
-        "Labels": container.get("Labels") if isinstance(container.get("Labels"), Mapping) else {},
-    }
+    return parse_docker_payload(DockerPsContainer, container)
 
 
-def parse_docker_ps_output(output: str) -> list[dict[str, Any]]:
-    """Parse newline-delimited JSON from docker ps into container dicts, skipping bad lines."""
-    containers: list[dict[str, Any]] = []
+def parse_docker_ps_output(output: str) -> list[DockerPsContainer]:
+    """Parse CLI records once; malformed records must not disappear from evidence."""
+    containers: list[DockerPsContainer] = []
     for line in output.splitlines():
+        if not line.strip():
+            continue
         try:
             parsed = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, Mapping):
-            containers.append(dict(parsed))
+        except json.JSONDecodeError as exc:
+            raise DockerPayloadError("Docker ps returned invalid JSON") from exc
+        containers.append(parse_docker_payload(DockerPsContainer, parsed))
     return containers
 
 
@@ -504,7 +476,7 @@ def docker_cli_path() -> str | None:
     return None
 
 
-def docker_ps_containers(*filters: str) -> list[dict[str, Any]] | None:
+def docker_ps_containers(*filters: str) -> list[DockerPsContainer] | None:
     """List containers via docker ps, returning None when the CLI is unusable or times out."""
     global _DOCKER_CLI_DISABLED
     # One CLI timeout marks the CLI path dead for the lifetime of the process;
@@ -538,7 +510,7 @@ def docker_ps_containers(*filters: str) -> list[dict[str, Any]] | None:
     return parse_docker_ps_output(result.stdout)
 
 
-def load_docker_containers() -> list[dict[str, Any]]:
+def load_docker_containers() -> list[DockerPsContainer]:
     """Load all containers via the Docker CLI, falling back to the Engine socket API."""
     containers = docker_ps_containers()
     if containers is not None:
@@ -546,16 +518,14 @@ def load_docker_containers() -> list[dict[str, Any]]:
 
     for socket_path in docker_socket_candidates():
         payload = docker_socket_json("/containers/json?all=1", socket_path=socket_path)
-        if isinstance(payload, list):
-            return [
-                normalize_docker_api_container(container)
-                for container in payload
-                if isinstance(container, Mapping)
-            ]
+        if payload is not None:
+            if not isinstance(payload, list):
+                raise DockerPayloadError("Docker container list must be an array")
+            return [normalize_docker_api_container(container) for container in payload]
     return []
 
 
-def load_project_docker_containers(project_root: Path | None) -> list[dict[str, Any]]:
+def load_project_docker_containers(project_root: Path | None) -> list[DockerPsContainer]:
     """Load containers belonging to the project's compose project, empty when unknown."""
     compose_project = project_compose_name(project_root)
     if compose_project:
@@ -614,7 +584,7 @@ def configured_compose_services(project_root: Path) -> set[str]:
 
 
 def current_compose_project(
-    containers: Sequence[Mapping[str, Any]],
+    containers: Sequence[DockerPsContainer | Mapping[str, Any]],
     project_root: Path | None = None,
 ) -> str | None:
     """Resolve the active compose project name from env, project config, or running containers."""
@@ -633,7 +603,7 @@ def current_compose_project(
     # the container list identifies which compose project this process runs in.
 
     for container in containers:
-        container_id = coerce_str(container.get("ID") or container.get("Id"), "")
+        container_id = ps_container(container).id
         if container_id and container_id.startswith(hostname):
             labels = container_labels(container)
             project = labels.get("com.docker.compose.project")
@@ -641,23 +611,19 @@ def current_compose_project(
                 return project
 
     inspected = docker_socket_json(f"/containers/{hostname}/json")
-    if isinstance(inspected, Mapping):
-        config = inspected.get("Config")
-        labels = config.get("Labels") if isinstance(config, Mapping) else None
-        if isinstance(labels, Mapping):
-            project = labels.get("com.docker.compose.project")
-            if project:
-                return str(project)
+    if inspected is not None:
+        container = parse_docker_payload(DockerInspectContainer, inspected)
+        return container.config.labels.get("com.docker.compose.project")
     return None
 
 
-def compose_service_name(container: Mapping[str, Any]) -> str | None:
+def compose_service_name(container: DockerPsContainer | Mapping[str, Any]) -> str | None:
     """Derive the compose service name from container labels or Docker's default naming."""
     labels = container_labels(container)
     service_name = labels.get("com.docker.compose.service")
     if service_name:
         return service_name
-    name = coerce_str(container.get("Names"), "")
+    name = ps_container(container).name
     # Containers without compose labels still follow Docker's default
     # <project>-<service>-<ordinal> naming; peel off the suffix parts.
     if name.endswith("-1") and "-" in name:
@@ -677,7 +643,7 @@ def service_name_from_container(name: str, service_ids: set[str]) -> str | None:
 
 def load_docker_service_statuses(
     service_ids: set[str],
-    containers: Sequence[Mapping[str, Any]] | None = None,
+    containers: Sequence[DockerPsContainer | Mapping[str, Any]] | None = None,
     project_root: Path | None = None,
 ) -> dict[str, tuple[ServiceStatus, ObservatoryHealth]]:
     """Map known service ids to status and health from the project's containers."""
@@ -696,7 +662,7 @@ def load_docker_service_statuses(
         labels = container_labels(container)
         if labels.get("com.docker.compose.project") != compose_project:
             continue
-        name = coerce_str(container.get("Names"), "")
+        name = ps_container(container).name
         service_id = compose_service_name(container) or service_name_from_container(
             name, service_ids
         )
@@ -718,7 +684,7 @@ def load_docker_service_statuses(
 
 def load_docker_service_metadata(
     service_ids: set[str],
-    containers: Sequence[Mapping[str, Any]] | None = None,
+    containers: Sequence[DockerPsContainer | Mapping[str, Any]] | None = None,
     project_root: Path | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Map known service ids to runtime metadata from the project's containers."""
@@ -737,7 +703,7 @@ def load_docker_service_metadata(
         labels = container_labels(container)
         if labels.get("com.docker.compose.project") != compose_project:
             continue
-        name = coerce_str(container.get("Names"), "")
+        name = ps_container(container).name
         service_id = compose_service_name(container) or service_name_from_container(
             name, service_ids
         )
@@ -750,7 +716,7 @@ def load_docker_service_metadata(
 
 
 def runtime_services_from_containers(
-    containers: Sequence[Mapping[str, Any]],
+    containers: Sequence[DockerPsContainer | Mapping[str, Any]],
     known_ids: set[str],
     project_root: Path | None = None,
 ) -> list[ObservatoryService]:
@@ -986,7 +952,7 @@ def service_config_from_definition(service: Any) -> list[ObservatoryServiceConfi
 
 def load_services(
     project_root: Path,
-    containers: Sequence[Mapping[str, Any]] | None = None,
+    containers: Sequence[DockerPsContainer | Mapping[str, Any]] | None = None,
 ) -> list[ObservatoryService]:
     """Load services through core discovery, falling back deterministically."""
     try:
@@ -997,7 +963,11 @@ def load_services(
         discovered = []
 
     services: list[ObservatoryService] = []
-    containers = containers if containers is not None else load_docker_containers()
+    containers = (
+        [ps_container(item) for item in containers]
+        if containers is not None
+        else load_docker_containers()
+    )
     discovered = list(discovered)
     registry_entries = _registry_package_entries()
     registry_services = _registry_service_entries(registry_entries)

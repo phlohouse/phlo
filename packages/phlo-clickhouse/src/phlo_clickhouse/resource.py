@@ -29,6 +29,7 @@ import pandas as pd
 import pyarrow as pa
 
 from phlo.capabilities import CapabilitySupport
+from phlo.capabilities.interfaces import QueryPreviewResult, TableStore
 from phlo.logging import get_logger
 from phlo_clickhouse.settings import get_settings as get_clickhouse_settings
 
@@ -45,7 +46,7 @@ CLICKHOUSE_QUERY_ENGINE_SUPPORT = CapabilitySupport(
 
 
 @dataclass
-class ClickHouseResource:
+class ClickHouseResource(TableStore):
     """Resource wrapper for ClickHouse connections and query execution.
 
     Manages database connections, query execution, table management, and
@@ -89,7 +90,9 @@ class ClickHouseResource:
             secure=self.secure if self.secure is not None else settings.clickhouse_secure,
         )
 
-    def execute(self, sql: str, params: Iterable[object] | None = None) -> list[list[Any]]:
+    def execute(
+        self, sql: str, params: Iterable[object] | None = None, schema: str | None = None
+    ) -> list[list[Any]]:
         """Run a SQL query and return its rows, each a list of column values;
         the connection is closed afterwards.
 
@@ -102,8 +105,35 @@ class ClickHouseResource:
         """
         client = self.get_client()
         try:
+            if schema is not None:
+                client.command(f"USE {self._escape_identifier(schema)}")
             result = client.query(sql, parameters=list(params or []))
             return [list(row) for row in result.result_rows]
+        finally:
+            client.close()
+
+    def preview(
+        self, relation: str, *, limit: int, offset: int = 0, schema: str | None = None
+    ) -> QueryPreviewResult:
+        """Read a bounded relation page through the neutral query-engine contract."""
+        page_size = max(1, min(limit, 500))
+        database, table = self._resolve_target(relation)
+        if schema is not None and "." not in relation:
+            database = self._escape_identifier(schema)
+        client = self.get_client()
+        try:
+            result = client.query(
+                f"SELECT * FROM {database}.{table} LIMIT {page_size + 1} OFFSET {max(0, offset)}"
+            )
+            columns = list(result.column_names)
+            return QueryPreviewResult(
+                columns=columns,
+                column_types=[str(dtype) for dtype in result.column_types],
+                rows=[
+                    dict(zip(columns, row, strict=True)) for row in result.result_rows[:page_size]
+                ],
+                has_more=len(result.result_rows) > page_size,
+            )
         finally:
             client.close()
 

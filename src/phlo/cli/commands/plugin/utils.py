@@ -280,8 +280,9 @@ def collect_installed_plugins(plugin_type: str) -> list[dict]:
 
 def collect_registry_plugins(plugin_type: str) -> list[dict]:
     """Collect registry plugins of given type."""
-    from phlo.plugins.registry_client import list_registry_plugins
+    from phlo.plugins.registry_client import fetch_registry, list_registry_plugins
 
+    fetch_registry()
     registry_plugins = list_registry_plugins()
     plugin_type = normalize_plugin_type(plugin_type)
     if plugin_type != "all":

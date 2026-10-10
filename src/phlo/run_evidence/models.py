@@ -45,6 +45,8 @@ class RunStatus(StrEnum):
     @classmethod
     def parse(cls, value: str) -> RunStatus:
         """Normalize documented provider aliases, rejecting other stored statuses."""
+        if not isinstance(value, str):
+            raise ValueError("run status must be a string")
         normalized = value.strip().lower()
         return cls(
             {"canceled": "cancelled", "failure": "failed", "succeeded": "success"}.get(

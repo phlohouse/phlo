@@ -101,6 +101,13 @@ class DatasetStateStore(Protocol):
         ...
 
 
+@runtime_checkable
+class DatasetStateStoreProvider(Protocol):
+    """Factory selecting a durable project-scoped Dataset store."""
+
+    def store(self, project_root: str) -> DatasetStateStore: ...
+
+
 def state_store_namespace(project_root: str) -> str:
     """Return the deterministic project-scoped store namespace."""
     digest = hashlib.sha256(project_root.encode("utf-8")).hexdigest()
