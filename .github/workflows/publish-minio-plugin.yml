@@ -1,4 +1,4 @@
-name: Publish MinIO Plugin
+name: Validate MinIO Plugin (publication uses Release Promotion)
 
 on:
   workflow_dispatch:
@@ -51,23 +51,5 @@ jobs:
           name: minio-plugin-distributions
           path: dist/
           if-no-files-found: error
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: release
-    permissions: {}
-    steps:
-      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        with:
-          version: "0.12.1"
-          enable-cache: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: minio-plugin-distributions
-          path: dist
-      - name: Publish tested bytes without rebuilding
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        run: uv publish dist/*
+          # Diagnostic artifacts are not qualified release candidates. The
+          # phlo-minio wheel/sdist publish only through release-promotion.yml.

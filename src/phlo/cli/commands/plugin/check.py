@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -30,6 +29,7 @@ from rich.text import Text
 from phlo.cli.commands.plugin.utils import console
 from phlo.cli.contract import PhloCommand
 from phlo.cli.output import json_envelope, user_error
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.plugins import discover_plugins, validate_plugins
 from phlo.plugins.base.service import ServicePlugin
@@ -590,7 +590,7 @@ def check_generated_containers(  # noqa: C901
     with tempfile.TemporaryDirectory(prefix="phlo-container-check-", dir=project_parent) as raw:
         project = Path(raw)
         project.mkdir(exist_ok=True)
-        configured_trivy_cache = os.environ.get("PHLO_TRIVY_CACHE_DIR")
+        configured_trivy_cache = get_process_settings().phlo_trivy_cache_dir
         trivy_cache = (
             Path(configured_trivy_cache).expanduser().resolve()
             if configured_trivy_cache

@@ -18,13 +18,14 @@ from __future__ import annotations
 import hashlib
 import hmac as _hmac
 import json
-import os
 import zipfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from phlo.config.process import get_process_settings
 
 # ---------------------------------------------------------------------------
 # Public constants
@@ -71,7 +72,8 @@ def _resolve_evidence_hmac_key(explicit: bytes | None = None) -> bytes:
         if not explicit:
             raise EvidenceKeyError("Empty key material provided for evidence pack")
         return explicit
-    env_key = os.environ.get(PHLO_EVIDENCE_HMAC_KEY_ENV) or os.environ.get(PHLO_AUDIT_HMAC_KEY_ENV)
+    settings = get_process_settings()
+    env_key = settings.phlo_evidence_hmac_key or settings.phlo_audit_hmac_key
     if env_key:
         return env_key.encode()
     raise EvidenceKeyError(

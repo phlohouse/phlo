@@ -6,7 +6,6 @@ at application startup. Fails fast if required surfaces are missing or inactive.
 
 from __future__ import annotations
 
-import os
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import Any
 
 import yaml
 
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.rbac.compiler import COMPILER_REGISTRY
 from phlo.rbac.config import RBACConfigLoader
@@ -116,7 +116,7 @@ def _check_fail_closed_mode() -> ValidationResult:
     """Validate fail-closed mode is enabled."""
     from phlo.infrastructure.config import get_api_authorization_config
 
-    mode_env = os.environ.get("PHLO_AUTHORIZATION_MODE", "").strip().lower()
+    mode_env = get_process_settings().get("PHLO_AUTHORIZATION_MODE", "").strip().lower()
 
     if mode_env == REQUIRED_AUTHORIZATION_MODE:
         return ValidationResult(
@@ -151,8 +151,8 @@ def _check_fail_closed_mode() -> ValidationResult:
 
 def _check_compliance_hmac_keys() -> ValidationResult:
     """Validate regulated compliance HMAC keys are explicitly configured."""
-    audit_key = os.environ.get(PHLO_AUDIT_HMAC_KEY_ENV, "").strip()
-    signature_key = os.environ.get(PHLO_SIGNATURE_HMAC_KEY_ENV, "").strip()
+    audit_key = get_process_settings().get(PHLO_AUDIT_HMAC_KEY_ENV, "").strip()
+    signature_key = get_process_settings().get(PHLO_SIGNATURE_HMAC_KEY_ENV, "").strip()
 
     if not audit_key:
         return ValidationResult(
@@ -378,7 +378,7 @@ def _check_identity_provider() -> ValidationResult:
     config_key = {"proxy": "shared_secret", "jwt": "jwks_url", "service_token": "tokens"}[
         configured_name
     ]
-    if not os.environ.get(secret_env, "").strip() and not block.get(config_key):
+    if not get_process_settings().get(secret_env, "").strip() and not block.get(config_key):
         return ValidationResult(
             name="identity_provider_configured",
             passed=False,
@@ -386,9 +386,15 @@ def _check_identity_provider() -> ValidationResult:
         )
 
     if configured_name == "jwt":
-        issuer = os.environ.get("PHLO_AUTH_JWT_ISSUER", "").strip() or block.get("issuer")
-        audience = os.environ.get("PHLO_AUTH_JWT_AUDIENCE", "").strip() or block.get("audience")
-        jwks_url = os.environ.get("PHLO_AUTH_JWT_JWKS_URL", "").strip() or block.get("jwks_url")
+        issuer = get_process_settings().get("PHLO_AUTH_JWT_ISSUER", "").strip() or block.get(
+            "issuer"
+        )
+        audience = get_process_settings().get("PHLO_AUTH_JWT_AUDIENCE", "").strip() or block.get(
+            "audience"
+        )
+        jwks_url = get_process_settings().get("PHLO_AUTH_JWT_JWKS_URL", "").strip() or block.get(
+            "jwks_url"
+        )
         if not isinstance(issuer, str) or not issuer.strip():
             return ValidationResult(
                 name="identity_provider_configured",
@@ -444,8 +450,7 @@ def _configured_service_names() -> list[str]:
     from phlo.infrastructure.config import _default_project_root, load_project_config
 
     configured: set[str] = set()
-    raw_enabled = os.environ.get("PHLO_ENABLED_SERVICES", "")
-    configured.update(name.strip() for name in raw_enabled.split(",") if name.strip())
+    configured.update(get_process_settings().phlo_enabled_services)
     project = load_project_config(_default_project_root())
     enabled, disabled = get_enabled_disabled_service_names(project)
     configured.update(enabled)

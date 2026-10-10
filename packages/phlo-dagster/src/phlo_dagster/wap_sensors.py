@@ -49,7 +49,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -75,6 +74,7 @@ from phlo.run_evidence import (
     emit_observation,
 )
 from phlo_dagster.run_evidence import DagsterRunEvidenceSource
+from phlo_dagster.settings import WapSensorSettings
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
@@ -96,8 +96,8 @@ WAP_BRANCH_PREFIX = "pipeline-"
 OWNED_WAP_BRANCH_PREFIX = "pipeline-run-"
 WAP_TAG_KEY = WAP_BRANCH_TAG
 DEFAULT_RETENTION_HOURS = 24
-DEFAULT_CLEANUP_INTERVAL_SECONDS = int(os.getenv("PHLO_WAP_CLEANUP_INTERVAL_SECONDS", "3600"))
-DEFAULT_PROMOTION_INTERVAL_SECONDS = int(os.getenv("PHLO_WAP_PROMOTION_INTERVAL_SECONDS", "60"))
+DEFAULT_CLEANUP_INTERVAL_SECONDS = WapSensorSettings().cleanup_interval_seconds
+DEFAULT_PROMOTION_INTERVAL_SECONDS = WapSensorSettings().promotion_interval_seconds
 
 # The ADR-frozen blessed contribution set for the WAP profile. Provider
 # contributors register declaratively (Plan 008); until all six are present,
