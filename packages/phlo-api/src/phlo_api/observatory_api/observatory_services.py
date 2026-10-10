@@ -25,6 +25,7 @@ from typing import Any
 import yaml
 
 from phlo.config.env import load_project_env
+from phlo.infrastructure.config import get_project_name_from_config
 from phlo.plugins.registry_models import RegistryPayloadError, RegistryServiceEntry, parse_registry
 from phlo_api.observatory_api.service_payloads import (
     DockerInspectContainer,
@@ -555,16 +556,9 @@ def project_compose_name(project_root: Path | None) -> str | None:
     if not compose_file.exists():
         return None
 
-    config_file = project_root / "phlo.yaml"
-    if config_file.exists():
-        try:
-            payload = yaml.safe_load(config_file.read_text()) or {}
-        except (OSError, yaml.YAMLError):
-            payload = {}
-        if isinstance(payload, Mapping):
-            name = payload.get("name")
-            if isinstance(name, str) and name.strip():
-                return name.strip()
+    name = get_project_name_from_config(project_root)
+    if name and name.strip():
+        return name.strip()
 
     return project_root.name
 
