@@ -29,6 +29,7 @@ import click
 import yaml
 
 from phlo.config.layout import env_defaults_path, env_secrets_path
+from phlo.config.process import get_process_settings
 
 if TYPE_CHECKING:
     from phlo.cli.commands.services.ports import PortMapping
@@ -131,7 +132,7 @@ def _probe_failure_details(exc: BaseException, *, verbose: bool) -> dict[str, An
 
 
 def _configured_container_backend() -> str:
-    configured = os.environ.get("PHLO_CONTAINER_BACKEND")
+    configured = get_process_settings().phlo_container_backend
     if configured and configured.strip():
         return configured.strip().lower()
 

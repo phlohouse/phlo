@@ -6,8 +6,7 @@ setting to determine whether regulated mode is active.
 
 from __future__ import annotations
 
-import os
-
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.telemetry import metric
 
@@ -36,8 +35,8 @@ def requires_http_authorization() -> bool:
     """
     if is_regulated():
         return True
-    environment = os.environ.get(PHLO_ENVIRONMENT_ENV, "").strip().lower()
-    return environment in _PRODUCTION_HTTP_ENVIRONMENTS
+    environment = get_process_settings().phlo_environment
+    return environment is not None and environment.strip().lower() in _PRODUCTION_HTTP_ENVIRONMENTS
 
 
 def is_regulated(config_regulated: bool | None = None) -> bool:
@@ -45,16 +44,16 @@ def is_regulated(config_regulated: bool | None = None) -> bool:
     PHLO_REGULATED env var, then config_regulated from phlo.yaml, then the
     deprecated PHLO_REGULATED_MODE env var, then the config file default,
     otherwise False."""
-    env_value = os.environ.get(PHLO_REGULATED_ENV, "").strip().lower()
-    if env_value in ("1", "true", "yes", "on"):
-        return True
-    if env_value in ("0", "false", "no", "off"):
-        return False
+    env_value = get_process_settings().phlo_regulated
+    if env_value is not None:
+        return env_value
 
     if config_regulated is not None:
         return config_regulated
 
-    deprecated_env_value = os.environ.get(_PHLO_REGULATED_MODE_ENV_DEPRECATED, "").strip().lower()
+    deprecated_env_value = (
+        get_process_settings().get(_PHLO_REGULATED_MODE_ENV_DEPRECATED, "").strip().lower()
+    )
     if deprecated_env_value:
         metric("phlo.legacy.regulated_mode_env.uses", 1, unit="uses")
         logger.warning(

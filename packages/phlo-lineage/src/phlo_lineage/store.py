@@ -33,6 +33,7 @@ import psycopg2
 import ulid
 
 from phlo.config.network import resolve_host
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -71,13 +72,6 @@ class ColumnLineage:
     metadata: dict[str, Any] | None = None
 
 
-_LINEAGE_DB_KEYS = (
-    "LINEAGE_DB_URL",
-    "PHLO_LINEAGE_DB_URL",
-    "DAGSTER_PG_DB_CONNECTION_STRING",
-)
-
-
 def resolve_lineage_db_url() -> str | None:
     """Resolve the lineage database URL from explicit lineage environment variables.
 
@@ -92,11 +86,12 @@ def resolve_lineage_db_url() -> str | None:
         >>> resolve_lineage_db_url()
         'postgresql://localhost/lineage'
     """
-    for key in _LINEAGE_DB_KEYS:
-        value = os.environ.get(key)
-        if value:
-            return value
-    return None
+    return (
+        os.environ.get("LINEAGE_DB_URL")
+        or get_process_settings().phlo_lineage_db_url
+        or os.environ.get("DAGSTER_PG_DB_CONNECTION_STRING")
+        or None
+    )
 
 
 def resolve_lineage_db_url_with_postgres_fallback() -> str | None:

@@ -35,9 +35,10 @@ building on phlo.cli.commands.schema_migrate, with no other module importing it.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
+
+from phlo_dagster.settings import get_process_settings
 
 
 def maybe_refresh_contracts(workflows_path: Path, logger: Any) -> None:
@@ -46,11 +47,10 @@ def maybe_refresh_contracts(workflows_path: Path, logger: Any) -> None:
     Resolves contracts against workflows_path; failures are logged as warnings
     rather than raised.
     """
-    enabled = os.getenv("PHLO_AUTO_REFRESH_CONTRACTS", "").strip().lower()
-    if enabled not in {"1", "true", "yes"}:
+    if not get_process_settings().phlo_auto_refresh_contracts:
         return
 
-    selection = os.getenv("PHLO_CONTRACT_REFRESH_SELECTION")
+    selection = get_process_settings().phlo_contract_refresh_selection
 
     try:
         from phlo.cli.commands.schema_migrate import refresh_contracts_for_selection

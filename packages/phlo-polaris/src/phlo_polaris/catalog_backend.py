@@ -12,6 +12,7 @@ import os
 from functools import lru_cache
 from typing import Any
 
+from phlo.config.process import get_process_settings
 from phlo_polaris.settings import get_settings
 
 
@@ -42,7 +43,9 @@ def _writer_credential() -> str:
     try:
         stored = json.loads(
             (
-                Path(os.getenv("PHLO_PROJECT_PATH", ".")) / ".phlo" / "polaris-principals.json"
+                Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
+                / ".phlo"
+                / "polaris-principals.json"
             ).read_text(encoding="utf-8")
         )
         if stored.get(client_id):

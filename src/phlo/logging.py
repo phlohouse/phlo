@@ -73,7 +73,6 @@ from __future__ import annotations
 
 import contextvars
 import logging
-import os
 import sys
 import traceback
 from collections.abc import Mapping, MutableMapping
@@ -86,6 +85,7 @@ from typing import Any
 import structlog
 
 from phlo.config import get_settings
+from phlo.config.process import get_process_settings
 from phlo.exceptions import redact_sensitive_text
 from phlo.hooks.events import HookCorrelation, LogEvent
 
@@ -634,7 +634,7 @@ def _render_log_file_path(template: str) -> Path | None:
         return None
     path = Path(rendered)
     if not path.is_absolute():
-        project_root = os.environ.get("PHLO_PROJECT_PATH")
+        project_root = get_process_settings().phlo_project_path
         base_path = Path(project_root) if project_root else Path.cwd()
         path = base_path / path
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -13,6 +12,7 @@ from anyio.to_thread import run_sync
 from fastapi import APIRouter, Query, Request
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
+from phlo.config.process import get_process_settings
 from phlo_api.api import v1_jobs
 from phlo_api.api.operation_controls import require_scope
 from phlo_api.api.v1 import _target
@@ -75,7 +75,11 @@ def _read_json(path: Path) -> bytes:
 def _report(
     logical_id: str, run_id: str, tags: dict[str, str]
 ) -> tuple[_Report | None, Literal["verified", "missing", "invalid"]]:
-    root = Path(os.environ.get("PHLO_PROJECT_PATH", "/app/project")) / ".phlo" / "wap-reports"
+    root = (
+        Path(get_process_settings().get("PHLO_PROJECT_PATH", "/app/project"))
+        / ".phlo"
+        / "wap-reports"
+    )
     try:
         report = _Report.model_validate_json(_read_json(root / f"{logical_id}.json"))
     except FileNotFoundError:

@@ -185,3 +185,61 @@ workflows:
 
 def test_top_level_settings_export_is_lazy_helper() -> None:
     assert phlo.settings is workflow_settings
+
+
+def test_process_settings_preserve_presence_types_and_fresh_reads(tmp_path, monkeypatch) -> None:
+    from phlo.config.process import get_process_settings
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".phlo").mkdir()
+    (tmp_path / ".phlo/.env").write_text("PHLO_PROJECT_PATH=dotenv-root\n")
+    monkeypatch.delenv("PHLO_PROJECT_PATH", raising=False)
+    assert get_process_settings().phlo_project_path is None
+    monkeypatch.setenv("PHLO_PROJECT_PATH", "")
+    monkeypatch.setenv("PHLO_AUTH_STATIC_ENABLED", "false")
+    monkeypatch.setenv("PHLO_IDENTITY_AUTHORITY_ENABLED", "true")
+    monkeypatch.setenv("PHLO_AUTH_GROUPS", " operators, ,readers ")
+    monkeypatch.setenv("PHLO_AUTH_PROXY_TRUSTED_PROXIES", "127.0.0.1, ,::1")
+    settings = get_process_settings()
+    assert settings.phlo_project_path == ""
+    assert settings.phlo_auth_static_enabled is True
+    assert settings.phlo_identity_authority_enabled is False
+    assert settings.phlo_auth_groups == ["operators", "readers"]
+    assert settings.phlo_auth_proxy_trusted_proxies == ["127.0.0.1", "", "::1"]
+    monkeypatch.setenv("PHLO_PROJECT_PATH", "next-root")
+    monkeypatch.setenv("PHLO_IDENTITY_AUTHORITY_ENABLED", "1")
+    assert get_process_settings().phlo_project_path == "next-root"
+    assert get_process_settings().phlo_identity_authority_enabled is True
+
+
+def test_process_numeric_settings_are_boundary_local_and_keep_integer_syntax(monkeypatch) -> None:
+    from phlo.config.process import JwtTimingSettings, RunEvidencePoolSettings, get_process_settings
+
+    monkeypatch.setenv("PHLO_RUN_EVIDENCE_POOL_MAX", "-2")
+    assert RunEvidencePoolSettings().max_connections == 1
+    monkeypatch.setenv("PHLO_RUN_EVIDENCE_POOL_MAX", "3.0")
+    monkeypatch.setenv("PHLO_AUTH_JWT_LEEWAY", "not-an-int")
+    assert get_process_settings().phlo_project_path is None
+    with pytest.raises(ValueError):
+        RunEvidencePoolSettings()
+    with pytest.raises(ValueError, match="PHLO_AUTH_JWT_LEEWAY must be an integer"):
+        JwtTimingSettings()
+    monkeypatch.setenv("PHLO_AUTH_JWT_LEEWAY", " +17 ")
+    assert JwtTimingSettings().phlo_auth_jwt_leeway == 17
+
+
+def test_shared_process_projections_do_not_apply_resolved_aliases_or_defaults(monkeypatch) -> None:
+    from phlo.config.process import get_process_settings
+    from phlo.config.telemetry import TelemetryProcessSettings
+
+    monkeypatch.delenv("PHLO_ENVIRONMENT", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("PHLO_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "true")
+    assert get_process_settings().phlo_environment is None
+    snapshot = TelemetryProcessSettings.from_environment({})
+    assert snapshot.log_level == ""
+    assert snapshot.pretty is False
+    assert TelemetryProcessSettings().log_level == "DEBUG"
+    monkeypatch.setenv("PHLO_ENVIRONMENT", "")
+    assert get_process_settings().phlo_environment == ""

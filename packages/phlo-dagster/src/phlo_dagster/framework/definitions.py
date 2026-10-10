@@ -32,7 +32,6 @@ Example:
 
 from __future__ import annotations
 
-import os
 import platform
 from pathlib import Path
 from typing import Any
@@ -41,6 +40,7 @@ import dagster as dg
 
 from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCatalog
 from phlo.capabilities.resolver import resolve_capability
+from phlo.config.process import get_process_settings
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.infrastructure import load_wap_config
 from phlo_dagster.framework.discovery import (
@@ -210,12 +210,12 @@ def build_definitions(
     dagster_defs = _collect_dagster_extension_definitions()
     definitions_to_merge = [user_defs]
     definitions_to_merge.append(dg.Definitions(sensors=[phlo_incident_signal_sensor]))
-    if os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT"):
+    if get_process_settings().phlo_observatory_environment:
         from phlo.plugins.observatory_settings import operational_environment_target
         from phlo_dagster.alerting_sensor import email_digest_sensor
         from phlo_dagster.maintenance_sensor import get_policy_maintenance_definitions
 
-        operational_environment_target(os.environ["PHLO_OBSERVATORY_ENVIRONMENT"])
+        operational_environment_target(get_process_settings()["PHLO_OBSERVATORY_ENVIRONMENT"])
         definitions_to_merge.append(dg.Definitions(sensors=[email_digest_sensor]))
         definitions_to_merge.append(get_policy_maintenance_definitions())
     if dagster_defs is not None:

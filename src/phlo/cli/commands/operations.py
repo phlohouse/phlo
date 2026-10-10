@@ -31,6 +31,7 @@ import click
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.contract import PhloCommand, PhloGroup
 from phlo.cli.output import json_envelope
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -43,11 +44,10 @@ def _durable_journal():
     in-memory journal, or the exactly-once contract disappears with the
     process. Callers that cannot resolve a durable store are refused.
     """
-    import os
 
     from phlo.operations.journal_store import FileOperationJournalStore
 
-    directory = os.environ.get("PHLO_OPERATIONS_JOURNAL_DIR")
+    directory = get_process_settings().phlo_operations_journal_dir
     if not directory:
         raise click.ClickException(
             "no durable operation journal configured: set PHLO_OPERATIONS_JOURNAL_DIR "

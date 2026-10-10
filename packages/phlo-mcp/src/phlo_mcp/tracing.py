@@ -13,8 +13,8 @@ from typing import Any
 from uuid import uuid4
 
 import phlo.telemetry as phlo_observe
+from phlo_mcp.config import McpTraceSettings
 
-_TRACE_FILE_ENV = "PHLO_MCP_TRACE_FILE"
 _CONFIGURED_PATH: str | None = None
 _ACTIVE_SPANS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "phlo_mcp_active_spans", default=()
@@ -26,7 +26,7 @@ def configure_tracing(
 ) -> str | None:
     """Configure local tracing if a trace file is configured."""
     global _CONFIGURED_PATH
-    resolved_trace_file = trace_file or os.environ.get(_TRACE_FILE_ENV)
+    resolved_trace_file = trace_file or McpTraceSettings().trace_file
     # The debug drain is configured at most once per process. A later call with
     # a different path keeps the first destination rather than splitting one
     # operation tree across files.

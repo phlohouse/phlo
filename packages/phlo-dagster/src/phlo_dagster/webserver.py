@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
@@ -33,13 +32,12 @@ from phlo_dagster.authorization import (
     validate_graphql_schema,
 )
 from phlo_dagster.authorization_middleware import DagsterGraphQLAuthorizationMiddleware
-from phlo_dagster.oidc_identity import OIDC_REQUIRED_ENV
 from phlo.security.mode import requires_http_authorization
 from phlo.security.service_identity import PostgresNonceStore
+from phlo.config.process import get_process_settings as get_core_process_settings
+from phlo_dagster.settings import DagsterWebsocketSettings, get_process_settings
 
 GRAPHQL_WS_INIT_TIMEOUT_ENV = "PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS"
-_DEFAULT_GRAPHQL_WS_INIT_TIMEOUT = 10.0
-_MAX_GRAPHQL_WS_INIT_TIMEOUT = 60.0
 
 # The Dagster webserver is the receiver of phlo1 service tokens sent by
 # phlo-api. Its replay state lives in a durable PostgreSQL store (ADR 0047)
@@ -54,7 +52,8 @@ def _durable_nonce_store_dsn() -> str | None:
     Prefer the dedicated nonce-store DSN; fall back to the run-evidence DSN,
     which already points at the shared `phlo` database the receiver owns.
     """
-    return os.environ.get(PHLO_SERVICE_NONCE_DB_URL_ENV) or os.environ.get(_RUN_EVIDENCE_DB_URL_ENV)
+    settings = get_core_process_settings()
+    return settings.phlo_service_nonce_db_url or settings.phlo_run_evidence_db_url
 
 
 def build_durable_nonce_store() -> PostgresNonceStore | None:
@@ -318,18 +317,7 @@ class GraphQLWebSocketAuthenticationASGI:
     def __init__(self, app: Callable[..., Awaitable[None]], middleware) -> None:  # noqa: ANN001
         self.app = app
         self.middleware = middleware
-        raw_timeout = os.environ.get(
-            GRAPHQL_WS_INIT_TIMEOUT_ENV, str(_DEFAULT_GRAPHQL_WS_INIT_TIMEOUT)
-        )
-        try:
-            self.connection_init_timeout = float(raw_timeout)
-        except ValueError as exc:
-            raise ValueError(f"{GRAPHQL_WS_INIT_TIMEOUT_ENV} must be numeric") from exc
-        if not 0 < self.connection_init_timeout <= _MAX_GRAPHQL_WS_INIT_TIMEOUT:
-            raise ValueError(
-                f"{GRAPHQL_WS_INIT_TIMEOUT_ENV} must be greater than 0 and at most "
-                f"{_MAX_GRAPHQL_WS_INIT_TIMEOUT:g}"
-            )
+        self.connection_init_timeout = DagsterWebsocketSettings().init_timeout_seconds
 
     async def __call__(self, scope: dict[str, Any], receive, send) -> None:  # noqa: ANN001
         if scope.get("type") != "websocket" or scope.get("path") != "/graphql":
@@ -459,7 +447,7 @@ class PhloDagsterWebserver(DagsterWebserver):
 
     @staticmethod
     def _oidc_required() -> bool:
-        return os.environ.get(OIDC_REQUIRED_ENV, "").strip().lower() == "true"
+        return get_process_settings().phlo_dagster_oidc_required
 
     async def webserver_info_endpoint(self, _request):  # noqa: ANN001, ANN201
         """Report webserver health, including OIDC validator readiness."""

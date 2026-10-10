@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 from collections.abc import Callable
 from typing import Annotated, Literal, TypeVar
 
@@ -18,6 +17,7 @@ from phlo.compliance.audit.sealed import TamperEvidentAuditSink
 from phlo.compliance.signatures.service import SignatureService, SignatureServiceConfig
 from phlo.compliance.signatures.step_up import RecentMfaClaimsChallenge
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
+from phlo.config.process import get_process_settings
 from phlo.identity.authority import (
     IdentityAuthority,
     IdentityConflictError,
@@ -191,7 +191,7 @@ class AdminSettingsUpdate(WireModel):
 
 
 def _authority() -> IdentityAuthority:
-    if os.environ.get("PHLO_IDENTITY_AUTHORITY_ENABLED") != "1":
+    if not get_process_settings().phlo_identity_authority_enabled:
         raise BackendUnavailableError("Phlo identity authority is disabled.")
     try:
         return IdentityAuthority()

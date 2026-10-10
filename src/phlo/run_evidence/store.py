@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sqlite3
 import threading
 from base64 import urlsafe_b64decode, urlsafe_b64encode
@@ -24,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from phlo.config.process import RunEvidencePoolSettings, get_process_settings
 from phlo.run_evidence.models import (
     RUN_EVIDENCE_SCHEMA_VERSION,
     EvidenceCompleteness,
@@ -1870,8 +1870,7 @@ class PostgresRunEvidenceStore(_SqlRunEvidenceStore):
             raise RuntimeError(
                 "PostgresRunEvidenceStore requires the runtime extra: install phlo[runtime]."
             ) from exc
-        max_connections = int(os.environ.get("PHLO_RUN_EVIDENCE_POOL_MAX", "10"))
-        self._pool = ThreadedConnectionPool(1, max(1, max_connections), self.dsn)
+        self._pool = ThreadedConnectionPool(1, RunEvidencePoolSettings().max_connections, self.dsn)
         return self._pool.getconn()
 
     def _close_connection(self, connection: Any) -> None:
@@ -1956,14 +1955,14 @@ class PostgresRunEvidenceStore(_SqlRunEvidenceStore):
 
 def default_run_evidence_store() -> SQLiteRunEvidenceStore | PostgresRunEvidenceStore:
     """Resolve the production DSN or durable local path from environment."""
-    dsn = os.environ.get("PHLO_RUN_EVIDENCE_DB_URL")
+    dsn = get_process_settings().phlo_run_evidence_db_url
     if dsn:
         return PostgresRunEvidenceStore(dsn)
-    environment = os.environ.get("PHLO_ENVIRONMENT", "dev").lower()
+    environment = get_process_settings().get("PHLO_ENVIRONMENT", "dev").lower()
     if environment in {"prod", "production", "staging", "regulated"}:
         raise RuntimeError(
             "Run evidence requires PHLO_RUN_EVIDENCE_DB_URL in production, staging, "
             "and regulated environments; SQLite is local-only."
         )
-    path = os.environ.get("PHLO_RUN_EVIDENCE_SQLITE_PATH", ".phlo/run-evidence.sqlite")
+    path = get_process_settings().get("PHLO_RUN_EVIDENCE_SQLITE_PATH", ".phlo/run-evidence.sqlite")
     return SQLiteRunEvidenceStore(path)

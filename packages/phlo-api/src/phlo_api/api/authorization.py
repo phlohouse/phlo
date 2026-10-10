@@ -37,7 +37,6 @@ Example:
 
 from __future__ import annotations
 
-import os
 from uuid import uuid4
 from typing import Any, Callable, TypeVar
 
@@ -54,6 +53,7 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.logging import get_logger
+from phlo.config.process import get_process_settings
 from phlo.security import enforce, is_regulated
 from phlo.security.mode import requires_http_authorization
 from phlo.infrastructure.config import (
@@ -136,7 +136,7 @@ def get_authorization_mode() -> str:
     when production HTTP authorization is required (ADR 0047) and to
     ``optional`` otherwise, so development stays opt-in.
     """
-    configured_mode = os.environ.get(_AUTHORIZATION_MODE_ENV)
+    configured_mode = get_process_settings().phlo_authorization_mode
     if configured_mode is not None:
         configured_mode = configured_mode.strip() or None
     if configured_mode is None:

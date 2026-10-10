@@ -67,6 +67,7 @@ from phlo.config.env import load_project_env
 from phlo.infrastructure import load_wap_config
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import launch_materialize, wait_for_dagster_http
+from phlo_dagster.settings import get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import prepare_wap_launch
 from phlo.logging import get_logger
@@ -164,7 +165,7 @@ def materialize(  # noqa: C901
                 "WAP is enabled in phlo.yaml and requires one ASSET_NAME; --select is not supported."
             )
         dagster_url = resolve_wap_dagster_url(wap_config)
-        access_token = os.environ.get("PHLO_DAGSTER_ACCESS_TOKEN")
+        access_token = get_process_settings().phlo_dagster_access_token
         if getattr(wap_config, "requires_access_token", False) and not access_token:
             raise click.ClickException(
                 "PHLO_DAGSTER_ACCESS_TOKEN is required for a non-local WAP Dagster endpoint."

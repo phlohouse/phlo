@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -292,7 +293,7 @@ def load_service_identity_credentials() -> ServiceIdentityCredentials:
     activated_at, retiring_until). Missing references load as empty; receivers
     fail closed when the ring they need is absent.
     """
-    raw_path = os.environ.get(PHLO_SERVICE_CREDENTIALS_FILE_ENV)
+    raw_path = get_process_settings().phlo_service_credentials_file
     if not raw_path:
         return ServiceIdentityCredentials({})
     path = Path(raw_path)
@@ -495,7 +496,7 @@ def _legacy_service_tokens_allowed() -> bool:
 
     if is_regulated():
         return False
-    environment = os.environ.get("PHLO_ENVIRONMENT", "dev").lower()
+    environment = get_process_settings().get("PHLO_ENVIRONMENT", "dev").lower()
     return environment not in {"prod", "production", "staging", "regulated"}
 
 
@@ -506,7 +507,7 @@ def create_service_token(service_id: str) -> str:
     """
     if not _legacy_service_tokens_allowed():
         raise RuntimeError("Shared service tokens are development-only; use scoped service tokens")
-    secret = os.environ.get(PHLO_SERVICE_SECRET_ENV)
+    secret = get_process_settings().phlo_service_secret
     if not secret:
         raise RuntimeError(f"{PHLO_SERVICE_SECRET_ENV} must be set for service-to-service auth")
 
@@ -525,7 +526,7 @@ def validate_service_token(
     """Validate an HMAC service token."""
     if not _legacy_service_tokens_allowed():
         return None
-    secret = os.environ.get(PHLO_SERVICE_SECRET_ENV)
+    secret = get_process_settings().phlo_service_secret
     if not secret:
         return None
 

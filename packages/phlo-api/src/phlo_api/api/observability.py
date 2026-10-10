@@ -42,7 +42,6 @@ Example:
 
 from __future__ import annotations
 
-import os
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
@@ -53,6 +52,7 @@ from phlo.capabilities.discovery import discover_capabilities
 from phlo.logging import get_logger
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.pagination import paginate_items
+from phlo_api.settings import get_process_settings
 
 logger = get_logger(__name__)
 
@@ -65,7 +65,7 @@ def _resolve_observability_backend(backend_name: str | None = None) -> Any:
     """Resolve the configured observability backend capability."""
     discover_capabilities()
 
-    name = backend_name or os.environ.get(_DEFAULT_BACKEND_ENV)
+    name = backend_name or get_process_settings().phlo_observability_backend
 
     if name:
         resolution = resolve_capability("observability_backend", name)

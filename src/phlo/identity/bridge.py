@@ -14,10 +14,10 @@ role mapping behavior is unsupported.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 if TYPE_CHECKING:
@@ -249,7 +249,7 @@ def canonicalize_principal(
 
 def _managed_roles_for(auth_principal: AuthPrincipal) -> tuple[str, ...] | None:
     """Use the shared Phlo identity authority when explicitly enabled."""
-    if os.environ.get("PHLO_IDENTITY_AUTHORITY_ENABLED") != "1":
+    if not get_process_settings().phlo_identity_authority_enabled:
         return None
 
     from phlo.identity.authority import IdentityAuthority

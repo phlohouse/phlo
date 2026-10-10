@@ -28,7 +28,6 @@ and the phlo-api authorization layer.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -38,6 +37,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import yaml
 
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.capabilities import AlertSink, resolve_capability
 from phlo.plugins.observatory_settings import (
@@ -231,11 +231,13 @@ def get_operational_maintenance_windows(env: str) -> list[dict[str, str]] | None
     consumer to the environment and configure an allowlisted namespace policy.
     This read does not enable a sensor or authorise destructive execution.
     """
-    if os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT") != env:
+    if get_process_settings().phlo_observatory_environment != env:
         return None
     _location, ref = operational_environment_target(env)
     settings = get_operational_settings()
-    path = Path(os.environ.get("PHLO_MAINTENANCE_POLICY_PATH", "maintenance_policy.yaml"))
+    path = Path(
+        get_process_settings().get("PHLO_MAINTENANCE_POLICY_PATH", "maintenance_policy.yaml")
+    )
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         policies = payload.get("policies")

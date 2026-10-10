@@ -32,6 +32,7 @@ from phlo.cli.commands.workflow import (
     _validate_workflow_file,
 )
 from phlo.cli.templates.registry import list_templates as list_project_templates
+from phlo.config.process import get_process_settings
 from phlo.workflow_authoring import WorkflowAuthoringError, create_workflow_with_provider
 
 router = APIRouter(tags=["authoring"])
@@ -58,7 +59,7 @@ class PathValidationRequest(BaseModel):
 
 
 def _project_root() -> Path:
-    return Path(os.environ.get("PHLO_PROJECT_PATH", ".")).resolve()
+    return Path(get_process_settings().get("PHLO_PROJECT_PATH", ".")).resolve()
 
 
 def _resolve_project_path(path: str) -> Path:

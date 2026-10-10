@@ -26,7 +26,6 @@ Example:
 
 from __future__ import annotations
 
-import os
 from collections import deque
 from collections.abc import Iterable
 from typing import Any
@@ -38,6 +37,7 @@ from phlo.capabilities import list_capabilities, resolve_capability
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.capabilities.interfaces import LineageSink
 from phlo.logging import get_logger
+from phlo_api.settings import get_process_settings
 
 logger = get_logger(__name__)
 
@@ -94,7 +94,7 @@ class AssetLineageGraph(BaseModel):
 def _resolve_lineage_sink() -> LineageSink:
     """Resolve the configured lineage sink capability."""
     discover_capabilities()
-    name = os.environ.get(_DEFAULT_LINEAGE_SINK_ENV)
+    name = get_process_settings().phlo_lineage_sink
     resolution = resolve_capability("lineage_sink", name)
     if resolution is None:
         available = list_capabilities("lineage_sink")

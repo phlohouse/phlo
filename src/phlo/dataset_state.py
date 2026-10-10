@@ -19,11 +19,11 @@ boundary.
 
 from __future__ import annotations
 
-import os
 import threading
 from collections.abc import Mapping
 from typing import Any
 
+from phlo.config.process import get_process_settings
 from phlo.dataset.migration import MigrationStore  # noqa: F401  (re-exported contract)
 from phlo.dataset.models import (
     DATASET_STATE_SCHEMA_VERSION,
@@ -53,7 +53,7 @@ class DatasetStoreResolutionError(RuntimeError):
 
 def resolve_store_mode(explicit: str | None = None) -> str:
     """Return the effective store mode: explicit argument, env, or ``durable``."""
-    mode = explicit or os.environ.get(MODE_ENV_VAR) or MODE_DURABLE
+    mode = explicit or get_process_settings().phlo_dataset_state_store or MODE_DURABLE
     if mode not in {MODE_DURABLE, MODE_MEMORY}:
         raise ValueError(
             f"Unknown dataset state store mode {mode!r}; expected {MODE_DURABLE!r} or {MODE_MEMORY!r}."
