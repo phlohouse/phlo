@@ -36,6 +36,7 @@ from phlo.security.mode import requires_http_authorization
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.authorization import get_authorization_mode
 from phlo_api.errors import BackendUnavailableError
+from phlo_api.settings import get_settings as get_api_settings
 
 _TOKEN_CONFIG_ENV = "PHLO_API_TOKENS"
 _DEFAULT_IDEMPOTENCY_RETENTION_HOURS = 24
@@ -197,7 +198,7 @@ def read_operation_audit(operation: str) -> list[dict[str, Any]]:
         return []
     records: list[dict[str, Any]] = []
     with _audit_write_lock(audit_dir):
-        max_files = int(os.environ.get("PHLO_API_AUDIT_MAX_FILES", "5"))
+        max_files = get_api_settings().phlo_api_audit_max_files
         if not 1 <= max_files <= 20:
             raise ValueError("Audit retention exceeds the supported read bound.")
         path = audit_dir / "operations.jsonl"
@@ -220,8 +221,9 @@ def read_operation_audit(operation: str) -> list[dict[str, Any]]:
 
 
 def _rotate_audit_log(path: Path) -> None:
-    max_bytes = int(os.environ.get("PHLO_API_AUDIT_MAX_BYTES", str(10 * 1024 * 1024)))
-    max_files = int(os.environ.get("PHLO_API_AUDIT_MAX_FILES", "5"))
+    api_settings = get_api_settings()
+    max_bytes = api_settings.phlo_api_audit_max_bytes
+    max_files = api_settings.phlo_api_audit_max_files
     if max_bytes <= 0 or max_files <= 0 or not path.exists() or path.stat().st_size < max_bytes:
         return
     oldest = path.with_name(f"{path.name}.{max_files}")
@@ -700,13 +702,14 @@ def _load_token_config() -> dict[str, dict[str, Any]]:
 
 
 def _operation_limit(operation: str) -> int:
+    settings = get_api_settings()
     if operation in {"materialize_asset", "backfill_asset"}:
-        return int(os.environ.get("PHLO_API_RATE_LIMIT_MATERIALIZE", "10"))
+        return settings.phlo_api_rate_limit_materialize
     if operation == "retry_failed_run":
-        return int(os.environ.get("PHLO_API_RATE_LIMIT_RETRY", "30"))
+        return settings.phlo_api_rate_limit_retry
     if operation == "cancel_run":
-        return int(os.environ.get("PHLO_API_RATE_LIMIT_CANCEL", "60"))
-    return int(os.environ.get("PHLO_API_RATE_LIMIT_MUTATION", "60"))
+        return settings.phlo_api_rate_limit_cancel
+    return settings.phlo_api_rate_limit_mutation
 
 
 def _idempotency_connection() -> sqlite3.Connection:

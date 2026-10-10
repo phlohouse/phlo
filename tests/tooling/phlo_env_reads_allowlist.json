@@ -1,0 +1,315 @@
+{
+  "src/phlo/capabilities/authentication.py": [
+    "PHLO_AUTH_DEV_MODE",
+    "PHLO_AUTH_JWT_ENABLED",
+    "PHLO_AUTH_PROXY_ENABLED",
+    "PHLO_AUTH_PROXY_HEADER_EMAIL",
+    "PHLO_AUTH_PROXY_HEADER_GROUPS",
+    "PHLO_AUTH_PROXY_HEADER_SUBJECT",
+    "PHLO_AUTH_PROXY_SHARED_SECRET",
+    "PHLO_AUTH_PROXY_TRUSTED_PROXIES",
+    "PHLO_AUTH_SERVICE_ENABLED",
+    "PHLO_AUTH_SERVICE_TOKENS",
+    "PHLO_AUTH_STATIC_ENABLED",
+    "PHLO_AUTH_STATIC_USERS",
+    "PHLO_ENVIRONMENT"
+  ],
+  "src/phlo/capabilities/observability.py": [
+    "PHLO_OBSERVABILITY_PUBLIC_HOST",
+    "PHLO_OBSERVABILITY_PUBLIC_SCHEME"
+  ],
+  "src/phlo/capabilities/telemetry.py": [
+    "PHLO_TELEMETRY_PATH"
+  ],
+  "src/phlo/cli/authorization.py": [
+    "PHLO_AUTH_GROUPS",
+    "PHLO_AUTH_SUBJECT",
+    "PHLO_AUTH_TYPE",
+    "PHLO_DEV_MODE",
+    "PHLO_REQUEST_ID",
+    "PHLO_SERVICE_ACCOUNT"
+  ],
+  "src/phlo/cli/authorization_wrappers.py": [
+    "PHLO_AUTH_TYPE",
+    "PHLO_REQUEST_ID"
+  ],
+  "src/phlo/cli/commands/dataset.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "src/phlo/cli/commands/doctor.py": [
+    "PHLO_CONTAINER_BACKEND"
+  ],
+  "src/phlo/cli/commands/operations.py": [
+    "PHLO_OPERATIONS_JOURNAL_DIR"
+  ],
+  "src/phlo/cli/commands/plugin/check.py": [
+    "PHLO_TRIVY_CACHE_DIR"
+  ],
+  "src/phlo/cli/commands/services/utils.py": [
+    "PHLO_DEV_SOURCE"
+  ],
+  "src/phlo/cli/infrastructure/container_backend.py": [
+    "PHLO_CONTAINER_BACKEND"
+  ],
+  "src/phlo/compliance/audit/sealed.py": [
+    "PHLO_AUDIT_HMAC_KEY"
+  ],
+  "src/phlo/compliance/evidence/pack.py": [
+    "PHLO_AUDIT_HMAC_KEY",
+    "PHLO_EVIDENCE_HMAC_KEY"
+  ],
+  "src/phlo/compliance/signatures/types.py": [
+    "PHLO_AUDIT_HMAC_KEY",
+    "PHLO_SIGNATURE_HMAC_KEY"
+  ],
+  "src/phlo/config/env.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "src/phlo/dataset_state.py": [
+    "PHLO_DATASET_STATE_STORE"
+  ],
+  "src/phlo/identity/bridge.py": [
+    "PHLO_IDENTITY_AUTHORITY_ENABLED"
+  ],
+  "src/phlo/infrastructure/config.py": [
+    "PHLO_AUTHENTICATION_METHOD",
+    "PHLO_AUTHENTICATION_PROVIDER",
+    "PHLO_AUTHORIZATION_BACKEND",
+    "PHLO_PROJECT_PATH"
+  ],
+  "src/phlo/logging.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "src/phlo/operations/runtime.py": [
+    "PHLO_DEPLOYMENT_ID",
+    "PHLO_PROJECT_NAME"
+  ],
+  "src/phlo/plugins/observatory_settings.py": [
+    "PHLO_V1_ENVIRONMENTS"
+  ],
+  "src/phlo/run_evidence/store.py": [
+    "PHLO_ENVIRONMENT",
+    "PHLO_RUN_EVIDENCE_DB_URL",
+    "PHLO_RUN_EVIDENCE_POOL_MAX",
+    "PHLO_RUN_EVIDENCE_SQLITE_PATH"
+  ],
+  "src/phlo/security/mode.py": [
+    "PHLO_ENVIRONMENT",
+    "PHLO_REGULATED",
+    "PHLO_REGULATED_MODE"
+  ],
+  "src/phlo/security/service_identity.py": [
+    "PHLO_ENVIRONMENT",
+    "PHLO_SERVICE_CREDENTIALS_FILE",
+    "PHLO_SERVICE_SECRET"
+  ],
+  "src/phlo/security/validation.py": [
+    "PHLO_AUDIT_HMAC_KEY",
+    "PHLO_AUTHORIZATION_MODE",
+    "PHLO_AUTH_JWT_AUDIENCE",
+    "PHLO_AUTH_JWT_ISSUER",
+    "PHLO_AUTH_JWT_JWKS_URL",
+    "PHLO_ENABLED_SERVICES",
+    "PHLO_SIGNATURE_HMAC_KEY"
+  ],
+  "packages/phlo-api/src/phlo_api/api/authentication.py": [
+    "PHLO_AUTHENTICATION_PROVIDER",
+    "PHLO_IDENTITY_AUTHORITY_ENABLED"
+  ],
+  "packages/phlo-api/src/phlo_api/api/authoring.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-api/src/phlo_api/api/authorization.py": [
+    "PHLO_AUTHORIZATION_MODE"
+  ],
+  "packages/phlo-api/src/phlo_api/api/continuity.py": [
+    "PHLO_OPERATIONS_JOURNAL_DIR"
+  ],
+  "packages/phlo-api/src/phlo_api/api/maintenance.py": [
+    "PHLO_MAINTENANCE_READ_MODEL"
+  ],
+  "packages/phlo-api/src/phlo_api/api/observability.py": [
+    "PHLO_OBSERVABILITY_BACKEND"
+  ],
+  "packages/phlo-api/src/phlo_api/api/operation_controls.py": [
+    "PHLO_API_TOKENS",
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1.py": [
+    "PHLO_V1_ENVIRONMENTS"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_admin_audit.py": [
+    "PHLO_RUN_EVIDENCE_DB_URL"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_admin_identity.py": [
+    "PHLO_IDENTITY_AUTHORITY_ENABLED"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_assets.py": [
+    "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
+    "PHLO_V1_ACTIONS_SINGLE_PROCESS",
+    "PHLO_V1_ACTIONS_SINGLE_REPLICA"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_branch_workflows.py": [
+    "PHLO_V1_BRANCH_CHECK_JOBS"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_git_review.py": [
+    "PHLO_V1_GIT_REVIEW_BASE_BRANCH",
+    "PHLO_V1_GIT_REVIEW_REPOSITORY",
+    "PHLO_V1_GIT_REVIEW_TOKEN"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_jobs.py": [
+    "PHLO_V1_MAINTENANCE_WINDOWS"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_query.py": [
+    "PHLO_RUN_EVIDENCE_DB_URL",
+    "PHLO_V1_QUERY_SINGLE_REPLICA"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_staging.py": [
+    "PHLO_PROMOTION_DAGSTER_CHECK_JOBS",
+    "PHLO_STAGING_SINGLE_REPLICA"
+  ],
+  "packages/phlo-api/src/phlo_api/api/v1_wap.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-api/src/phlo_api/incidents.py": [
+    "PHLO_RUN_EVIDENCE_DB_URL"
+  ],
+  "packages/phlo-api/src/phlo_api/main.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-api/src/phlo_api/observatory_api/lineage.py": [
+    "PHLO_LINEAGE_SINK"
+  ],
+  "packages/phlo-api/src/phlo_api/observatory_api/observatory.py": [
+    "PHLO_COMPOSE_PROJECT",
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-api/src/phlo_api/observatory_api/observatory_services.py": [
+    "PHLO_COMPOSE_PROJECT"
+  ],
+  "packages/phlo-api/src/phlo_api/observatory_api/observatory_workflow_wizard.py": [
+    "PHLO_WORKFLOW_WIZARD_SECRET"
+  ],
+  "packages/phlo-api/src/phlo_api/observatory_api/package_install.py": [
+    "PHLO_PROJECT_PATH",
+    "PHLO_UV_PROJECT"
+  ],
+  "packages/phlo-api/src/phlo_api/observatory_api/settings.py": [
+    "PHLO_MAINTENANCE_POLICY_PATH",
+    "PHLO_OBSERVATORY_ENVIRONMENT"
+  ],
+  "packages/phlo-api/src/phlo_api/observatory_api/v1_preview.py": [
+    "PHLO_V1_PREVIEW_CATALOGS",
+    "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED"
+  ],
+  "packages/phlo-api/src/phlo_api/security_manifest.py": [
+    "PHLO_AUTHORIZATION_MODE",
+    "PHLO_PROJECT_NAME"
+  ],
+  "packages/phlo-api/src/phlo_api/usage.py": [
+    "PHLO_RUN_EVIDENCE_DB_URL",
+    "PHLO_V1_USAGE_TRINO_SOURCES"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/alerting_sensor.py": [
+    "PHLO_OBSERVATORY_ENVIRONMENT"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/authorization_middleware.py": [
+    "PHLO_DAGSTER_ALLOWED_SERVICE_IDS"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/cli_backfill.py": [
+    "PHLO_DAGSTER_ACCESS_TOKEN",
+    "PHLO_WAP_BACKFILL_POLL_SECONDS",
+    "PHLO_WAP_BACKFILL_TIMEOUT_SECONDS"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/cli_materialize.py": [
+    "PHLO_DAGSTER_ACCESS_TOKEN"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/framework/definitions.py": [
+    "PHLO_OBSERVATORY_ENVIRONMENT"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/framework/schema_contracts.py": [
+    "PHLO_AUTO_REFRESH_CONTRACTS",
+    "PHLO_CONTRACT_REFRESH_SELECTION"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/iceberg_maintenance_utils.py": [
+    "PHLO_OPERATIONS_JOURNAL_DIR"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/incident_sensor.py": [
+    "PHLO_DAGSTER_INCIDENT_LOCATION_ENV_MAP",
+    "PHLO_INCIDENT_API_URL",
+    "PHLO_OBSERVATORY_ENVIRONMENT"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/maintenance_sensor.py": [
+    "PHLO_MAINTENANCE_POLICY_PATH",
+    "PHLO_OBSERVATORY_ENVIRONMENT",
+    "PHLO_OBSERVATORY_MAINTENANCE_EXECUTE"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/oidc_identity.py": [
+    "PHLO_DAGSTER_OIDC_ALLOW_INSECURE_HTTP",
+    "PHLO_DAGSTER_OIDC_AUDIENCE",
+    "PHLO_DAGSTER_OIDC_CA_FILE",
+    "PHLO_DAGSTER_OIDC_GROUPS_CLAIM",
+    "PHLO_DAGSTER_OIDC_ISSUER",
+    "PHLO_DAGSTER_OIDC_JWKS_URL"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/wap_launch.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/wap_sensors.py": [
+    "PHLO_WAP_CLEANUP_INTERVAL_SECONDS",
+    "PHLO_WAP_PROMOTION_INTERVAL_SECONDS"
+  ],
+  "packages/phlo-dagster/src/phlo_dagster/webserver.py": [
+    "PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS",
+    "PHLO_RUN_EVIDENCE_DB_URL",
+    "PHLO_SERVICE_NONCE_DB_URL"
+  ],
+  "packages/phlo-dbt/src/phlo_dbt/settings.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-mcp/src/phlo_mcp/config.py": [
+    "PHLO_MCP_API_BASE_URL",
+    "PHLO_MCP_API_TOKEN",
+    "PHLO_MCP_HOST",
+    "PHLO_MCP_HTTP_PATH",
+    "PHLO_MCP_PORT",
+    "PHLO_MCP_TRACE_FILE",
+    "PHLO_MCP_TRANSPORT"
+  ],
+  "packages/phlo-mcp/src/phlo_mcp/tracing.py": [
+    "PHLO_MCP_TRACE_FILE"
+  ],
+  "packages/phlo-openmetadata/src/phlo_openmetadata/hooks_plugin.py": [
+    "PHLO_POSTGRES_MART_SCHEMA"
+  ],
+  "packages/phlo-otel/src/phlo_otel/provider.py": [
+    "PHLO_PROJECT"
+  ],
+  "packages/phlo-pandera/src/phlo_pandera/cli_schema_utils.py": [
+    "PHLO_PROJECT_PATH",
+    "PHLO_SCHEMA_SEARCH_PATHS"
+  ],
+  "packages/phlo-pandera/src/phlo_pandera/plugin.py": [
+    "PHLO_PROJECT_PATH",
+    "PHLO_SCHEMA_SEARCH_PATHS"
+  ],
+  "packages/phlo-polaris/src/phlo_polaris/catalog_backend.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-polaris/src/phlo_polaris/hooks.py": [
+    "PHLO_PROJECT_PATH"
+  ],
+  "packages/phlo-sling/src/phlo_sling/connections.py": [
+    "PHLO_OBJECT_STORE"
+  ],
+  "packages/phlo-testing/src/phlo_testing/local_mode.py": [
+    "PHLO_FIXTURE_DIR",
+    "PHLO_TEST_LOCAL"
+  ],
+  "packages/phlo-testing/src/phlo_testing/profile_harness.py": [
+    "PHLO_KEEP_BUNDLED_STACK",
+    "PHLO_RUN_BUNDLED_STACK_CONTRACT",
+    "PHLO_TEST_MINIO_ACCESS_KEY",
+    "PHLO_TEST_MINIO_SECRET_KEY"
+  ]
+}

@@ -42,6 +42,7 @@ from phlo_api.errors import PhloApiError, error_envelope
 from phlo_api.observatory_api.http_client import lifespan_client
 from phlo_api.regulated_surface_adapter import get_adapter
 from phlo_api.security_manifest import install_manifest_enforcement
+from phlo_api.settings import get_settings as get_api_settings
 from phlo.security.validation import require_regulated_validation
 
 logger = get_logger(__name__, service="phlo-api")
@@ -72,14 +73,7 @@ app = FastAPI(
 )
 
 # Allow CORS for Observatory
-_cors_origins_raw = os.environ.get(
-    "PHLO_API_CORS_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,"
-    "http://localhost:3001,http://127.0.0.1:3001,"
-    "http://localhost:3005,http://127.0.0.1:3005,"
-    "http://localhost:4000,http://127.0.0.1:4000",
-)
-_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+_cors_origins = get_api_settings().cors_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
