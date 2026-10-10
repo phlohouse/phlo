@@ -211,7 +211,7 @@ def test_dlt_resources_are_limited_to_max_records(sources) -> None:
 
     assert result.exit_code == 0, result.output
     assert _fields(result.output, "RawEvents") == {"event_id": ("int | None", True)}
-    assert next(pulled) <= 3
+    assert next(pulled) == 2
 
 
 def _two_table_source(partition_date: str):
