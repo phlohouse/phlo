@@ -35,8 +35,8 @@ def requires_http_authorization() -> bool:
     """
     if is_regulated():
         return True
-    environment = get_process_settings().get(PHLO_ENVIRONMENT_ENV, "").strip().lower()
-    return environment in _PRODUCTION_HTTP_ENVIRONMENTS
+    environment = get_process_settings().phlo_environment
+    return environment is not None and environment.strip().lower() in _PRODUCTION_HTTP_ENVIRONMENTS
 
 
 def is_regulated(config_regulated: bool | None = None) -> bool:
