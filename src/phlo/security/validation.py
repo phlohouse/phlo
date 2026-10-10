@@ -15,9 +15,9 @@ from typing import Any
 import yaml
 
 from phlo.logging import get_logger
-from phlo.rbac.compiler import COMPILER_REGISTRY
 from phlo.rbac.config import RBACConfigLoader
 from phlo.rbac.models import CANONICAL_ACTIONS, CanonicalRBAC, ResourceType
+from phlo.rbac.registry import COMPILER_REGISTRY
 from phlo.security.gating import validate_service_selection
 from phlo.security.mode import is_regulated
 

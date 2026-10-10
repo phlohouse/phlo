@@ -48,7 +48,7 @@ from phlo_dagster.framework.discovery import (
     _ensure_core_resources,
     discover_user_workflows,
 )
-from phlo_dagster.framework.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
+from phlo_dagster.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
 from phlo_dagster.framework.asset_check_inventory import add_asset_check_inventory
 from phlo_dagster.framework.schema_contracts import maybe_refresh_contracts
 from phlo_dagster.incident_sensor import phlo_incident_signal_sensor

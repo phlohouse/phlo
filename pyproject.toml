@@ -56,6 +56,7 @@ dev = [
     "pandera>=0.26.1",
     "psycopg2-binary>=2.9.11",
     "ruff>=0.14.1",
+    "import-linter>=2.3",
     "ty==0.0.29",
     "testcontainers>=4.13.3",
     "pyiceberg>=0.10.0",
@@ -227,6 +228,23 @@ max-complexity = 15
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["C901"]
 "packages/*/tests/**" = ["C901"]
+
+[tool.importlinter]
+root_packages = ["phlo", "phlo_iceberg", "phlo_dagster"]
+exclude_type_checking_imports = true
+
+# Function-local imports count too, so a deferred import cannot hide a cycle.
+# The cross-package cycle at the top of phlo (#1019) is not covered yet.
+[[tool.importlinter.contracts]]
+name = "Subpackages and providers have no import cycles"
+type = "acyclic_siblings"
+ancestors = ["phlo.*", "phlo_iceberg", "phlo_dagster"]
+
+[[tool.importlinter.contracts]]
+name = "RBAC layering"
+type = "layers"
+containers = ["phlo.rbac"]
+layers = ["sync", "registry", "compilers", "compiler", "config", "models"]
 
 [tool.ty.environment]
 extra-paths = [

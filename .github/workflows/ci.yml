@@ -192,6 +192,10 @@ jobs:
           uv run --locked ruff check .
           uv run --locked ruff check --config pyproject.toml --select C901 .
 
+      - name: Check import layering
+        if: needs.ci-config.outputs.python == 'true'
+        run: uv run --locked lint-imports --no-cache
+
       - name: Check Python formatting
         if: needs.ci-config.outputs.python == 'true'
         run: uv run --locked ruff format --check .

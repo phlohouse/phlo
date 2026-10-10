@@ -66,7 +66,7 @@ from phlo.capabilities.registry import clear_all_capabilities, get_capability_re
 from phlo.exceptions import PhloConfigError, PhloDiscoveryError
 from phlo.logging import get_logger
 from phlo.orchestrators import get_active_orchestrator
-from phlo_dagster.framework.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
+from phlo_dagster.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
 
 logger = get_logger(__name__)
 

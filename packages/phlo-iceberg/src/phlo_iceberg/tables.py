@@ -63,6 +63,7 @@ from phlo_iceberg.schema_alignment import (
     validate_declared_schema,
     validate_schema_policy,
 )
+from phlo_iceberg.storage import list_storage_files, storage_path_key
 
 logger = get_logger(__name__)
 
@@ -964,11 +965,9 @@ def remove_orphan_files(  # noqa: C901
     try:
         # List files in data directory
         data_location = f"{table_location}/data"
-        from phlo_iceberg.resource import _list_storage_files, _storage_path_key
-
-        normalized_references = {_storage_path_key(path) for path in referenced_files}
-        for file_info in _list_storage_files(io, data_location):
-            if _storage_path_key(str(file_info.path)) not in normalized_references:
+        normalized_references = {storage_path_key(path) for path in referenced_files}
+        for file_info in list_storage_files(io, data_location):
+            if storage_path_key(str(file_info.path)) not in normalized_references:
                 # Check if file is old enough
                 # Files without a readable mtime cannot be age-checked and are
                 # treated as orphans regardless of age.

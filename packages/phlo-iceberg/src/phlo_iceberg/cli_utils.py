@@ -22,30 +22,29 @@ Example:
             print(f"Schema: {table.schema()}")
 
 Note:
-    This module is separate from the main catalog module to avoid
-    circular dependencies between CLI utilities and core functionality.
+    The catalog cache is owned by :func:`phlo_iceberg.catalog.get_catalog`;
+    this module re-exposes it under a CLI-oriented name, so
+    :func:`phlo_iceberg.catalog.reset_catalog_cache` clears it.
 
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
+from phlo_iceberg.catalog import get_catalog
 
 
-@lru_cache(maxsize=None)
 def get_iceberg_catalog(ref: str = "main"):
-    """Get a cached Iceberg catalog instance for CLI operations.
+    """Get the cached Iceberg catalog instance for CLI operations.
 
-    Uses LRU cache to provide consistent catalog connections across
-    multiple CLI commands. The cache has no size limit (maxsize=None)
-    since CLI processes are typically short-lived.
+    Delegates to :func:`phlo_iceberg.catalog.get_catalog`, which owns the
+    connection cache, so repeated calls in one CLI process reuse the same
+    connection.
 
     Example:
         Use in CLI commands::
 
             from phlo_iceberg.cli_utils import get_iceberg_catalog
 
-            # List tables
             catalog = get_iceberg_catalog(ref="main")
             tables = catalog.list_tables("raw")
 
@@ -53,11 +52,5 @@ def get_iceberg_catalog(ref: str = "main"):
             catalog2 = get_iceberg_catalog(ref="main")
             assert catalog is catalog2  # Same instance
 
-    See Also:
-        :func:`phlo_iceberg.catalog.get_catalog`: Core catalog function
-            that this utility wraps.
-
     """
-    from phlo_iceberg.catalog import get_catalog
-
     return get_catalog(ref=ref)

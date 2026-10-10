@@ -98,7 +98,8 @@ def observe_policy_convergence(backend_name: str) -> BackendReadinessResult | No
     yields ``passed``.
     """
     from phlo.capabilities import resolve_capability
-    from phlo.rbac.compiler import CompilerContext, get_compiler
+    from phlo.rbac.compiler import CompilerContext
+    from phlo.rbac.registry import get_compiler
     from phlo.security.validation import _project_rbac_loader
 
     resolution = resolve_capability("governance_backend", backend_name)
