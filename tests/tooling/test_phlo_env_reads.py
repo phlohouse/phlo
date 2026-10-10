@@ -2,6 +2,7 @@
 
 Supported ``PHLO_*`` variables belong in package-owned settings models so they
 are typed, defaulted once and listed in ``docs/reference/settings.md`` (#1012).
+Keys may be string literals or module-level constants bound to one.
 Reads that predate that rule are pinned in ``phlo_env_reads_allowlist.json``.
 The allow-list only shrinks: a new read fails the first test, and moving a read
 into a settings model fails the second until its entry is removed.
@@ -32,13 +33,35 @@ def _is_environ(node: ast.expr) -> bool:
     )
 
 
-def _phlo_name(node: ast.expr | None) -> str | None:
+def _module_constants(tree: ast.AST) -> dict[str, str]:
+    """Map module-level names bound once to a PHLO_* string literal."""
+    constants: dict[str, str] = {}
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            target, value = node.target, node.value
+        else:
+            continue
+        if (
+            isinstance(target, ast.Name)
+            and isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+            and value.value.startswith("PHLO_")
+        ):
+            constants[target.id] = value.value
+    return constants
+
+
+def _phlo_name(node: ast.expr | None, constants: dict[str, str]) -> str | None:
     if (
         isinstance(node, ast.Constant)
         and isinstance(node.value, str)
         and node.value.startswith("PHLO_")
     ):
         return node.value
+    if isinstance(node, ast.Name):
+        return constants.get(node.id)
     return None
 
 
@@ -64,9 +87,13 @@ def _read_key(node: ast.AST) -> ast.expr | None:
 
 
 def _reads(tree: ast.AST) -> Iterator[str]:
-    """Yield PHLO_* names read through os.environ or os.getenv."""
+    """Yield PHLO_* names read through os.environ or os.getenv.
+
+    Keys are string literals or module-level constants bound to one.
+    """
+    constants = _module_constants(tree)
     for node in ast.walk(tree):
-        if name := _phlo_name(_read_key(node)):
+        if name := _phlo_name(_read_key(node), constants):
             yield name
 
 
@@ -112,9 +139,10 @@ def test_scanner_detects_each_read_form() -> None:
         "import os\nfrom os import environ, getenv\n"
         "os.environ.get('PHLO_A')\nos.getenv('PHLO_B')\nos.environ['PHLO_C']\n"
         "'PHLO_D' in os.environ\nenviron.get('PHLO_E')\ngetenv('PHLO_F')\n"
+        "_KEY = 'PHLO_G'\n_TYPED: str = 'PHLO_H'\nos.environ.get(_KEY)\nos.getenv(_TYPED)\n"
         "os.environ['PHLO_WRITE'] = '1'\nos.environ.get('OTHER')\n"
     )
-    assert sorted(_reads(ast.parse(source))) == [f"PHLO_{c}" for c in "ABCDEF"]
+    assert sorted(_reads(ast.parse(source))) == [f"PHLO_{c}" for c in "ABCDEFGH"]
 
 
 if __name__ == "__main__":
