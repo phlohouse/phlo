@@ -59,13 +59,14 @@ jobs:
   promote:
     if: inputs.execute
     needs: gate
-    environment: release
+    environment: pypi
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: write
       actions: read
       packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -75,6 +76,9 @@ jobs:
         with:
           version: "0.12.1"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22
+        with:
+          cosign-release: v3.0.5
       - name: Reauthenticate all attempts and authorize the manual dispatch
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,7 +99,6 @@ jobs:
       - name: Publish only the authorized staged bytes, never rebuild
         env:
           GH_TOKEN: ${{ github.token }}
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
@@ -107,6 +110,18 @@ jobs:
             --staging-dir "inputs/candidate-$CANDIDATE_SHA" --evidence inputs/evidence \
             --staged-utc "$(jq -r .staged_utc "inputs/candidate-$CANDIDATE_SHA/provenance.json")" \
             --authorization authorization.json --execute --receipt-output promotion-receipt.json
+      - name: Archive qualification and exact-byte publication evidence on the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          jq -e '.status == "promoted" and .success == true' promotion-receipt.json > /dev/null
+          version="$(jq -er '.artifacts[] | select(.kind == "source") | .version' "inputs/candidate-$CANDIDATE_SHA/bom.json")"
+          archive="release-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
+          tar -czf "$archive" promotion-receipt.json authorization.json inputs/evidence \
+            "inputs/candidate-$CANDIDATE_SHA/bom.json" "inputs/candidate-$CANDIDATE_SHA/provenance.json"
+          gh release upload "v$version" "$archive"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:
@@ -114,4 +129,5 @@ jobs:
           path: |
             promotion-receipt.json
             authorization.json
+            release-evidence-*.tar.gz
           if-no-files-found: error

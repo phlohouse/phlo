@@ -554,7 +554,8 @@ def test_qualifying_dry_run_promotes_identical_bytes_without_publishing(tmp_path
     assert all("phlo-minio" not in " ".join(command) for command in commands)
     publish_command = next(command for command in commands if command[0] == "uv")
     staged_wheel = staging / "distributions" / "phlo-0.15.0-py3-none-any.whl"
-    assert [Path(path).name for path in publish_command[2:]] == [
+    assert publish_command[2:4] == ["--trusted-publishing", "always"]
+    assert [Path(path).name for path in publish_command[4:]] == [
         "phlo-0.15.0.tar.gz",
         "phlo-0.15.0-py3-none-any.whl",
     ]
@@ -730,6 +731,8 @@ class PublishedSystems(promote_release_candidate.ExecutingExecutor):
         self.release = None
         self.outage = True
         self.asset_outage = False
+        self.signature_failure = False
+        self.signatures = set()
         self.commands = []
         monkeypatch.setattr(
             release_candidate_bom, "_pypi_release_files", lambda *a, **kw: self.files
@@ -748,7 +751,8 @@ class PublishedSystems(promote_release_candidate.ExecutingExecutor):
         if command[:2] == ["git", "push"]:
             self.tag = COMMIT
         elif command[:2] == ["uv", "publish"]:
-            for filename in command[2:]:
+            assert command[2:4] == ["--trusted-publishing", "always"]
+            for filename in command[4:]:
                 path = Path(filename)
                 assert path.name not in self.files
                 self.files[path.name] = (
@@ -763,6 +767,20 @@ class PublishedSystems(promote_release_candidate.ExecutingExecutor):
         elif command[0] == "docker":
             assert "--prefer-index=false" in command
             self.images[command[5]] = command[-1].split("@", 1)[1]
+        elif command[:2] == ["cosign", "sign"]:
+            self.signatures.add(command[-1])
+        elif command[:2] == ["cosign", "verify"]:
+            assert command[2:6] == [
+                "--certificate-identity",
+                "https://github.com/phlohouse/phlo/.github/workflows/release-promotion.yml@refs/heads/main",
+                "--certificate-oidc-issuer",
+                "https://token.actions.githubusercontent.com",
+            ]
+            if self.signature_failure or command[-1] not in self.signatures:
+                raise promote_release_candidate.PublishBlockedError(
+                    "untrusted or missing signature"
+                )
+            return json.dumps([{"critical": {"image": {"docker-manifest-digest": IMAGE_DIGEST}}}])
         elif command[:2] == ["gh", "api"]:
             return json.dumps([[self.release] if self.release else []])
         elif command[:3] == ["gh", "release", "create"]:
@@ -796,18 +814,21 @@ def test_partial_pypi_publication_completes_forward(tmp_path, monkeypatch):
     second = promote_release_candidate.promote(bom, bom_path, staging, systems)
     assert all(s.status == "completed" for s in second)
     assert second[0].commands == []
-    assert len(second[1].commands[0]) == 3  # Only the missing distribution.
+    assert len(second[1].commands[0]) == 5  # OIDC options and only the missing distribution.
     assert (
         promote_release_candidate.reconcile_publication(bom, second, systems)["status"] == "matched"
     )
     third = promote_release_candidate.promote(bom, bom_path, staging, systems)
-    assert all(s.commands == [] for s in third)
+    assert all(s.commands == [] for s in third if s.step_id != "image_promotion")
+    assert all(c[0] == "cosign" for c in third[2].commands)
     assert (
         promote_release_candidate.reconcile_publication(bom, third, systems)["status"] == "matched"
     )
 
 
-@pytest.mark.parametrize("drift", ["tag", "pypi", "image", "asset", "draft", "missing_asset"])
+@pytest.mark.parametrize(
+    "drift", ["tag", "pypi", "image", "signature", "asset", "draft", "missing_asset"]
+)
 def test_public_drift_blocks_reconciliation_and_forward_completion(tmp_path, monkeypatch, drift):
     staging, bom_path, bom = _stage_candidate(tmp_path)
     systems = PublishedSystems(monkeypatch)
@@ -820,6 +841,8 @@ def test_public_drift_blocks_reconciliation_and_forward_completion(tmp_path, mon
         systems.files[name] = ("0" * 64, "https://example.test/file")
     elif drift == "image":
         systems.images[next(iter(systems.images))] = "sha256:" + "0" * 64
+    elif drift == "signature":
+        systems.signature_failure = True
     elif drift == "asset":
         systems.release["assets"][0]["digest"] = "sha256:" + "0" * 64
     elif drift == "draft":
@@ -853,6 +876,117 @@ def test_public_drift_blocks_reconciliation_and_forward_completion(tmp_path, mon
         )
     else:
         assert any(s.status == "failed" for s in retry)
+
+
+def test_signature_failure_blocks_release_and_retry_signs_existing_digest(tmp_path, monkeypatch):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    for kind, filename, payload in (
+        ("wheel", "phlo_minio-0.15.0-py3-none-any.whl", b"independent-minio-wheel"),
+        ("sdist", "phlo_minio-0.15.0.tar.gz", b"independent-minio-sdist"),
+    ):
+        path = staging / "distributions" / filename
+        path.write_bytes(payload)
+        bom["artifacts"].append(
+            {
+                "kind": kind,
+                "name": "phlo-minio",
+                "version": "0.15.0",
+                "digest": hashlib.sha256(payload).hexdigest(),
+                "source": f"local-build:{COMMIT}/{filename}",
+            }
+        )
+    bom["canonical_candidate_digest"] = release_candidate_bom.canonical_candidate_digest(
+        bom["artifacts"]
+    )
+    bom_path.write_text(json.dumps(bom), encoding="utf-8")
+    systems = PublishedSystems(monkeypatch)
+    systems.outage = False
+    systems.signature_failure = True
+    first = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert [s.status for s in first] == ["completed", "completed", "failed", "not_run"]
+    assert systems.release is None
+    assert systems.images == {"ghcr.io/phlohouse/phlo-api:0.15.0": IMAGE_DIGEST}
+    systems.signature_failure = False
+    second = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert all(s.status == "completed" for s in second)
+    assert not any(c[0] == "docker" for c in second[2].commands)
+    report = promote_release_candidate.reconcile_publication(bom, second, systems)
+    assert report["status"] == "matched"
+    comparisons = [c for step in report["checked"] for c in step["comparisons"]]
+    assert len(comparisons) == 5
+    image = next(c for c in comparisons if "candidate_digest" in c)
+    assert image["candidate_digest"] == image["published_digest"] == IMAGE_DIGEST
+    assert image["verified_signatures"]
+    for distribution in (c for c in comparisons if "candidate_sha256" in c):
+        filename = distribution["identity"].rsplit("/", 1)[-1]
+        expected = hashlib.sha256((staging / "distributions" / filename).read_bytes()).hexdigest()
+        assert distribution["candidate_sha256"] == distribution["published_sha256"] == expected
+
+
+@pytest.mark.parametrize("variable", ["UV_PUBLISH_TOKEN", "UV_PUBLISH_PASSWORD", "PYPI_API_TOKEN"])
+def test_long_lived_credentials_block_before_any_publication(tmp_path, monkeypatch, variable):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    systems = PublishedSystems(monkeypatch)
+    monkeypatch.setenv(variable, "not-a-real-token")
+    with pytest.raises(promote_release_candidate.PromotionGateError, match="OIDC"):
+        promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert systems.commands == []
+
+
+def test_read_only_publication_audit_checks_exact_bytes_and_digests(tmp_path, monkeypatch):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    systems = PublishedSystems(monkeypatch)
+    systems.outage = False
+    assert all(
+        s.status == "completed"
+        for s in promote_release_candidate.promote(bom, bom_path, staging, systems)
+    )
+    monkeypatch.setattr(promote_release_candidate, "ExecutingExecutor", lambda: systems)
+    systems.commands.clear()
+    output = tmp_path / "audit.json"
+    args = [
+        "verify-published",
+        "--candidate-bom",
+        str(bom_path),
+        "--staging-dir",
+        str(staging),
+        "--report-output",
+        str(output),
+    ]
+    assert promote_release_candidate.main(args) == 0
+    report = json.loads(output.read_text())
+    assert report["canonical_candidate_digest"] == bom["canonical_candidate_digest"]
+    assert report["status"] == "matched" and len(report["comparisons"]) == 3
+    assert all(
+        c[:2] in (["git", "ls-remote"], ["gh", "api"], ["cosign", "verify"])
+        for c in systems.commands
+    )
+    output.unlink()
+    systems.signature_failure = True
+    assert promote_release_candidate.main(args) == 1
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("drift", ["pypi", "image"])
+def test_wrong_public_bytes_stop_before_release_finalisation(tmp_path, monkeypatch, drift):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+
+    class CorruptUpload(PublishedSystems):
+        def run(self, command):
+            output = super().run(command)
+            if drift == "pypi" and command[:2] == ["uv", "publish"]:
+                name = next(iter(self.files))
+                self.files[name] = ("0" * 64, "https://example.test/corrupt")
+            elif drift == "image" and command[0] == "docker":
+                self.images[command[5]] = "sha256:" + "0" * 64
+            return output
+
+    systems = CorruptUpload(monkeypatch)
+    systems.outage = False
+    steps = promote_release_candidate.promote(bom, bom_path, staging, systems)
+    assert steps[1 if drift == "pypi" else 2].status == "failed"
+    assert steps[-1].status == "not_run"
+    assert systems.release is None
 
 
 def test_partial_github_assets_complete_without_reupload(tmp_path, monkeypatch):
