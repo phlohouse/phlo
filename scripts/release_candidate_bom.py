@@ -357,15 +357,8 @@ def _build_distributions_from_tree(
         return staged
 
 
-def build_bom_artifacts(  # noqa: C901
-    tree: ReleaseTree,
-    *,
-    distributions_dir: Path | None = None,
-    build_from_tree: bool = False,
-    built_distributions: Path | None = None,
-    image_digests: dict[str, str] | None = None,
-) -> list[dict[str, object]]:
-    """Enumerate the exact artifact inventory at the pinned identity."""
+def _release_inventory(tree: ReleaseTree) -> tuple[bytes, str, list[str]]:
+    """Return the support manifest bytes, release version, and release-set package names."""
     support_bytes = tree.read(SUPPORT_MANIFEST_PATH)
     try:
         support = json.loads(support_bytes)
@@ -381,8 +374,13 @@ def build_bom_artifacts(  # noqa: C901
     ]
     if not package_names:
         raise BomError(f"{SUPPORT_MANIFEST_PATH} release_set declares no packages")
+    return support_bytes, version, package_names
 
-    artifacts: list[dict[str, object]] = []
+
+def _source_artifacts(
+    tree: ReleaseTree, version: str, support_bytes: bytes
+) -> list[dict[str, object]]:
+    """Return the git source and support-manifest artifacts at the pinned commit."""
     if tree.release_ref is None:
         commit = _run_git(tree.repo_root, "rev-parse", "HEAD")
     else:
@@ -392,56 +390,117 @@ def build_bom_artifacts(  # noqa: C901
     remote = _run_git(tree.repo_root, "remote", "get-url", "origin")
     remote = remote.removeprefix("https://github.com/").removesuffix(".git")
     remote = re.sub(r"^git@github\.com:", "", remote)
-    artifacts.append(
+    return [
         {
             "kind": KIND_SOURCE,
             "name": remote or "phlohouse/phlo",
             "version": version,
             "digest": commit,
             "source": "git",
-        }
-    )
-    artifacts.append(
+        },
         {
             "kind": KIND_SUPPORT_MANIFEST,
             "name": SUPPORT_MANIFEST_PATH,
             "version": version,
             "digest": hashlib.sha256(support_bytes).hexdigest(),
             "source": f"git:{SUPPORT_MANIFEST_PATH}",
-        }
-    )
+        },
+    ]
 
-    if build_from_tree or built_distributions is not None:
-        if distributions_dir is None:
-            raise BomError(
-                "staging a candidate BOM requires a distributions directory; "
-                "call stage() rather than enumerating artifacts alone"
-            )
-        artifacts.extend(
-            _build_distributions_from_tree(
-                tree, package_names, version, distributions_dir, built_distributions
-            )
+
+def _distribution_artifacts(
+    tree: ReleaseTree,
+    package_names: list[str],
+    version: str,
+    distributions_dir: Path | None,
+    *,
+    build_from_tree: bool,
+    built_distributions: Path | None,
+) -> list[dict[str, object]]:
+    """Build or download the sdist and wheel for every release-set package."""
+    if distributions_dir is None:
+        raise BomError(
+            "staging a candidate BOM requires a distributions directory; "
+            "call stage() rather than enumerating artifacts alone"
         )
-    else:
-        for project in sorted(package_names):
-            for kind in (KIND_SDIST, KIND_WHEEL):
-                if distributions_dir is None:
-                    raise BomError(
-                        "staging a candidate BOM requires a distributions directory; "
-                        "call stage() rather than enumerating artifacts alone"
-                    )
-                artifacts.append(_download_distribution(project, version, kind, distributions_dir))
+    if build_from_tree or built_distributions is not None:
+        return _build_distributions_from_tree(
+            tree, package_names, version, distributions_dir, built_distributions
+        )
+    return [
+        _download_distribution(project, version, kind, distributions_dir)
+        for project in sorted(package_names)
+        for kind in (KIND_SDIST, KIND_WHEEL)
+    ]
 
+
+def _static_image_reference(relative_path: str, reference: str) -> str:
+    """Resolve a ``${VAR:-default}`` reference to its static default."""
+    if not reference.startswith("${"):
+        return reference
+    default = reference.split(":-", 1)[-1].rstrip("}")
+    if default == reference or not default:
+        raise BomError(f"{relative_path} image reference {reference!r} has no static default")
+    return default
+
+
+def _first_party_image_entry(
+    reference: str,
+    name: str,
+    tag: str | None,
+    digest: str | None,
+    relative_path: str,
+    image_digests: dict[str, str] | None,
+) -> dict[str, object]:
+    if digest is not None:
+        raise BomError(
+            f"first-party image {reference!r} must be tag-pinned in service YAML; "
+            "its BOM digest is resolved from the registry"
+        )
+    if not tag:
+        raise BomError(f"first-party image {reference!r} has no tag")
+    return {
+        "kind": KIND_FIRST_PARTY_IMAGE,
+        "name": name,
+        "version": tag,
+        "digest": image_digests[name]
+        if image_digests is not None
+        else resolve_image_digest(reference),
+        "source": relative_path,
+    }
+
+
+def _provider_image_entry(
+    reference: str, name: str, tag: str | None, digest: str | None, relative_path: str
+) -> dict[str, object]:
+    # MinIO is published independently. Consume its existing image
+    # as a provider dependency, never rebuild or promote it here.
+    if name == "ghcr.io/phlohouse/phlo-minio":
+        if not tag:
+            raise BomError(f"independent MinIO image {reference!r} has no tag")
+        digest = digest or resolve_image_digest(reference)
+    if digest is None:
+        raise BomError(
+            f"provider image {reference!r} in {relative_path} is not digest-pinned; "
+            "a candidate BOM may never reference a mutable tag"
+        )
+    return {
+        "kind": KIND_PROVIDER_IMAGE,
+        "name": name,
+        "version": tag,
+        "digest": digest,
+        "source": relative_path,
+    }
+
+
+def _image_artifacts(
+    tree: ReleaseTree, image_digests: dict[str, str] | None
+) -> list[dict[str, object]]:
+    """Return one artifact per distinct image referenced by the release tree."""
     seen_images: dict[str, dict[str, object]] = {}
     for relative_path, references in tree.image_references().items():
-        for reference in references:
-            if reference.startswith("${"):
-                default = reference.split(":-", 1)[-1].rstrip("}")
-                if default == reference or not default:
-                    raise BomError(
-                        f"{relative_path} image reference {reference!r} has no static default"
-                    )
-                reference = default
+        for raw_reference in references:
+            reference = _static_image_reference(relative_path, raw_reference)
             name, tag, digest = parse_image_reference(reference)
             if name in seen_images:
                 existing = seen_images[name]
@@ -452,44 +511,37 @@ def build_bom_artifacts(  # noqa: C901
                     )
                 continue
             if name.startswith(FIRST_PARTY_IMAGE_PREFIX) and name != "ghcr.io/phlohouse/phlo-minio":
-                if digest is not None:
-                    raise BomError(
-                        f"first-party image {reference!r} must be tag-pinned in service YAML; "
-                        "its BOM digest is resolved from the registry"
-                    )
-                if not tag:
-                    raise BomError(f"first-party image {reference!r} has no tag")
-                entry = {
-                    "kind": KIND_FIRST_PARTY_IMAGE,
-                    "name": name,
-                    "version": tag,
-                    "digest": image_digests[name]
-                    if image_digests is not None
-                    else resolve_image_digest(reference),
-                    "source": relative_path,
-                }
+                entry = _first_party_image_entry(
+                    reference, name, tag, digest, relative_path, image_digests
+                )
             else:
-                # MinIO is published independently. Consume its existing image
-                # as a provider dependency, never rebuild or promote it here.
-                if name == "ghcr.io/phlohouse/phlo-minio":
-                    if not tag:
-                        raise BomError(f"independent MinIO image {reference!r} has no tag")
-                    digest = digest or resolve_image_digest(reference)
-                if digest is None:
-                    raise BomError(
-                        f"provider image {reference!r} in {relative_path} is not digest-pinned; "
-                        "a candidate BOM may never reference a mutable tag"
-                    )
-                entry = {
-                    "kind": KIND_PROVIDER_IMAGE,
-                    "name": name,
-                    "version": tag,
-                    "digest": digest,
-                    "source": relative_path,
-                }
+                entry = _provider_image_entry(reference, name, tag, digest, relative_path)
             seen_images[name] = entry
-            artifacts.append(entry)
+    return list(seen_images.values())
 
+
+def build_bom_artifacts(
+    tree: ReleaseTree,
+    *,
+    distributions_dir: Path | None = None,
+    build_from_tree: bool = False,
+    built_distributions: Path | None = None,
+    image_digests: dict[str, str] | None = None,
+) -> list[dict[str, object]]:
+    """Enumerate the exact artifact inventory at the pinned identity."""
+    support_bytes, version, package_names = _release_inventory(tree)
+    artifacts = _source_artifacts(tree, version, support_bytes)
+    artifacts.extend(
+        _distribution_artifacts(
+            tree,
+            package_names,
+            version,
+            distributions_dir,
+            build_from_tree=build_from_tree,
+            built_distributions=built_distributions,
+        )
+    )
+    artifacts.extend(_image_artifacts(tree, image_digests))
     if not any(artifact["kind"] == KIND_FIRST_PARTY_IMAGE for artifact in artifacts):
         raise BomError("no first-party release images were found at the pinned identity")
     return artifacts
@@ -510,42 +562,31 @@ def make_bom(
     return bom
 
 
-def validate_bom(bom: object) -> dict[str, object]:  # noqa: C901
-    """Enforce every structural and identity invariant on a BOM document."""
-    if not isinstance(bom, dict):
-        raise BomError("BOM must be a JSON object")
-    if bom.get("schema") != BOM_SCHEMA:
-        raise BomError(f"BOM schema must be {BOM_SCHEMA!r}, got {bom.get('schema')!r}")
-    if not COMMIT_RE.match(str(bom.get("release_commit", ""))):
-        raise BomError("BOM release_commit must be a full 40-hex git SHA")
-    artifacts = bom.get("artifacts")
-    if not isinstance(artifacts, list) or not artifacts:
-        raise BomError("BOM artifacts must be a non-empty array")
-    for index, artifact in enumerate(artifacts):
-        if not isinstance(artifact, dict) or set(artifact) != ARTIFACT_FIELDS:
-            raise BomError(
-                f"BOM artifact {index} must have exactly {sorted(ARTIFACT_FIELDS)}, "
-                f"got {sorted(artifact) if isinstance(artifact, dict) else artifact!r}"
-            )
-        for field in ARTIFACT_FIELDS:
-            if not isinstance(artifact[field], str) or not artifact[field]:
-                raise BomError(f"BOM artifact {index} field {field!r} must be a non-empty string")
-        kind = artifact["kind"]
-        digest = str(artifact["digest"])
-        if kind in (KIND_FIRST_PARTY_IMAGE, KIND_PROVIDER_IMAGE):
-            if not IMAGE_DIGEST_RE.match(digest):
-                raise BomError(f"BOM image artifact {index} digest must be sha256:<64-hex>")
-        elif kind in (KIND_SDIST, KIND_WHEEL, KIND_SUPPORT_MANIFEST):
-            if not FILE_DIGEST_RE.match(digest):
-                raise BomError(f"BOM artifact {index} digest must be a 64-hex SHA-256")
-        elif kind == KIND_SOURCE:
-            if not COMMIT_RE.match(digest):
-                raise BomError("BOM source artifact digest must be a full 40-hex git SHA")
-        else:
-            raise BomError(f"BOM artifact {index} has unknown kind {kind!r}")
+def _validate_artifact_entry(index: int, artifact: object) -> None:
+    if not isinstance(artifact, dict) or set(artifact) != ARTIFACT_FIELDS:
+        raise BomError(
+            f"BOM artifact {index} must have exactly {sorted(ARTIFACT_FIELDS)}, "
+            f"got {sorted(artifact) if isinstance(artifact, dict) else artifact!r}"
+        )
+    for field in ARTIFACT_FIELDS:
+        if not isinstance(artifact[field], str) or not artifact[field]:
+            raise BomError(f"BOM artifact {index} field {field!r} must be a non-empty string")
+    kind = artifact["kind"]
+    digest = str(artifact["digest"])
+    if kind in (KIND_FIRST_PARTY_IMAGE, KIND_PROVIDER_IMAGE):
+        if not IMAGE_DIGEST_RE.match(digest):
+            raise BomError(f"BOM image artifact {index} digest must be sha256:<64-hex>")
+    elif kind in (KIND_SDIST, KIND_WHEEL, KIND_SUPPORT_MANIFEST):
+        if not FILE_DIGEST_RE.match(digest):
+            raise BomError(f"BOM artifact {index} digest must be a 64-hex SHA-256")
+    elif kind == KIND_SOURCE:
+        if not COMMIT_RE.match(digest):
+            raise BomError("BOM source artifact digest must be a full 40-hex git SHA")
+    else:
+        raise BomError(f"BOM artifact {index} has unknown kind {kind!r}")
 
-    kinds = {str(artifact["kind"]) for artifact in artifacts}
 
+def _validate_distribution_pairs(artifacts: list[dict[str, object]]) -> None:
     distributions: dict[tuple[str, str], set[str]] = {}
     for artifact in artifacts:
         kind = str(artifact["kind"])
@@ -559,10 +600,8 @@ def validate_bom(bom: object) -> dict[str, object]:  # noqa: C901
                 f"found {sorted(found)!r}"
             )
 
-    missing = REQUIRED_KINDS - kinds
-    if missing:
-        raise BomError(f"BOM is missing required artifact kinds: {sorted(missing)!r}")
 
+def _validate_unique_images(artifacts: list[dict[str, object]]) -> None:
     identities = [
         (
             str(artifact["kind"]),
@@ -576,6 +615,25 @@ def validate_bom(bom: object) -> dict[str, object]:  # noqa: C901
     if len(identities) != len(set(identities)):
         raise BomError("BOM contains duplicate image artifacts")
 
+
+def validate_bom(bom: object) -> dict[str, object]:
+    """Enforce every structural and identity invariant on a BOM document."""
+    if not isinstance(bom, dict):
+        raise BomError("BOM must be a JSON object")
+    if bom.get("schema") != BOM_SCHEMA:
+        raise BomError(f"BOM schema must be {BOM_SCHEMA!r}, got {bom.get('schema')!r}")
+    if not COMMIT_RE.match(str(bom.get("release_commit", ""))):
+        raise BomError("BOM release_commit must be a full 40-hex git SHA")
+    artifacts = bom.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise BomError("BOM artifacts must be a non-empty array")
+    for index, artifact in enumerate(artifacts):
+        _validate_artifact_entry(index, artifact)
+    _validate_distribution_pairs(artifacts)
+    missing = REQUIRED_KINDS - {str(artifact["kind"]) for artifact in artifacts}
+    if missing:
+        raise BomError(f"BOM is missing required artifact kinds: {sorted(missing)!r}")
+    _validate_unique_images(artifacts)
     recomputed = canonical_candidate_digest(artifacts)
     if bom.get("canonical_candidate_digest") != recomputed:
         raise BomError(

@@ -28,6 +28,7 @@ import tomllib
 import urllib.error
 import urllib.request
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import sleep as _sleep
@@ -1260,7 +1261,7 @@ def compose_config_json(config: RunConfig) -> dict[str, object]:
     return dict(json.loads(result.stdout))
 
 
-def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:  # noqa: C901
+def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:
     """Rewrite every generated image reference to its exact BOM digest."""
     bom = config.bom
     assert bom is not None
@@ -1728,7 +1729,218 @@ class EvidenceRecorder:
         )
 
 
-def main_candidate(args: argparse.Namespace) -> int:  # noqa: C901
+_StepOutput = tuple[dict[str, object], list[dict[str, object]]]
+
+
+class _CandidateJourney:
+    """The ordered candidate demonstrations and the state they hand to each other."""
+
+    def __init__(self, config: RunConfig, bundle: dict[str, object], bom_path: Path) -> None:
+        self.config = config
+        self.bundle = bundle
+        self.bom_path = bom_path
+        self.stack_started = False
+        self.promoted_wap_run: WapRun | None = None
+        self.backup_set: Path | None = None
+
+    def bind_candidate(self) -> _StepOutput:
+        bom = bom_module.load_bom(self.bom_path)
+        self.bundle["candidate"] = {
+            "release_commit": bom["release_commit"],
+            "canonical_candidate_digest": bom["canonical_candidate_digest"],
+            "artifact_count": len(bom["artifacts"]),
+        }
+        self.bundle["checksum"] = {
+            "algorithm": "sha256",
+            "value": release_evidence.bundle_checksum(self.bundle),
+        }
+        self.config.__dict__.update(bom=bom)
+        return verify_candidate_bom(self.config)
+
+    def scaffold_project(self) -> _StepOutput:
+        config = self.config
+        create_project(config)
+        write_transform_fixture(config)
+        write_quality_gate_fixture(config)
+        align_project_name(config)
+        install_project_dependencies_from_bom(config)
+        configure_non_dev_compose(config)
+        write_report_policy_fixture(config)
+        write_operations_policy(config)
+        return {}, []
+
+    def start_stack(self) -> _StepOutput:
+        pinned, pinned_artifacts = pin_candidate_images(self.config)
+        start_stack_candidate(self.config)
+        self.stack_started = True
+        return pinned, pinned_artifacts
+
+    def materialize(self) -> _StepOutput:
+        materialize_partition(self.config)
+        return {"partition": self.config.partition, "asset": "dlt_events"}, []
+
+    def storage(self) -> _StepOutput:
+        verify_minio_storage(self.config)
+        return {"probe": "minio-ready-and-owned-write"}, []
+
+    def transform(self) -> _StepOutput:
+        materialize_transform(self.config)
+        return {"partition": self.config.partition, "asset": "events_mart"}, []
+
+    def wap_config(self) -> _StepOutput:
+        configure_wap(self.config)
+        return {"wap": "enabled", "job": "__ASSET_JOB"}, []
+
+    def promote_wap(self) -> _StepOutput:
+        wap_run = materialize_wap(self.config)
+        wait_for_wap_promotion(self.config, wap_run)
+        self.promoted_wap_run = wap_run
+        return {
+            "logical_run_id": wap_run.logical_run_id,
+            "dagster_run_id": wap_run.dagster_run_id,
+            "promoted": True,
+        }, []
+
+    def reject_wap(self) -> _StepOutput:
+        directive = self.config.project_dir / ".phlo" / "quality_gate.json"
+        directive.parent.mkdir(parents=True, exist_ok=True)
+        directive.write_text('{"reject_next_run": true}\n', encoding="utf-8")
+        try:
+            wap_run = materialize_wap(self.config)
+            verify_rejected_wap_report(self.config, wap_run)
+        finally:
+            directive.unlink(missing_ok=True)
+        return {
+            "logical_run_id": wap_run.logical_run_id,
+            "dagster_run_id": wap_run.dagster_run_id,
+            "merge_outcome": "rejected_quality",
+            "promoted": False,
+        }, []
+
+    def prove_run_report(self) -> _StepOutput:
+        wap_run = self.promoted_wap_run
+        assert isinstance(wap_run, WapRun)
+        fetch_run_report(self.config, wap_run, self.config.report_token)
+        return {"logical_run_id": wap_run.logical_run_id, "scope_mismatch_denied": True}, []
+
+    def create_backup(self) -> _StepOutput:
+        payload, set_dir = create_backup_set(self.config)
+        self.backup_set = set_dir
+        return payload, []
+
+    def backup_set_dir(self) -> Path:
+        if not isinstance(self.backup_set, Path):
+            raise CandidateError("backup set was not created by an earlier demonstration")
+        return self.backup_set
+
+    def restore_into(self, target_name: str) -> _StepOutput:
+        target = self.config.project_dir.parent / target_name
+        return restore_to_explicit_target(self.config, self.backup_set_dir(), target), []
+
+    def supported_upgrade(self) -> _StepOutput:
+        target = self.config.project_dir.parent / "upgrade-target"
+        return run_supported_upgrade(self.config, self.backup_set_dir(), target), []
+
+    def final_rows(self) -> _StepOutput:
+        return {
+            "raw_events": _verify_rows_result(self.config, "raw.events"),
+            "events_mart": _verify_rows_result(self.config, "raw_marts.events_mart"),
+        }, []
+
+    def steps(self) -> list[tuple[str, str, Callable[[], _StepOutput]]]:
+        """Return every demonstration in the order the evidence bundle records it."""
+        config = self.config
+        return [
+            ("candidate_bom_verification", "Candidate BOM verification", self.bind_candidate),
+            (
+                "operator_installation",
+                "Exact BOM artifact installation",
+                lambda: install_operator_from_bom(config),
+            ),
+            (
+                "project_scaffold",
+                "Project scaffold from installed artifacts",
+                self.scaffold_project,
+            ),
+            ("stack_start", "Exact image digest stack start without build", self.start_stack),
+            (
+                "production_preflight",
+                "Production readiness preflight",
+                lambda: (production_preflight(config), []),
+            ),
+            (
+                "negative_security",
+                "Negative security enforcement",
+                lambda: (negative_security(config), []),
+            ),
+            ("ingestion_materialization", "Ingestion materialization", self.materialize),
+            ("storage_probe", "Object storage readiness and owned write", self.storage),
+            (
+                "row_query_initial",
+                "Initial row query",
+                lambda: (_verify_rows_result(config, "raw.events"), []),
+            ),
+            (
+                "transformation_materialization",
+                "Transformation materialization",
+                self.transform,
+            ),
+            (
+                "row_query_transform",
+                "Transformed row query",
+                lambda: (_verify_rows_result(config, "raw_marts.events_mart"), []),
+            ),
+            ("wap_configuration", "WAP configuration", self.wap_config),
+            ("wap_promotion", "WAP materialization and promotion", self.promote_wap),
+            ("wap_rejection", "WAP quality rejection", self.reject_wap),
+            ("run_report", "Run report and scoped denial", self.prove_run_report),
+            (
+                "plan_first_maintenance",
+                "Plan-first table maintenance",
+                lambda: (run_plan_first_maintenance(config), []),
+            ),
+            ("backup_creation", "Verified backup set creation", self.create_backup),
+            (
+                "backup_verification",
+                "Independent backup verification",
+                lambda: (verify_backup_set(config, self.backup_set_dir()), []),
+            ),
+            (
+                "restore_explicit_target",
+                "Restore to explicit target",
+                lambda: self.restore_into("restore-target"),
+            ),
+            ("supported_upgrade", "Supported pair upgrade", self.supported_upgrade),
+            (
+                "upgrade_recovery",
+                "Upgrade recovery reconciliation",
+                lambda: self.restore_into("recovery-target"),
+            ),
+            ("row_query_final", "Final row query", self.final_rows),
+            (
+                "support_boundary_consistency",
+                "Support-boundary consistency",
+                lambda: (verify_support_boundary(config), []),
+            ),
+        ]
+
+
+def _candidate_bundle() -> dict[str, object]:
+    return release_evidence.new_bundle(
+        release_commit="pending",
+        canonical_candidate_digest="pending",
+        artifact_count=0,
+        environment={
+            "runner": "scripts/release_golden_path.py --candidate-bom",
+            "host": platform_module.node(),
+            "platform": f"{platform_module.system()} {platform_module.machine()}",
+            "python": sys.version.split()[0],
+            "promoting": False,
+        },
+    )
+
+
+def main_candidate(args: argparse.Namespace) -> int:
     """Run the artifact-bound candidate journey and emit its evidence bundle."""
     repo_root = args.repo_root.resolve()
     bom_path = args.candidate_bom.resolve()
@@ -1746,216 +1958,14 @@ def main_candidate(args: argparse.Namespace) -> int:  # noqa: C901
         partition=args.partition,
         staging_dir=staging_dir,
     )
-    bundle = release_evidence.new_bundle(
-        release_commit="pending",
-        canonical_candidate_digest="pending",
-        artifact_count=0,
-        environment={
-            "runner": "scripts/release_golden_path.py --candidate-bom",
-            "host": platform_module.node(),
-            "platform": f"{platform_module.system()} {platform_module.machine()}",
-            "python": sys.version.split()[0],
-            "promoting": False,
-        },
-    )
+    bundle = _candidate_bundle()
     recorder = EvidenceRecorder(bundle)
+    journey = _CandidateJourney(config, bundle, bom_path)
     primary_error: Exception | None = None
     cleanup_errors: list[Exception] = []
-    stack_started = False
-    journey: dict[str, object] = {}
-
-    def bind_candidate() -> tuple[dict[str, object], list[dict[str, object]]]:
-        bom = bom_module.load_bom(bom_path)
-        bundle["candidate"] = {
-            "release_commit": bom["release_commit"],
-            "canonical_candidate_digest": bom["canonical_candidate_digest"],
-            "artifact_count": len(bom["artifacts"]),
-        }
-        bundle["checksum"] = {
-            "algorithm": "sha256",
-            "value": release_evidence.bundle_checksum(bundle),
-        }
-        config.__dict__.update(bom=bom)
-        return verify_candidate_bom(config)
-
-    def scaffold_project() -> tuple[dict[str, object], list[dict[str, object]]]:
-        create_project(config)
-        write_transform_fixture(config)
-        write_quality_gate_fixture(config)
-        align_project_name(config)
-        install_project_dependencies_from_bom(config)
-        configure_non_dev_compose(config)
-        write_report_policy_fixture(config)
-        write_operations_policy(config)
-        return {}, []
-
-    def start_candidate_stack() -> tuple[dict[str, object], list[dict[str, object]]]:
-        nonlocal stack_started
-        pinned, pinned_artifacts = pin_candidate_images(config)
-        start_stack_candidate(config)
-        stack_started = True
-        return pinned, pinned_artifacts
-
-    def promote_wap() -> tuple[dict[str, object], list[dict[str, object]]]:
-        wap_run = materialize_wap(config)
-        wait_for_wap_promotion(config, wap_run)
-        journey["promoted_wap_run"] = wap_run
-        return {
-            "logical_run_id": wap_run.logical_run_id,
-            "dagster_run_id": wap_run.dagster_run_id,
-            "promoted": True,
-        }, []
-
-    def reject_wap() -> tuple[dict[str, object], list[dict[str, object]]]:
-        directive = config.project_dir / ".phlo" / "quality_gate.json"
-        directive.parent.mkdir(parents=True, exist_ok=True)
-        directive.write_text('{"reject_next_run": true}\n', encoding="utf-8")
-        try:
-            wap_run = materialize_wap(config)
-            verify_rejected_wap_report(config, wap_run)
-        finally:
-            directive.unlink(missing_ok=True)
-        return {
-            "logical_run_id": wap_run.logical_run_id,
-            "dagster_run_id": wap_run.dagster_run_id,
-            "merge_outcome": "rejected_quality",
-            "promoted": False,
-        }, []
-
-    def prove_run_report() -> tuple[dict[str, object], list[dict[str, object]]]:
-        wap_run = journey["promoted_wap_run"]
-        assert isinstance(wap_run, WapRun)
-        fetch_run_report(config, wap_run, config.report_token)
-        return {"logical_run_id": wap_run.logical_run_id, "scope_mismatch_denied": True}, []
-
-    def create_backup() -> tuple[dict[str, object], list[dict[str, object]]]:
-        payload, set_dir = create_backup_set(config)
-        journey["backup_set_dir"] = set_dir
-        return payload, []
-
-    def backup_set_dir() -> Path:
-        set_dir = journey.get("backup_set_dir")
-        if not isinstance(set_dir, Path):
-            raise CandidateError("backup set was not created by an earlier demonstration")
-        return set_dir
-
     try:
-        recorder.step("candidate_bom_verification", "Candidate BOM verification", bind_candidate)
-        recorder.step(
-            "operator_installation",
-            "Exact BOM artifact installation",
-            lambda: install_operator_from_bom(config),
-        )
-        recorder.step(
-            "project_scaffold", "Project scaffold from installed artifacts", scaffold_project
-        )
-        recorder.step(
-            "stack_start", "Exact image digest stack start without build", start_candidate_stack
-        )
-        recorder.step(
-            "production_preflight",
-            "Production readiness preflight",
-            lambda: (production_preflight(config), []),
-        )
-        recorder.step(
-            "negative_security",
-            "Negative security enforcement",
-            lambda: (negative_security(config), []),
-        )
-
-        def materialize() -> tuple[dict[str, object], list[dict[str, object]]]:
-            materialize_partition(config)
-            return {"partition": config.partition, "asset": "dlt_events"}, []
-
-        recorder.step("ingestion_materialization", "Ingestion materialization", materialize)
-
-        def storage() -> tuple[dict[str, object], list[dict[str, object]]]:
-            verify_minio_storage(config)
-            return {"probe": "minio-ready-and-owned-write"}, []
-
-        recorder.step("storage_probe", "Object storage readiness and owned write", storage)
-        recorder.step(
-            "row_query_initial",
-            "Initial row query",
-            lambda: (_verify_rows_result(config, "raw.events"), []),
-        )
-
-        def transform() -> tuple[dict[str, object], list[dict[str, object]]]:
-            materialize_transform(config)
-            return {"partition": config.partition, "asset": "events_mart"}, []
-
-        recorder.step("transformation_materialization", "Transformation materialization", transform)
-        recorder.step(
-            "row_query_transform",
-            "Transformed row query",
-            lambda: (_verify_rows_result(config, "raw_marts.events_mart"), []),
-        )
-
-        def wap_config() -> tuple[dict[str, object], list[dict[str, object]]]:
-            configure_wap(config)
-            return {"wap": "enabled", "job": "__ASSET_JOB"}, []
-
-        recorder.step("wap_configuration", "WAP configuration", wap_config)
-        recorder.step("wap_promotion", "WAP materialization and promotion", promote_wap)
-        recorder.step("wap_rejection", "WAP quality rejection", reject_wap)
-        recorder.step("run_report", "Run report and scoped denial", prove_run_report)
-        recorder.step(
-            "plan_first_maintenance",
-            "Plan-first table maintenance",
-            lambda: (run_plan_first_maintenance(config), []),
-        )
-        recorder.step("backup_creation", "Verified backup set creation", create_backup)
-        recorder.step(
-            "backup_verification",
-            "Independent backup verification",
-            lambda: (verify_backup_set(config, backup_set_dir()), []),
-        )
-        recorder.step(
-            "restore_explicit_target",
-            "Restore to explicit target",
-            lambda: (
-                restore_to_explicit_target(
-                    config, backup_set_dir(), config.project_dir.parent / "restore-target"
-                ),
-                [],
-            ),
-        )
-        recorder.step(
-            "supported_upgrade",
-            "Supported pair upgrade",
-            lambda: (
-                run_supported_upgrade(
-                    config, backup_set_dir(), config.project_dir.parent / "upgrade-target"
-                ),
-                [],
-            ),
-        )
-        recorder.step(
-            "upgrade_recovery",
-            "Upgrade recovery reconciliation",
-            lambda: (
-                restore_to_explicit_target(
-                    config, backup_set_dir(), config.project_dir.parent / "recovery-target"
-                ),
-                [],
-            ),
-        )
-        recorder.step(
-            "row_query_final",
-            "Final row query",
-            lambda: (
-                {
-                    "raw_events": _verify_rows_result(config, "raw.events"),
-                    "events_mart": _verify_rows_result(config, "raw_marts.events_mart"),
-                },
-                [],
-            ),
-        )
-        recorder.step(
-            "support_boundary_consistency",
-            "Support-boundary consistency",
-            lambda: (verify_support_boundary(config), []),
-        )
+        for demonstration_id, title, action in journey.steps():
+            recorder.step(demonstration_id, title, action)
     except Exception as exc:
         primary_error = exc
     finally:
@@ -1975,7 +1985,7 @@ def main_candidate(args: argparse.Namespace) -> int:  # noqa: C901
 
     if primary_error:
         print(f"release candidate golden path failed: {primary_error}", file=sys.stderr)
-        if stack_started and config.compose_file.exists():
+        if journey.stack_started and config.compose_file.exists():
             emit_runtime_diagnostics(config)
     for error in cleanup_errors:
         print(f"release golden path cleanup failed: {error}", file=sys.stderr)

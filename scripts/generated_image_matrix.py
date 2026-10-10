@@ -14,8 +14,82 @@ import json
 from pathlib import Path
 from typing import Any
 
+_REMOTE_CONTEXT_PREFIXES = ("http://", "https://", "git@", "ssh://")
+_COMPARABLE_KEYS = ("root", "context", "dockerfile", "build_args")
 
-def publication_matrix(  # noqa: C901
+
+def _resolve_build_paths(
+    service_name: str,
+    build: dict[str, Any],
+    roots: tuple[tuple[str, Path | None], ...],
+) -> tuple[str, Path, Path]:
+    """Return the root name and root-relative context and Dockerfile paths."""
+    context = Path(str(build.get("context", ""))).resolve()
+    dockerfile = Path(str(build.get("dockerfile", "Dockerfile")))
+    dockerfile = dockerfile if dockerfile.is_absolute() else context / dockerfile
+    for root_name, root in roots:
+        if root is None:
+            continue
+        try:
+            return (
+                root_name,
+                context.relative_to(root.resolve()),
+                dockerfile.resolve().relative_to(root.resolve()),
+            )
+        except ValueError:
+            continue
+    raise ValueError(f"built service {service_name!r} escapes publication roots")
+
+
+def _build_target(
+    service_name: str,
+    service: Any,
+    roots: tuple[tuple[str, Path | None], ...],
+) -> dict[str, Any] | None:
+    """Return the publication target for one service, or None when it is not published."""
+    if not isinstance(service, dict) or not service.get("build"):
+        return None
+    build = service["build"]
+    if not isinstance(build, dict):
+        raise ValueError(f"built service {service_name!r} has invalid build configuration")
+    if str(build.get("context", "")).startswith(_REMOTE_CONTEXT_PREFIXES):
+        # Remote-context builds compile third-party source into a
+        # local-only image; they are not publishable phlo images.
+        return None
+    image = service.get("image")
+    if not isinstance(image, str) or not image.startswith("ghcr.io/phlohouse/phlo-"):
+        raise ValueError(f"built service {service_name!r} has no Phlo GHCR image")
+    context_root, context_relative, dockerfile_relative = _resolve_build_paths(
+        service_name, build, roots
+    )
+    # A digest-pinned reference still publishes under its repository tag.
+    tag = image.split("@", 1)[0]
+    return {
+        "service": service_name,
+        "services": [service_name],
+        "image": tag,
+        "root": context_root,
+        "context": str(context_relative),
+        "dockerfile": str(dockerfile_relative),
+        "build_args": build.get("args") or {},
+    }
+
+
+def _select_targets(
+    targets: list[dict[str, Any]], selected_services: set[str] | None
+) -> list[dict[str, Any]]:
+    """Keep targets publishing any selected service; reject unknown selections."""
+    if not selected_services:
+        return targets
+    known_services = {service for target in targets for service in target["services"]}
+    unknown_services = selected_services - known_services
+    if unknown_services:
+        unknown = ", ".join(sorted(unknown_services))
+        raise ValueError(f"selected services are not published build services: {unknown}")
+    return [target for target in targets if selected_services.intersection(target["services"])]
+
+
+def publication_matrix(
     compose: dict[str, Any],
     project_root: Path,
     source_root: Path | None = None,
@@ -25,51 +99,13 @@ def publication_matrix(  # noqa: C901
     services = compose.get("services")
     if not isinstance(services, dict):
         raise ValueError("Compose JSON has no services object")
+    roots = (("generated", project_root), ("source", source_root))
     published: dict[str, dict[str, Any]] = {}
     for service_name, service in services.items():
-        if not isinstance(service, dict) or not service.get("build"):
+        target = _build_target(service_name, service, roots)
+        if target is None:
             continue
-        build = service["build"]
-        if not isinstance(build, dict):
-            raise ValueError(f"built service {service_name!r} has invalid build configuration")
-        if str(build.get("context", "")).startswith(("http://", "https://", "git@", "ssh://")):
-            # Remote-context builds compile third-party source into a
-            # local-only image; they are not publishable phlo images.
-            continue
-        image = service.get("image")
-        if not isinstance(image, str) or not image.startswith("ghcr.io/phlohouse/phlo-"):
-            raise ValueError(f"built service {service_name!r} has no Phlo GHCR image")
-        context = Path(str(build.get("context", ""))).resolve()
-        dockerfile = Path(str(build.get("dockerfile", "Dockerfile")))
-        dockerfile = dockerfile if dockerfile.is_absolute() else context / dockerfile
-        roots = (("generated", project_root), ("source", source_root))
-        resolved_paths: tuple[str, Path, Path] | None = None
-        for root_name, root in roots:
-            if root is None:
-                continue
-            try:
-                resolved_paths = (
-                    root_name,
-                    context.relative_to(root.resolve()),
-                    dockerfile.resolve().relative_to(root.resolve()),
-                )
-                break
-            except ValueError:
-                continue
-        if resolved_paths is None:
-            raise ValueError(f"built service {service_name!r} escapes publication roots")
-        context_root, context_relative, dockerfile_relative = resolved_paths
-        # A digest-pinned reference still publishes under its repository tag.
-        tag = image.split("@", 1)[0]
-        target = {
-            "service": service_name,
-            "services": [service_name],
-            "image": tag,
-            "root": context_root,
-            "context": str(context_relative),
-            "dockerfile": str(dockerfile_relative),
-            "build_args": build.get("args") or {},
-        }
+        tag = target["image"]
         existing = published.get(tag)
         # Several services may publish the same tag only when their build
         # definitions match exactly; otherwise the matrix would silently pick
@@ -77,23 +113,12 @@ def publication_matrix(  # noqa: C901
         if existing is None:
             published[tag] = target
             continue
-        comparable_keys = ("root", "context", "dockerfile", "build_args")
-        if any(existing[key] != target[key] for key in comparable_keys):
+        if any(existing[key] != target[key] for key in _COMPARABLE_KEYS):
             raise ValueError(f"published image {tag!r} has conflicting build definitions")
         existing["services"].append(service_name)
     if not published:
         raise ValueError("Compose JSON has no published build services")
-    targets = list(published.values())
-    if selected_services:
-        known_services = {service for target in targets for service in target["services"]}
-        unknown_services = selected_services - known_services
-        if unknown_services:
-            unknown = ", ".join(sorted(unknown_services))
-            raise ValueError(f"selected services are not published build services: {unknown}")
-        targets = [
-            target for target in targets if selected_services.intersection(target["services"])
-        ]
-    return {"include": targets}
+    return {"include": _select_targets(list(published.values()), selected_services)}
 
 
 def main() -> int:

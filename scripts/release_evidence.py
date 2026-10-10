@@ -203,24 +203,17 @@ def finalize_bundle(bundle: dict[str, object]) -> dict[str, object]:
     return bundle
 
 
-def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dict[str, object]:  # noqa: C901
-    """Re-derive every bundle invariant; optionally bind it to a BOM document.
-
-    Returns the validated bundle. Raises :class:`EvidenceError` when the bundle
-    is not canonical, not sanitized, not checksummed, or incomplete.
-    """
-    if not isinstance(bundle, dict):
-        raise EvidenceError("evidence bundle must be a JSON object")
-    if bundle.get("schema") != EVIDENCE_SCHEMA:
-        raise EvidenceError(f"bundle schema must be {EVIDENCE_SCHEMA!r}")
-
+def _validate_candidate(bundle: dict[str, object]) -> dict[str, object]:
     candidate = bundle.get("candidate")
     if not isinstance(candidate, dict):
         raise EvidenceError("bundle candidate must be an object")
     for field in ("release_commit", "canonical_candidate_digest", "artifact_count"):
         if field not in candidate:
             raise EvidenceError(f"bundle candidate is missing {field!r}")
+    return candidate
 
+
+def _validate_checksum(bundle: dict[str, object]) -> None:
     checksum = bundle.get("checksum")
     if (
         not isinstance(checksum, dict)
@@ -236,75 +229,104 @@ def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dic
             f"canonical content hashes to {recomputed!r}"
         )
 
+
+def _validate_demonstration(index: int, demonstration: object, seen: set[str]) -> None:
+    if not isinstance(demonstration, dict):
+        raise EvidenceError(f"demonstration {index} must be an object")
+    for field in ("id", "title", "status", "started_utc", "finished_utc", "result"):
+        if field not in demonstration:
+            raise EvidenceError(f"demonstration {index} is missing {field!r}")
+    if not isinstance(demonstration["result"], dict):
+        raise EvidenceError(f"demonstration {index} result must be an object")
+    if demonstration["status"] not in (STATUS_PASSED, STATUS_FAILED):
+        raise EvidenceError(
+            f"demonstration {index} status must be {STATUS_PASSED!r} or {STATUS_FAILED!r}"
+        )
+    if demonstration["id"] in seen:
+        raise EvidenceError(f"demonstration {demonstration['id']!r} is recorded twice")
+    seen.add(str(demonstration["id"]))
+    if not _is_sanitized(demonstration):
+        raise EvidenceError(f"demonstration {index} carries a secret-shaped value")
+
+
+def _validate_demonstrations(bundle: dict[str, object]) -> tuple[list[dict[str, object]], set[str]]:
+    """Validate each demonstration and return them with the set of recorded ids."""
     demonstrations = bundle.get("demonstrations")
     if not isinstance(demonstrations, list):
         raise EvidenceError("bundle demonstrations must be a list")
     seen: set[str] = set()
     for index, demonstration in enumerate(demonstrations):
-        if not isinstance(demonstration, dict):
-            raise EvidenceError(f"demonstration {index} must be an object")
-        for field in ("id", "title", "status", "started_utc", "finished_utc", "result"):
-            if field not in demonstration:
-                raise EvidenceError(f"demonstration {index} is missing {field!r}")
-        if not isinstance(demonstration["result"], dict):
-            raise EvidenceError(f"demonstration {index} result must be an object")
-        if demonstration["status"] not in (STATUS_PASSED, STATUS_FAILED):
-            raise EvidenceError(
-                f"demonstration {index} status must be {STATUS_PASSED!r} or {STATUS_FAILED!r}"
-            )
-        if demonstration["id"] in seen:
-            raise EvidenceError(f"demonstration {demonstration['id']!r} is recorded twice")
-        seen.add(str(demonstration["id"]))
-        if not _is_sanitized(demonstration):
-            raise EvidenceError(f"demonstration {index} carries a secret-shaped value")
+        _validate_demonstration(index, demonstration, seen)
+    return demonstrations, seen
 
+
+def _validate_conclusion(
+    bundle: dict[str, object], demonstrations: list[dict[str, object]], seen: set[str]
+) -> None:
     conclusion = bundle.get("conclusion")
     if conclusion not in (CONCLUSION_PASSED, CONCLUSION_FAILED):
         raise EvidenceError(
             f"bundle conclusion must be {CONCLUSION_PASSED!r} or {CONCLUSION_FAILED!r}"
         )
-    if conclusion == CONCLUSION_PASSED:
-        missing = [
-            title
-            for demonstration_id, title in REQUIRED_DEMONSTRATIONS
-            if demonstration_id not in seen
-        ]
-        if missing:
-            raise EvidenceError(f"passed bundle is missing demonstrations: {missing!r}")
-        failed = [
-            str(demonstration["id"])
-            for demonstration in demonstrations
-            if demonstration["status"] != STATUS_PASSED
-        ]
-        if failed:
-            raise EvidenceError(f"passed bundle records failed demonstrations: {failed!r}")
-    elif not bundle.get("failure"):
-        raise EvidenceError("failed bundle must carry a failure record")
+    if conclusion != CONCLUSION_PASSED:
+        if not bundle.get("failure"):
+            raise EvidenceError("failed bundle must carry a failure record")
+        return
+    missing = [
+        title for demonstration_id, title in REQUIRED_DEMONSTRATIONS if demonstration_id not in seen
+    ]
+    if missing:
+        raise EvidenceError(f"passed bundle is missing demonstrations: {missing!r}")
+    failed = [
+        str(demonstration["id"])
+        for demonstration in demonstrations
+        if demonstration["status"] != STATUS_PASSED
+    ]
+    if failed:
+        raise EvidenceError(f"passed bundle records failed demonstrations: {failed!r}")
 
+
+def _validate_bom_binding(
+    candidate: dict[str, object], exercised: list[object], bom: dict[str, object]
+) -> None:
+    canonical_digest = str(bom.get("canonical_candidate_digest", ""))
+    if candidate["canonical_candidate_digest"] != canonical_digest:
+        raise EvidenceError(
+            "bundle is bound to candidate "
+            f"{candidate['canonical_candidate_digest']!r}, but the BOM is candidate "
+            f"{canonical_digest!r}"
+        )
+    if candidate.get("release_commit") != bom.get("release_commit"):
+        raise EvidenceError("bundle release_commit does not match the BOM release_commit")
+    bom_digests = {str(artifact["digest"]) for artifact in bom.get("artifacts", [])}
+    unknown = [
+        str(artifact.get("digest"))
+        for artifact in exercised
+        if isinstance(artifact, dict) and str(artifact.get("digest")) not in bom_digests
+    ]
+    if unknown:
+        raise EvidenceError(f"bundle exercised artifacts outside the BOM: {sorted(set(unknown))!r}")
+
+
+def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dict[str, object]:
+    """Re-derive every bundle invariant; optionally bind it to a BOM document.
+
+    Returns the validated bundle. Raises :class:`EvidenceError` when the bundle
+    is not canonical, not sanitized, not checksummed, or incomplete.
+    """
+    if not isinstance(bundle, dict):
+        raise EvidenceError("evidence bundle must be a JSON object")
+    if bundle.get("schema") != EVIDENCE_SCHEMA:
+        raise EvidenceError(f"bundle schema must be {EVIDENCE_SCHEMA!r}")
+    candidate = _validate_candidate(bundle)
+    _validate_checksum(bundle)
+    demonstrations, seen = _validate_demonstrations(bundle)
+    _validate_conclusion(bundle, demonstrations, seen)
     exercised = bundle.get("artifacts_exercised")
     if not isinstance(exercised, list):
         raise EvidenceError("bundle artifacts_exercised must be a list")
-
     if bom is not None:
-        canonical_digest = str(bom.get("canonical_candidate_digest", ""))
-        if candidate["canonical_candidate_digest"] != canonical_digest:
-            raise EvidenceError(
-                "bundle is bound to candidate "
-                f"{candidate['canonical_candidate_digest']!r}, but the BOM is candidate "
-                f"{canonical_digest!r}"
-            )
-        if candidate.get("release_commit") != bom.get("release_commit"):
-            raise EvidenceError("bundle release_commit does not match the BOM release_commit")
-        bom_digests = {str(artifact["digest"]) for artifact in bom.get("artifacts", [])}
-        unknown = [
-            str(artifact.get("digest"))
-            for artifact in exercised
-            if isinstance(artifact, dict) and str(artifact.get("digest")) not in bom_digests
-        ]
-        if unknown:
-            raise EvidenceError(
-                f"bundle exercised artifacts outside the BOM: {sorted(set(unknown))!r}"
-            )
+        _validate_bom_binding(candidate, exercised, bom)
     return bundle
 
 
