@@ -77,7 +77,7 @@ from phlo_dlt.dlt_helpers import (
     get_catalog_system_from_context,
     get_write_branch_from_context,
 )
-from phlo_dlt.executor import DomainQualityValidationError
+from phlo_dlt.executor import DomainQualityValidationError, StagedFrameLoader
 from phlo_dlt.pandera_checks import (
     PANDERA_CONTRACT_CHECK_NAME,
     PanderaContractEvaluation,
@@ -837,6 +837,7 @@ def phlo_ingestion(  # noqa: C901
                         raise RuntimeError("Pandera contract validation failed")
 
                 recorded_quality_evaluations = result.metadata.get("domain_quality_evaluations")
+                staged_frames = StagedFrameLoader(parquet_paths)
                 for index, quality_check in enumerate(quality_checks or ()):
                     check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
                     violation: str | None = None
@@ -856,11 +857,7 @@ def phlo_ingestion(  # noqa: C901
                         violation = "no staged parquet available for domain checks"
                     else:
                         try:
-                            staged_frame = pd.concat(
-                                [pd.read_parquet(parquet_path) for parquet_path in parquet_paths],
-                                ignore_index=True,
-                            )
-                            violation = quality_check(staged_frame)
+                            violation = quality_check(staged_frames.load())
                         except Exception as exc:  # noqa: BLE001 - violations must surface as checks
                             violation = f"quality check raised: {exc}"
                     passed = not violation

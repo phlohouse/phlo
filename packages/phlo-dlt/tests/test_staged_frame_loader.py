@@ -1,0 +1,147 @@
+"""Tests that staged domain-quality checks read the staged Parquet once per run.
+
+Every check must see the full staged rows, a read failure must still reject
+each check, and one check's in-place edits must not leak into the next.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from contextlib import nullcontext
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from phlo_dlt.executor import StagedFrameLoader, _evaluate_domain_quality_checks
+
+
+@pytest.fixture(params=[True] if int(pd.__version__.split(".")[0]) >= 3 else [True, False])
+def copy_on_write(request: pytest.FixtureRequest) -> Iterator[None]:
+    # Pandas 3 always enables copy-on-write and deprecates the option.
+    with (
+        nullcontext()
+        if int(pd.__version__.split(".")[0]) >= 3
+        else pd.option_context("mode.copy_on_write", request.param)
+    ):
+        yield
+
+
+@pytest.fixture
+def staged_paths(tmp_path: Path) -> list[Path]:
+    paths = []
+    for index in range(3):
+        path = tmp_path / f"part-{index}.parquet"
+        pd.DataFrame({"value": [index * 10, index * 10 + 1]}).to_parquet(path)
+        paths.append(path)
+    return paths
+
+
+@pytest.fixture
+def read_counter(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    reads: list[Path] = []
+    real_read_parquet = pd.read_parquet
+
+    def _counting_read_parquet(path, *args, **kwargs):
+        reads.append(Path(path))
+        return real_read_parquet(path, *args, **kwargs)
+
+    monkeypatch.setattr("phlo_dlt.executor.pd.read_parquet", _counting_read_parquet)
+    return reads
+
+
+def test_checks_read_each_staged_file_once(
+    staged_paths: list[Path], read_counter: list[Path]
+) -> None:
+    def _check(frame: pd.DataFrame) -> str | None:
+        return None if len(frame) == 6 else f"saw {len(frame)} rows"
+
+    evaluations = _evaluate_domain_quality_checks(
+        parquet_paths=staged_paths,
+        quality_checks=[_check] * 5,
+    )
+
+    assert [evaluation.passed for evaluation in evaluations] == [True] * 5
+    assert sorted(read_counter) == sorted(staged_paths)
+
+
+def test_no_checks_reads_nothing(staged_paths: list[Path], read_counter: list[Path]) -> None:
+    assert _evaluate_domain_quality_checks(parquet_paths=staged_paths, quality_checks=[]) == ()
+    assert read_counter == []
+
+
+def test_read_failure_rejects_every_check_without_rereading(
+    tmp_path: Path, read_counter: list[Path]
+) -> None:
+    missing = tmp_path / "missing.parquet"
+
+    evaluations = _evaluate_domain_quality_checks(
+        parquet_paths=[missing],
+        quality_checks=[lambda _frame: None, lambda _frame: None],
+    )
+
+    assert [evaluation.passed for evaluation in evaluations] == [False, False]
+    assert all(
+        (evaluation.violation or "").startswith("quality check raised:")
+        for evaluation in evaluations
+    )
+    assert read_counter == [missing]
+
+
+def test_check_mutation_does_not_leak_into_next_check(
+    staged_paths: list[Path], copy_on_write: None
+) -> None:
+    def _mutating_check(frame: pd.DataFrame) -> str | None:
+        # In-place cell writes hit the shared block unless the loader isolates it.
+        frame.iloc[:, 0] = -1
+        frame.loc[frame.index[0], "value"] = -2
+        frame.drop(frame.index, inplace=True)
+        return None
+
+    def _original_rows_check(frame: pd.DataFrame) -> str | None:
+        if len(frame) != 6 or (frame["value"] < 0).any():
+            return "staged rows were modified by an earlier check"
+        return None
+
+    evaluations = _evaluate_domain_quality_checks(
+        parquet_paths=staged_paths,
+        quality_checks=[_mutating_check, _original_rows_check],
+    )
+
+    assert [evaluation.violation for evaluation in evaluations] == [None, None]
+
+
+def test_loader_isolates_nested_parquet_values(
+    tmp_path: Path, read_counter: list[Path], copy_on_write: None
+) -> None:
+    path = tmp_path / "nested.parquet"
+    pd.DataFrame(
+        {
+            "payload": [{"details": {"unit": "USD", "amount": 1}}],
+            "tags": [[{"label": "first"}, {"label": "second"}]],
+            "value": [7],
+        }
+    ).to_parquet(path)
+    loader = StagedFrameLoader([path])
+
+    edited = loader.load()
+    edited.at[0, "payload"]["details"].pop("unit")
+    edited.at[0, "payload"]["details"]["amount"] = -1
+    edited.at[0, "tags"][0]["label"] = "changed"
+    edited.at[0, "value"] = -7
+
+    for _ in range(2):
+        original = loader.load()
+        assert original.at[0, "payload"] == {"details": {"unit": "USD", "amount": 1}}
+        assert list(original.at[0, "tags"]) == [{"label": "first"}, {"label": "second"}]
+        assert original.at[0, "value"] == 7
+
+    assert read_counter == [path]
+
+
+def test_loader_is_lazy(staged_paths: list[Path], read_counter: list[Path]) -> None:
+    loader = StagedFrameLoader(staged_paths)
+    assert read_counter == []
+    assert len(loader.load()) == 6
+    assert len(loader.load()) == 6
+    assert len(read_counter) == len(staged_paths)
