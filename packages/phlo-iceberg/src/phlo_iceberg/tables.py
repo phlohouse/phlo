@@ -41,6 +41,7 @@ import contextlib
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -900,7 +901,60 @@ def expire_snapshots(
     )
 
 
-def remove_orphan_files(  # noqa: C901
+def _orphan_retention(older_than_days: int | None, older_than_hours: int | None) -> timedelta:
+    """Return the orphan retention window, enforcing the 7-day safety floor.
+
+    Raises: ValueError when both cutoffs are set or retention is non-positive or too short.
+    """
+    if older_than_days is not None and older_than_hours is not None:
+        raise ValueError("Specify older_than_days or older_than_hours, not both")
+    if older_than_hours is not None:
+        name, value, hours = "older_than_hours", older_than_hours, older_than_hours
+    else:
+        value = older_than_days if older_than_days is not None else 7
+        name, hours = "older_than_days", value * 24
+    if value <= 0:
+        raise ValueError(f"{name} must be positive, got {value}")
+    if hours < SAFE_MIN_RETENTION_HOURS:
+        raise ValueError("Orphan retention cannot be less than the 7-day safety floor")
+    return timedelta(hours=hours)
+
+
+def _referenced_files(table: Table) -> set[str]:
+    """Return every manifest and data file path referenced by any snapshot."""
+    referenced_files: set[str] = set()
+    for snapshot in table.snapshots():
+        for manifest in snapshot.manifests(table.io):
+            referenced_files.add(manifest.manifest_path)
+            for entry in manifest.fetch_manifest_entry(table.io):
+                referenced_files.add(entry.data_file.file_path)
+    return referenced_files
+
+
+def _is_older_than(file_info: Any, cutoff: datetime) -> bool:
+    """Return whether a listed file predates the cutoff; files without an mtime count as old."""
+    mtime = getattr(file_info, "mtime", None)
+    return not mtime or mtime < cutoff
+
+
+def _unreferenced_data_files(table: Table, older_than: datetime) -> list[str]:
+    """List unreferenced data files older than the cutoff; return [] when listing fails."""
+    referenced_files = _referenced_files(table)
+    table_location = table.location()
+    try:
+        normalized_references = {storage_path_key(path) for path in referenced_files}
+        return [
+            file_info.path
+            for file_info in list_storage_files(table.io, f"{table_location}/data")
+            if storage_path_key(str(file_info.path)) not in normalized_references
+            and _is_older_than(file_info, older_than)
+        ]
+    except Exception as e:
+        logger.warning("orphan_file_listing_failed", table_location=table_location, error=str(e))
+        return []
+
+
+def remove_orphan_files(
     table_name: str,
     older_than_days: int | None = None,
     dry_run: bool = True,
@@ -918,23 +972,7 @@ def remove_orphan_files(  # noqa: C901
     Raise ValueError when both cutoffs are set, retention is non-positive, or
     the table name is invalid.
     """
-    from datetime import datetime, timedelta, timezone
-
-    if older_than_days is not None and older_than_hours is not None:
-        raise ValueError("Specify older_than_days or older_than_hours, not both")
-    if older_than_hours is not None:
-        if older_than_hours <= 0:
-            raise ValueError(f"older_than_hours must be positive, got {older_than_hours}")
-        if older_than_hours < SAFE_MIN_RETENTION_HOURS:
-            raise ValueError("Orphan retention cannot be less than the 7-day safety floor")
-        retention = timedelta(hours=older_than_hours)
-    else:
-        effective_days = older_than_days if older_than_days is not None else 7
-        if effective_days <= 0:
-            raise ValueError(f"older_than_days must be positive, got {effective_days}")
-        if effective_days * 24 < SAFE_MIN_RETENTION_HOURS:
-            raise ValueError("Orphan retention cannot be less than the 7-day safety floor")
-        retention = timedelta(days=effective_days)
+    retention = _orphan_retention(older_than_days, older_than_hours)
     if "." not in table_name:
         raise ValueError(f"table_name must be namespace.table format, got {table_name}")
     if not dry_run:
@@ -942,49 +980,14 @@ def remove_orphan_files(  # noqa: C901
             "Direct orphan deletion is disabled; use IcebergResource.cleanup_orphan_files"
         )
 
-    catalog = get_catalog(ref=ref)
-    table = catalog.load_table(table_name)
+    table = get_catalog(ref=ref).load_table(table_name)
+    orphan_files = _unreferenced_data_files(table, datetime.now(timezone.utc) - retention)
 
-    older_than_ts = (datetime.now(timezone.utc) - retention).timestamp()
-
-    # Collect all referenced files from all snapshots
-    referenced_files: set[str] = set()
-
-    for snapshot in table.snapshots():
-        for manifest in snapshot.manifests(table.io):
-            referenced_files.add(manifest.manifest_path)
-            for entry in manifest.fetch_manifest_entry(table.io):
-                referenced_files.add(entry.data_file.file_path)
-
-    # Get table location and list all files
-    table_location = table.location()
-    io = table.io
-
-    orphan_files: list[str] = []
-
-    try:
-        # List files in data directory
-        data_location = f"{table_location}/data"
-        normalized_references = {storage_path_key(path) for path in referenced_files}
-        for file_info in list_storage_files(io, data_location):
-            if storage_path_key(str(file_info.path)) not in normalized_references:
-                # Check if file is old enough
-                # Files without a readable mtime cannot be age-checked and are
-                # treated as orphans regardless of age.
-                if hasattr(file_info, "mtime") and file_info.mtime:
-                    if file_info.mtime < older_than_ts:
-                        orphan_files.append(file_info.path)
-                else:
-                    orphan_files.append(file_info.path)
-    except Exception as e:
-        logger.warning("orphan_file_listing_failed", table_location=table_location, error=str(e))
-
-    if dry_run:
-        logger.info(
-            "orphan_files_found_dry_run",
-            table_name=table_name,
-            orphan_file_count=len(orphan_files),
-        )
+    logger.info(
+        "orphan_files_found_dry_run",
+        table_name=table_name,
+        orphan_file_count=len(orphan_files),
+    )
     return {
         "orphan_count": len(orphan_files),
         "orphan_files": orphan_files[:100],  # Limit list size

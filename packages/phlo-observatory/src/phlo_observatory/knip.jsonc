@@ -1,0 +1,26 @@
+// Unused-file and dependency gate for Observatory (run in CI as `npm run knip`).
+// Unused exports are not gated yet; the shadcn-style ui kit exports more than
+// the app uses today.
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "entry": [
+    // Manual smoke check documented in README.md, run with `node` against a live app.
+    "scripts/verify-api-client.mjs",
+  ],
+  "ignoreBinaries": [
+    // Optional local browser driver the manual smoke check shells out to.
+    "agent-browser",
+  ],
+  "ignoreDependencies": [
+    // Pins the axe rule set that vitest-axe runs in the accessibility tests.
+    "axe-core",
+  ],
+  "rules": {
+    "exports": "off",
+    "types": "off",
+    "nsExports": "off",
+    "nsTypes": "off",
+    "enumMembers": "off",
+    "duplicates": "off",
+  },
+}

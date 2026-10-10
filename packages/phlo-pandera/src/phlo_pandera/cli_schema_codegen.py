@@ -216,6 +216,190 @@ def _ensure_imports_in_module(content: str, import_lines: list[str]) -> str:
     return "\n".join(lines) + ("\n" if not content.endswith("\n") else "")
 
 
+def _limit_sample(dlt_obj: Any, max_records: int, dlt_source: type, dlt_resource: type) -> Any:
+    """Bound a DLT source, DLT resource or plain iterable to ``max_records`` per resource."""
+    import itertools
+
+    if isinstance(dlt_obj, dlt_source):
+        for r in dlt_obj.resources.values():
+            try:
+                r.add_limit(max_records)
+            except Exception:
+                continue
+    elif isinstance(dlt_obj, dlt_resource):
+        dlt_obj.add_limit(max_records)
+    elif hasattr(dlt_obj, "__iter__"):
+        dlt_obj = itertools.islice(dlt_obj, max_records)
+    return dlt_obj
+
+
+def _select_table(schema: Any, table_name: str | None) -> str:
+    """Pick the inferred table to generate; ClickException when ambiguous or absent."""
+    candidate_tables = [
+        t
+        for t in schema.tables.keys()
+        if not t.startswith("_dlt_") and t not in {"_dlt_pipeline_state"}
+    ]
+
+    selected_table = table_name
+    if selected_table is None:
+        if len(candidate_tables) != 1:
+            raise click.ClickException(
+                "Multiple DLT tables inferred. Re-run with --table <name>. "
+                f"Candidates: {', '.join(sorted(candidate_tables))}"
+            )
+        selected_table = candidate_tables[0]
+
+    if selected_table not in schema.tables:
+        raise click.ClickException(
+            f"Table not found in inferred schema: {selected_table}. "
+            f"Available: {', '.join(sorted(candidate_tables))}"
+        )
+    return selected_table
+
+
+def _infer_dlt_table(
+    dlt_obj: Any,
+    *,
+    from_ref: str,
+    domain: str,
+    table_name: str | None,
+    default_table_name: str,
+    max_records: int,
+) -> tuple[str, dict[str, Any]]:
+    """Run a bounded local DLT sample and return the selected table name and its columns.
+
+    Plain iterables load into ``default_table_name``; DLT sources and resources
+    keep their own table names.
+    """
+    import datetime as _dt
+    import tempfile
+
+    import dlt
+
+    try:
+        from dlt.extract.resource import DltResource
+        from dlt.extract.source import DltSource
+    # reason: dlt is a required dependency; this only reports a broken install.
+    except Exception as exc:  # pragma: no cover
+        logger.exception(
+            "schema_codegen_dlt_import_failed",
+            from_ref=from_ref,
+            error=str(exc),
+        )
+        raise click.ClickException("Failed to import DLT types.") from exc
+
+    dlt_obj = _limit_sample(dlt_obj, max_records, DltSource, DltResource)
+
+    with tempfile.TemporaryDirectory(prefix="phlo-schema-generate-") as tmpdir:
+        pipeline = dlt.pipeline(
+            pipeline_name=f"phlo_schema_generate_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            destination=dlt.destinations.filesystem(bucket_url=Path(tmpdir).as_uri()),
+            dataset_name=_snake_case(domain),
+            pipelines_dir=tmpdir,
+        )
+
+        run_kwargs: dict[str, Any] = {"loader_file_format": "parquet"}
+        if not isinstance(dlt_obj, (DltSource, DltResource)):
+            run_kwargs["table_name"] = default_table_name
+
+        pipeline.run(dlt_obj, **run_kwargs)
+
+        schema = pipeline.default_schema
+        selected_table = _select_table(schema, table_name)
+        return selected_table, schema.tables[selected_table].get("columns") or {}
+
+
+def _infer_columns(
+    dlt_columns: dict[str, Any], unique_key: str | None
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Map DLT columns to schema column specs plus the imports their annotations need.
+
+    DLT and Phlo metadata columns are skipped; the unique key is never nullable.
+    """
+    inferred_columns: list[dict[str, Any]] = []
+    imports: set[str] = set()
+    for col_name, col in sorted(dlt_columns.items()):
+        if col_name.startswith("_dlt_") or col_name.startswith("_phlo_"):
+            continue
+
+        ann, imp = _map_dlt_type(str(col.get("data_type", "text")))
+        if imp:
+            imports.add(imp)
+
+        nullable = bool(col.get("nullable", True))
+        if unique_key and col_name == unique_key:
+            nullable = False
+        annotation = ann if not nullable else f"{ann} | None"
+
+        inferred_columns.append(
+            {
+                "name": col_name,
+                "annotation": annotation,
+                "nullable": nullable,
+                "dlt_type": col.get("data_type"),
+            }
+        )
+    return inferred_columns, imports
+
+
+def _add_annotation_imports(module_code: str, imports: set[str]) -> str:
+    """Insert annotation imports directly after the ``__future__`` import."""
+    if not imports:
+        return module_code
+    lines = module_code.splitlines()
+    insert_at = 0
+    for idx, line in enumerate(lines):
+        if line.startswith("from __future__ import annotations"):
+            insert_at = idx + 1
+            break
+    lines[insert_at:insert_at] = sorted(imports)
+    return "\n".join(lines) + "\n"
+
+
+def _write_schema_module(
+    output_path: Path,
+    module_code: str,
+    schema_class: str,
+    update: bool,
+    overwrite: bool,
+    console: Any,
+) -> None:
+    """Write a new module, overwrite it, or update one class in place.
+
+    Raises: click.ClickException when the file exists and neither mode is set.
+    """
+    _ensure_parent_dir(output_path)
+    if not output_path.exists():
+        output_path.write_text(module_code)
+        console.print(f"[green]Wrote[/green] {output_path}")
+        return
+
+    if overwrite:
+        output_path.write_text(module_code)
+        console.print(f"[green]Overwrote[/green] {output_path}")
+        return
+
+    if not update:
+        raise click.ClickException(
+            f"Refusing to overwrite existing file: {output_path}. Use --update or --overwrite."
+        )
+
+    existing = output_path.read_text()
+    class_block = _class_block_only(module_code, schema_class)
+
+    required_imports = [
+        "from __future__ import annotations",
+        "from pandera.pandas import Field",
+        "from phlo_pandera.schemas import PhloSchema",
+    ]
+    existing = _ensure_imports_in_module(existing, required_imports)
+
+    updated = _update_or_insert_class(existing, schema_class, class_block)
+    output_path.write_text(updated)
+    console.print(f"[green]Updated[/green] {output_path}")
+
+
 @click.command("generate")
 @click.option(
     "--from",
@@ -264,7 +448,7 @@ def _ensure_imports_in_module(content: str, import_lines: list[str]) -> str:
     is_flag=True,
     help="Overwrite the entire output module if it exists (destructive).",
 )
-def generate(  # noqa: C901
+def generate(
     from_ref: str,
     dry_run: bool,
     domain: str,
@@ -285,10 +469,7 @@ def generate(  # noqa: C901
 
     """
     import datetime as _dt
-    import itertools
-    import tempfile
 
-    import dlt
     from rich.console import Console
 
     console = Console()
@@ -305,92 +486,17 @@ def generate(  # noqa: C901
     partition_date_value = partition_date or _dt.date.today().isoformat()
     dlt_obj = source_fn(partition_date_value)
 
-    try:
-        from dlt.extract.resource import DltResource
-        from dlt.extract.source import DltSource
-    except Exception as exc:  # pragma: no cover
-        logger.exception(
-            "schema_codegen_dlt_import_failed",
-            from_ref=from_ref,
-            error=str(exc),
-        )
-        raise click.ClickException("Failed to import DLT types.") from exc
-
-    if isinstance(dlt_obj, DltSource):
-        for r in dlt_obj.resources.values():
-            try:
-                r.add_limit(max_records)
-            except Exception:
-                continue
-    elif isinstance(dlt_obj, DltResource):
-        dlt_obj.add_limit(max_records)
-    elif hasattr(dlt_obj, "__iter__"):
-        dlt_obj = itertools.islice(dlt_obj, max_records)
-
-    with tempfile.TemporaryDirectory(prefix="phlo-schema-generate-") as tmpdir:
-        pipeline = dlt.pipeline(
-            pipeline_name=f"phlo_schema_generate_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            destination=dlt.destinations.filesystem(bucket_url=Path(tmpdir).as_uri()),
-            dataset_name=_snake_case(domain),
-            pipelines_dir=tmpdir,
-        )
-
-        run_kwargs: dict[str, Any] = {"loader_file_format": "parquet"}
-        if not isinstance(dlt_obj, (DltSource, DltResource)):
-            run_kwargs["table_name"] = meta.get("table_name") or table_name or "data"
-
-        pipeline.run(dlt_obj, **run_kwargs)
-
-        schema = pipeline.default_schema
-        candidate_tables = [
-            t
-            for t in schema.tables.keys()
-            if not t.startswith("_dlt_") and t not in {"_dlt_pipeline_state"}
-        ]
-
-        selected_table = table_name
-        if selected_table is None:
-            if len(candidate_tables) == 1:
-                selected_table = candidate_tables[0]
-            else:
-                raise click.ClickException(
-                    "Multiple DLT tables inferred. Re-run with --table <name>. "
-                    f"Candidates: {', '.join(sorted(candidate_tables))}"
-                )
-
-        if selected_table not in schema.tables:
-            raise click.ClickException(
-                f"Table not found in inferred schema: {selected_table}. "
-                f"Available: {', '.join(sorted(candidate_tables))}"
-            )
-
-        table = schema.tables[selected_table]
-        dlt_columns: dict[str, Any] = table.get("columns") or {}
+    selected_table, dlt_columns = _infer_dlt_table(
+        dlt_obj,
+        from_ref=from_ref,
+        domain=domain,
+        table_name=table_name,
+        default_table_name=meta.get("table_name") or table_name or "data",
+        max_records=max_records,
+    )
 
     unique_key = meta.get("unique_key")
-    inferred_columns: list[dict[str, Any]] = []
-    imports: set[str] = set()
-    for col_name, col in sorted(dlt_columns.items()):
-        if col_name.startswith("_dlt_") or col_name.startswith("_phlo_"):
-            continue
-
-        ann, imp = _map_dlt_type(str(col.get("data_type", "text")))
-        if imp:
-            imports.add(imp)
-
-        nullable = bool(col.get("nullable", True))
-        if unique_key and col_name == unique_key:
-            nullable = False
-        annotation = ann if not nullable else f"{ann} | None"
-
-        inferred_columns.append(
-            {
-                "name": col_name,
-                "annotation": annotation,
-                "nullable": nullable,
-                "dlt_type": col.get("data_type"),
-            }
-        )
+    inferred_columns, imports = _infer_columns(dlt_columns, unique_key)
 
     base_name = meta.get("table_name") or selected_table
     schema_class = class_name or f"Raw{_to_pascal_case(base_name)}"
@@ -401,18 +507,7 @@ def generate(  # noqa: C901
         columns=inferred_columns,
         unique_key=unique_key,
     )
-
-    # Add extra imports if needed by annotations.
-    if imports:
-        lines = module_code.splitlines()
-        insert_at = 0
-        for idx, line in enumerate(lines):
-            if line.startswith("from __future__ import annotations"):
-                insert_at = idx + 1
-                break
-        extra = sorted(imports)
-        lines[insert_at:insert_at] = extra
-        module_code = "\n".join(lines) + "\n"
+    module_code = _add_annotation_imports(module_code, imports)
 
     output_path = (
         Path(out_path) if out_path else (_DEFAULT_SCHEMA_OUT_DIR / f"{_snake_case(domain)}.py")
@@ -425,32 +520,4 @@ def generate(  # noqa: C901
     if overwrite and update:
         raise click.ClickException("Use only one of --update or --overwrite.")
 
-    _ensure_parent_dir(output_path)
-    if not output_path.exists():
-        output_path.write_text(module_code)
-        console.print(f"[green]Wrote[/green] {output_path}")
-        return
-
-    if overwrite:
-        output_path.write_text(module_code)
-        console.print(f"[green]Overwrote[/green] {output_path}")
-        return
-
-    if not update:
-        raise click.ClickException(
-            f"Refusing to overwrite existing file: {output_path}. Use --update or --overwrite."
-        )
-
-    existing = output_path.read_text()
-    class_block = _class_block_only(module_code, schema_class)
-
-    required_imports = [
-        "from __future__ import annotations",
-        "from pandera.pandas import Field",
-        "from phlo_pandera.schemas import PhloSchema",
-    ]
-    existing = _ensure_imports_in_module(existing, required_imports)
-
-    updated = _update_or_insert_class(existing, schema_class, class_block)
-    output_path.write_text(updated)
-    console.print(f"[green]Updated[/green] {output_path}")
+    _write_schema_module(output_path, module_code, schema_class, update, overwrite, console)

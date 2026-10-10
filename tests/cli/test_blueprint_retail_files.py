@@ -87,13 +87,13 @@ def test_package_distribution_contract() -> None:
     _assert_no_floating_references(dev_group)
 
 
-def test_root_blueprints_extra_and_support_boundaries() -> None:
+def test_unpublished_blueprint_stays_out_of_root_extras_and_support_boundaries() -> None:
     root = _load_pyproject(REPO_ROOT / "pyproject.toml")
     extras = root["project"]["optional-dependencies"]
 
-    assert extras["blueprints"] == ["phlo-retail-files==0.1.0"]
-    assert "phlo-retail-files" not in _requirement_names(extras["defaults"])
-    assert "phlo-retail-files" not in _requirement_names(extras["core-services"])
+    # phlo-retail-files is not on PyPI, so no published extra may require it.
+    for requirements in extras.values():
+        assert "phlo-retail-files" not in _requirement_names(requirements)
 
     manifest = json.loads(SUPPORT_MANIFEST.read_text(encoding="utf-8"))
     release_packages = {entry["name"] for entry in manifest["release_set"]["packages"]}

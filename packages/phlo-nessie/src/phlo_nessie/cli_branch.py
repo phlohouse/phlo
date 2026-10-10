@@ -637,6 +637,91 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
         ) from e
 
 
+def _require_branches(client, source_branch: str, target_branch: str) -> None:
+    """Raise a user error unless both branches exist."""
+    names = {ref.name for ref in _list_references(client)}
+    if source_branch in names and target_branch in names:
+        return
+    logger.warning(
+        "nessie_branch_diff_refs_not_found",
+        source_branch=source_branch,
+        target_branch=target_branch,
+    )
+    raise user_error(
+        "one or both branches were not found",
+        details={
+            "Source": source_branch,
+            "Target": target_branch,
+        },
+        run="phlo branch list",
+    )
+
+
+_DIFF_CATEGORIES = {
+    (False, True): "added_tables",
+    (True, False): "deleted_tables",
+    (True, True): "modified_tables",
+}
+
+
+def _classify_diff_entries(entries: builtins.list[dict]) -> dict[str, builtins.list[str]]:
+    """Group Nessie diff entries into added, modified and deleted table names.
+
+    Entries carrying neither a ``from`` nor a ``to`` side are ignored.
+    """
+    differences: dict[str, builtins.list[str]] = {
+        "added_tables": [],
+        "modified_tables": [],
+        "deleted_tables": [],
+    }
+    for entry in entries:
+        category = _DIFF_CATEGORIES.get(("from" in entry, "to" in entry))
+        if category:
+            differences[category].append(".".join(entry.get("key", {}).get("elements", [])))
+    return differences
+
+
+def _fetch_branch_differences(
+    source_branch: str, target_branch: str
+) -> dict[str, builtins.list[str]] | None:
+    """Fetch table differences from the Nessie diff API; return None when unsupported."""
+    settings = get_nessie_settings()
+    diff_url = (
+        f"http://{settings.nessie_host}:{settings.nessie_port}"
+        f"/api/v1/diffs/{source_branch}...{target_branch}"
+    )
+    try:
+        resp = requests.get(diff_url, timeout=10)
+        resp.raise_for_status()
+        return _classify_diff_entries(resp.json().get("diffs", []))
+    except Exception:
+        logger.warning(
+            "nessie_branch_diff_api_fallback",
+            source_branch=source_branch,
+            target_branch=target_branch,
+            exc_info=True,
+        )
+        console.print("[yellow]Diff not supported by this Nessie version[/yellow]")
+        return None
+
+
+def _render_differences(differences: dict[str, builtins.list[str]], format: str) -> None:
+    """Print differences as JSON or as a table, noting when there are none."""
+    if format == "json":
+        click.echo(json.dumps(differences, indent=2))
+        return
+    if not any(differences.values()):
+        console.print("[yellow]No differences found[/yellow]")
+        return
+    table = Table(title="Branch Differences")
+    table.add_column("Type", style="cyan")
+    table.add_column("Table Name", style="green")
+    for diff_type, tables in differences.items():
+        for table_name in tables:
+            table.add_row(diff_type.replace("_", " ").title(), table_name)
+    console.print(table)
+
+
 @branch.command()
 @click.argument("source_branch")
 @click.argument("target_branch", required=False, default="main")
@@ -646,7 +731,7 @@ def merge(source_branch: str, target_branch: str, dry_run: bool, no_delete_sourc
     default="table",
     help="Output format",
 )
-def diff(source_branch: str, target_branch: str, format: str):  # noqa: C901
+def diff(source_branch: str, target_branch: str, format: str):
     """Show differences between branches.
 
     Lists tables that were added, modified, or deleted.
@@ -663,98 +748,23 @@ def diff(source_branch: str, target_branch: str, format: str):  # noqa: C901
         output_format=format,
     )
     try:
-        client = get_nessie_client()
-
-        source_ref = None
-        target_ref = None
-
-        for ref in _list_references(client):
-            if ref.name == source_branch:
-                source_ref = ref
-            if ref.name == target_branch:
-                target_ref = ref
-
-        if not source_ref or not target_ref:
-            logger.warning(
-                "nessie_branch_diff_refs_not_found",
-                source_branch=source_branch,
-                target_branch=target_branch,
-            )
-            raise user_error(
-                "one or both branches were not found",
-                details={
-                    "Source": source_branch,
-                    "Target": target_branch,
-                },
-                run="phlo branch list",
-            )
-        assert source_ref is not None
-        assert target_ref is not None
+        _require_branches(get_nessie_client(), source_branch, target_branch)
 
         console.print(f"\n[bold]Differences: {source_branch} -> {target_branch}[/bold]")
 
-        differences: dict[str, builtins.list[str]] = {
-            "added_tables": [],
-            "modified_tables": [],
-            "deleted_tables": [],
-        }
-        diff_supported = True
-
-        settings = get_nessie_settings()
-        diff_url = (
-            f"http://{settings.nessie_host}:{settings.nessie_port}"
-            f"/api/v1/diffs/{source_branch}...{target_branch}"
+        differences = _fetch_branch_differences(source_branch, target_branch)
+        if differences is None:
+            return
+        _render_differences(differences, format)
+        logger.info(
+            "nessie_branch_diff_rendered",
+            source_branch=source_branch,
+            target_branch=target_branch,
+            output_format=format,
+            added_count=len(differences["added_tables"]),
+            modified_count=len(differences["modified_tables"]),
+            deleted_count=len(differences["deleted_tables"]),
         )
-        try:
-            resp = requests.get(diff_url, timeout=10)
-            resp.raise_for_status()
-            diffs = resp.json().get("diffs", [])
-            for entry in diffs:
-                key = entry.get("key", {})
-                table_name = ".".join(key.get("elements", []))
-                has_from = "from" in entry
-                has_to = "to" in entry
-                if has_to and not has_from:
-                    differences["added_tables"].append(table_name)
-                elif has_from and not has_to:
-                    differences["deleted_tables"].append(table_name)
-                elif has_from and has_to:
-                    differences["modified_tables"].append(table_name)
-        except Exception:
-            diff_supported = False
-            logger.warning(
-                "nessie_branch_diff_api_fallback",
-                source_branch=source_branch,
-                target_branch=target_branch,
-                exc_info=True,
-            )
-            console.print("[yellow]Diff not supported by this Nessie version[/yellow]")
-
-        if diff_supported and format == "json":
-            click.echo(json.dumps(differences, indent=2))
-        elif diff_supported:
-            table = Table(title="Branch Differences")
-            table.add_column("Type", style="cyan")
-            table.add_column("Table Name", style="green")
-
-            for diff_type, tables in differences.items():
-                for table_name in tables:
-                    table.add_row(diff_type.replace("_", " ").title(), table_name)
-
-            if not any(differences.values()):
-                console.print("[yellow]No differences found[/yellow]")
-            else:
-                console.print(table)
-        if diff_supported:
-            logger.info(
-                "nessie_branch_diff_rendered",
-                source_branch=source_branch,
-                target_branch=target_branch,
-                output_format=format,
-                added_count=len(differences["added_tables"]),
-                modified_count=len(differences["modified_tables"]),
-                deleted_count=len(differences["deleted_tables"]),
-            )
 
     except click.ClickException:
         raise

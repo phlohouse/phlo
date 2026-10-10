@@ -57,3 +57,4 @@ follow once a decision is accepted.
 | [0049](0049-v1-continuity-and-upgrade-contract.md) | ADR 0049: V1 Continuity and Upgrade Contract | Accepted |
 | [0050](0050-freeze-release-promotion-contract.md) | ADR 0050: Freeze the Release Promotion Contract | Accepted |
 | [0051](0051-dataset-authority.md) | ADR 0051: Dataset authority contract | Accepted |
+| [0052](0052-domain-vocabulary.md) | ADR 0052: Domain vocabulary | Accepted |

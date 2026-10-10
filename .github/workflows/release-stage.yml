@@ -70,6 +70,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/tree"
           git archive "$CANDIDATE_SHA" | tar -x -C "$RUNNER_TEMP/tree"
           uv build --directory "$RUNNER_TEMP/tree" --all-packages --out-dir "$RUNNER_TEMP/distributions"
+      - name: Fail if any published extra cannot resolve from PyPI
+        run: >-
+          python3 scripts/check_published_extras.py
+          --manifest "$RUNNER_TEMP/tree/registry/support/v1.json"
+          --distributions "$RUNNER_TEMP/distributions"
+          --python-version 3.12
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: distributions-${{ inputs.candidate_sha }}

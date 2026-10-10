@@ -255,7 +255,7 @@ jobs:
           -p scripts.ci_shard --ci-shard-index=${{ matrix.shard }} --ci-shard-count=3
           -o faulthandler_timeout=60 -o faulthandler_exit_on_timeout=true
           --tb=short --durations=25 --junitxml=test-results/core.xml
-          --cov=phlo --cov-append --cov-report=xml:test-results/coverage.xml
+          --cov=phlo --cov=scripts --cov-append --cov-report=xml:test-results/coverage.xml
 
       - name: Upload core test timings and coverage
         if: always()
@@ -380,6 +380,10 @@ jobs:
       - name: Type check with TypeScript
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npx tsc --noEmit
+
+      - name: Check for unused files and dependencies with knip
+        if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
+        run: npm run knip
 
       - name: Build production bundle
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}

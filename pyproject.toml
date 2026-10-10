@@ -50,7 +50,7 @@ dev = [
     "dagster>=1.13,<1.14",
     "dagster-webserver>=1.13,<1.14",
     "duckdb>=0.9.0",
-    "fastapi>=0.127.0",
+    "fastapi>=0.127.0,<0.137",
     "libcst>=1.5.0",
     "pandas>=2.3.3",
     "pandera>=0.26.1",
@@ -59,7 +59,7 @@ dev = [
     "import-linter>=2.3",
     "ty==0.0.29",
     "testcontainers>=4.13.3",
-    "pyiceberg>=0.10.0",
+    "pyiceberg>=0.10.0,<0.12",
     "s3fs>=2026.6.0",
     "pymdx>=0.1.1",
     "minio>=7.2.20",
@@ -100,7 +100,6 @@ version = "0.17.0"
 [project.entry-points."phlo.plugins.transforms"]
 
 [project.optional-dependencies]
-blueprints = ["phlo-retail-files==0.1.0"]
 codemods = ["libcst>=1.5.0"]
 core-services = [
     "phlo-dagster>=0.3.2",
@@ -131,7 +130,7 @@ runtime = [
     "dagster>=1.13,<1.14",
     "dagster-webserver>=1.13,<1.14",
     "duckdb>=0.9.0",
-    "fastapi>=0.127.0",
+    "fastapi>=0.127.0,<0.137",
     "pandas>=2.3.3",
     "pandera>=0.26.1",
     "psycopg2-binary>=2.9.11",
@@ -406,9 +405,6 @@ workspace = true
 
 [tool.uv.sources.phlo-prometheus]
 workspace = true
-
-[tool.uv.sources.phlo-retail-files]
-path = "examples/lakehouses/retail-files"
 
 [tool.uv.sources.phlo-rustfs]
 workspace = true
