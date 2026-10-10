@@ -157,9 +157,17 @@ class StagedFrameLoader:
             except Exception as exc:
                 self._error = exc
                 raise
-        # A shallow copy is cheap under copy-on-write and stops one check's
-        # in-place edits from leaking into the next check's input.
-        return self._frame.copy(deep=False)
+        # Each check gets its own view so in-place edits can't leak into the next
+        # check. Under copy-on-write a shallow copy is enough and costs nothing;
+        # without it (pandas 2 defaults) only a deep copy isolates the checks.
+        return self._frame.copy(deep=not _copy_on_write_enabled())
+
+
+def _copy_on_write_enabled() -> bool:
+    """Return whether pandas copy-on-write protects shallow copies."""
+    if int(pd.__version__.split(".", 1)[0]) >= 3:
+        return True
+    return pd.options.mode.copy_on_write is True
 
 
 def _evaluate_domain_quality_checks(

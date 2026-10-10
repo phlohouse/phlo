@@ -75,7 +75,12 @@ def test_read_failure_rejects_every_check_without_rereading(
     assert read_counter == [missing]
 
 
-def test_check_mutation_does_not_leak_into_next_check(staged_paths: list[Path]) -> None:
+@pytest.mark.parametrize("copy_on_write", [True, False])
+def test_check_mutation_does_not_leak_into_next_check(
+    staged_paths: list[Path], monkeypatch: pytest.MonkeyPatch, copy_on_write: bool
+) -> None:
+    monkeypatch.setattr("phlo_dlt.executor._copy_on_write_enabled", lambda: copy_on_write)
+
     def _mutating_check(frame: pd.DataFrame) -> str | None:
         frame["value"] = -1
         frame.drop(frame.index, inplace=True)
