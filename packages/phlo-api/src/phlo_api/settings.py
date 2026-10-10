@@ -4,6 +4,8 @@ Declares the ``PHLO_API_*`` environment variables the service reads, so each
 one has a single type, default and description and appears in the generated
 settings reference. Values come from the process environment and the
 project's generated ``.phlo`` env files, as for every other ``BaseConfig``.
+Deployment assertions use a separate process-only model to preserve their
+original precedence and exact enabling values.
 
 ``get_settings`` builds a fresh model on each call rather than caching it:
 the call sites previously read the environment per request, and keeping that
@@ -13,6 +15,7 @@ behaviour means a changed limit applies without a restart.
 from __future__ import annotations
 
 from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from phlo.config.base import BaseConfig
 
@@ -82,3 +85,66 @@ class ApiSettings(BaseConfig):
 def get_settings() -> ApiSettings:
     """Return the current phlo-api settings, read fresh from the environment."""
     return ApiSettings()
+
+
+class ApiDeploymentSettings(BaseSettings):
+    """Process-only deployment assertions, not project dotenv configuration.
+
+    These gates attest to running infrastructure. Keep exact, case-sensitive
+    environment keys and values rather than accepting general boolean syntax.
+    """
+
+    model_config = SettingsConfigDict(case_sensitive=True, extra="ignore")
+
+    actions_single_replica: bool = Field(
+        False,
+        validation_alias="PHLO_V1_ACTIONS_SINGLE_REPLICA",
+        description="Process-only single API replica assertion for v1 actions. Only '1' enables.",
+    )
+    actions_single_process: bool = Field(
+        False,
+        validation_alias="PHLO_V1_ACTIONS_SINGLE_PROCESS",
+        description="Process-only single API process assertion for v1 actions. Only '1' enables.",
+    )
+    actions_ref_tag_contract: bool = Field(
+        False,
+        validation_alias="PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
+        description="Process-only environment-pinned ref/tag contract assertion. Only '1' enables.",
+    )
+    query_single_replica: bool = Field(
+        False,
+        validation_alias="PHLO_V1_QUERY_SINGLE_REPLICA",
+        description="Process-only single API replica assertion for query workspace. Only '1' enables.",
+    )
+    preview_server_limits_configured: bool = Field(
+        False,
+        validation_alias="PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
+        description="Process-only assertion of configured Trino preview server limits. Only '1' enables.",
+    )
+    staging_single_replica: bool = Field(
+        False,
+        validation_alias="PHLO_STAGING_SINGLE_REPLICA",
+        description="Process-only single API replica assertion for staging promotion. Only 'true' enables.",
+    )
+
+    @field_validator(
+        "actions_single_replica",
+        "actions_single_process",
+        "actions_ref_tag_contract",
+        "query_single_replica",
+        "preview_server_limits_configured",
+        mode="before",
+    )
+    @classmethod
+    def _parse_one(cls, value: object) -> bool:
+        return value is True or value == "1"
+
+    @field_validator("staging_single_replica", mode="before")
+    @classmethod
+    def _parse_true(cls, value: object) -> bool:
+        return value is True or value == "true"
+
+
+def get_deployment_settings() -> ApiDeploymentSettings:
+    """Read deployment assertions afresh for each request evaluation."""
+    return ApiDeploymentSettings()

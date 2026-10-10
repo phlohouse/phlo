@@ -225,6 +225,9 @@ def test_every_staging_route_requires_exact_staging_selector(staging_api, query:
     ("name", "value"),
     [
         ("PHLO_STAGING_SINGLE_REPLICA", "false"),
+        ("PHLO_STAGING_SINGLE_REPLICA", "1"),
+        ("PHLO_STAGING_SINGLE_REPLICA", "TRUE"),
+        ("PHLO_STAGING_SINGLE_REPLICA", " true "),
         ("WEB_CONCURRENCY", "2"),
         ("PHLO_PROMOTION_PROD_REF", "override-main"),
         ("PHLO_PROMOTION_DAGSTER_LOCATION", "override-location"),
