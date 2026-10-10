@@ -6,7 +6,6 @@ Loads infrastructure configuration from phlo.yaml.
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -15,6 +14,7 @@ import yaml
 from pydantic import ValidationError
 
 from phlo.config.cache import project_root_cached
+from phlo.config.process import get_process_settings
 from phlo.config_schema import (
     ApiAuthorizationConfig,
     InfrastructureConfig,
@@ -33,7 +33,7 @@ class ProjectConfigError(ValueError):
 
 def _default_project_root() -> Path:
     """Resolve the default project root from environment or current working directory."""
-    project_root = os.environ.get("PHLO_PROJECT_PATH")
+    project_root = get_process_settings().phlo_project_path
     if project_root:
         raw_path = Path(project_root)
         if ".." in raw_path.parts:
@@ -300,8 +300,8 @@ def get_configured_authentication_provider_name(project_root: Path | None = None
     Rejecting disagreement here keeps startup validation and every runtime
     resolver on one authoritative selection.
     """
-    method = os.environ.get("PHLO_AUTHENTICATION_METHOD", "").strip()
-    provider = os.environ.get("PHLO_AUTHENTICATION_PROVIDER", "").strip()
+    method = get_process_settings().get("PHLO_AUTHENTICATION_METHOD", "").strip()
+    provider = get_process_settings().get("PHLO_AUTHENTICATION_PROVIDER", "").strip()
     configured = (get_authentication_provider_config(project_root) or "").strip()
     selections = [
         ("PHLO_AUTHENTICATION_METHOD", method),
@@ -326,7 +326,7 @@ def get_configured_authorization_backend_name(project_root: Path | None = None) 
     """
     from_config = get_api_authorization_config(project_root)
     configured = (from_config.backend if from_config and from_config.backend else "").strip()
-    from_env = os.environ.get("PHLO_AUTHORIZATION_BACKEND", "").strip()
+    from_env = get_process_settings().get("PHLO_AUTHORIZATION_BACKEND", "").strip()
     if from_env and configured and from_env.lower() != configured.lower():
         raise ValueError(
             "Conflicting authorization settings: PHLO_AUTHORIZATION_BACKEND and "

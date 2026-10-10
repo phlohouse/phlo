@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
@@ -13,6 +12,8 @@ import dagster as dg
 import requests
 from dagster._core.definitions.freshness import TimeWindowFreshnessPolicy
 
+from phlo.config.process import get_process_settings as get_core_process_settings
+from phlo_dagster.settings import get_process_settings
 from phlo.plugins.observatory_settings import (
     OperationalSettings,
     get_operational_settings,
@@ -279,7 +280,7 @@ def _detect_freshness_breaches(
         # Definitions are local to this code server. Only its operator-bound
         # environment may use declaration/layer defaults; overrides stay scoped.
         if (
-            os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT") == environment
+            get_core_process_settings().phlo_observatory_environment == environment
             and context.repository_def is not None
         ):
             graph = context.repository_def.asset_graph
@@ -354,8 +355,10 @@ def _detect_freshness_breaches(
 )
 def phlo_incident_signal_sensor(context: dg.SensorEvaluationContext) -> dg.SensorResult:
     """Forward failed check events; only advance the cursor after successful delivery."""
-    environments = _location_environments(os.getenv(_LOCATION_ENV_MAP))
-    api_url = os.getenv(_API_URL)
+    environments = _location_environments(
+        get_process_settings().phlo_dagster_incident_location_env_map
+    )
+    api_url = get_process_settings().phlo_incident_api_url
     if not environments or not api_url:
         return dg.SensorResult(
             skip_reason=dg.SkipReason(f"Configure {_LOCATION_ENV_MAP} and {_API_URL}.")

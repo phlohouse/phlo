@@ -17,15 +17,10 @@ from typing import Any
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from phlo.capabilities.specs import FieldSpec, NormalizedSchema
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
-
-_REGISTRY_DB_KEYS = (
-    "PHLO_REGISTRY_DB_URL",
-    "PHLO_LINEAGE_DB_URL",
-    "DAGSTER_PG_DB_CONNECTION_STRING",
-)
 
 
 def _load_psycopg2() -> Any:
@@ -50,11 +45,13 @@ psycopg2 = _LazyPsycopg2()
 
 def resolve_registry_db_url() -> str | None:
     """Resolve the registry database URL from environment variables."""
-    for key in _REGISTRY_DB_KEYS:
-        value = os.environ.get(key)
-        if value:
-            return value
-    return None
+    settings = get_process_settings()
+    return (
+        settings.phlo_registry_db_url
+        or settings.phlo_lineage_db_url
+        or os.environ.get("DAGSTER_PG_DB_CONNECTION_STRING")
+        or None
+    )
 
 
 def _canonical_schema_json(schema: NormalizedSchema) -> str:
