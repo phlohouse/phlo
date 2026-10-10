@@ -10,8 +10,11 @@ Tests cover:
 """
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
+import duckdb
 import pandas as pd
+import pandera.pandas as pa
 import pytest
 
 from phlo_pandera import (
@@ -21,12 +24,14 @@ from phlo_pandera import (
     NullCheck,
     PatternCheck,
     RangeCheck,
+    SchemaCheck,
     UniqueCheck,
     clear_quality_checks,
     get_quality_checks,
     phlo_pandera,
 )
 from phlo.contracts import SLA
+from phlo.logging import get_logger
 
 
 @pytest.fixture(autouse=True)
@@ -585,3 +590,98 @@ class TestQualityCheckMetadata:
 
         assert "duplicate_count" in result.metadata
         assert "duplicate_percentage" in result.metadata
+
+
+@pytest.mark.parametrize("schema", [False, True])
+@pytest.mark.parametrize("outcome", ["pass", "fail", "empty", "query_failed"])
+def test_registered_checks_execute_against_duckdb(schema: bool, outcome: str) -> None:
+    class PositiveIds(pa.DataFrameModel):
+        id: int = pa.Field(gt=0)
+
+    checks = (
+        [SchemaCheck(schema=PositiveIds)]
+        if schema
+        else [RangeCheck(column="id", min_value=1), CountCheck(min_rows=1)]
+    )
+    with duckdb.connect() as connection:
+        connection.execute("CREATE TABLE readings (id BIGINT)")
+        if outcome != "empty":
+            connection.execute(
+                "INSERT INTO readings VALUES (1), (?)", [-1 if outcome == "fail" else 2]
+            )
+        runtime = SimpleNamespace(
+            run_id="quality-run",
+            partition_key=None,
+            resources={"duckdb": connection},
+            logger=get_logger("test.quality"),
+        )
+
+        def quality():
+            return "unchanged"
+
+        decorated = phlo_pandera(
+            table="readings",
+            checks=checks,
+            backend="duckdb",
+            partition_aware=False,
+            blocking=False,
+            warn_threshold=0.5,
+            query="SELECT * FROM missing_table" if outcome == "query_failed" else None,
+        )(quality)
+        assert decorated is quality
+        [spec] = get_quality_checks()
+        assert spec.asset_key == "readings"
+        assert spec.blocking is schema
+        result = spec.fn(runtime)
+        assert result.passed is (outcome in {"pass", "empty"})
+        expected_severity = {
+            "pass": None,
+            "empty": None,
+            "fail": "error" if schema else "warn",
+            "query_failed": "error",
+        }[outcome]
+        assert result.severity == expected_severity
+        if outcome == "query_failed":
+            assert result.metadata["reason"] == "query_failed"
+            assert "missing_table" in result.metadata["error"]
+        elif outcome == "empty":
+            assert result.metadata["note"] == "No data available for validation"
+        elif schema:
+            assert result.metadata["schemas"] == ["PositiveIds"]
+            assert result.metadata["total_count"] == 2
+            assert result.metadata["failed_count"] == (1 if outcome == "fail" else 0)
+        else:
+            assert result.metadata["summary"] == (
+                "1/2 quality checks passed" if outcome == "fail" else "2/2 quality checks passed"
+            )
+
+
+def test_registered_quality_check_execution_error_is_a_failed_result() -> None:
+    from phlo_pandera.checks import QualityCheck
+
+    class BrokenCheck(QualityCheck):
+        @property
+        def name(self):
+            return "broken"
+
+        def execute(self, df, context):
+            raise RuntimeError("check unavailable")
+
+    @phlo_pandera(table="readings", checks=[BrokenCheck()], backend="duckdb", full_table=True)
+    def quality():
+        pass
+
+    with duckdb.connect() as connection:
+        connection.execute("CREATE TABLE readings AS SELECT 1 AS id")
+        runtime = SimpleNamespace(
+            run_id="quality-run",
+            partition_key=None,
+            resources={"duckdb": connection},
+            logger=get_logger("test.quality"),
+        )
+        [spec] = get_quality_checks()
+        result = spec.fn(runtime)
+    assert result.passed is False
+    assert result.severity == "error"
+    assert result.metadata["summary"] == "0/1 quality checks passed"
+    assert "check unavailable" in result.metadata["failures"]
