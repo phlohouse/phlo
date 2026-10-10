@@ -188,7 +188,7 @@ Source: `packages/phlo-hasura/src/phlo_hasura/client.py`
 
 | Field | Alias | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `hasura_admin_secret` | `hasura_admin_secret` | `str \| None` | false | `phlo-hasura-admin-secret` | Hasura admin secret used for Metadata API requests |
+| `hasura_admin_secret` | `hasura_admin_secret` | `str \| None` | false | `none` | Hasura admin secret used for Metadata API requests |
 
 ## `phlo-hasura`: `HasuraPostgresSettings`
 
@@ -371,7 +371,7 @@ Source: `packages/phlo-superset/src/phlo_superset/settings.py`
 | Field | Alias | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- | --- |
 | `superset_admin_email` | `superset_admin_email` | `<class 'str'>` | false | `admin@example.com` | Superset admin email |
-| `superset_admin_password` | `superset_admin_password` | `<class 'str'>` | false | `admin` | Superset admin password |
+| `superset_admin_password` | `superset_admin_password` | `<class 'str'>` | false | `""` | Superset admin password |
 | `superset_admin_user` | `superset_admin_user` | `<class 'str'>` | false | `admin` | Superset admin username |
 | `superset_port` | `superset_port` | `<class 'int'>` | false | `10007` | Superset web port |
 
