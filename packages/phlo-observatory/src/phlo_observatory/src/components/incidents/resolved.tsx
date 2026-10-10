@@ -502,7 +502,7 @@ function IncidentInvestigation({
               search={{ env }}
               className="text-sm"
             >
-              Open {job.id} in Pipelines
+              Open {job.id} in Jobs
             </Link>
           ))}
         </div>
@@ -977,8 +977,7 @@ export function IncidentDetail({
                 </Card>
               ) : (
                 <EmptyState title="Lineage unavailable">
-                  No branch or pipeline lineage was persisted with this
-                  incident.
+                  No branch or job lineage was persisted with this incident.
                 </EmptyState>
               )}
             </section>

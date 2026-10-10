@@ -34,7 +34,7 @@ function StatesPage() {
           </p>
         </div>
         <div className="grid grid-cols-1 gap-x-6 gap-y-7 md:grid-cols-2 xl:grid-cols-3">
-          <StateFrame n={1} title="Job running" where="Pipelines › run detail">
+          <StateFrame n={1} title="Job running" where="Jobs › run detail">
             <JobRunning />
           </StateFrame>
           <StateFrame n={2} title="Query failed" where="Query › editor">

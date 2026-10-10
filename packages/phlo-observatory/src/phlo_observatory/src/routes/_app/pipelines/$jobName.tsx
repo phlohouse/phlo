@@ -137,7 +137,7 @@ function PipelinePage() {
   return (
     <>
       <PageHeader
-        crumbs={[{ label: 'Pipelines', to: '/pipelines' }]}
+        crumbs={[{ label: 'Jobs', to: '/pipelines' }]}
         title={<Mono className="text-[13.5px]">{job.id}</Mono>}
         meta={`${job.domain ?? 'Unknown domain'} · ${env}`}
         actions={
@@ -401,7 +401,7 @@ function PipelinePage() {
                 search={(previous) => ({ ...previous, env })}
                 className="ml-auto text-[13px]"
               >
-                All pipelines
+                All jobs
               </Link>
             </div>
             {data.siblings.map((sibling) => (

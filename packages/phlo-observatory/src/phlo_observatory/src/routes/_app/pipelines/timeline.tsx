@@ -78,7 +78,7 @@ function TimelinePage() {
   return (
     <>
       <PageHeader
-        crumbs={[{ label: 'Pipelines', to: '/pipelines' }]}
+        crumbs={[{ label: 'Jobs', to: '/pipelines' }]}
         title="Run timeline"
         meta={`${jobs.length} jobs · ${env} · ${range === '24h' ? '30-minute' : '3.5-hour'} buckets`}
         actions={

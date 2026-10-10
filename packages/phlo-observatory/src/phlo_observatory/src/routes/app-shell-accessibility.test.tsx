@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import * as React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { axe } from 'vitest-axe'
@@ -58,6 +58,13 @@ describe('the AppLayout shell', () => {
     expect(
       screen.getByRole('navigation', { name: 'Mobile navigation' }),
     ).toBeTruthy()
+    for (const name of ['Primary navigation', 'Mobile navigation']) {
+      const navigation = within(screen.getByRole('navigation', { name }))
+      expect(
+        navigation.getByRole('link', { name: 'Jobs' }).getAttribute('href'),
+      ).toBe('/pipelines')
+      expect(navigation.queryByRole('link', { name: 'Pipelines' })).toBeNull()
+    }
     const main = screen.getByRole('main')
     expect(main.id).toBe('main-content')
 

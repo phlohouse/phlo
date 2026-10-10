@@ -40,7 +40,7 @@ export const Route = createFileRoute('/_app/pipelines/')({
   validateSearch: pipelineSearchSchema,
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: ({ deps }) => getPipelineList({ data: deps.env }),
-  head: () => ({ meta: [{ title: 'Pipelines · phlo' }] }),
+  head: () => ({ meta: [{ title: 'Jobs · phlo' }] }),
   component: PipelinesPage,
 })
 
@@ -271,7 +271,7 @@ function PipelinesPage() {
   return (
     <>
       <PageHeader
-        title="Pipelines"
+        title="Jobs"
         meta={`${jobs.length} jobs · ${runs.length} observed runs · ${env}`}
         actions={
           <>

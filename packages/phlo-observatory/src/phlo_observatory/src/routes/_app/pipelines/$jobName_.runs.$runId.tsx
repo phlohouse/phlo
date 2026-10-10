@@ -75,7 +75,7 @@ function RunPage() {
     <>
       <PageHeader
         crumbs={[
-          { label: 'Pipelines', to: '/pipelines' },
+          { label: 'Jobs', to: '/pipelines' },
           {
             label: 'Job',
             to: `/pipelines/${encodeURIComponent(job.id)}`,
