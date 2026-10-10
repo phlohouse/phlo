@@ -66,10 +66,14 @@ def _phlo_name(node: ast.expr | None, constants: dict[str, str]) -> str | None:
 
 
 def _read_key(node: ast.AST) -> ast.expr | None:
-    """Return the key expression when node reads os.environ or os.getenv."""
+    """Return the key expression when node reads (or pops) os.environ or os.getenv."""
     if isinstance(node, ast.Call) and node.args:
         func = node.func
-        is_get = isinstance(func, ast.Attribute) and func.attr == "get" and _is_environ(func.value)
+        is_get = (
+            isinstance(func, ast.Attribute)
+            and func.attr in {"get", "pop"}
+            and _is_environ(func.value)
+        )
         is_getenv = (isinstance(func, ast.Attribute) and func.attr == "getenv") or (
             isinstance(func, ast.Name) and func.id == "getenv"
         )
@@ -140,9 +144,10 @@ def test_scanner_detects_each_read_form() -> None:
         "os.environ.get('PHLO_A')\nos.getenv('PHLO_B')\nos.environ['PHLO_C']\n"
         "'PHLO_D' in os.environ\nenviron.get('PHLO_E')\ngetenv('PHLO_F')\n"
         "_KEY = 'PHLO_G'\n_TYPED: str = 'PHLO_H'\nos.environ.get(_KEY)\nos.getenv(_TYPED)\n"
+        "os.environ.pop('PHLO_I', None)\n"
         "os.environ['PHLO_WRITE'] = '1'\nos.environ.get('OTHER')\n"
     )
-    assert sorted(_reads(ast.parse(source))) == [f"PHLO_{c}" for c in "ABCDEFGH"]
+    assert sorted(_reads(ast.parse(source))) == [f"PHLO_{c}" for c in "ABCDEFGHI"]
 
 
 if __name__ == "__main__":
