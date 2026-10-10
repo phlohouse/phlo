@@ -14,7 +14,7 @@ from typing import Any
 from phlo.capabilities import list_capabilities, resolve_capability
 from phlo.infrastructure.config import load_project_config
 from phlo.logging import get_logger
-from phlo_sling.settings import get_settings
+from phlo_sling.settings import SlingProcessSettings, get_settings
 
 logger = get_logger(__name__)
 
@@ -134,7 +134,7 @@ def _resolve_s3_connection() -> dict[str, dict[str, Any]]:
 
     """
     _ensure_capabilities_discovered("object_store")
-    requested_name = os.environ.get("PHLO_OBJECT_STORE") or _project_env_value("PHLO_OBJECT_STORE")
+    requested_name = SlingProcessSettings().object_store or _project_env_value("PHLO_OBJECT_STORE")
     resolution = resolve_capability("object_store", requested_name)
     if resolution is None:
         available = list_capabilities("object_store")

@@ -233,3 +233,13 @@ def test_oidc_principal_drops_unallowlisted_claims(monkeypatch) -> None:
     assert principal is not None
     assert "secret" not in principal.claims
     assert "roles" not in principal.claims
+
+
+def test_invalid_timing_is_ignored_until_oidc_is_configured(monkeypatch) -> None:
+    for key in ("ISSUER", "AUDIENCE", "JWKS_URL", "CA_FILE"):
+        monkeypatch.delenv(f"PHLO_DAGSTER_OIDC_{key}", raising=False)
+    monkeypatch.setenv("PHLO_DAGSTER_OIDC_LEEWAY_SECONDS", "1.0")
+    assert not OIDCIdentityValidator().configured
+    monkeypatch.setenv("PHLO_DAGSTER_OIDC_ISSUER", "https://issuer.example")
+    with pytest.raises(ValueError, match="PHLO_DAGSTER_OIDC_LEEWAY_SECONDS must be an integer"):
+        OIDCIdentityValidator()

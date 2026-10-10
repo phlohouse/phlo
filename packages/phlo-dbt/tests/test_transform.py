@@ -121,6 +121,23 @@ def test_custom_dbt_translator_description_does_not_embed_compiled_sql_by_defaul
     assert "select 1 as x" not in description
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_description_validates_sql_limit_only_when_enabled(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, enabled: bool
+) -> None:
+    """Keep invalid-limit warnings local to requested SQL descriptions."""
+    monkeypatch.setenv("PHLO_DBT_INCLUDE_COMPILED_SQL_IN_DESCRIPTION", str(enabled))
+    monkeypatch.setenv("PHLO_DBT_COMPILED_SQL_MAX_BYTES", "not-an-integer")
+    description = DbtSpecTranslator().get_description(
+        {"name": "model_x", "compiled_code": "select 1 as x"}
+    )
+    assert ("select 1 as x" in description) is enabled
+    warnings = [
+        record for record in caplog.records if "dbt_translator_env_int_invalid" in record.message
+    ]
+    assert len(warnings) == int(enabled)
+
+
 def test_translator_declares_physical_relation_from_schema_and_alias() -> None:
     translator = DbtSpecTranslator()
     props = {

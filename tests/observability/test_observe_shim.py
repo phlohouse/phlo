@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import phlo.telemetry as phlo_observe
+from phlo.config.telemetry import TelemetryProcessSettings
 
 
 @pytest.fixture(autouse=True)
@@ -357,12 +358,12 @@ def test_emit_degrades_entities_and_tags_on_pre_v2_sdk(
     assert phlo_observe._unsupported_surface_warned == {"set_entity", "set_tag"}
 
 
-def test_env_flag_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert phlo_observe._env_flag("PHLO_OBSERVE_ENABLED") is None
+def test_telemetry_settings_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert TelemetryProcessSettings().enabled is None
     monkeypatch.setenv("PHLO_OBSERVE_ENABLED", "true")
-    assert phlo_observe._env_flag("PHLO_OBSERVE_ENABLED") is True
+    assert TelemetryProcessSettings().enabled is True
     monkeypatch.setenv("PHLO_OBSERVE_ENABLED", "0")
-    assert phlo_observe._env_flag("PHLO_OBSERVE_ENABLED") is False
+    assert TelemetryProcessSettings().enabled is False
 
 
 def test_configure_defaults_disabled_without_destination() -> None:
