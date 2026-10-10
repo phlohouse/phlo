@@ -6,7 +6,6 @@ import asyncio
 import base64
 import hashlib
 import json
-import os
 import re
 import time
 from collections.abc import Callable
@@ -40,7 +39,7 @@ from phlo_api.branch_schema_resolution import (
     prepare_schema_resolutions,
     verify_schema_resolutions,
 )
-from phlo_api.settings import get_deployment_settings
+from phlo_api.settings import get_deployment_settings, get_process_settings
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
 router = APIRouter(tags=["v1 branches"])
@@ -580,7 +579,7 @@ async def _comparison(
 
 
 def _check_job_names(env: Environment) -> dict[str, str]:
-    raw = os.environ.get("PHLO_V1_BRANCH_CHECK_JOBS")
+    raw = get_process_settings().phlo_v1_branch_check_jobs
     try:
         if raw is None or len(raw) > 16_384:
             raise ValueError

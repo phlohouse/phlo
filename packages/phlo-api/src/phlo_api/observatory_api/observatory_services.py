@@ -25,6 +25,7 @@ from typing import Any
 import yaml
 
 from phlo.config.env import load_project_env
+from phlo_api.settings import get_process_settings
 from phlo_api.observatory_api.observatory_metadata import safe_metadata
 from phlo_api.observatory_api.observatory_models import (
     HealthState,
@@ -572,7 +573,9 @@ def load_project_docker_containers(project_root: Path | None) -> list[dict[str, 
 
 def project_compose_name(project_root: Path | None) -> str | None:
     """Resolve the compose project name for a Phlo project root."""
-    configured = os.environ.get("PHLO_COMPOSE_PROJECT") or os.environ.get("COMPOSE_PROJECT_NAME")
+    configured = get_process_settings().phlo_compose_project or os.environ.get(
+        "COMPOSE_PROJECT_NAME"
+    )
     if configured:
         return configured
     if project_root is None:
@@ -618,7 +621,9 @@ def current_compose_project(
     project_root: Path | None = None,
 ) -> str | None:
     """Resolve the active compose project name from env, project config, or running containers."""
-    configured = os.environ.get("PHLO_COMPOSE_PROJECT") or os.environ.get("COMPOSE_PROJECT_NAME")
+    configured = get_process_settings().phlo_compose_project or os.environ.get(
+        "COMPOSE_PROJECT_NAME"
+    )
     if configured:
         return configured
     if project_root is not None:

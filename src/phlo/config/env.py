@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 from phlo.config.layout import project_env_paths
+from phlo.config.process import get_process_settings
 
 # Per-context project root, consulted by resolve_project_root when callers
 # pass no explicit root. A ContextVar keeps nested settings construction
@@ -42,7 +43,7 @@ def resolve_project_root(project_root: Path | str | None = None) -> Path:
     if active_root is not None:
         return active_root
 
-    configured_root = os.environ.get("PHLO_PROJECT_PATH")
+    configured_root = get_process_settings().phlo_project_path
     if configured_root:
         return _normalise_project_root(configured_root)
     return Path.cwd().resolve()

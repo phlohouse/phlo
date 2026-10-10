@@ -9,15 +9,9 @@ and phlo.config to gate auto-discovery at startup.
 
 from __future__ import annotations
 
-import os
-
 from phlo.config import get_settings
+from phlo.config.process import PluginDiscoverySettings
 from phlo.logging import get_logger
-from phlo.plugins.discovery._plugin_constants import (
-    FALSY_ENV_VALUES,
-    NO_AUTO_DISCOVER_ENV,
-    TRUTHY_ENV_VALUES,
-)
 from phlo.plugins.discovery._plugin_loading import discover_plugins
 
 logger = get_logger(__name__)
@@ -43,21 +37,7 @@ def auto_discover() -> None:
 
 def is_auto_discover_disabled_by_env() -> bool:
     """Return True when PHLO_NO_AUTO_DISCOVER explicitly disables discovery."""
-    raw_value = os.environ.get(NO_AUTO_DISCOVER_ENV)
-    if raw_value is None:
-        return False
-
-    value = raw_value.strip().lower()
-    if value in FALSY_ENV_VALUES:
-        return False
-    if value not in TRUTHY_ENV_VALUES:
-        logger.warning(
-            "plugin_auto_discover_env_invalid",
-            env_var=NO_AUTO_DISCOVER_ENV,
-            value=raw_value,
-            hint=f"Use {NO_AUTO_DISCOVER_ENV}=1 to disable auto-discovery",
-        )
-    return True
+    return PluginDiscoverySettings().no_auto_discover
 
 
 def should_auto_discover() -> bool:

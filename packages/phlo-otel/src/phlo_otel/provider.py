@@ -21,6 +21,7 @@ import socket
 from typing import Any, cast
 
 from phlo.config import get_settings
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -99,7 +100,7 @@ def _build_resource_attributes() -> dict[str, str]:
         "OTEL_SERVICE_INSTANCE_ID",
         settings.phlo_service_instance_id or socket.gethostname(),
     )
-    project = os.environ.get("PHLO_PROJECT", settings.phlo_project or service_name)
+    project = get_process_settings().get("PHLO_PROJECT", settings.phlo_project or service_name)
     return {
         SERVICE_NAME: service_name,
         "service.namespace": service_namespace,

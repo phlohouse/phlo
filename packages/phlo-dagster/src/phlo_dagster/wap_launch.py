@@ -24,6 +24,7 @@ from phlo._correlation import resolve_project_identity
 from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCatalog
 from phlo.capabilities.resolver import resolve_capability
 from phlo.config import get_settings
+from phlo.config.process import get_process_settings
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 import phlo.telemetry as phlo_observe
@@ -42,18 +43,28 @@ logger = get_logger(__name__)
 
 
 def _report_path(logical_run_id: str) -> Path:
-    root = Path(os.getenv("PHLO_PROJECT_PATH", "."))
+    root = Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
     return root / ".phlo" / "wap-reports" / f"{logical_run_id}.json"
 
 
 def _report_snapshot_path(logical_run_id: str, checksum: str) -> Path:
-    root = Path(os.getenv("PHLO_PROJECT_PATH", ".")) / ".phlo" / "wap-reports" / "evidence"
+    root = (
+        Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
+        / ".phlo"
+        / "wap-reports"
+        / "evidence"
+    )
     run_key = hashlib.sha256(logical_run_id.encode("utf-8")).hexdigest()[:24]
     return root / f"{run_key}.{checksum}.json"
 
 
 def _launch_manifest_path(logical_run_id: str, checksum: str) -> Path:
-    root = Path(os.getenv("PHLO_PROJECT_PATH", ".")) / ".phlo" / "wap-reports" / "launches"
+    root = (
+        Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
+        / ".phlo"
+        / "wap-reports"
+        / "launches"
+    )
     run_key = hashlib.sha256(logical_run_id.encode("utf-8")).hexdigest()[:24]
     return root / f"{run_key}.{checksum}.json"
 

@@ -21,6 +21,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from phlo.config.process import get_process_settings as get_core_process_settings
+from phlo_api.settings import get_process_settings
 from phlo.cli.commands.plugin.install import resolve_install_target
 from phlo.plugins.registry_client import get_registry_data
 from phlo_api.api.operation_controls import audit_operation, enforce_rate_limit, require_scope
@@ -49,7 +51,7 @@ class ObservatoryPackageInstallResult(BaseModel):
 
 
 def _project_root() -> Path:
-    return Path(os.environ.get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
+    return Path(get_core_process_settings().get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
 
 
 def _trusted_registry_service_packages() -> dict[str, dict[str, Any]]:
@@ -81,7 +83,7 @@ def _trusted_registry_service_packages() -> dict[str, dict[str, Any]]:
 
 
 def _uv_project_root() -> Path | None:
-    configured = os.environ.get("PHLO_UV_PROJECT") or os.environ.get("UV_PROJECT")
+    configured = get_process_settings().phlo_uv_project or os.environ.get("UV_PROJECT")
     if configured:
         path = Path(configured).expanduser()
         if (path / "pyproject.toml").exists():
