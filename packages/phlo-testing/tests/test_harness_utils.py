@@ -39,6 +39,15 @@ def test_read_env_file_parses_and_skips_comments(tmp_path: Path) -> None:
     assert read_env_file(env_path) == {"POSTGRES_PORT": "5432", "QUOTED": "a=b"}
 
 
+def test_read_env_file_strips_quotes_and_tolerates_missing_file(tmp_path: Path) -> None:
+    """read_env_file should strip surrounding quotes and return {} for an absent file."""
+    env_path = tmp_path / ".env"
+    env_path.write_text("SINGLE='one'\nDOUBLE=\"two\"\n", encoding="utf-8")
+
+    assert read_env_file(env_path) == {"SINGLE": "one", "DOUBLE": "two"}
+    assert read_env_file(tmp_path / "missing.env") == {}
+
+
 def test_apply_env_updates_uses_shared_layout_destinations(tmp_path):
     from phlo.config.layout import SHARED_LAYOUT_MARKER
 
