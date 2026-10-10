@@ -12,6 +12,7 @@ import sys
 import tempfile
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -361,6 +362,67 @@ def support_docs(root: Path) -> tuple[dict[str, object], str]:
     return data, "\n".join(lines).rstrip() + "\n"
 
 
+def topology_docs(root: Path) -> tuple[dict[str, object], str]:
+    """Project the existing typed service definitions, including package companions."""
+    prepare_imports(root)
+    from phlo.plugins._service_yaml import load_service_yaml
+    from phlo.plugins.discovery._service_definition import ServiceDefinition
+    from phlo.plugins.discovery._service_dependency_resolution import resolve_service_dependencies
+
+    definitions = {}
+    services = []
+    for path in sorted((root / "packages").glob("*/src/*/*.yaml")):
+        manifest = load_service_yaml(path)
+        if "name" not in manifest or "compose" not in manifest:
+            continue
+        definition = ServiceDefinition.from_dict(manifest, path.parent)
+        if definition.name in definitions:
+            raise ValueError(f"Duplicate service identity: {definition.name}")
+        definition.validate_port_defaults()
+        definitions[definition.name] = definition
+        services.append(
+            {
+                "name": definition.name,
+                "source": path.relative_to(root).as_posix(),
+                "package": path.parts[-4],
+                "profile": definition.profile,
+                "default": definition.default,
+                "depends_on": sorted(definition.depends_on),
+                "ports": [asdict(port) for port in definition.ports],
+            }
+        )
+    for definition in definitions.values():
+        missing = set(definition.depends_on) - definitions.keys()
+        if missing:
+            raise ValueError(f"{definition.name}: unknown service dependencies: {sorted(missing)}")
+    resolve_service_dependencies(list(definitions.values()))
+    services.sort(key=lambda item: item["name"])
+    data: dict[str, object] = {"schema_version": 1, "services": services}
+    lines = [
+        "# Service topology reference",
+        "",
+        "> Generated from package service manifests by `scripts/generate_reference_docs.py`. Do not edit directly.",
+        "",
+        "`ServiceDefinition` is the typed authority. These are declared startup dependencies and published port defaults, not runtime calls or deployment overrides. See [ownership and validation](../architecture/service-topology.md#typed-authority-and-projections).",
+        "",
+        "| Service | Package manifest | Dependencies | Host default → container/protocol (override) | Profile | Default |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for service in services:
+        ports = (
+            "; ".join(
+                f"{port['host_port']} → {port['container_port']}/{port['protocol']} ({port['env_var'] or 'literal'})"
+                for port in service["ports"]
+            )
+            or "none"
+        )
+        dependencies = ", ".join(f"`{name}`" for name in service["depends_on"]) or "none"
+        lines.append(
+            f"| `{service['name']}` | [{service['package']}](../../{service['source']}) | {dependencies} | {ports} | {service['profile'] or 'none'} | {str(service['default']).lower()} |"
+        )
+    return data, "\n".join(lines) + "\n"
+
+
 def outputs(root: Path) -> dict[Path, str]:
     destination = root / "docs/reference"
     result = {}
@@ -369,6 +431,7 @@ def outputs(root: Path) -> dict[Path, str]:
         ("settings", settings_docs),
         ("http-api", http_docs),
         ("support-matrix", support_docs),
+        ("service-topology", topology_docs),
     )
     for name, builder in builders:
         data, markdown = builder(root)

@@ -1,3 +1,15 @@
+## Unreleased
+
+### Deprecated
+
+- phlo-api: Dataset production uses `ObservatoryDatasetProduction`,
+  `ObservatoryProductionStage`, `ObservatoryDatasetProductionList`, profile
+  `production`, `last_operation`, and `/api/observatory/dataset-production`.
+  The old pipeline model names, profile `pipeline`, `last_run`, and Dataset
+  `/api/observatory/pipelines` endpoint remain compatible until removal in
+  0.19.0. Jobs UI URLs, provider-native terms, and persisted evidence contracts
+  are unchanged. See [public name compatibility](docs/reference/public-name-compatibility.md).
+
 ## [phlo 0.17.0 + 38 packages] - 2026-09-22
 
 ### Added

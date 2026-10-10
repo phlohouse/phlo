@@ -12,6 +12,7 @@ import pytest
 
 from phlo.plugins import PluginMetadata, ServicePlugin
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery, get_global_registry
+from phlo.plugins.discovery._service_definition import ServicePort
 from phlo.plugins.discovery._service_discovery import ServiceDiscovery as CompatServiceDiscovery
 from phlo.plugins.discovery.service_manifest import ServiceManifest, ServiceManifestError
 from tests.helpers import DummyServicePlugin as _DummyServicePlugin
@@ -607,3 +608,38 @@ def test_inline_service_with_build() -> None:
     assert service.build == {"context": "./my-app", "dockerfile": "Dockerfile.dev"}
     assert service.image is None
     assert service.compose["ports"] == ["3000:3000"]
+
+
+def test_service_definition_exposes_typed_ports_without_resolving_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EXAMPLE_PORT", "9999")
+    service = ServiceDefinition.from_dict(
+        {
+            "name": "example",
+            "compose": {
+                "ports": [
+                    "127.0.0.1:${EXAMPLE_PORT:-4100}:8080",
+                    "[::1]:4200:8081/udp",
+                    {"published": 0, "target": 65535, "protocol": "udp", "host_ip": "::1"},
+                    "${OTHER_PORT}:9000",
+                ]
+            },
+        },
+        None,
+    )
+    assert service.ports == (
+        ServicePort(
+            container_port=8080, host_port=4100, env_var="EXAMPLE_PORT", host_ip="127.0.0.1"
+        ),
+        ServicePort(container_port=8081, host_port=4200, host_ip="[::1]", protocol="udp"),
+        ServicePort(container_port=65535, host_port=0, host_ip="::1", protocol="udp"),
+        ServicePort(container_port=9000, env_var="OTHER_PORT"),
+    )
+
+
+@pytest.mark.parametrize("port", ["4000:0", "65536:8080", "4000:65536", "4000:8080/sctp"])
+def test_service_definition_rejects_invalid_published_ports(port: str) -> None:
+    service = ServiceDefinition.from_inline("example", {"ports": [port]})
+    with pytest.raises(ValueError):
+        _ = service.ports

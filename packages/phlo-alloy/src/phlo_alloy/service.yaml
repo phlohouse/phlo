@@ -4,6 +4,9 @@ category: observability
 default: false
 profile: observability
 
+depends_on:
+  - loki
+
 image: grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308
 
 compose:
@@ -22,9 +25,6 @@ compose:
   volumes:
     - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
     - /var/run/docker.sock:/var/run/docker.sock:ro
-  depends_on:
-    loki:
-      condition: service_started
   healthcheck:
     test: ["CMD", "pgrep", "alloy"]
     interval: 10s

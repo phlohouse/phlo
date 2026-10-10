@@ -23,10 +23,10 @@ from phlo.cli.output import json_envelope, missing_phlo_project_error
 from phlo.config.layout import project_env_paths
 from phlo.logging import get_logger
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.plugins.discovery._service_definition import ServicePort
 
 logger = get_logger(__name__)
 
-PORT_PATTERN = re.compile(r"(?:[^:]+:)?\$\{([^}:]+)(?::-([^}]*))?\}:(\d+)")
 DEFAULT_PORT_PATTERN = re.compile(r"\$\{([^}:]+):-(\d+)\}")
 
 
@@ -71,24 +71,12 @@ def _parse_compose_port(port_str: str) -> tuple[str | None, str]:
 
 def _parse_compose_port_spec(port_str: str) -> ComposePortSpec:
     """Parse a compose port string into its env/literal host and container parts."""
-    normalized = port_str.strip().strip("\"'")
-    match = PORT_PATTERN.search(normalized)
-    if match and (match.start() == 0 or normalized[match.start() - 1] == ":"):
-        return ComposePortSpec(
-            env_var=match.group(1),
-            host_port=match.group(2),
-            container_port=match.group(3),
-        )
-
-    if ":" in normalized:
-        host_part, container_part = normalized.rsplit(":", 1)
-        return ComposePortSpec(
-            env_var=None,
-            host_port=host_part.rsplit(":", 1)[-1],
-            container_port=container_part.split("/", 1)[0],
-        )
-
-    return ComposePortSpec(env_var=None, host_port=None, container_port=normalized)
+    port = ServicePort.parse(port_str)
+    return ComposePortSpec(
+        env_var=port.env_var,
+        host_port=str(port.host_port) if port.host_port is not None else None,
+        container_port=str(port.container_port),
+    )
 
 
 def _resolve_env_var(env_var: str | None, env: dict[str, str]) -> str | None:

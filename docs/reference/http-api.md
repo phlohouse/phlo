@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (209)
+## Endpoints (210)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -64,6 +64,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/observatory/capability-inventory` | Get Observatory Capability Inventory | `observatory` |
 | `POST` | `/api/observatory/contributing-rows/page` | Post Observatory Contributing Rows Page | `observatory` |
 | `POST` | `/api/observatory/contributing-rows/query` | Post Observatory Contributing Rows Query | `observatory` |
+| `GET` | `/api/observatory/dataset-production` | Get Observatory Dataset Production | `observatory` |
 | `GET` | `/api/observatory/dataset-workflow/config` | Get Observatory Dataset Workflow Config | `observatory` |
 | `PUT` | `/api/observatory/dataset-workflow/config` | Put Observatory Dataset Workflow Config | `observatory` |
 | `GET` | `/api/observatory/datasets` | Get Observatory Datasets | `observatory` |

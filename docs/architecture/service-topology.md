@@ -2,13 +2,53 @@
 
 Service manifests are owned by provider packages and combined by the compose generator. `default: true` controls default selection; it does not establish support. The support authority is [`registry/support/v1.json`](../../registry/support/v1.json).
 
+## Typed authority and projections
+
+[`ServiceDefinition`](../../src/phlo/plugins/discovery/_service_definition.py) is
+the single typed topology authority. Provider packages author its existing YAML
+input, including primary `service.yaml` files and companion or explicitly
+registered manifests. There is no second central registry of service names.
+Identities remain open strings so third-party providers can declare services.
+
+The authority owns service identity, top-level `depends_on`, and typed
+`ServicePort` values parsed from `compose.ports`. Ports carry integer container
+and host defaults, the override variable, bind address, and protocol. The CLI
+ports command uses the same parser. Dependency discovery and selected-service
+Compose generation use the same `ServiceDefinition` objects.
+
+The [generated topology reference](../reference/service-topology.md) and its
+[JSON projection](../reference/generated/service-topology.json) cover all
+first-party primary and companion manifests, including explicitly registered
+PostgreSQL exporter and volume setup files. They are outputs, not authorities.
+Change topology in the owning package, then run `make docs-reference-generate`.
+Do not edit generated projections by hand.
+
+`make docs-reference-check`, already required by CI's Python lane and
+`make check`, compares manifests with the committed projections without writing
+them. A valid identity, port, or dependency change fails until its projections
+are deliberately regenerated and reviewed. The generator also rejects duplicate
+identities, unknown first-party dependencies, cycles, conflicting
+`compose.depends_on`, and disagreement between host-port fallback values and
+`env_vars` defaults. Regeneration cannot conceal those invalid declarations.
+Negative tests mutate real `service.yaml` copies in each topology dimension and
+assert that the read-only check fails without changing the saved projection.
+
+These are startup dependencies, not every runtime network call. For example,
+the API has a PostgreSQL startup dependency but can call optional orchestrator
+and query providers. Global validation covers the first-party inventory, not
+external provider identities. Project selection, deployment overrides, native
+mode, and production exposure rules remain the Compose generator's concern.
+Generated Compose is authoritative for that selected deployment, not a
+competing authored topology.
+
 ## Core and API topology
 
 ```text
 postgres-volume-setup -> postgres ----+
-minio-setup ----------> minio -------+----> nessie ----> trino ----> dagster
+minio-volume-setup ---> minio -------+----> nessie ----> trino ----> dagster
                                      |                     |
                                      +---------------------+
+                        minio ----> minio-setup
 
 postgres ---------------------------> phlo-api ----> observatory
 ```
@@ -17,19 +57,22 @@ Setup and companion services can add edges not shown in a package's primary `ser
 
 All blessed-core services in this table currently have alpha maturity and blocked release gates. “Blessed core” is a target profile, not a production-readiness claim; see the [support matrix](../reference/support-matrix.md).
 
-| Service | Package owner; target profile | Dependencies | Default host port | Persistent or mounted state | Health |
-| --- | --- | --- | --- | --- | --- |
-| `postgres-volume-setup` | `phlo-postgres`; blessed core | None | None | Prepares `postgres-data` | One-shot completion |
-| `postgres` | `phlo-postgres`; blessed core, default | volume setup | `10000` to 5432 | `postgres-data:/var/lib/postgresql` | `pg_isready` |
-| `minio-volume-setup` | `phlo-minio`; blessed core | None | None | Prepares `minio-data` | One-shot completion |
-| `minio` | `phlo-minio`; blessed core, default | volume setup | `10001` API, `10002` console | `minio-data:/bitnami/minio/data` | `/minio/health/ready` |
-| `minio-setup` | `phlo-minio`; blessed core | MinIO | None | Creates required buckets | One-shot completion |
-| `nessie` | `phlo-nessie`; blessed core, default | PostgreSQL, MinIO | `10003` | Catalogue state in PostgreSQL; read-only `./nessie` authorisation config; warehouse in MinIO | `/api/v1/config` |
-| `trino` | `phlo-trino`; blessed core, default | Nessie, MinIO | `10005` | Generated `./trino` configuration, mounted read/write | `/v1/info/state` must be `ACTIVE` |
-| `dagster` | `phlo-dagster`; blessed core, default | PostgreSQL, MinIO, Nessie, Trino | `10006` | `./dagster:/opt/dagster` and project at `/app` | `/server_info` |
-| `dagster-daemon` | `phlo-dagster`; blessed core | Same data services | None | Shares Dagster home and PostgreSQL run storage | Process/service health from generated compose |
-| `phlo-api` | `phlo-api`; blessed core, `api` profile | PostgreSQL | `4000` | Read-only project plus writable `.phlo/observatory`, `.phlo/state`, and logs | `/health` |
-| `observatory` | `phlo-observatory`; blessed core, `api` profile | phlo-api; runtime calls Dagster, Nessie, and Trino | `3001` | No service-owned named volume | `/` |
+Dependencies and ports come from the generated reference above. This table
+records state and readiness responsibilities rather than duplicating topology.
+
+| Service | Package owner; target profile | Persistent or mounted state | Health |
+| --- | --- | --- | --- |
+| `postgres-volume-setup` | `phlo-postgres`; blessed core | Prepares `postgres-data` | One-shot completion |
+| `postgres` | `phlo-postgres`; blessed core, default | `postgres-data:/var/lib/postgresql` | `pg_isready` |
+| `minio-volume-setup` | `phlo-minio`; blessed core | Prepares `minio-data` | One-shot completion |
+| `minio` | `phlo-minio`; blessed core, default | `minio-data:/bitnami/minio/data` | `/minio/health/ready` |
+| `minio-setup` | `phlo-minio`; blessed core | Creates required buckets | One-shot completion |
+| `nessie` | `phlo-nessie`; blessed core, default | Catalogue state in PostgreSQL; read-only `./nessie` authorisation config; warehouse in MinIO | `/api/v1/config` |
+| `trino` | `phlo-trino`; blessed core, default | Generated `./trino` configuration, mounted read/write | `/v1/info/state` must be `ACTIVE` |
+| `dagster` | `phlo-dagster`; blessed core, default | `./dagster:/opt/dagster` and project at `/app` | `/server_info` |
+| `dagster-daemon` | `phlo-dagster`; blessed core | Shares Dagster home and PostgreSQL run storage | Process/service health from generated compose |
+| `phlo-api` | `phlo-api`; blessed core, `api` profile | Read-only project plus writable `.phlo/observatory`, `.phlo/state`, and logs | `/health` |
+| `observatory` | `phlo-observatory`; blessed core, `api` profile | No service-owned named volume | `/healthz` |
 
 The principal manifests are [PostgreSQL](../../packages/phlo-postgres/src/phlo_postgres/service.yaml), [MinIO](../../packages/phlo-minio/src/phlo_minio/service.yaml), [Nessie](../../packages/phlo-nessie/src/phlo_nessie/service.yaml), [Trino](../../packages/phlo-trino/src/phlo_trino/service.yaml), [Dagster](../../packages/phlo-dagster/src/phlo_dagster/service.yaml), [API](../../packages/phlo-api/src/phlo_api/service.yaml), and [Observatory](../../packages/phlo-observatory/src/phlo_observatory/service.yaml).
 
@@ -48,7 +91,10 @@ The principal manifests are [PostgreSQL](../../packages/phlo-postgres/src/phlo_p
 
 Some optional manifests currently say `default: true`, notably Superset and pgweb. That flag affects selection only. Their preview and development-only support tiers still apply. Select profiles explicitly and inspect `phlo services config` or the generated compose before deployment.
 
-Common optional host ports are Hasura `8082`, PostgREST `3002`, Traefik `80`, Observatory `3001`, API `4000`, Prometheus `9090`, Grafana `3000`, and ClickHouse HTTP `8123`; every service manifest exposes its own environment-variable override. Services without a host mapping, such as oauth2-proxy in its primary manifest, remain reachable only on the compose network unless another component publishes them.
+The generated reference lists optional host-port defaults and their override
+variables. Services without a host mapping, such as oauth2-proxy in its primary
+manifest, remain reachable only on the Compose network unless another component
+publishes them.
 
 ## Credentials and network exposure
 

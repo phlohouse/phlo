@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
+import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
@@ -44,7 +47,8 @@ def test_support_docs_distinguishes_target_and_current_state() -> None:
 
 
 @pytest.mark.parametrize(
-    "builder", [generator.cli_docs, generator.settings_docs, generator.http_docs]
+    "builder",
+    [generator.cli_docs, generator.settings_docs, generator.http_docs, generator.topology_docs],
 )
 def test_live_inventory_is_deterministic(builder) -> None:
     assert builder(ROOT) == builder(ROOT)
@@ -70,3 +74,58 @@ def test_live_inventories_are_internally_consistent() -> None:
     assert http["endpoint_count"] == len(http["endpoints"])
     assert len(endpoint_keys) == len(http["endpoints"])
     assert ("GET", "/health") in endpoint_keys
+
+
+@pytest.mark.parametrize("mutation", ["identity", "port", "dependency"])
+def test_service_manifest_disagreement_fails_read_only_projection_check(
+    tmp_path: Path,
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Mutate a real service.yaml, not the expected output or a mocked parser."""
+    for source in (ROOT / "packages").glob("*/src/*/*.yaml"):
+        destination = tmp_path / source.relative_to(ROOT)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+    support = tmp_path / "registry/support/v1.json"
+    support.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "registry/support/v1.json", support)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(generator, "ROOT", tmp_path)
+    assert generator.main([]) == 0
+    assert generator.main(["--check"]) == 0
+    target = tmp_path / "docs/reference/generated/service-topology.json"
+    original = target.read_text(encoding="utf-8")
+    manifest_path = tmp_path / "packages/phlo-api/src/phlo_api/service.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    if mutation == "identity":
+        # Rename both ends so the graph remains valid. Only projection drift fails.
+        manifest["name"] = "phlo-api-renamed"
+        dependent = tmp_path / "packages/phlo-observatory/src/phlo_observatory/service.yaml"
+        dependent.write_text(
+            dependent.read_text(encoding="utf-8").replace("- phlo-api", "- phlo-api-renamed"),
+            encoding="utf-8",
+        )
+    elif mutation == "port":
+        manifest["compose"]["ports"] = ["${PHLO_API_PORT:-4000}:4001"]
+    else:
+        manifest["depends_on"].append("trino")
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    with pytest.raises(SystemExit) as failure:
+        generator.main(["--check"])
+    assert failure.value.code == 1
+    assert "docs/reference/generated/service-topology.json" in capsys.readouterr().err
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_service_port_default_disagreement_is_not_generated_away(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "packages/provider/src/provider/service.yaml"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        "name: example\ncompose:\n  ports: ['${EXAMPLE_PORT:-4100}:80']\n"
+        "env_vars:\n  EXAMPLE_PORT:\n    default: 4200\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="EXAMPLE_PORT default disagrees"):
+        generator.topology_docs(tmp_path)
