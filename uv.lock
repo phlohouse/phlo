@@ -2875,7 +2875,7 @@ wheels = [
 
 [[package]]
 name = "phlo"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -3101,7 +3101,7 @@ dev = [
 
 [[package]]
 name = "phlo-airbyte"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-airbyte" }
 dependencies = [
     { name = "phlo" },
@@ -3125,7 +3125,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-alerting"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-alerting" }
 dependencies = [
     { name = "click" },
@@ -3153,7 +3153,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-alloy"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-alloy" }
 dependencies = [
     { name = "phlo" },
@@ -3175,7 +3175,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-api"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "packages/phlo-api" }
 dependencies = [
     { name = "anyio" },
@@ -3229,7 +3229,7 @@ provides-extras = ["dagster", "dev", "iceberg", "lineage"]
 
 [[package]]
 name = "phlo-clickhouse"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-clickhouse" }
 dependencies = [
     { name = "clickhouse-connect" },
@@ -3263,7 +3263,7 @@ provides-extras = ["dbt", "dev"]
 
 [[package]]
 name = "phlo-clickstack"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-clickstack" }
 dependencies = [
     { name = "phlo" },
@@ -3287,7 +3287,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-core-plugins"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-core-plugins" }
 dependencies = [
     { name = "phlo" },
@@ -3317,7 +3317,7 @@ provides-extras = ["dev", "quality"]
 
 [[package]]
 name = "phlo-dagster"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "packages/phlo-dagster" }
 dependencies = [
     { name = "cryptography" },
@@ -3371,7 +3371,7 @@ provides-extras = ["alerting", "dev", "iceberg", "nessie", "observatory"]
 
 [[package]]
 name = "phlo-dbt"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-dbt" }
 dependencies = [
     { name = "dbt-core" },
@@ -3407,7 +3407,7 @@ provides-extras = ["dagster", "dev", "quality"]
 
 [[package]]
 name = "phlo-delta"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-delta" }
 dependencies = [
     { name = "deltalake" },
@@ -3439,7 +3439,7 @@ provides-extras = ["dev", "minio"]
 
 [[package]]
 name = "phlo-dlt"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-dlt" }
 dependencies = [
     { name = "dlt" },
@@ -3471,7 +3471,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-grafana"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-grafana" }
 dependencies = [
     { name = "phlo" },
@@ -3493,7 +3493,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-hasura"
-version = "0.17.0"
+version = "0.17.1"
 source = { editable = "packages/phlo-hasura" }
 dependencies = [
     { name = "phlo" },
@@ -3525,7 +3525,7 @@ provides-extras = ["dev", "postgres"]
 
 [[package]]
 name = "phlo-iceberg"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-iceberg" }
 dependencies = [
     { name = "pandera", extra = ["pandas"] },
@@ -3561,7 +3561,7 @@ provides-extras = ["dev", "minio", "nessie"]
 
 [[package]]
 name = "phlo-kafka"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-kafka" }
 dependencies = [
     { name = "phlo" },
@@ -3587,7 +3587,7 @@ provides-extras = ["consumer", "dev"]
 
 [[package]]
 name = "phlo-lineage"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-lineage" }
 dependencies = [
     { name = "click" },
@@ -3621,7 +3621,7 @@ provides-extras = ["dev", "observatory"]
 
 [[package]]
 name = "phlo-loki"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-loki" }
 dependencies = [
     { name = "phlo" },
@@ -3647,7 +3647,7 @@ provides-extras = ["dev", "observatory"]
 
 [[package]]
 name = "phlo-mcp"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-mcp" }
 dependencies = [
     { name = "httpx" },
@@ -3677,7 +3677,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-minio"
-version = "0.16.1"
+version = "0.17.0"
 source = { editable = "packages/phlo-minio" }
 dependencies = [
     { name = "phlo" },
@@ -3699,7 +3699,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-nessie"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-nessie" }
 dependencies = [
     { name = "marshmallow" },
@@ -3739,7 +3739,7 @@ provides-extras = ["dev", "iceberg-cli", "observatory", "trino"]
 
 [[package]]
 name = "phlo-oauth2-proxy"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-oauth2-proxy" }
 dependencies = [
     { name = "phlo" },
@@ -3761,7 +3761,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-observatory"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "packages/phlo-observatory" }
 dependencies = [
     { name = "phlo" },
@@ -3787,7 +3787,7 @@ provides-extras = ["dev", "postgres"]
 
 [[package]]
 name = "phlo-observatory-example"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-observatory-example" }
 dependencies = [
     { name = "phlo" },
@@ -3831,7 +3831,7 @@ wheels = [
 
 [[package]]
 name = "phlo-observe-plugin"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "packages/phlo-observe-plugin" }
 dependencies = [
     { name = "phlo" },
@@ -3870,7 +3870,7 @@ wheels = [
 
 [[package]]
 name = "phlo-openmetadata"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-openmetadata" }
 dependencies = [
     { name = "phlo" },
@@ -3918,7 +3918,7 @@ provides-extras = ["dbt", "dev", "lineage", "nessie", "postgres", "quality", "tr
 
 [[package]]
 name = "phlo-otel"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-otel" }
 dependencies = [
     { name = "opentelemetry-api" },
@@ -3946,7 +3946,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-pandera"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-pandera" }
 dependencies = [
     { name = "click" },
@@ -3984,7 +3984,7 @@ provides-extras = ["dev", "observatory", "trino"]
 
 [[package]]
 name = "phlo-pgweb"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-pgweb" }
 dependencies = [
     { name = "phlo" },
@@ -4006,7 +4006,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-polaris"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-polaris" }
 dependencies = [
     { name = "phlo" },
@@ -4040,7 +4040,7 @@ provides-extras = ["dev", "iceberg"]
 
 [[package]]
 name = "phlo-postgres"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-postgres" }
 dependencies = [
     { name = "phlo" },
@@ -4064,7 +4064,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-postgrest"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-postgrest" }
 dependencies = [
     { name = "phlo" },
@@ -4096,7 +4096,7 @@ provides-extras = ["dbt", "dev", "postgres"]
 
 [[package]]
 name = "phlo-prometheus"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-prometheus" }
 dependencies = [
     { name = "phlo" },
@@ -4118,7 +4118,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-rustfs"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-rustfs" }
 dependencies = [
     { name = "phlo" },
@@ -4140,7 +4140,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-sling"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-sling" }
 dependencies = [
     { name = "phlo" },
@@ -4166,7 +4166,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-superset"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-superset" }
 dependencies = [
     { name = "phlo" },
@@ -4190,7 +4190,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-testing"
-version = "0.17.0"
+version = "0.17.1"
 source = { editable = "packages/phlo-testing" }
 dependencies = [
     { name = "dagster" },
@@ -4252,7 +4252,7 @@ provides-extras = ["dbt", "dev", "dlt", "iceberg", "nessie", "trino"]
 
 [[package]]
 name = "phlo-traefik"
-version = "0.16.0"
+version = "0.16.1"
 source = { editable = "packages/phlo-traefik" }
 dependencies = [
     { name = "phlo" },
@@ -4274,7 +4274,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-trino"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "packages/phlo-trino" }
 dependencies = [
     { name = "pandas" },
