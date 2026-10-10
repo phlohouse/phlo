@@ -6,12 +6,25 @@ each check, and one check's in-place edits must not leak into the next.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import nullcontext
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from phlo_dlt.executor import StagedFrameLoader, _evaluate_domain_quality_checks
+
+
+@pytest.fixture(params=[True] if int(pd.__version__.split(".")[0]) >= 3 else [True, False])
+def copy_on_write(request: pytest.FixtureRequest) -> Iterator[None]:
+    # Pandas 3 always enables copy-on-write and deprecates the option.
+    with (
+        nullcontext()
+        if int(pd.__version__.split(".")[0]) >= 3
+        else pd.option_context("mode.copy_on_write", request.param)
+    ):
+        yield
 
 
 @pytest.fixture
@@ -75,14 +88,9 @@ def test_read_failure_rejects_every_check_without_rereading(
     assert read_counter == [missing]
 
 
-@pytest.mark.parametrize("copy_on_write", [True, False])
 def test_check_mutation_does_not_leak_into_next_check(
-    staged_paths: list[Path], monkeypatch: pytest.MonkeyPatch, copy_on_write: bool
+    staged_paths: list[Path], copy_on_write: None
 ) -> None:
-    # The lockfile resolves pandas 3, where copy-on-write is always on, so the
-    # True case is real; the False case exercises the pandas 2 deep-copy branch.
-    monkeypatch.setattr("phlo_dlt.executor._copy_on_write_enabled", lambda: copy_on_write)
-
     def _mutating_check(frame: pd.DataFrame) -> str | None:
         # In-place cell writes hit the shared block unless the loader isolates it.
         frame.iloc[:, 0] = -1
@@ -101,6 +109,34 @@ def test_check_mutation_does_not_leak_into_next_check(
     )
 
     assert [evaluation.violation for evaluation in evaluations] == [None, None]
+
+
+def test_loader_isolates_nested_parquet_values(
+    tmp_path: Path, read_counter: list[Path], copy_on_write: None
+) -> None:
+    path = tmp_path / "nested.parquet"
+    pd.DataFrame(
+        {
+            "payload": [{"details": {"unit": "USD", "amount": 1}}],
+            "tags": [[{"label": "first"}, {"label": "second"}]],
+            "value": [7],
+        }
+    ).to_parquet(path)
+    loader = StagedFrameLoader([path])
+
+    edited = loader.load()
+    edited.at[0, "payload"]["details"].pop("unit")
+    edited.at[0, "payload"]["details"]["amount"] = -1
+    edited.at[0, "tags"][0]["label"] = "changed"
+    edited.at[0, "value"] = -7
+
+    for _ in range(2):
+        original = loader.load()
+        assert original.at[0, "payload"] == {"details": {"unit": "USD", "amount": 1}}
+        assert list(original.at[0, "tags"]) == [{"label": "first"}, {"label": "second"}]
+        assert original.at[0, "value"] == 7
+
+    assert read_counter == [path]
 
 
 def test_loader_is_lazy(staged_paths: list[Path], read_counter: list[Path]) -> None:

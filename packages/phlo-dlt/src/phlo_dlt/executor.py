@@ -57,6 +57,7 @@ Example:
 from __future__ import annotations
 
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
@@ -157,10 +158,13 @@ class StagedFrameLoader:
             except Exception as exc:
                 self._error = exc
                 raise
-        # Each check gets its own view so in-place edits can't leak into the next
-        # check. Under copy-on-write a shallow copy is enough and costs nothing;
-        # without it (pandas 2 defaults) only a deep copy isolates the checks.
-        return self._frame.copy(deep=not _copy_on_write_enabled())
+        frame = self._frame.copy(deep=not _copy_on_write_enabled())
+        # Pandas copies blocks, not nested objects. Copy object cells recursively
+        # while leaving numeric blocks shared under copy-on-write.
+        for column, dtype in self._frame.dtypes.items():
+            if pd.api.types.is_object_dtype(dtype):
+                frame[column] = self._frame[column].map(deepcopy)
+        return frame
 
 
 def _copy_on_write_enabled() -> bool:
