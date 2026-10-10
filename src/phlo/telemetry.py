@@ -52,6 +52,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
+from phlo.config.telemetry import TelemetryProcessSettings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -118,14 +119,6 @@ def enabled() -> bool:
         return False
 
 
-def _env_flag(name: str, env: Mapping[str, str] | None = None) -> bool | None:
-    """Parse a boolean-ish environment variable; None when unset."""
-    raw = (os.environ if env is None else env).get(name)
-    if raw is None:
-        return None
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 @contextmanager
 def _hidden_env(name: str) -> Iterator[None]:
     """Unset one environment variable for the block, restoring it verbatim.
@@ -151,12 +144,12 @@ def _want_pretty(
     if drain_names is None:
         drains_env = env.get("OBSERVE_DRAINS")
         drain_names = {n.strip() for n in (drains_env or "").split(",") if n.strip()}
-    return "pretty" in drain_names or bool(_env_flag("PHLO_OBSERVE_PRETTY", env))
+    return "pretty" in drain_names or TelemetryProcessSettings.from_environment(env).pretty
 
 
 def _pretty_verbose(env: Mapping[str, str] | None = None) -> bool:
     """Whether verbose pretty output was requested."""
-    return bool(_env_flag("PHLO_OBSERVE_PRETTY_VERBOSE", env))
+    return TelemetryProcessSettings.from_environment(env).pretty_verbose
 
 
 def _framework_debug_requested(env: Mapping[str, str] | None = None) -> bool:
@@ -168,8 +161,7 @@ def _framework_debug_requested(env: Mapping[str, str] | None = None) -> bool:
     """
     if _pretty_verbose(env):
         return True
-    env = os.environ if env is None else env
-    return env.get("PHLO_LOG_LEVEL", "").strip().upper() == "DEBUG"
+    return TelemetryProcessSettings.from_environment(env).log_level.strip().upper() == "DEBUG"
 
 
 def _pretty_drain_available() -> bool:
@@ -202,7 +194,7 @@ def configure(**overrides: Any) -> bool:
         _configure_failed = True
         return False
     try:
-        enabled_override = _env_flag("PHLO_OBSERVE_ENABLED")
+        enabled_override = TelemetryProcessSettings().enabled
         # ``pretty`` is Phlo's human-readable drain, not an observe-core drain
         # name — the SDK's OBSERVE_DRAINS env source rejects unknown names
         # outright, before init values can take precedence. The name is
@@ -674,7 +666,7 @@ def dagster_console_log_level(
     as a cheap pre-filter for in-process launches — do not use it to predict
     a remote worker's capability.
     """
-    if _env_flag("PHLO_OBSERVE_ENABLED", env) is False:
+    if TelemetryProcessSettings.from_environment(env).enabled is False:
         # Pretty is configured out — quieting the framework console would
         # leave the terminal with no run narrative at all.
         return default
@@ -837,7 +829,7 @@ def _apply_dagster_console_level(context: Any) -> None:
     ``isEnabledFor`` cache must be cleared or the first-seen level keeps
     passing.
     """
-    want_pretty = _want_pretty() and _env_flag("PHLO_OBSERVE_ENABLED") is not False
+    want_pretty = _want_pretty() and TelemetryProcessSettings().enabled is not False
     attached = want_pretty and _configured and not _configure_failed and _ensure_pretty_drain()
     explicit = _caller_console_level(context)
     if explicit is not None:

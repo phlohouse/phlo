@@ -26,6 +26,7 @@ from typing import Any, Literal, cast
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
+from phlo_api.settings import get_process_settings
 from phlo.capabilities import (
     WorkflowApplyAction,
     WorkflowFilePreview,
@@ -302,7 +303,7 @@ def _proposal_digest(proposal: dict[str, Any]) -> str:
 
 
 def _workflow_integrity_key(project_root: Path) -> bytes:
-    configured = os.environ.get("PHLO_WORKFLOW_WIZARD_SECRET")
+    configured = get_process_settings().phlo_workflow_wizard_secret
     if configured:
         return configured.encode("utf-8")
 

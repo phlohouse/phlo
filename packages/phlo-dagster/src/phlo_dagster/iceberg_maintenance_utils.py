@@ -8,11 +8,11 @@ than importing a concrete provider package.
 
 from __future__ import annotations
 
-import os
 from typing import Annotated, Any, Optional
 
 import dagster as dg
 from phlo.capabilities import MaintenanceDiscovery, resolve_capability
+from phlo.config.process import get_process_settings
 from phlo.hooks import HookCorrelation, TelemetryEventContext, TelemetryEventEmitter
 from phlo.operations.journal import OperationJournalStore
 from phlo.operations.journal_store import FileOperationJournalStore
@@ -31,7 +31,7 @@ def durable_maintenance_journal() -> OperationJournalStore:
     exactly-once journal would degrade to in-memory and disappear with the
     process, so the run is refused instead.
     """
-    directory = os.environ.get("PHLO_OPERATIONS_JOURNAL_DIR")
+    directory = get_process_settings().phlo_operations_journal_dir
     if not directory:
         raise RuntimeError(
             "scheduled maintenance requires a durable operation journal: set "

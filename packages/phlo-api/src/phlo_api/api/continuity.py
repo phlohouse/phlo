@@ -24,7 +24,6 @@ The vocabulary is explain > confirm > act > verify:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +47,7 @@ from phlo.operations.journal import (
     mark_unknown,
 )
 from phlo.operations.journal_store import FileOperationJournalStore
+from phlo.config.process import get_process_settings
 from phlo.operations.restore import (
     RestoreError,
     RestorePlan,
@@ -185,7 +185,7 @@ def _durable_journal() -> OperationJournalStore:
     shared = shared_operation_controls()
     if shared is not None:
         return shared
-    directory = os.environ.get(JOURNAL_DIR_ENV)
+    directory = get_process_settings().phlo_operations_journal_dir
     if not directory:
         raise HTTPException(
             status_code=503,

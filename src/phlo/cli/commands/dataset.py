@@ -36,7 +36,6 @@ src/phlo/cli/main.py.
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -47,6 +46,7 @@ from phlo.cli.authorization import CliPrincipalResolver
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.contract import PhloCommand, PhloGroup
 from phlo.cli.output import json_envelope
+from phlo.config.process import get_process_settings
 from phlo.dataset.migration import (
     LegacyOverlayError,
     MigrationPlan,
@@ -432,7 +432,7 @@ def _migration_store(store_mode: str | None) -> MigrationStore:
 
 
 def _project_root() -> str:
-    return str(Path(os.environ.get("PHLO_PROJECT_PATH", Path.cwd())).resolve())
+    return str(Path(get_process_settings().get("PHLO_PROJECT_PATH", Path.cwd())).resolve())
 
 
 def _actor() -> str | None:

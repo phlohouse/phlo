@@ -29,7 +29,6 @@ Operation Mapping:
 
 from __future__ import annotations
 
-import os
 import re
 import json
 from collections.abc import Mapping
@@ -55,6 +54,7 @@ from phlo_dagster.authorization import (
     resolve_graphql_operation,
 )
 from phlo_dagster.oidc_identity import OIDCIdentityValidator
+from phlo_dagster.settings import get_process_settings
 
 logger = get_logger(__name__)
 
@@ -356,11 +356,7 @@ class DagsterGraphQLAuthorizationMiddleware:
                     attributes={"authentication_source": "scoped_workload_token"},
                 )
             service_id = validate_service_token(token)
-            allowed_services = {
-                value.strip()
-                for value in os.environ.get(DAGSTER_ALLOWED_SERVICES_ENV, "phlo-api").split(",")
-                if value.strip()
-            }
+            allowed_services = get_process_settings().phlo_dagster_allowed_service_ids
             if service_id and service_id in allowed_services:
                 return AuthPrincipal(
                     subject=f"service:{service_id}",

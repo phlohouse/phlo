@@ -31,6 +31,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException, Request
 
+from phlo.config.process import get_process_settings as get_core_process_settings
 from phlo.plugins.observatory_settings import (
     OperationalSettings,
     StorageUnavailableError,
@@ -40,6 +41,7 @@ from phlo.security.mode import requires_http_authorization
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.authorization import get_authorization_mode
 from phlo_api.errors import BackendUnavailableError
+from phlo_api.settings import get_process_settings
 from phlo_api.settings import get_settings as get_api_settings
 from phlo_api.settings import get_deployment_settings
 from phlo_postgres.operation_controls import (
@@ -131,7 +133,7 @@ class IdempotencyConflict(HTTPException):
 
 def project_root() -> Path:
     """Resolve the Phlo project root from PHLO_PROJECT_PATH, defaulting to the cwd."""
-    return Path(os.environ.get("PHLO_PROJECT_PATH", ".")).resolve()
+    return Path(get_core_process_settings().get("PHLO_PROJECT_PATH", ".")).resolve()
 
 
 def load_operational_settings() -> OperationalSettings:
@@ -763,7 +765,7 @@ def _bearer_token(request: Request) -> str | None:
 
 
 def _load_token_config() -> dict[str, dict[str, Any]]:
-    raw = os.environ.get(_TOKEN_CONFIG_ENV)
+    raw = get_process_settings().phlo_api_tokens
     if not raw:
         return {}
     payload = json.loads(raw)

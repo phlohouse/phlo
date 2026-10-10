@@ -1,0 +1,34 @@
+{
+  "src/phlo/capabilities/observability.py": [
+    "key"
+  ],
+  "src/phlo/helpers/connections.py": [
+    "f'{env_prefix}_DSN'",
+    "f'{env_prefix}_URL'"
+  ],
+  "src/phlo/telemetry.py": [
+    "name"
+  ],
+  "packages/phlo-minio/src/phlo_minio/security_readiness.py": [
+    "ref"
+  ],
+  "packages/phlo-nessie/src/phlo_nessie/security_readiness.py": [
+    "ref"
+  ],
+  "packages/phlo-otel/src/phlo_otel/provider.py": [
+    "exporter_env",
+    "signal_endpoint_env"
+  ],
+  "packages/phlo-polaris/src/phlo_polaris/security_readiness.py": [
+    "ref"
+  ],
+  "packages/phlo-postgres/src/phlo_postgres/security_readiness.py": [
+    "ref"
+  ],
+  "packages/phlo-testing/src/phlo_testing/profile_harness.py": [
+    "key"
+  ],
+  "packages/phlo-trino/src/phlo_trino/security_readiness.py": [
+    "ref"
+  ]
+}

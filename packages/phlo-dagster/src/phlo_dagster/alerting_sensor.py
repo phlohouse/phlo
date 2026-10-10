@@ -29,7 +29,6 @@ Example:
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timedelta, timezone
 
 from dagster import (
@@ -42,6 +41,7 @@ from dagster import (
 )
 
 from phlo.capabilities import AlertSink, resolve_capability
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.plugins.observatory_settings import (
     get_operational_settings,
@@ -164,7 +164,7 @@ def failure_alert_sensor(context):
 )
 def email_digest_sensor(context):
     """Consume the durable digest cadence using Dagster's existing sensor daemon."""
-    env = os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT")
+    env = get_process_settings().phlo_observatory_environment
     if not env:
         return SkipReason("No operational consumer environment is bound.")
     location, ref = operational_environment_target(env)

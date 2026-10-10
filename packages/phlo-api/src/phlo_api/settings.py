@@ -14,10 +14,13 @@ behaviour means a changed limit applies without a restart.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from phlo.config.base import BaseConfig
+from phlo.config.process import ProcessOverrides
 
 DEFAULT_CORS_ORIGINS = (
     "http://localhost:3000,http://127.0.0.1:3000,"
@@ -162,3 +165,128 @@ class ApiDeploymentSettings(BaseSettings):
 def get_deployment_settings() -> ApiDeploymentSettings:
     """Read deployment assertions afresh for each request evaluation."""
     return ApiDeploymentSettings()
+
+
+class ApiProcessSettings(ProcessOverrides):
+    """Read process overrides for decoding and validation by the selected API operation."""
+
+    phlo_api_tokens: str | None = Field(
+        None,
+        validation_alias="PHLO_API_TOKENS",
+        description="JSON API token map. Missing/blank disables configured tokens; validation stays in the authentication request boundary.",
+    )
+    phlo_maintenance_read_model: str | None = Field(
+        None,
+        validation_alias="PHLO_MAINTENANCE_READ_MODEL",
+        description="Maintenance read-model capability name; absent uses capability selection.",
+    )
+    phlo_observability_backend: str | None = Field(
+        None,
+        validation_alias="PHLO_OBSERVABILITY_BACKEND",
+        description="Observability backend name after explicit argument; absent uses capability selection.",
+    )
+    phlo_lineage_sink: str | None = Field(
+        None,
+        validation_alias="PHLO_LINEAGE_SINK",
+        description="Lineage sink capability name; absent uses capability selection.",
+    )
+    phlo_v1_branch_check_jobs: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_BRANCH_CHECK_JOBS",
+        description="JSON branch-check job configuration, validated at use.",
+    )
+    phlo_v1_git_review_repository: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_GIT_REVIEW_REPOSITORY",
+        description="Required GitHub review repository; absent fails closed in review configuration.",
+    )
+    phlo_v1_git_review_base_branch: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_GIT_REVIEW_BASE_BRANCH",
+        description="Required Git review base branch; no inferred default.",
+    )
+    phlo_v1_git_review_token: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_GIT_REVIEW_TOKEN",
+        description="Required Git review credential; no development default.",
+    )
+    phlo_v1_maintenance_windows: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_MAINTENANCE_WINDOWS",
+        description="JSON maintenance-window configuration, validated at the request boundary.",
+    )
+    phlo_promotion_dagster_check_jobs: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        validation_alias="PHLO_PROMOTION_DAGSTER_CHECK_JOBS",
+        description="Comma-separated promotion check jobs, stripped while preserving blank positions for status validation. Default unconfigured. Launch validation filters blanks and requires three distinct job names in tests/contracts/audits order.",
+    )
+    phlo_promotion_prod_worktree: str | None = Field(
+        None,
+        validation_alias="PHLO_PROMOTION_PROD_WORKTREE",
+        description="Required production worktree for staging promotion.",
+    )
+    phlo_promotion_staging_worktree: str | None = Field(
+        None,
+        validation_alias="PHLO_PROMOTION_STAGING_WORKTREE",
+        description="Required staging worktree for promotion.",
+    )
+    phlo_promotion_prod_ref: str | None = Field(
+        None,
+        validation_alias="PHLO_PROMOTION_PROD_REF",
+        description="Required production promotion ref; must agree with the environment contract.",
+    )
+    phlo_promotion_staging_ref: str | None = Field(
+        None,
+        validation_alias="PHLO_PROMOTION_STAGING_REF",
+        description="Required staging promotion ref; must agree with the environment contract.",
+    )
+    phlo_promotion_dagster_location: str | None = Field(
+        None,
+        validation_alias="PHLO_PROMOTION_DAGSTER_LOCATION",
+        description="Required promotion Dagster location; must agree with the environment contract.",
+    )
+    phlo_compose_project: str | None = Field(
+        None,
+        validation_alias="PHLO_COMPOSE_PROJECT",
+        description="Compose project override before COMPOSE_PROJECT_NAME and project discovery.",
+    )
+    phlo_workflow_wizard_secret: str | None = Field(
+        None,
+        validation_alias="PHLO_WORKFLOW_WIZARD_SECRET",
+        description="Workflow wizard signing secret; absent uses persisted project-local secret.",
+    )
+    phlo_uv_project: str | None = Field(
+        None,
+        validation_alias="PHLO_UV_PROJECT",
+        description="Package-install UV project override before UV_PROJECT and project discovery.",
+    )
+    phlo_v1_preview_catalogs: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_PREVIEW_CATALOGS",
+        description="Required JSON environment-to-preview catalog map; validated at use.",
+    )
+    phlo_v1_preview_trino_password_prod: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD",
+        description="Required production preview Trino credential; absent/blank fails preview configuration.",
+    )
+    phlo_v1_preview_trino_password_staging: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING",
+        description="Required staging preview Trino credential; absent/blank fails preview configuration.",
+    )
+    phlo_v1_usage_trino_sources: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_USAGE_TRINO_SOURCES",
+        description="Required JSON usage-source configuration; validated at use.",
+    )
+
+    @field_validator("phlo_promotion_dagster_check_jobs", mode="before")
+    @classmethod
+    def _check_jobs(cls, value: object) -> object:
+        return [part.strip() for part in value.split(",")] if isinstance(value, str) else value
+
+
+def get_process_settings() -> ApiProcessSettings:
+    """Read API process overrides afresh without loading project dotenv files."""
+    return ApiProcessSettings()

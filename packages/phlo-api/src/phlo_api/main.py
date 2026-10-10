@@ -36,6 +36,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from phlo.config.process import get_process_settings
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.capabilities.discovery import discover_capabilities
 from phlo.plugins.observatory_settings import StorageUnavailableError
@@ -229,7 +230,7 @@ def get_project_path() -> Path:
     Environment Variables:
         PHLO_PROJECT_PATH: Overrides the default path.
     """
-    project_path = os.environ.get("PHLO_PROJECT_PATH", "/app/project")
+    project_path = get_process_settings().get("PHLO_PROJECT_PATH", "/app/project")
     return Path(project_path)
 
 

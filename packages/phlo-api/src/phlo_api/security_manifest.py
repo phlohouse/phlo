@@ -9,7 +9,6 @@ resource before the handler is called.
 from __future__ import annotations
 
 import json
-import os
 from hashlib import sha256
 from uuid import uuid4
 from dataclasses import dataclass, replace
@@ -20,6 +19,7 @@ from starlette.routing import Match
 from starlette.responses import JSONResponse
 
 from phlo.capabilities import DecisionContext, ResourceRef
+from phlo.config.process import get_process_settings
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.rbac.models import CanonicalAction
 from phlo.security import enforce, is_regulated
@@ -1035,8 +1035,8 @@ async def resolve_resource(
         raise HTTPException(status_code=400, detail={"error": "missing_resource"})
     return ResourceRef(
         resource_type=spec.resource_type,
-        resource_id=resource_id or os.environ.get("PHLO_PROJECT_NAME", "project"),
-        attributes={"project": os.environ.get("PHLO_PROJECT_NAME", "project")},
+        resource_id=resource_id or get_process_settings().get("PHLO_PROJECT_NAME", "project"),
+        attributes={"project": get_process_settings().get("PHLO_PROJECT_NAME", "project")},
     )
 
 
@@ -1384,7 +1384,7 @@ def _reject_explicit_optional_in_production() -> None:
     an explicit ``optional`` in production is a configuration contradiction and
     must fail startup with a clear error rather than being silently overridden.
     """
-    explicit_mode = os.environ.get(_AUTHORIZATION_MODE_ENV)
+    explicit_mode = get_process_settings().phlo_authorization_mode
     if explicit_mode is None:
         config = get_api_authorization_config()
         explicit_mode = config.mode if config is not None and config.mode is not None else None
