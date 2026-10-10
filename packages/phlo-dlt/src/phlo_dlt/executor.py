@@ -131,6 +131,37 @@ class DomainQualityValidationError(RuntimeError):
         super().__init__(f"Domain quality check failed: {failed.check_name}: {failed.violation}")
 
 
+class StagedFrameLoader:
+    """Read staged Parquet into one frame on first use and share it across checks."""
+
+    def __init__(self, parquet_paths: Sequence[Path]) -> None:
+        """Remember the staged files without reading them yet."""
+        self._parquet_paths = tuple(parquet_paths)
+        self._frame: pd.DataFrame | None = None
+        self._error: Exception | None = None
+
+    def load(self) -> pd.DataFrame:
+        """Return the staged rows, reading the files at most once.
+
+        A read failure is remembered and re-raised for every later caller, so each
+        check still reports it instead of retrying the read.
+        """
+        if self._error is not None:
+            raise self._error
+        if self._frame is None:
+            try:
+                self._frame = pd.concat(
+                    [pd.read_parquet(parquet_path) for parquet_path in self._parquet_paths],
+                    ignore_index=True,
+                )
+            except Exception as exc:
+                self._error = exc
+                raise
+        # A shallow copy is cheap under copy-on-write and stops one check's
+        # in-place edits from leaking into the next check's input.
+        return self._frame.copy(deep=False)
+
+
 def _evaluate_domain_quality_checks(
     *,
     parquet_paths: Sequence[Path],
@@ -138,17 +169,14 @@ def _evaluate_domain_quality_checks(
 ) -> tuple[DomainQualityEvaluation, ...]:
     """Evaluate domain checks against staged rows before the table-store write."""
     evaluations: list[DomainQualityEvaluation] = []
+    staged_frames = StagedFrameLoader(parquet_paths)
     for index, quality_check in enumerate(quality_checks):
         check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
         if not parquet_paths:
             violation = "no staged parquet available for domain checks"
         else:
             try:
-                staged_frame = pd.concat(
-                    [pd.read_parquet(parquet_path) for parquet_path in parquet_paths],
-                    ignore_index=True,
-                )
-                violation = quality_check(staged_frame)
+                violation = quality_check(staged_frames.load())
             except Exception as exc:  # noqa: BLE001 - a check error rejects strict publication
                 violation = f"quality check raised: {exc}"
         evaluations.append(DomainQualityEvaluation(check_name=check_name, violation=violation))
