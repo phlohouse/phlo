@@ -34,14 +34,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import subprocess
 import sys
+import tarfile
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -726,9 +729,10 @@ def _published_images(
     return comparisons
 
 
-def _release_commands(executor: ExecutingExecutor, tag: str, paths: list[str]) -> list[list[str]]:
+def _release_commands(
+    executor: ExecutingExecutor, tag: str, paths: list[str], assets: dict[str, str]
+) -> list[list[str]]:
     release = _release(executor, tag)
-    assets = {Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in paths}
     existing = _check_assets(release, assets) if release else set()
     commands = (
         []
@@ -944,7 +948,7 @@ def promote(
     staging_dir: Path,
     executor: DryRunExecutor | ExecutingExecutor,
     *,
-    qualification_archive: Path | None = None,
+    qualification_archive: tuple[Path, str] | None = None,
 ) -> list[StepResult]:
     """Run the ordered, digest-verified publish steps for one qualified candidate.
 
@@ -1055,18 +1059,20 @@ def promote(
     final_assets = [str(bom_path)] + [
         str(path) for path in sorted(distributions_dir.iterdir()) if path.is_file()
     ]
-    if qualification_archive is not None:
-        final_assets.append(str(qualification_archive))
     final_asset_digests = {
         Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in final_assets
     }
+    if qualification_archive is not None:
+        archive_path, validated_digest = qualification_archive
+        final_assets.append(str(archive_path))
+        final_asset_digests[archive_path.name] = validated_digest
     runner.attempt(
         "release_finalisation",
         4,
         lambda: _verify_staged_bytes(bom, staging_dir),
         public_identity=f"github-release:{tag} (final; assets: bom.json, staged distributions)",
         bound_digests=[str(bom["canonical_candidate_digest"])],
-        commands=(lambda: _release_commands(executor, tag, final_assets))
+        commands=(lambda: _release_commands(executor, tag, final_assets, final_asset_digests))
         if runner.executing
         else _dry_run_release_commands(tag, final_assets),
         dry_run_detail="dry run: would finalise the draft release attaching BOM + bytes",
@@ -1333,15 +1339,21 @@ def write_rejection_record(
     return record
 
 
+def _evidence_members(paths: list[Path]) -> dict[str, Path]:
+    members: dict[str, Path] = {}
+    for root in paths:
+        # Workflow artifact downloads nest bundles in per-run directories.
+        for item in sorted(root.rglob("*.json")) if root.is_dir() else [root]:
+            relative = item.relative_to(root).as_posix() if root.is_dir() else item.name
+            name = f"evidence/{relative}"
+            if name in members:
+                raise PromotionGateError("ambiguous_evidence", f"duplicate archive member {name}")
+            members[name] = item
+    return members
+
+
 def _collect_bundles(paths: list[Path]) -> list[dict[str, object]]:
-    bundles: list[dict[str, object]] = []
-    for path in paths:
-        if path.is_dir():
-            # Workflow artifact downloads nest bundles in per-run directories.
-            bundles.extend(load_evidence_bundle(item) for item in sorted(path.rglob("*.json")))
-        else:
-            bundles.append(load_evidence_bundle(path))
-    return bundles
+    return [load_evidence_bundle(item) for item in _evidence_members(paths).values()]
 
 
 def _prior_bundle_checksums(receipt_paths: list[Path]) -> set[str]:
@@ -1397,12 +1409,88 @@ def _audit_cli(bom_path: Path, staging_dir: Path, output: Path) -> int:
     return 0
 
 
-def _require_qualification_archive(path: Path | None) -> None:
+def _qualification_inputs(
+    args: argparse.Namespace,
+    bom: dict[str, object],
+    authorization: dict[str, object],
+    bundles: list[dict[str, object]],
+) -> dict[str, bytes]:
+    evidence = _evidence_members(args.evidence)
+    paths = {
+        "bom.json": args.candidate_bom,
+        "provenance.json": args.staging_dir / "provenance.json",
+        "authorization.json": args.authorization,
+        **evidence,
+    }
+    try:
+        expected = {name: path.read_bytes() for name, path in paths.items()}
+        qualified = {
+            "bom.json": bom,
+            "authorization.json": authorization,
+            **dict(zip(evidence, bundles, strict=True)),
+        }
+        if any(json.loads(expected[name]) != value for name, value in qualified.items()):
+            raise ValueError("qualification inputs changed after adjudication")
+        provenance = json.loads(expected["provenance.json"])
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("candidate_sha") != bom["release_commit"]
+            or provenance.get("canonical_candidate_digest") != bom["canonical_candidate_digest"]
+            or provenance.get("bom_sha256") != hashlib.sha256(expected["bom.json"]).hexdigest()
+            or (args.staged_utc is not None and provenance.get("staged_utc") != args.staged_utc)
+        ):
+            raise ValueError("staged provenance does not bind the qualified BOM and staging time")
+        return expected
+    except (OSError, ValueError) as exc:
+        raise PromotionGateError("invalid_qualification_archive", str(exc)) from exc
+
+
+def _require_qualification_archive(
+    args: argparse.Namespace,
+    bom: dict[str, object],
+    authorization: dict[str, object],
+    bundles: list[dict[str, object]],
+) -> tuple[Path, str]:
+    path = args.qualification_archive
     if path is None or not path.is_file():
         raise PromotionGateError(
             "missing_qualification_archive",
             "real publication requires the qualification bundles, BOM, provenance and authorization archive",
         )
+    inputs = _qualification_inputs(args, bom, authorization, bundles)
+    directories = {str(parent) for name in inputs for parent in PurePosixPath(name).parents} - {"."}
+    seen: set[str] = set()
+    try:
+        payload = path.read_bytes()
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz", ignore_zeros=True) as archive:
+            for member in archive:
+                name = member.name.rstrip("/") if member.isdir() else member.name
+                pure = PurePosixPath(name)
+                if (
+                    pure.is_absolute()
+                    or ".." in pure.parts
+                    or "\\" in name
+                    or name != pure.as_posix()
+                    or name in seen
+                    or not (member.isfile() or member.isdir())
+                ):
+                    raise ValueError(f"unsafe or duplicate archive member {member.name}")
+                seen.add(name)
+                if member.isdir():
+                    if name not in directories:
+                        raise ValueError(f"unexpected archive directory {name}")
+                    continue
+                content = inputs.get(name)
+                if content is None or member.size != len(content):
+                    raise ValueError(f"missing, changed or unexpected qualification member {name}")
+                with archive.extractfile(member) as stream:
+                    if stream.read(len(content) + 1) != content:
+                        raise ValueError(f"changed qualification member {name}")
+            if set(inputs) - seen:
+                raise ValueError(f"missing qualification members: {sorted(set(inputs) - seen)}")
+        return path, hashlib.sha256(payload).hexdigest()
+    except (OSError, tarfile.TarError, zlib.error, ValueError, EOFError) as exc:
+        raise PromotionGateError("invalid_qualification_archive", str(exc)) from exc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1513,6 +1601,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         executor: DryRunExecutor | ExecutingExecutor
+        qualification_archive = None
         if args.execute:
             if args.authorization is None:
                 raise PromotionGateError(
@@ -1522,7 +1611,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             authorization = load_authorization(args.authorization)
             validate_authorization(authorization, bom, qualification.checksums)
-            _require_qualification_archive(args.qualification_archive)
+            qualification_archive = _require_qualification_archive(
+                args, bom, authorization, bundles
+            )
             try:
                 release_provenance.verify_live_authorization(authorization)
             except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
@@ -1555,7 +1646,7 @@ def main(argv: list[str] | None = None) -> int:
             args.candidate_bom.resolve(),
             args.staging_dir.resolve(),
             executor,
-            qualification_archive=args.qualification_archive,
+            qualification_archive=qualification_archive,
         )
         reconciliation = reconcile_publication(bom, steps, executor)
         receipt = build_receipt(

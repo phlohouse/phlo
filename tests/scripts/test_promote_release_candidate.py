@@ -14,6 +14,7 @@ import io
 import json
 import subprocess
 import sys
+import tarfile
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -465,6 +466,17 @@ def _stage_candidate(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
     )
     bom_path = staging / "bom.json"
     bom_path.write_text(json.dumps(bom, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (staging / "provenance.json").write_text(
+        json.dumps(
+            {
+                "candidate_sha": COMMIT,
+                "canonical_candidate_digest": bom["canonical_candidate_digest"],
+                "bom_sha256": release_candidate_bom.file_sha256(bom_path),
+                "staged_utc": "2026-09-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
     return staging, bom_path, bom
 
 
@@ -472,10 +484,74 @@ def _write_bundles(tmp_path: Path, bundles: list[dict[str, object]]) -> Path:
     evidence_dir = tmp_path / "evidence"
     evidence_dir.mkdir(exist_ok=True)
     for index, bundle in enumerate(bundles):
-        (evidence_dir / f"bundle-{index}.json").write_text(
-            json.dumps(bundle, sort_keys=True), encoding="utf-8"
-        )
+        attempt = evidence_dir / f"attempt-{index}"
+        attempt.mkdir(exist_ok=True)
+        (attempt / "bundle.json").write_text(json.dumps(bundle, sort_keys=True), encoding="utf-8")
     return evidence_dir
+
+
+def _write_qualification_archive(tmp_path: Path, fault: str = "valid") -> Path:
+    archive = tmp_path / "qualification.tar.gz"
+    files = {
+        "bom.json": tmp_path / "staging/bom.json",
+        "provenance.json": tmp_path / "staging/provenance.json",
+        "authorization.json": tmp_path / "authorization.json",
+        **{
+            f"evidence/{path.relative_to(tmp_path / 'evidence').as_posix()}": path
+            for path in sorted((tmp_path / "evidence").rglob("*.json"))
+        },
+    }
+    contents = {name: path.read_bytes() for name, path in files.items()}
+    operation, _, target = fault.partition(":")
+    if operation == "missing":
+        del contents[target]
+    elif operation == "changed":
+        value = json.loads(contents[target])
+        value["tampered"] = True
+        contents[target] = json.dumps(value).encode()
+    elif fault == "same_size":
+        contents["bom.json"] = contents["bom.json"].replace(b'"phlo"', b'"evil"')
+    elif operation == "provenance":
+        value = json.loads(contents["provenance.json"])
+        value[target] = "0" * 64
+        contents["provenance.json"] = json.dumps(value).encode()
+        files["provenance.json"].write_bytes(contents["provenance.json"])
+    with tarfile.open(archive, "w:gz") as package:
+        for directory in (tmp_path / "evidence", *sorted((tmp_path / "evidence").iterdir())):
+            member = tarfile.TarInfo(directory.relative_to(tmp_path).as_posix())
+            member.type = tarfile.DIRTYPE
+            package.addfile(member)
+        for name, data in contents.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            package.addfile(member, io.BytesIO(data))
+        if operation == "unsafe":
+            member = tarfile.TarInfo(target)
+            package.addfile(member, io.BytesIO())
+        elif fault == "duplicate":
+            data = contents["bom.json"]
+            member = tarfile.TarInfo("bom.json")
+            member.size = len(data)
+            package.addfile(member, io.BytesIO(data))
+        elif fault in ("symlink", "hardlink", "fifo"):
+            member = tarfile.TarInfo("link")
+            member.type = {
+                "symlink": tarfile.SYMTYPE,
+                "hardlink": tarfile.LNKTYPE,
+                "fifo": tarfile.FIFOTYPE,
+            }[fault]
+            member.linkname = "bom.json"
+            package.addfile(member)
+    if fault == "non_archive":
+        archive.write_text("# README, not qualification evidence", encoding="utf-8")
+    elif fault == "truncated":
+        archive.write_bytes(archive.read_bytes()[:32])
+    elif fault == "corrupt_compression":
+        archive.write_bytes(b"\x1f\x8b\x08\x00" + b"\x00" * 6 + b"\xff" * 64)
+    elif fault == "after_end":
+        with archive.open("ab") as stream, tarfile.open(fileobj=stream, mode="w:gz") as package:
+            package.addfile(tarfile.TarInfo("../escape"))
+    return archive
 
 
 def _run_promotion(tmp_path: Path, bundles: list[dict[str, object]], **kwargs: object):
@@ -503,6 +579,8 @@ def _run_promotion(tmp_path: Path, bundles: list[dict[str, object]], **kwargs: o
         authorization_path.write_text(json.dumps(authorization, sort_keys=True), encoding="utf-8")
         args += ["--authorization", str(authorization_path)]
     archive = kwargs.pop("qualification_archive", None)
+    if callable(archive):
+        archive = archive(tmp_path)
     if archive is not None:
         args += ["--qualification-archive", str(archive)]
     assert not kwargs, f"unused kwargs: {kwargs}"
@@ -603,22 +681,21 @@ def test_execute_without_authorization_fails_closed(tmp_path: Path) -> None:
 
 
 def test_execute_with_hand_written_authorization_cannot_publish(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, capsys
 ) -> None:
     _, _, bom = _stage_candidate(tmp_path)
     bundles = _qualifying_bundles(bom)
-    archive = tmp_path / "qualification.tar.gz"
-    archive.write_bytes(b"offline qualification archive fixture")
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     code, receipt = _run_promotion(
         tmp_path,
         bundles,
         execute=True,
         authorization=_authorization(bom, bundles),
-        qualification_archive=archive,
+        qualification_archive=_write_qualification_archive,
     )
     assert code == 1
     assert not receipt.exists()
+    assert "release dispatch authorization failed" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("supplied", [False, True])
@@ -825,6 +902,163 @@ class PublishedSystems(promote_release_candidate.ExecutingExecutor):
         elif command[:3] == ["gh", "release", "edit"]:
             self.release["draft"] = False
         return ""
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "valid",
+        "non_archive",
+        "truncated",
+        "corrupt_compression",
+        "after_end",
+        "provenance:candidate_sha",
+        "provenance:canonical_candidate_digest",
+        "provenance:bom_sha256",
+        *[
+            f"{operation}:{member}"
+            for operation in ("missing", "changed")
+            for member in (
+                "bom.json",
+                "provenance.json",
+                "authorization.json",
+                "evidence/attempt-0/bundle.json",
+                "evidence/attempt-3/bundle.json",
+            )
+        ],
+        "same_size",
+        "duplicate",
+        "unsafe:../escape",
+        "unsafe:/escape",
+        "unsafe:evidence/../../escape",
+        "unsafe:evidence\\escape",
+        "unsafe:./bom.json",
+        "unsafe:evidence//extra.json",
+        "unsafe:unexpected.json",
+        "symlink",
+        "hardlink",
+        "fifo",
+    ],
+)
+def test_cli_binds_archive_to_complete_qualified_inputs(tmp_path, monkeypatch, capsys, fault):
+    _, _, bom = _stage_candidate(tmp_path)
+    bundles = _qualifying_bundles(bom)
+    authorization = _authorization(bom, bundles)
+    # A non-qualifying collected attempt must still be retained, not omitted
+    # merely because the other three attempts suffice for authorization.
+    rejected = json.loads(json.dumps(bundles[0]))
+    rejected["demonstrations"].pop()
+    _seal(rejected)
+    bundles.append(rejected)
+    systems = PublishedSystems(monkeypatch)
+    systems.outage = False
+
+    class OfflineExecutor(promote_release_candidate.ExecutingExecutor):
+        def run(self, command):
+            return systems.run(command)
+
+    monkeypatch.setattr(promote_release_candidate, "ExecutingExecutor", OfflineExecutor)
+    monkeypatch.setattr(
+        promote_release_candidate.release_provenance, "verify_live_authorization", lambda _: None
+    )
+    code, receipt_path = _run_promotion(
+        tmp_path,
+        bundles,
+        execute=True,
+        authorization=authorization,
+        qualification_archive=lambda root: _write_qualification_archive(root, fault),
+    )
+    if fault == "valid":
+        assert code == 0
+        receipt = json.loads(receipt_path.read_text())
+        assert receipt["status"] == "promoted"
+        assert receipt["success"] is True
+        assert receipt["evidence"]["qualifying_runs"] == 3
+        assert systems.release["draft"] is False
+        assert {asset["name"] for asset in systems.release["assets"]} == {
+            "bom.json",
+            "phlo-0.15.0.tar.gz",
+            "phlo-0.15.0-py3-none-any.whl",
+            "qualification.tar.gz",
+        }
+        # Reuse the same archived inputs and public bytes, never republish them.
+        code, receipt_path = _run_promotion(
+            tmp_path,
+            bundles,
+            execute=True,
+            authorization=authorization,
+            qualification_archive=tmp_path / "qualification.tar.gz",
+        )
+        assert code == 0
+        assert json.loads(receipt_path.read_text())["success"] is True
+    else:
+        assert code == 1
+        assert "invalid_qualification_archive" in capsys.readouterr().err
+        assert not receipt_path.exists()
+        assert systems.tag == ""
+        assert systems.files == systems.images == {}
+        assert systems.release is None
+        assert not (tmp_path / "escape").exists()
+
+
+@pytest.mark.parametrize("timing", ["during_validation", "after_validation", "during_upload"])
+def test_cli_archive_replacement_cannot_finalise_release(tmp_path, monkeypatch, timing):
+    _, _, bom = _stage_candidate(tmp_path)
+    bundles = _qualifying_bundles(bom)
+    systems = PublishedSystems(monkeypatch)
+    systems.outage = False
+    archive = tmp_path / "qualification.tar.gz"
+    original_read = Path.read_bytes
+    validated = {}
+
+    def create_archive(root):
+        _write_qualification_archive(root)
+        validated["digest"] = hashlib.sha256(original_read(archive)).hexdigest()
+        return archive
+
+    def read_then_replace(path):
+        payload = original_read(path)
+        if path == archive:
+            archive.write_bytes(b"replacement after the validated byte snapshot")
+        return payload
+
+    def authorize(_):
+        if timing == "after_validation":
+            archive.write_bytes(b"replacement after qualification")
+
+    class OfflineExecutor(promote_release_candidate.ExecutingExecutor):
+        def run(self, command):
+            if timing == "during_upload" and command[:5] == [
+                "gh",
+                "release",
+                "upload",
+                "v0.15.0",
+                str(archive),
+            ]:
+                archive.write_bytes(b"replacement during upload")
+            return systems.run(command)
+
+    if timing == "during_validation":
+        monkeypatch.setattr(Path, "read_bytes", read_then_replace)
+    monkeypatch.setattr(promote_release_candidate, "ExecutingExecutor", OfflineExecutor)
+    monkeypatch.setattr(
+        promote_release_candidate.release_provenance, "verify_live_authorization", authorize
+    )
+    code, receipt_path = _run_promotion(
+        tmp_path,
+        bundles,
+        execute=True,
+        authorization=_authorization(bom, bundles),
+        qualification_archive=create_archive,
+    )
+    assert code == 1
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "partial_publication"
+    assert receipt["success"] is False
+    assert receipt["steps"][-1]["assets"][archive.name] == validated["digest"]
+    assert systems.release["draft"] is True
+    remote = next(asset for asset in systems.release["assets"] if asset["name"] == archive.name)
+    assert remote["digest"] != "sha256:" + validated["digest"]
 
 
 def test_partial_pypi_publication_completes_forward(tmp_path, monkeypatch):
@@ -1035,6 +1269,7 @@ def test_qualification_archive_failure_keeps_release_draft(tmp_path, monkeypatch
     staging, bom_path, bom = _stage_candidate(tmp_path)
     archive = tmp_path / "qualification-evidence-123-2.tar.gz"
     archive.write_bytes(b"offline qualification archive fixture")
+    validated_archive = archive, hashlib.sha256(archive.read_bytes()).hexdigest()
 
     class ArchiveFailure(PublishedSystems):
         fail_archive = True
@@ -1058,14 +1293,14 @@ def test_qualification_archive_failure_keeps_release_draft(tmp_path, monkeypatch
     systems = ArchiveFailure(monkeypatch)
     systems.outage = False
     first = promote_release_candidate.promote(
-        bom, bom_path, staging, systems, qualification_archive=archive
+        bom, bom_path, staging, systems, qualification_archive=validated_archive
     )
     assert first[-1].status == "failed"
     assert systems.release["draft"] is True
     assert not any(command[:3] == ["gh", "release", "edit"] for command in systems.commands)
     # A corrupted asset must not be overwritten or accepted on retry.
     second = promote_release_candidate.promote(
-        bom, bom_path, staging, systems, qualification_archive=archive
+        bom, bom_path, staging, systems, qualification_archive=validated_archive
     )
     if failure == "digest":
         assert second[-1].status == "failed"

@@ -106,8 +106,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           gh auth setup-git
           archive="qualification-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
-          tar -czf "$archive" authorization.json inputs/evidence \
-            "inputs/candidate-$CANDIDATE_SHA/bom.json" "inputs/candidate-$CANDIDATE_SHA/provenance.json"
+          tar -czf "$archive" authorization.json -C inputs evidence \
+            -C "candidate-$CANDIDATE_SHA" bom.json provenance.json
           python3 scripts/promote_release_candidate.py promote \
             --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json" \
             --staging-dir "inputs/candidate-$CANDIDATE_SHA" --evidence inputs/evidence \

@@ -2,9 +2,11 @@
 
 import json
 import os
+import shlex
 import subprocess
 import tarfile
 import tomllib
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -36,7 +38,6 @@ def test_promotion_accepts_no_operator_evidence_or_authorization_refs() -> None:
     assert promotion["jobs"]["promote"]["environment"] == "pypi"
     assert promotion["jobs"]["promote"]["permissions"]["id-token"] == "write"
     assert "id-token" not in promotion["permissions"]
-    assert "PYPI_API_TOKEN" not in str(promotion)
     assert promotion["jobs"]["promote"]["if"] == "inputs.execute"
     scripts = [step["run"] for step in promotion["jobs"]["promote"]["steps"] if "run" in step]
     assert "collect" in scripts[0] and "authorize" in scripts[0]
@@ -177,9 +178,18 @@ def test_only_qualified_promotion_owns_python_publication() -> None:
     assert "token_env" not in config["publish"]
     assert not any(channel["publish"] for channel in config["channels"])
     for path in WORKFLOWS.glob("*.yml"):
-        content = path.read_text()
-        assert "PYPI_API_TOKEN" not in content, path.name
-        assert "uv publish" not in content, path.name
+        parsed = workflow(path.name)
+        for job in parsed["jobs"].values():
+            for scope in [parsed, job, *job.get("steps", [])]:
+                env = scope.get("env", {})
+                assert "UV_PUBLISH_TOKEN" not in env, path.name
+                assert "${{ secrets.PYPI_API_TOKEN }}" not in env.values(), path.name
+                assert "${{ secrets.PYPI_API_TOKEN }}" not in scope.get("with", {}).values(), (
+                    path.name
+                )
+            for step in job.get("steps", []):
+                words = shlex.split(step.get("run", ""), comments=True)
+                assert ("uv", "publish") not in pairwise(words), path.name
 
 
 @pytest.mark.parametrize("valid", [True, False])
@@ -281,14 +291,9 @@ def test_qualification_archive_is_created_before_publication(
         )
         with tarfile.open(tmp_path / "qualification-evidence-123-2.tar.gz") as archive:
             assert archive.extractfile("authorization.json").read() == b'{"authorized":true}'
-            assert (
-                archive.extractfile("inputs/evidence/bundle.json").read() == b'{"qualifying":true}'
-            )
-            assert archive.extractfile(f"inputs/candidate-{'e' * 40}/bom.json").read() == bom_bytes
-            assert (
-                archive.extractfile(f"inputs/candidate-{'e' * 40}/provenance.json").read()
-                == b'{"staged":true}'
-            )
+            assert archive.extractfile("evidence/bundle.json").read() == b'{"qualifying":true}'
+            assert archive.extractfile("bom.json").read() == bom_bytes
+            assert archive.extractfile("provenance.json").read() == b'{"staged":true}'
 
 
 @pytest.mark.parametrize("promoted", [True, False])

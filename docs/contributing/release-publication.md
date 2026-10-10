@@ -75,7 +75,16 @@ release evidence.
 Promotion attaches `qualification-evidence-<run>-<attempt>.tar.gz` to the draft
 release alongside the staged BOM and distribution bytes. The archive contains
 the authorization, staged BOM and provenance, and all collected acceptance
-evidence. Promotion checks every uploaded asset's SHA-256 before finalisation.
+evidence. Its canonical members are `authorization.json`, `bom.json`,
+`provenance.json`, and `evidence/<relative bundle path>`. Before any publication,
+the CLI checks their exact bytes against the adjudicated inputs, including
+collected attempts that did not qualify. It checks provenance against the
+candidate identity, BOM hash and supplied staging time. It rejects malformed
+archives, missing or changed members, links, duplicate names and unsafe paths
+without extracting the archive. The expected archive SHA-256 comes from the
+same immutable bytes used for member validation. Promotion carries that digest
+to the existing remote asset checks rather than rehashing the path later, so a
+replacement between validation and upload cannot finalise the release.
 An archive creation, upload or digest-check failure blocks release finalisation.
 After successful finalisation, the workflow attaches the matched receipt as
 `release-evidence-<run>-<attempt>.tar.gz`. A receipt archival failure does not
