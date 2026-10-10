@@ -944,7 +944,7 @@ def remove_orphan_files(  # noqa: C901
     catalog = get_catalog(ref=ref)
     table = catalog.load_table(table_name)
 
-    older_than_ts = (datetime.now(timezone.utc) - retention).timestamp()
+    older_than = datetime.now(timezone.utc) - retention
 
     # Collect all referenced files from all snapshots
     referenced_files: set[str] = set()
@@ -973,7 +973,7 @@ def remove_orphan_files(  # noqa: C901
                 # Files without a readable mtime cannot be age-checked and are
                 # treated as orphans regardless of age.
                 if hasattr(file_info, "mtime") and file_info.mtime:
-                    if file_info.mtime < older_than_ts:
+                    if file_info.mtime < older_than:
                         orphan_files.append(file_info.path)
                 else:
                     orphan_files.append(file_info.path)
