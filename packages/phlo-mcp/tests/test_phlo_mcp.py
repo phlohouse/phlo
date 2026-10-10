@@ -24,7 +24,13 @@ from phlo_mcp.run_analysis import (
     summarize_run_logs,
 )
 from phlo_mcp.server import create_server
-from phlo_mcp.tracing import configure_tracing, load_spans, render_trace_tree, get_tracer
+from phlo_mcp.tracing import (
+    CanonicalTracer,
+    configure_tracing,
+    get_tracer,
+    load_spans,
+    render_trace_tree,
+)
 
 
 @pytest.mark.parametrize("transport", ["streamable-http", "sse"])
@@ -57,6 +63,14 @@ class _FakeResponse:
 
     def json(self):  # noqa: ANN201
         return self._payload
+
+
+def test_api_client_takes_only_config_and_uses_shared_tracer() -> None:
+    client = PhloApiClient(McpConfig(api_base_url="http://example.test"))
+
+    assert isinstance(client._tracer, CanonicalTracer)
+    with pytest.raises(TypeError):
+        PhloApiClient(McpConfig(), **{"tracer_name": "phlo.mcp"})
 
 
 def test_api_client_wraps_observability_routes(monkeypatch) -> None:

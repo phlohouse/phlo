@@ -19,7 +19,8 @@ CHECK_CMD := scripts/run-parallel \
 	"py test" "uv run --locked pytest -m 'not integration'" \
 	"ts lint" "$(NPM_OBSERVATORY) run lint" \
 	"ts format" "$(NPM_OBSERVATORY) run format -- --check ." \
-	"ts typecheck" "$(NPM_OBSERVATORY) run typecheck"
+	"ts typecheck" "$(NPM_OBSERVATORY) run typecheck" \
+	"ts unused" "$(NPM_OBSERVATORY) run knip"
 CORE_REGRESSION_TEST_PATHS ?= tests
 CORE_REGRESSION_PYTEST_ARGS ?= --tb=short
 QUICKSTART_SMOKE_PYTEST_ARGS ?= --tb=short

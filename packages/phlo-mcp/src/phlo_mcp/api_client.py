@@ -24,7 +24,7 @@ class PhloApiClient:
 
     _OBSERVATORY_PREFIX = "/api/observatory"
 
-    def __init__(self, config: McpConfig, *, tracer_name: str = "phlo.mcp") -> None:
+    def __init__(self, config: McpConfig) -> None:
         self._config = config
         self._tracer: CanonicalTracer = get_tracer()
 
