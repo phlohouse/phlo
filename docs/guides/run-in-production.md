@@ -67,6 +67,8 @@ does not enable shared operation controls. API startup checks connectivity and
 creates the `phlo_api_*` control tables. Grant the API role schema creation rights
 for first startup, or initialise the tables with the same provider before removing
 those rights. A configured but unavailable store fails closed, never back to SQLite.
+Use a direct PostgreSQL connection or session pooling, not transaction pooling:
+workflow exclusion holds a session advisory lock until its connection closes.
 
 Before switching from SQLite or changing the namespace, stop mutation traffic and
 drain every old worker. Retain the old journal and resolve every pending or unknown
