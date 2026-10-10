@@ -1,4 +1,4 @@
-"""Semantic contracts for Renovate-managed package runtime images.
+"""Digest policy for Dockerfile bases and Renovate-managed runtime images.
 
 Replays the configured regex manager's match and mustache replacement against
 real source strings to prove image references in package service.yaml files
@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -205,3 +207,84 @@ def test_phlo_owned_images_are_explicitly_disabled_and_never_automerged() -> Non
         _image_match(manager, path.read_text(encoding="utf-8")) is not None
         for path in observer_files
     )
+
+
+def _assert_pinned_bases(source: str) -> None:
+    stages: set[str] = set()
+    bases = 0
+    for line in source.replace("\\\n", " ").splitlines():
+        tokens = line.split()
+        if not tokens or tokens[0].lower() != "from":
+            continue
+        bases += 1
+        if len(tokens) > 1 and tokens[1].startswith("--platform="):
+            tokens.pop(1)
+        assert len(tokens) in (2, 4), f"malformed FROM: {line}"
+        reference = tokens[1]
+        assert reference.lower() in stages | {"scratch"} or re.fullmatch(
+            r"[^\s@]+:[^\s/@:]+@sha256:[0-9a-f]{64}", reference
+        ), f"unpinned Dockerfile base: {reference}"
+        if len(tokens) == 4:
+            assert tokens[2].lower() == "as", f"malformed FROM: {line}"
+            stages.add(tokens[3].lower())
+    assert bases, "no Dockerfile FROM instructions found"
+
+
+def test_all_tracked_dockerfile_bases_are_digest_pinned() -> None:
+    tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=REPO_ROOT, text=True).split(
+        "\0"
+    )
+    dockerfiles = [
+        REPO_ROOT / path
+        for path in tracked
+        if Path(path).name.lower().startswith(("dockerfile", "containerfile"))
+        or Path(path).suffix.lower() in {".dockerfile", ".containerfile"}
+    ]
+    assert dockerfiles, "no tracked Dockerfiles discovered"
+    for path in dockerfiles:
+        try:
+            _assert_pinned_bases(path.read_text(encoding="utf-8"))
+        except AssertionError as error:
+            raise AssertionError(f"{path.relative_to(REPO_ROOT)}: {error}") from error
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "python:3.12-alpine",
+        "node:24-alpine",
+        "alpine@sha256:" + "a" * 64,
+        "python:3.12-slim@sha256:bad",
+        "${BASE_IMAGE}",
+    ],
+)
+def test_dockerfile_digest_guard_rejects_mutable_or_malformed_bases(reference: str) -> None:
+    with pytest.raises(AssertionError, match="unpinned Dockerfile base"):
+        _assert_pinned_bases(f"FROM --platform=$BUILDPLATFORM {reference} AS builder\n")
+
+
+def test_dockerfile_digest_guard_accepts_indexes_stage_reuse_and_scratch() -> None:
+    _assert_pinned_bases(
+        "# FROM ignored:tag\n"
+        "from --platform=$TARGETPLATFORM python:3.12-slim@sha256:"
+        + "a" * 64
+        + " \\\n AS builder\nFROM builder AS runtime\nFROM scratch\n"
+    )
+
+
+def test_dockerfile_digest_updates_allow_python_and_require_review() -> None:
+    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    assert config["dockerfile"]["pinDigests"] is True
+    python_disable = next(
+        rule
+        for rule in config["packageRules"]
+        if rule.get("matchPackageNames") == ["python"] and rule.get("enabled") is False
+    )
+    # A blanket disable stops registry lookup before digest rules can apply.
+    assert python_disable["matchUpdateTypes"] == ["major", "minor", "patch"]
+    digest_rule = next(
+        rule for rule in config["packageRules"] if rule.get("matchManagers") == ["dockerfile"]
+    )
+    assert digest_rule["matchUpdateTypes"] == ["digest", "pinDigest"]
+    assert digest_rule["automerge"] is False
+    assert digest_rule["groupName"] == "{{depName}} Dockerfile digests"
