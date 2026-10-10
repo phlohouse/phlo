@@ -38,6 +38,12 @@ from typing import Any
 import pandas as pd
 
 from phlo.capabilities.specs import CheckResult
+from phlo.operations.parquet_validation import (
+    ValidationMode,
+    evaluate_validation_frames,
+    parquet_validation_frames,
+    validate_batch_contract,
+)
 
 PANDERA_CONTRACT_CHECK_NAME = "pandera_contract"
 _ISO_TIMESTAMP_LIKE = re.compile(r"\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2})?")
@@ -185,6 +191,9 @@ def evaluate_pandera_contract_parquet(
     parquet_path: Path,
     *,
     schema_class: type[Any],
+    mode: ValidationMode = "materialized",
+    batch_size: int = 65_536,
+    sample_size: int = 1_000,
 ) -> PanderaContractEvaluation:
     """Load parquet data and validate it against a Pandera schema class.
 
@@ -208,14 +217,24 @@ def evaluate_pandera_contract_parquet(
         :func:`evaluate_pandera_contract_parquet_files`: For multiple files.
 
     """
-    df = pd.read_parquet(parquet_path)
-    return evaluate_pandera_contract(df, schema_class=schema_class)
+    if mode == "materialized":
+        return evaluate_pandera_contract(pd.read_parquet(parquet_path), schema_class=schema_class)
+    return evaluate_pandera_contract_parquet_files(
+        [parquet_path],
+        schema_class=schema_class,
+        mode=mode,
+        batch_size=batch_size,
+        sample_size=sample_size,
+    )
 
 
 def evaluate_pandera_contract_parquet_files(
     parquet_paths: list[Path],
     *,
     schema_class: type[Any],
+    mode: ValidationMode = "materialized",
+    batch_size: int = 65_536,
+    sample_size: int = 1_000,
 ) -> PanderaContractEvaluation:
     """Load one or more parquet files and validate them as a single staged dataset.
 
@@ -241,9 +260,18 @@ def evaluate_pandera_contract_parquet_files(
     """
     if not parquet_paths:
         raise FileNotFoundError("Missing parquet_paths in ingestion metadata")
-    frames = [pd.read_parquet(parquet_path) for parquet_path in parquet_paths]
-    return evaluate_pandera_contract(
-        pd.concat(frames, ignore_index=True), schema_class=schema_class
+    if mode == "full":
+        validate_batch_contract(schema_class.to_schema())
+    frames = parquet_validation_frames(
+        parquet_paths,
+        mode=mode,
+        batch_size=batch_size,
+        sample_size=sample_size,
+    )
+    return PanderaContractEvaluation(
+        *evaluate_validation_frames(
+            frames, lambda frame: evaluate_pandera_contract(frame, schema_class=schema_class)
+        )
     )
 
 
@@ -346,6 +374,7 @@ def pandera_contract_asset_check_result(
     schema_class: type[Any],
     query_or_sql: str,
     blocking: bool = True,
+    validation_mode: ValidationMode = "materialized",
 ) -> CheckResult:
     """Build a normalized Phlo check result from Pandera evaluation output.
 
@@ -381,6 +410,9 @@ def pandera_contract_asset_check_result(
         "sample": evaluation.sample[:20],
         "schema": schema_class.__name__,
     }
+    if validation_mode != "materialized":
+        metadata["validation_mode"] = validation_mode
+        metadata["validation_scope"] = "prefix_sample" if validation_mode == "sample" else "dataset"
     if evaluation.error:
         metadata["error"] = evaluation.error
 

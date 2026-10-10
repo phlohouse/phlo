@@ -63,6 +63,12 @@ from pandera.pandas import DataFrameModel
 
 from phlo.capabilities.specs import CheckResult
 from phlo.logging import get_logger
+from phlo.operations.parquet_validation import (
+    ValidationMode,
+    evaluate_validation_frames,
+    parquet_validation_frames,
+    validate_batch_contract,
+)
 from phlo_pandera.contract import PANDERA_CONTRACT_CHECK_NAME, QualityCheckContract
 from phlo_pandera.severity import severity_for_pandera_contract
 
@@ -185,6 +191,9 @@ def evaluate_pandera_contract_parquet(
     parquet_path: Path,
     *,
     schema_class: type[DataFrameModel],
+    mode: ValidationMode = "materialized",
+    batch_size: int = 65_536,
+    sample_size: int = 1_000,
 ) -> PanderaContractEvaluation:
     """Load a parquet file and validate it against a Pandera schema class.
 
@@ -203,7 +212,22 @@ def evaluate_pandera_contract_parquet(
     """
 
     try:
-        df = pd.read_parquet(parquet_path)
+        if mode == "materialized":
+            df = pd.read_parquet(parquet_path)
+            return evaluate_pandera_contract(df, schema_class=schema_class)
+        if mode == "full":
+            validate_batch_contract(schema_class.to_schema())
+        frames = parquet_validation_frames(
+            [parquet_path],
+            mode=mode,
+            batch_size=batch_size,
+            sample_size=sample_size,
+        )
+        return PanderaContractEvaluation(
+            *evaluate_validation_frames(
+                frames, lambda frame: evaluate_pandera_contract(frame, schema_class=schema_class)
+            )
+        )
     except Exception:
         logger.exception(
             "pandera_contract_parquet_read_failed",
@@ -211,7 +235,6 @@ def evaluate_pandera_contract_parquet(
             parquet_path=str(parquet_path),
         )
         raise
-    return evaluate_pandera_contract(df, schema_class=schema_class)
 
 
 def pandera_contract_asset_check_result(

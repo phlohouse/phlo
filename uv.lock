@@ -3953,6 +3953,7 @@ dependencies = [
     { name = "pandas" },
     { name = "pandera" },
     { name = "phlo" },
+    { name = "pyarrow" },
     { name = "rich" },
 ]
 
@@ -3976,6 +3977,7 @@ requires-dist = [
     { name = "phlo", editable = "." },
     { name = "phlo-observatory", marker = "extra == 'observatory'", editable = "packages/phlo-observatory" },
     { name = "phlo-trino", marker = "extra == 'trino'", editable = "packages/phlo-trino" },
+    { name = "pyarrow", specifier = ">=21.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
