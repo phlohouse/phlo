@@ -115,7 +115,7 @@ export function ViewSwitch({
   const on = 'bg-card text-foreground shadow-[0_0_0_1px_var(--border)]'
   return (
     <nav
-      aria-label="Pipelines view"
+      aria-label="Jobs view"
       className="inline-flex rounded-lg border border-border bg-raised p-0.5"
     >
       <Link
