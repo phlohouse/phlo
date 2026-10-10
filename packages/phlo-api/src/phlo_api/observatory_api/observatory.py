@@ -30,6 +30,8 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
+from phlo.config.process import get_process_settings as get_core_process_settings
+from phlo_api.settings import get_process_settings
 from phlo_api.observatory_api.observatory_actions import execute_observatory_action
 from phlo_api.observatory_api.observatory_cache import ReadModelCache
 from phlo_api.observatory_api.observatory_capabilities import build_capability_inventory
@@ -325,7 +327,7 @@ def _dataclass_dict(value: Any) -> dict[str, Any]:
 
 
 def _project_root() -> Path:
-    return Path(os.environ.get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
+    return Path(get_core_process_settings().get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
 
 
 def _observatory_state_dir() -> Path:
@@ -3864,7 +3866,7 @@ def _load_settings() -> ObservatorySettings:
 
     capabilities = _load_capabilities()
     project_root = _project_root()
-    compose_project = os.environ.get("PHLO_COMPOSE_PROJECT") or os.environ.get(
+    compose_project = get_process_settings().phlo_compose_project or os.environ.get(
         "COMPOSE_PROJECT_NAME"
     )
     return ObservatorySettings(

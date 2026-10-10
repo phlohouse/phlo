@@ -11,6 +11,7 @@ import argparse
 import sys
 import time
 
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -97,12 +98,11 @@ def _persist_credentials(credentials: dict[str, str]) -> None:
     file lets REST catalog clients authenticate without pre-shared secrets.
     """
     import json
-    import os
     from pathlib import Path
 
     if not credentials:
         return
-    root = Path(os.getenv("PHLO_PROJECT_PATH", "."))
+    root = Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
     path = root / ".phlo" / "polaris-principals.json"
     existing: dict[str, str] = {}
     try:

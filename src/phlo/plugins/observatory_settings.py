@@ -9,7 +9,6 @@ never imports a provider package and contains no database driver or SQL code.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -23,6 +22,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, fi
 from pydantic import ValidationError as ModelValidationError
 
 from phlo.config.base import BaseConfig
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -40,7 +40,17 @@ class StorageCorruptionError(StorageUnavailableError):
     """Sanitised error raised when durable Observatory state is malformed."""
 
 
-class ObservatorySettingsStorageConfig(BaseConfig):
+class ObservatoryDatabaseSettings(BaseConfig):
+    """Declare the shared UI and durable-storage DSN without backend validation."""
+
+    observatory_settings_db_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PHLO_OBSERVATORY_SETTINGS_DB_URL"),
+        description="PostgreSQL DSN override shared by Observatory UI and settings storage. Default absent; storage resolves its database fallback at use.",
+    )
+
+
+class ObservatorySettingsStorageConfig(ObservatoryDatabaseSettings, BaseConfig):
     """Configuration for Observatory settings storage.
 
     The default backend is ``postgres`` (durable).  ``memory`` is permitted
@@ -52,12 +62,6 @@ class ObservatorySettingsStorageConfig(BaseConfig):
         default="postgres",
         validation_alias=AliasChoices("PHLO_OBSERVATORY_SETTINGS_BACKEND"),
         description="Settings storage backend: 'postgres' (durable, default) or 'memory' (dev/test only)",
-    )
-
-    observatory_settings_db_url: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("PHLO_OBSERVATORY_SETTINGS_DB_URL"),
-        description="PostgreSQL DSN override for Observatory settings storage",
     )
 
 
@@ -360,7 +364,7 @@ def operational_schedule_slot(schedule: str, at: datetime) -> datetime | None:
 def operational_environment_target(env: str) -> tuple[str, str]:
     """Resolve an operator-bound consumer location/ref, never a default branch."""
     try:
-        targets = json.loads(os.environ["PHLO_V1_ENVIRONMENTS"])
+        targets = json.loads(get_process_settings()["PHLO_V1_ENVIRONMENTS"])
         if env not in {"prod", "staging"} or set(targets) != {"prod", "staging"}:
             raise ValueError
         if (

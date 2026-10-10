@@ -6,7 +6,6 @@ import base64
 import asyncio
 import hashlib
 import json
-import os
 from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +18,7 @@ from pydantic import Field, field_validator
 
 from phlo.audit.events import AuditEventType, CanonicalAuditEvent
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.errors import BackendUnavailableError
@@ -40,7 +40,9 @@ async def _effect_lifespan(_application: Any):
                 logger.warning("incident_notification_recovery_unavailable")
             await asyncio.sleep(60)
 
-    task = asyncio.create_task(recover()) if os.environ.get("PHLO_RUN_EVIDENCE_DB_URL") else None
+    task = (
+        asyncio.create_task(recover()) if get_process_settings().phlo_run_evidence_db_url else None
+    )
     try:
         yield
     finally:
@@ -210,7 +212,7 @@ class AssetIncidentPolicyPage(WireModel):
 
 
 def _connection():
-    dsn = os.environ.get("PHLO_RUN_EVIDENCE_DB_URL")
+    dsn = get_process_settings().phlo_run_evidence_db_url
     if not dsn:
         raise BackendUnavailableError("Durable incident storage is unavailable.")
     try:

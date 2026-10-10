@@ -21,6 +21,7 @@ import click
 
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.config.layout import env_defaults_path, project_env_paths
+from phlo.config.process import get_process_settings
 from phlo.security.mode import requires_http_authorization
 
 BackendName = Literal["docker", "podman", "auto"]
@@ -596,7 +597,7 @@ def select_container_backend(
     Raises ValueError when the resolved backend is unsupported.
     """
     selected = (
-        cli_backend or os.environ.get("PHLO_CONTAINER_BACKEND") or config_backend or "docker"
+        cli_backend or get_process_settings().phlo_container_backend or config_backend or "docker"
     ).strip()
     if selected == "auto":
         selected = "docker" if shutil.which("docker") else "podman"
