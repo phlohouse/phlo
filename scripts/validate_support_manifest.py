@@ -14,8 +14,9 @@ import json
 import re
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "registry/support/v1.json"
@@ -139,21 +140,58 @@ def _type_matches(value: object, expected: str) -> bool:
     }.get(expected, True)
 
 
+def _resolve_schema_ref(schema: dict[str, Any], root: dict[str, Any]) -> Any:
+    target: Any = root
+    for part in schema["$ref"][2:].split("/"):
+        target = target[part]
+    return target
+
+
+def _array_schema_errors(
+    value: list[Any], schema: dict[str, Any], path: str, root: dict[str, Any]
+) -> list[str]:
+    errors: list[str] = []
+    if len(value) < schema.get("minItems", 0):
+        errors.append(f"{path}: requires at least {schema['minItems']} item(s)")
+    if "items" in schema:
+        for index, item in enumerate(value):
+            errors.extend(_schema_errors(item, schema["items"], f"{path}[{index}]", root))
+    return errors
+
+
+def _object_schema_errors(
+    value: dict[str, Any], schema: dict[str, Any], path: str, root: dict[str, Any]
+) -> list[str]:
+    errors = [
+        f"{path}: missing required property {key!r}"
+        for key in schema.get("required", [])
+        if key not in value
+    ]
+    properties = schema.get("properties", {})
+    additional = schema.get("additionalProperties")
+    if additional is False:
+        errors.extend(f"{path}: unknown property {key!r}" for key in value if key not in properties)
+    for key, child_schema in properties.items():
+        if key in value:
+            errors.extend(_schema_errors(value[key], child_schema, f"{path}.{key}", root))
+    if isinstance(additional, dict):
+        for key, child in value.items():
+            if key not in properties:
+                errors.extend(_schema_errors(child, additional, f"{path}.{key}", root))
+    return errors
+
+
 # Implements exactly the JSON Schema keywords schema/v1.json uses. Unknown
 # keywords pass through unchecked; extend here before adding them to the
 # schema file.
-def _schema_errors(  # noqa: C901
+def _schema_errors(
     value: Any, schema: dict[str, Any], path: str = "$", root: dict[str, Any] | None = None
 ) -> list[str]:
     root = root or schema
     if "$ref" in schema:
-        ref = schema["$ref"]
-        if not ref.startswith("#/"):
-            return [f"{path}: unsupported schema reference {ref!r}"]
-        target: Any = root
-        for part in ref[2:].split("/"):
-            target = target[part]
-        return _schema_errors(value, target, path, root)
+        if not schema["$ref"].startswith("#/"):
+            return [f"{path}: unsupported schema reference {schema['$ref']!r}"]
+        return _schema_errors(value, _resolve_schema_ref(schema, root), path, root)
 
     errors: list[str] = []
     if "const" in schema and value != schema["const"]:
@@ -165,29 +203,9 @@ def _schema_errors(  # noqa: C901
     if isinstance(value, str) and len(value) < schema.get("minLength", 0):
         errors.append(f"{path}: must not be empty")
     if isinstance(value, list):
-        if len(value) < schema.get("minItems", 0):
-            errors.append(f"{path}: requires at least {schema['minItems']} item(s)")
-        if "items" in schema:
-            for index, item in enumerate(value):
-                errors.extend(_schema_errors(item, schema["items"], f"{path}[{index}]", root))
+        errors.extend(_array_schema_errors(value, schema, path, root))
     if isinstance(value, dict):
-        required = schema.get("required", [])
-        for key in required:
-            if key not in value:
-                errors.append(f"{path}: missing required property {key!r}")
-        properties = schema.get("properties", {})
-        if schema.get("additionalProperties") is False:
-            for key in value:
-                if key not in properties:
-                    errors.append(f"{path}: unknown property {key!r}")
-        for key, child_schema in properties.items():
-            if key in value:
-                errors.extend(_schema_errors(value[key], child_schema, f"{path}.{key}", root))
-        additional = schema.get("additionalProperties")
-        if isinstance(additional, dict):
-            for key, child in value.items():
-                if key not in properties:
-                    errors.extend(_schema_errors(child, additional, f"{path}.{key}", root))
+        errors.extend(_object_schema_errors(value, schema, path, root))
     return errors
 
 
@@ -444,27 +462,85 @@ def _validate_named_claim_bindings(
     return errors
 
 
-def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> list[str]:  # noqa: C901
-    """Return all manifest and repository consistency errors."""
-    schema_path = repo_root / "registry/support/schema/v1.json"
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    errors = _schema_errors(manifest, schema)
-    if errors:
-        return errors
+_EXPECTED_MATURITY = {
+    "supported": "alpha",
+    "preview": "preview",
+    "experimental": "preview",
+    "development_only": "development_only",
+    "planned": "planned",
+    "required": "planned",
+    "excluded": "unverified",
+}
 
-    package_entries = manifest["packages"]
-    service_entries = manifest["services"]
-    capability_entries = manifest["capabilities"]
-    capability_names = {entry["name"] for entry in capability_entries}
-    errors.extend(
+
+class _ManifestContext(NamedTuple):
+    """Parsed manifest sections and repository inventories shared by the validators."""
+
+    manifest: dict[str, Any]
+    repo_root: Path
+    package_inventory: dict[str, Path]
+    service_inventory: dict[str, Path]
+    root_project: dict[str, Any]
+
+    @property
+    def packages(self) -> list[dict[str, Any]]:
+        return self.manifest["packages"]
+
+    @property
+    def services(self) -> list[dict[str, Any]]:
+        return self.manifest["services"]
+
+    @property
+    def capabilities(self) -> list[dict[str, Any]]:
+        return self.manifest["capabilities"]
+
+    @property
+    def manifest_packages(self) -> dict[str, dict[str, Any]]:
+        return {_normalise_package_name(entry["name"]): entry for entry in self.packages}
+
+    @property
+    def manifest_services(self) -> dict[str, dict[str, Any]]:
+        return {entry["name"]: entry for entry in self.services}
+
+
+def _component_ids(
+    kind: str, entries: list[dict[str, Any]], predicate: Callable[[dict[str, Any]], bool]
+) -> set[str]:
+    return {f"{kind}:{entry['name']}" for entry in entries if predicate(entry)}
+
+
+def _blessed_core_components(ctx: _ManifestContext) -> set[str]:
+    def blessed(entry: dict[str, Any]) -> bool:
+        return entry["scope"] == "blessed_core"
+
+    return (
+        _component_ids("package", ctx.packages, blessed)
+        | _component_ids("service", ctx.services, blessed)
+        | _component_ids("capability", ctx.capabilities, blessed)
+    )
+
+
+def _evidence_errors(
+    *, kind: str, name: str, evidence_entries: list[str], repo_root: Path
+) -> list[str]:
+    errors: list[str] = []
+    _validate_evidence(
+        errors, kind=kind, name=name, evidence_entries=evidence_entries, repo_root=repo_root
+    )
+    return errors
+
+
+def _approved_set_errors(ctx: _ManifestContext) -> list[str]:
+    capability_names = {entry["name"] for entry in ctx.capabilities}
+    profile_name_set = set(ctx.manifest["profiles"])
+    errors = [
         f"approved v1 capability {name!r} is absent from the manifest"
         for name in sorted(APPROVED_V1_CAPABILITIES - capability_names)
-    )
+    ]
     errors.extend(
         f"capability {name!r} is not in the approved v1 capability set"
         for name in sorted(capability_names - APPROVED_V1_CAPABILITIES)
     )
-    profile_name_set = set(manifest["profiles"])
     errors.extend(
         f"approved profile {name!r} is absent from the manifest"
         for name in sorted(set(APPROVED_PROFILES) - profile_name_set)
@@ -473,193 +549,204 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
         f"profile {name!r} is not in the approved profile set"
         for name in sorted(profile_name_set - set(APPROVED_PROFILES))
     )
-    for name in sorted(profile_name_set & set(APPROVED_PROFILES)):
-        if manifest["profiles"][name]["status"] != APPROVED_PROFILES[name]:
-            errors.append(f"profile {name!r} status must be {APPROVED_PROFILES[name]!r}")
+    errors.extend(
+        f"profile {name!r} status must be {APPROVED_PROFILES[name]!r}"
+        for name in sorted(profile_name_set & set(APPROVED_PROFILES))
+        if ctx.manifest["profiles"][name]["status"] != APPROVED_PROFILES[name]
+    )
+    return errors
+
+
+def _component_entry_errors(kind: str, entry: dict[str, Any], repo_root: Path) -> list[str]:
+    errors: list[str] = []
+    name = entry["name"]
+    status = entry["target_status"]
+    if status == "supported" and entry["scope"] == "outside_v1":
+        errors.append(f"{kind} {name!r}: supported target cannot be outside_v1")
+    if status == "excluded" and entry["scope"] != "outside_v1":
+        errors.append(f"{kind} {name!r}: excluded target must be outside_v1")
+    allowed_maturity = {_EXPECTED_MATURITY[status]}
+    if kind == "capability" and status == "required":
+        allowed_maturity = {"planned", "blocked"}
+    if entry["current_maturity"] not in allowed_maturity:
+        errors.append(f"{kind} {name!r}: current_maturity contradicts target_status")
+    if kind != "capability" and status == "required":
+        errors.append(f"{kind} {name!r}: only capabilities may be required targets")
+    if kind == "capability" and name in REQUIRED_V1_CAPABILITIES and status != "required":
+        errors.append(
+            f"capability {name!r}: required v1 capability must use target_status=required"
+        )
+    errors.extend(
+        _evidence_errors(
+            kind=kind, name=name, evidence_entries=entry["evidence"], repo_root=repo_root
+        )
+    )
+    return errors
+
+
+def _component_errors(ctx: _ManifestContext) -> list[str]:
+    errors: list[str] = []
     for kind, entries in (
-        ("package", package_entries),
-        ("service", service_entries),
-        ("capability", capability_entries),
+        ("package", ctx.packages),
+        ("service", ctx.services),
+        ("capability", ctx.capabilities),
     ):
         names = [entry["name"] for entry in entries]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         errors.extend(f"duplicate {kind} entry {name!r}" for name in duplicates)
         for entry in entries:
-            status = entry["target_status"]
-            if status == "supported" and entry["scope"] == "outside_v1":
-                errors.append(f"{kind} {entry['name']!r}: supported target cannot be outside_v1")
-            if status == "excluded" and entry["scope"] != "outside_v1":
-                errors.append(f"{kind} {entry['name']!r}: excluded target must be outside_v1")
-            expected_maturity = {
-                "supported": "alpha",
-                "preview": "preview",
-                "experimental": "preview",
-                "development_only": "development_only",
-                "planned": "planned",
-                "required": "planned",
-                "excluded": "unverified",
-            }[status]
-            allowed_maturity = {expected_maturity}
-            if kind == "capability" and status == "required":
-                allowed_maturity = {"planned", "blocked"}
-            if entry["current_maturity"] not in allowed_maturity:
-                errors.append(
-                    f"{kind} {entry['name']!r}: current_maturity contradicts target_status"
-                )
-            if kind != "capability" and status == "required":
-                errors.append(
-                    f"{kind} {entry['name']!r}: only capabilities may be required targets"
-                )
-            if (
-                kind == "capability"
-                and entry["name"] in REQUIRED_V1_CAPABILITIES
-                and status != "required"
-            ):
-                errors.append(
-                    f"capability {entry['name']!r}: required v1 capability must use target_status=required"
-                )
+            errors.extend(_component_entry_errors(kind, entry, ctx.repo_root))
+    return errors
 
-            _validate_evidence(
-                errors,
-                kind=kind,
-                name=entry["name"],
-                evidence_entries=entry["evidence"],
-                repo_root=repo_root,
+
+def _section_evidence_errors(ctx: _ManifestContext) -> list[str]:
+    errors: list[str] = []
+    for runtime_name, runtime_entry in ctx.manifest["runtime"].items():
+        errors.extend(
+            _evidence_errors(
+                kind="runtime",
+                name=runtime_name,
+                evidence_entries=runtime_entry["evidence"],
+                repo_root=ctx.repo_root,
             )
-
-    errors.extend(_validate_named_claim_bindings(capability_entries, repo_root=repo_root))
-
-    for runtime_name, runtime_entry in manifest["runtime"].items():
-        _validate_evidence(
-            errors,
-            kind="runtime",
-            name=runtime_name,
-            evidence_entries=runtime_entry["evidence"],
-            repo_root=repo_root,
         )
-    _validate_evidence(
-        errors,
-        kind="production",
-        name="production",
-        evidence_entries=manifest["production"]["evidence"],
-        repo_root=repo_root,
-    )
-    for exclusion in manifest["exclusions"]:
-        _validate_evidence(
-            errors,
-            kind="exclusion",
-            name=exclusion["name"],
-            evidence_entries=exclusion["evidence"],
-            repo_root=repo_root,
-        )
-
-    package_inventory = (
-        _package_inventory() if repo_root == ROOT else _package_inventory_at(repo_root)
-    )
-    manifest_packages = {_normalise_package_name(entry["name"]): entry for entry in package_entries}
-    actual_packages = {_normalise_package_name(name) for name in package_inventory}
     errors.extend(
-        f"package {name!r} is present in the workspace but absent from the support manifest"
-        for name in sorted(actual_packages - set(manifest_packages))
+        _evidence_errors(
+            kind="production",
+            name="production",
+            evidence_entries=ctx.manifest["production"]["evidence"],
+            repo_root=ctx.repo_root,
+        )
     )
+    for exclusion in ctx.manifest["exclusions"]:
+        errors.extend(
+            _evidence_errors(
+                kind="exclusion",
+                name=exclusion["name"],
+                evidence_entries=exclusion["evidence"],
+                repo_root=ctx.repo_root,
+            )
+        )
+    return errors
+
+
+def _inventory_drift_errors(ctx: _ManifestContext) -> list[str]:
+    manifest_packages = set(ctx.manifest_packages)
+    actual_packages = {_normalise_package_name(name) for name in ctx.package_inventory}
+    manifest_services = set(ctx.manifest_services)
+    actual_services = set(ctx.service_inventory)
+    errors = [
+        f"package {name!r} is present in the workspace but absent from the support manifest"
+        for name in sorted(actual_packages - manifest_packages)
+    ]
     errors.extend(
         f"package {name!r} is in the support manifest but absent from the workspace"
-        for name in sorted(set(manifest_packages) - actual_packages)
+        for name in sorted(manifest_packages - actual_packages)
     )
-    errors.extend(provider_core_compatibility_errors(repo_root))
-
-    service_inventory = (
-        _service_inventory() if repo_root == ROOT else _service_inventory_at(repo_root)
-    )
-    manifest_services = {entry["name"]: entry for entry in service_entries}
-    actual_services = set(service_inventory)
+    errors.extend(provider_core_compatibility_errors(ctx.repo_root))
     errors.extend(
         f"service {name!r} is present in generated service metadata but absent from the support manifest"
-        for name in sorted(actual_services - set(manifest_services))
+        for name in sorted(actual_services - manifest_services)
     )
     errors.extend(
         f"service {name!r} is in the support manifest but absent from generated service metadata"
-        for name in sorted(set(manifest_services) - actual_services)
+        for name in sorted(manifest_services - actual_services)
     )
-    for entry in service_entries:
-        source, path_error = _resolve_repo_path(repo_root, entry["source"])
-        if path_error:
-            errors.append(
-                f"service {entry['name']!r}: source path {entry['source']!r} {path_error}"
-            )
-            continue
-        assert source is not None
-        if not source.is_file():
-            errors.append(f"service {entry['name']!r}: source does not exist: {entry['source']}")
-        elif (
-            entry["name"] in service_inventory
-            and service_inventory[entry["name"]].resolve() != source
-        ):
-            errors.append(f"service {entry['name']!r}: source does not match discovered metadata")
-        discovered_source = service_inventory.get(entry["name"])
-        if discovered_source is not None:
-            owner = _package_owner_for_path(discovered_source, package_inventory)
-            declared_package = _normalise_package_name(entry["package"])
-            if owner is None:
-                errors.append(f"service {entry['name']!r}: discovered source has no package owner")
-            elif declared_package != owner:
-                errors.append(
-                    f"service {entry['name']!r}: package {entry['package']!r} does not own discovered source; expected {owner!r}"
-                )
-        package = _normalise_package_name(entry["package"])
-        if package not in manifest_packages:
-            errors.append(
-                f"service {entry['name']!r}: package {entry['package']!r} is absent from the package manifest"
-            )
+    return errors
 
-    release_set = manifest["release_set"]
+
+def _service_owner_errors(ctx: _ManifestContext, entry: dict[str, Any]) -> list[str]:
+    discovered_source = ctx.service_inventory.get(entry["name"])
+    if discovered_source is None:
+        return []
+    owner = _package_owner_for_path(discovered_source, ctx.package_inventory)
+    if owner is None:
+        return [f"service {entry['name']!r}: discovered source has no package owner"]
+    if _normalise_package_name(entry["package"]) != owner:
+        return [
+            f"service {entry['name']!r}: package {entry['package']!r} does not own discovered source; expected {owner!r}"
+        ]
+    return []
+
+
+def _service_entry_errors(ctx: _ManifestContext, entry: dict[str, Any]) -> list[str]:
+    source, path_error = _resolve_repo_path(ctx.repo_root, entry["source"])
+    if path_error:
+        return [f"service {entry['name']!r}: source path {entry['source']!r} {path_error}"]
+    assert source is not None
+    errors: list[str] = []
+    if not source.is_file():
+        errors.append(f"service {entry['name']!r}: source does not exist: {entry['source']}")
+    elif (
+        entry["name"] in ctx.service_inventory
+        and ctx.service_inventory[entry["name"]].resolve() != source
+    ):
+        errors.append(f"service {entry['name']!r}: source does not match discovered metadata")
+    errors.extend(_service_owner_errors(ctx, entry))
+    if _normalise_package_name(entry["package"]) not in ctx.manifest_packages:
+        errors.append(
+            f"service {entry['name']!r}: package {entry['package']!r} is absent from the package manifest"
+        )
+    return errors
+
+
+def _release_set_package_errors(ctx: _ManifestContext) -> list[str]:
+    release_set = ctx.manifest["release_set"]
+    errors: list[str] = []
     release_package_names = [entry["name"] for entry in release_set["packages"]]
     if len(release_package_names) != len(set(release_package_names)):
         errors.append("release_set.packages contains duplicate package names")
     release_packages = {entry["name"]: entry["version"] for entry in release_set["packages"]}
     blessed_packages = {
         _normalise_package_name(entry["name"])
-        for entry in package_entries
+        for entry in ctx.packages
         if entry["scope"] == "blessed_core"
     }
     if set(release_packages) != blessed_packages:
         errors.append("release_set.packages must cover exactly the blessed_core packages")
     for package, version in release_packages.items():
-        path = package_inventory.get(package)
+        path = ctx.package_inventory.get(package)
         if path is None:
             continue
         with path.open("rb") as handle:
             declared_version = tomllib.load(handle)["project"]["version"]
         if version != declared_version:
             errors.append(
-                f"release_set package {package!r} version {version!r} does not match {path.relative_to(repo_root)}"
+                f"release_set package {package!r} version {version!r} does not match {path.relative_to(ctx.repo_root)}"
             )
+    return errors
 
+
+def _release_set_service_errors(ctx: _ManifestContext) -> list[str]:
+    release_set = ctx.manifest["release_set"]
+    errors: list[str] = []
     release_service_names = [entry["name"] for entry in release_set["services"]]
     if len(release_service_names) != len(set(release_service_names)):
         errors.append("release_set.services contains duplicate service names")
     release_services = {
         entry["name"]: entry["image_reference"] for entry in release_set["services"]
     }
-    blessed_services = {
-        entry["name"] for entry in service_entries if entry["scope"] == "blessed_core"
-    }
+    blessed_services = {entry["name"] for entry in ctx.services if entry["scope"] == "blessed_core"}
     if set(release_services) != blessed_services:
         errors.append("release_set.services must cover exactly the blessed_core services")
     for service, image_reference in release_services.items():
-        source = service_inventory.get(service)
+        source = ctx.service_inventory.get(service)
         if source is None:
             continue
-        declared_reference = _service_image_reference(source)
-        if image_reference != declared_reference:
+        if image_reference != _service_image_reference(source):
             errors.append(
                 f"release_set service {service!r} image_reference does not match declared metadata"
             )
+    return errors
 
-    config_schema = release_set["schemas"]["configuration"]
-    database_schema = release_set["schemas"]["database"]
-    config_source = repo_root / config_schema["source"]
-    database_source = repo_root / database_schema["source"]
+
+def _release_set_schema_errors(ctx: _ManifestContext) -> list[str]:
+    schemas = ctx.manifest["release_set"]["schemas"]
+    config_schema = schemas["configuration"]
+    database_schema = schemas["database"]
+    config_source = ctx.repo_root / config_schema["source"]
+    database_source = ctx.repo_root / database_schema["source"]
+    errors: list[str] = []
     if not config_source.is_file():
         errors.append("release_set configuration source does not exist")
     elif not re.search(
@@ -676,28 +763,33 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
         re.MULTILINE,
     ):
         errors.append("release_set database version does not match RUN_EVIDENCE_SCHEMA_VERSION")
+    return errors
 
+
+def _registry_core_errors(ctx: _ManifestContext) -> list[str]:
     # Registry ``core`` marks discovery/defaulting roles, not release maturity.
-    core_packages, core_services = _registry_core_claims(repo_root)
-    for package in sorted(core_packages):
-        entry = manifest_packages.get(package)
-        if entry is None:
-            errors.append(
-                f"registry marks package {package!r} core but the support manifest has no entry"
-            )
-    for service in sorted(core_services):
-        entry = manifest_services.get(service)
-        if entry is None:
-            errors.append(
-                f"registry marks service {service!r} core but the support manifest has no entry"
-            )
+    core_packages, core_services = _registry_core_claims(ctx.repo_root)
+    manifest_packages = ctx.manifest_packages
+    manifest_services = ctx.manifest_services
+    errors = [
+        f"registry marks package {package!r} core but the support manifest has no entry"
+        for package in sorted(core_packages)
+        if package not in manifest_packages
+    ]
+    errors.extend(
+        f"registry marks service {service!r} core but the support manifest has no entry"
+        for service in sorted(core_services)
+        if service not in manifest_services
+    )
+    return errors
 
-    root_path = repo_root / "pyproject.toml"
-    with root_path.open("rb") as handle:
-        root_project = tomllib.load(handle)
-    if manifest["current_release"]["version"] != root_project["project"]["version"]:
+
+def _published_extra_errors(ctx: _ManifestContext) -> list[str]:
+    errors: list[str] = []
+    if ctx.manifest["current_release"]["version"] != ctx.root_project["project"]["version"]:
         errors.append("current_release.version must match pyproject.toml")
-    optional = root_project["project"].get("optional-dependencies", {})
+    optional = ctx.root_project["project"].get("optional-dependencies", {})
+    manifest_packages = ctx.manifest_packages
     for extra_name in ("defaults", "core-services"):
         for package in sorted(_package_names_from_requirement(optional.get(extra_name, []))):
             entry = manifest_packages.get(package)
@@ -709,146 +801,113 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
                 errors.append(
                     f"published extra {extra_name!r} advertises a non-core target package {package!r}"
                 )
+    return errors
+
+
+def _expected_profile(ctx: _ManifestContext, profile_name: str) -> set[str] | None:
+    """Return the components a derived profile must hold, or None for free-form profiles."""
+    if profile_name == "blessed_core":
+        return _blessed_core_components(ctx)
+    predicates: dict[str, Callable[[dict[str, Any]], bool]] = {
+        "supported_optional": lambda entry: (
+            entry["scope"] == "optional" and entry["target_status"] == "supported"
+        ),
+        "preview": lambda entry: entry["target_status"] in {"preview", "experimental"},
+        "development_only": lambda entry: entry["target_status"] == "development_only",
+    }
+    predicate = predicates.get(profile_name)
+    if predicate is None:
+        return None
+    return _component_ids("package", ctx.packages, predicate) | _component_ids(
+        "service", ctx.services, predicate
+    )
+
+
+def _profile_errors(ctx: _ManifestContext) -> list[str]:
+    def every(_entry: dict[str, Any]) -> bool:
+        return True
 
     profile_names = (
-        {f"package:{entry['name']}" for entry in package_entries}
-        | {f"service:{entry['name']}" for entry in service_entries}
-        | {f"capability:{entry['name']}" for entry in capability_entries}
+        _component_ids("package", ctx.packages, every)
+        | _component_ids("service", ctx.services, every)
+        | _component_ids("capability", ctx.capabilities, every)
     )
-    for profile_name, profile in manifest["profiles"].items():
+    errors: list[str] = []
+    for profile_name, profile in ctx.manifest["profiles"].items():
         actual_profile = set(profile["components"])
-        if profile_name == "blessed_core":
-            expected_profile = (
-                {
-                    f"package:{entry['name']}"
-                    for entry in package_entries
-                    if entry["scope"] == "blessed_core"
-                }
-                | {
-                    f"service:{entry['name']}"
-                    for entry in service_entries
-                    if entry["scope"] == "blessed_core"
-                }
-                | {
-                    f"capability:{entry['name']}"
-                    for entry in capability_entries
-                    if entry["scope"] == "blessed_core"
-                }
-            )
-        elif profile_name == "supported_optional":
-            expected_profile = {
-                f"package:{entry['name']}"
-                for entry in package_entries
-                if entry["scope"] == "optional" and entry["target_status"] == "supported"
-            } | {
-                f"service:{entry['name']}"
-                for entry in service_entries
-                if entry["scope"] == "optional" and entry["target_status"] == "supported"
-            }
-        elif profile_name == "preview":
-            expected_profile = {
-                f"package:{entry['name']}"
-                for entry in package_entries
-                if entry["target_status"] in {"preview", "experimental"}
-            } | {
-                f"service:{entry['name']}"
-                for entry in service_entries
-                if entry["target_status"] in {"preview", "experimental"}
-            }
-        elif profile_name == "development_only":
-            expected_profile = {
-                f"package:{entry['name']}"
-                for entry in package_entries
-                if entry["target_status"] == "development_only"
-            } | {
-                f"service:{entry['name']}"
-                for entry in service_entries
-                if entry["target_status"] == "development_only"
-            }
-        else:
-            expected_profile = actual_profile
-        if actual_profile != expected_profile:
+        expected_profile = _expected_profile(ctx, profile_name)
+        if expected_profile is not None and actual_profile != expected_profile:
             errors.append(
                 f"profile {profile_name!r} membership does not match component scope/status"
             )
-        unknown = actual_profile - profile_names
         errors.extend(
             f"profile {profile_name!r} references unknown component {component!r}"
-            for component in sorted(unknown)
+            for component in sorted(actual_profile - profile_names)
         )
+    return errors
 
-    gate_names = [entry["name"] for entry in manifest["gates"]["components"]]
+
+def _gate_component_errors(
+    entry: dict[str, Any], gate_status: dict[str, str], repo_root: Path
+) -> list[str]:
+    name = entry["name"]
+    errors = _evidence_errors(
+        kind="gate component",
+        name=name,
+        evidence_entries=entry.get("evidence", []),
+        repo_root=repo_root,
+    )
+    known_gates = set(gate_status)
+    applicable = set(entry["applicable_gates"])
+    unknown_gates = applicable - known_gates
+    if unknown_gates:
+        errors.append(
+            f"gate component {name!r} names unknown applicable gates: {sorted(unknown_gates)!r}"
+        )
+    blocked_by = {gate for gate in applicable & known_gates if gate_status[gate] != "passed"}
+    if not applicable:
+        errors.append(f"gate component {name!r} has no applicable gates")
+    if set(entry["blocked_by"]) != blocked_by:
+        errors.append(
+            f"gate component {name!r} blocked_by does not derive from applicable gate state"
+        )
+    expected_status = "passed" if not blocked_by else "blocked"
+    if entry["status"] != expected_status:
+        errors.append(f"gate component {name!r} status does not derive from applicable gate state")
+    if entry["status"] == "passed" and not entry.get("evidence"):
+        errors.append(f"gate component {name!r} is passed without checked evidence")
+    return errors
+
+
+def _gate_errors(ctx: _ManifestContext) -> list[str]:
+    gates = ctx.manifest["gates"]
+    errors: list[str] = []
+    gate_names = [entry["name"] for entry in gates["components"]]
     if len(gate_names) != len(set(gate_names)):
         errors.append("gates.components contains duplicate component names")
-    expected_gate_names = (
-        {
-            f"package:{entry['name']}"
-            for entry in package_entries
-            if entry["scope"] == "blessed_core"
-        }
-        | {
-            f"service:{entry['name']}"
-            for entry in service_entries
-            if entry["scope"] == "blessed_core"
-        }
-        | {
-            f"capability:{entry['name']}"
-            for entry in capability_entries
-            if entry["scope"] == "blessed_core"
-        }
-    )
-    if set(gate_names) != expected_gate_names:
+    if set(gate_names) != _blessed_core_components(ctx):
         errors.append(
             "gates.components must cover exactly every blessed_core package, service, and capability"
         )
-    required_gates = set(manifest["gates"]["required"])
-    if required_gates != set(manifest["gates"]["status"]):
+    if set(gates["required"]) != set(gates["status"]):
         errors.append("gates.required and gates.status must name the same gates")
-    known_gates = set(manifest["gates"]["status"])
-    for entry in manifest["gates"]["components"]:
-        _validate_evidence(
-            errors,
-            kind="gate component",
-            name=entry["name"],
-            evidence_entries=entry.get("evidence", []),
-            repo_root=repo_root,
-        )
-        applicable = set(entry["applicable_gates"])
-        unknown_gates = applicable - known_gates
-        if unknown_gates:
-            errors.append(
-                f"gate component {entry['name']!r} names unknown applicable gates: {sorted(unknown_gates)!r}"
-            )
-        blocked_by = {
-            gate
-            for gate in applicable & known_gates
-            if manifest["gates"]["status"][gate] != "passed"
-        }
-        if not applicable:
-            errors.append(f"gate component {entry['name']!r} has no applicable gates")
-        if set(entry["blocked_by"]) != blocked_by:
-            errors.append(
-                f"gate component {entry['name']!r} blocked_by does not derive from applicable gate state"
-            )
-        expected_status = "passed" if not blocked_by else "blocked"
-        if entry["status"] != expected_status:
-            errors.append(
-                f"gate component {entry['name']!r} status does not derive from applicable gate state"
-            )
-        if entry["status"] == "passed" and not entry.get("evidence"):
-            errors.append(f"gate component {entry['name']!r} is passed without checked evidence")
-
-    gate_states = set(manifest["gates"]["status"].values())
+    for entry in gates["components"]:
+        errors.extend(_gate_component_errors(entry, gates["status"], ctx.repo_root))
+    gate_states = set(gates["status"].values())
     expected_production_status = (
         "blocked" if gate_states != {"passed"} else "required_before_release"
     )
-    if manifest["production"]["status"] != expected_production_status:
+    if ctx.manifest["production"]["status"] != expected_production_status:
         errors.append("production.status must be derived from the release-gate states")
+    return errors
 
-    python_runtime = manifest["runtime"]["python"]
+
+def _python_runtime_errors(ctx: _ManifestContext) -> list[str]:
+    python_runtime = ctx.manifest["runtime"]["python"]
     supported_python = set(python_runtime["supported"])
     advertised_unverified = set(python_runtime["advertised_unverified"])
     unverified_python = set(python_runtime["unverified"])
+    errors: list[str] = []
     if (
         supported_python & advertised_unverified
         or supported_python & unverified_python
@@ -857,7 +916,7 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
         errors.append(
             "runtime Python supported, advertised_unverified, and unverified sets must be disjoint"
         )
-    classifiers = set(root_project["project"].get("classifiers", []))
+    classifiers = set(ctx.root_project["project"].get("classifiers", []))
     classifier_prefix = "Programming Language :: Python :: "
     advertised_python = {
         classifier.removeprefix(classifier_prefix)
@@ -869,15 +928,60 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
         errors.append(
             "runtime Python supported and advertised_unverified claims must exactly match pyproject classifiers"
         )
-    for version in supported_python | advertised_unverified:
-        if f"{classifier_prefix}{version}" not in classifiers:
-            errors.append(f"runtime Python claim {version!r} is absent from pyproject classifiers")
-    ci_text = (repo_root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    for version in supported_python:
-        if f'"{version}"' not in ci_text:
-            errors.append(f"runtime Python claim {version!r} has no CI matrix evidence")
-
+    errors.extend(
+        f"runtime Python claim {version!r} is absent from pyproject classifiers"
+        for version in supported_python | advertised_unverified
+        if f"{classifier_prefix}{version}" not in classifiers
+    )
+    ci_text = (ctx.repo_root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    errors.extend(
+        f"runtime Python claim {version!r} has no CI matrix evidence"
+        for version in supported_python
+        if f'"{version}"' not in ci_text
+    )
     return errors
+
+
+def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> list[str]:
+    """Return all manifest and repository consistency errors."""
+    schema_path = repo_root / "registry/support/schema/v1.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    errors = _schema_errors(manifest, schema)
+    if errors:
+        return errors
+
+    ctx = _ManifestContext(
+        manifest=manifest,
+        repo_root=repo_root,
+        package_inventory=(
+            _package_inventory() if repo_root == ROOT else _package_inventory_at(repo_root)
+        ),
+        service_inventory=(
+            _service_inventory() if repo_root == ROOT else _service_inventory_at(repo_root)
+        ),
+        root_project=_load_root_project(repo_root),
+    )
+    errors.extend(_approved_set_errors(ctx))
+    errors.extend(_component_errors(ctx))
+    errors.extend(_validate_named_claim_bindings(ctx.capabilities, repo_root=repo_root))
+    errors.extend(_section_evidence_errors(ctx))
+    errors.extend(_inventory_drift_errors(ctx))
+    for entry in ctx.services:
+        errors.extend(_service_entry_errors(ctx, entry))
+    errors.extend(_release_set_package_errors(ctx))
+    errors.extend(_release_set_service_errors(ctx))
+    errors.extend(_release_set_schema_errors(ctx))
+    errors.extend(_registry_core_errors(ctx))
+    errors.extend(_published_extra_errors(ctx))
+    errors.extend(_profile_errors(ctx))
+    errors.extend(_gate_errors(ctx))
+    errors.extend(_python_runtime_errors(ctx))
+    return errors
+
+
+def _load_root_project(repo_root: Path) -> dict[str, Any]:
+    with (repo_root / "pyproject.toml").open("rb") as handle:
+        return tomllib.load(handle)
 
 
 def _package_inventory_at(repo_root: Path) -> dict[str, Path]:

@@ -16,7 +16,7 @@ import json
 import re
 import subprocess
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any, cast
 
@@ -828,8 +828,8 @@ def apply_policy(
     return errors, warnings
 
 
-def main() -> int:  # noqa: C901
-    """Dispatch the container-security subcommands; return the process exit code."""
+def _build_parser() -> argparse.ArgumentParser:
+    """Return the container-security CLI parser."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     validate = sub.add_parser("validate-waivers")
@@ -875,77 +875,90 @@ def main() -> int:  # noqa: C901
     policy.add_argument("--register", type=Path, default=Path("security/container-waivers.yml"))
     policy.add_argument("--image", required=True)
     policy.add_argument("--report", type=Path, required=True)
-    args = parser.parse_args()
-    if args.command == "published-fleet":
-        print(json.dumps(published_fleet(args.root), separators=(",", ":")))
-        return 0
-    if args.command == "assemble-rescan-manifest":
-        manifest = assemble_rescan_manifest(
-            json.loads(args.records.read_text(encoding="utf-8")), args.root
+    return parser
+
+
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _cmd_published_fleet(args: argparse.Namespace) -> int:
+    print(json.dumps(published_fleet(args.root), separators=(",", ":")))
+    return 0
+
+
+def _cmd_assemble_rescan_manifest(args: argparse.Namespace) -> int:
+    _write_json(args.output, assemble_rescan_manifest(_read_json(args.records), args.root))
+    return 0
+
+
+def _cmd_upstream_inventory(args: argparse.Namespace) -> int:
+    inventory = upstream_runtime_inventory(args.root)
+    if args.command == "upstream-runtime-images":
+        print(json.dumps(inventory, indent=2, sort_keys=True))
+    else:
+        _write_json(args.output, inventory)
+    return 0
+
+
+def _cmd_write_upstream_candidates(args: argparse.Namespace) -> int:
+    _write_json(args.output, upstream_runtime_candidates(args.base, args.head))
+    return 0
+
+
+def _cmd_summarize_upstream_reports(args: argparse.Namespace) -> int:
+    summary = summarize_upstream_reports(_read_json(args.inventory), args.reports)
+    args.output.write_text(summary, encoding="utf-8")
+    return 0
+
+
+def _cmd_compare_upstream_candidates(args: argparse.Namespace) -> int:
+    summary, errors = compare_upstream_candidate_reports(
+        _read_json(args.manifest), args.base_reports, args.candidate_reports
+    )
+    args.output.write_text(summary, encoding="utf-8")
+    if errors:
+        print("Upstream image candidate comparison failed:", *errors, sep="\n- ", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_affected_images(args: argparse.Namespace) -> int:
+    if args.all:
+        changed = ["pyproject.toml"]
+    else:
+        changed = subprocess.check_output(
+            ["git", "diff", "--name-only", f"{args.base}...{args.head}"], text=True
+        ).splitlines()
+    print(json.dumps(affected_images(changed, Path.cwd()), separators=(",", ":")))
+    return 0
+
+
+def _cmd_validate_waivers(args: argparse.Namespace) -> int:
+    errors = validate_waivers(load_waivers(args.register), check_expiry=not args.structural_only)
+    if errors:
+        print(
+            "Container waiver register validation failed:",
+            *[f"- {error}" for error in errors],
+            sep="\n",
+            file=sys.stderr,
         )
-        args.output.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        return 0
-    if args.command in {"upstream-runtime-images", "write-upstream-inventory"}:
-        inventory = upstream_runtime_inventory(args.root)
-        rendered = json.dumps(inventory, indent=2, sort_keys=True) + "\n"
-        if args.command == "upstream-runtime-images":
-            print(rendered, end="")
-        else:
-            args.output.write_text(rendered, encoding="utf-8")
-        return 0
-    if args.command == "write-upstream-candidates":
-        manifest = upstream_runtime_candidates(args.base, args.head)
-        args.output.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        return 0
-    if args.command == "summarize-upstream-reports":
-        summary = summarize_upstream_reports(
-            json.loads(args.inventory.read_text(encoding="utf-8")), args.reports
-        )
-        args.output.write_text(summary, encoding="utf-8")
-        return 0
-    if args.command == "compare-upstream-candidates":
-        summary, errors = compare_upstream_candidate_reports(
-            json.loads(args.manifest.read_text(encoding="utf-8")),
-            args.base_reports,
-            args.candidate_reports,
-        )
-        args.output.write_text(summary, encoding="utf-8")
-        if errors:
-            print(
-                "Upstream image candidate comparison failed:", *errors, sep="\n- ", file=sys.stderr
-            )
-            return 1
-        return 0
-    if args.command == "affected-images":
-        if args.all:
-            changed = ["pyproject.toml"]
-        else:
-            changed = subprocess.check_output(
-                ["git", "diff", "--name-only", f"{args.base}...{args.head}"], text=True
-            ).splitlines()
-        print(json.dumps(affected_images(changed, Path.cwd()), separators=(",", ":")))
-        return 0
-    waivers = load_waivers(args.register)
-    if args.command == "validate-waivers":
-        errors = validate_waivers(waivers, check_expiry=not args.structural_only)
-        if errors:
-            print(
-                "Container waiver register validation failed:",
-                *[f"- {error}" for error in errors],
-                sep="\n",
-                file=sys.stderr,
-            )
-            return 1
-        return 0
-    if args.command == "render-waivers":
-        args.output.write_text(render_waivers(waivers), encoding="utf-8")
-        return 0
+        return 1
+    return 0
+
+
+def _cmd_render_waivers(args: argparse.Namespace) -> int:
+    args.output.write_text(render_waivers(load_waivers(args.register)), encoding="utf-8")
+    return 0
+
+
+def _cmd_apply_policy(args: argparse.Namespace) -> int:
     errors, warnings = apply_policy(
-        json.loads(args.report.read_text(encoding="utf-8")), args.image, waivers
+        _read_json(args.report), args.image, load_waivers(args.register)
     )
     if warnings:
         print(
@@ -962,6 +975,27 @@ def main() -> int:  # noqa: C901
         )
         return 1
     return 0
+
+
+_COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "published-fleet": _cmd_published_fleet,
+    "assemble-rescan-manifest": _cmd_assemble_rescan_manifest,
+    "upstream-runtime-images": _cmd_upstream_inventory,
+    "write-upstream-inventory": _cmd_upstream_inventory,
+    "write-upstream-candidates": _cmd_write_upstream_candidates,
+    "summarize-upstream-reports": _cmd_summarize_upstream_reports,
+    "compare-upstream-candidates": _cmd_compare_upstream_candidates,
+    "affected-images": _cmd_affected_images,
+    "validate-waivers": _cmd_validate_waivers,
+    "render-waivers": _cmd_render_waivers,
+    "apply-policy": _cmd_apply_policy,
+}
+
+
+def main() -> int:
+    """Dispatch the container-security subcommands; return the process exit code."""
+    args = _build_parser().parse_args()
+    return _COMMANDS[args.command](args)
 
 
 if __name__ == "__main__":
