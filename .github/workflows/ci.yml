@@ -377,6 +377,10 @@ jobs:
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npx tsc --noEmit
 
+      - name: Check for unused files and dependencies with knip
+        if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
+        run: npm run knip
+
       - name: Build production bundle
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npm run build

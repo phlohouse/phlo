@@ -61,7 +61,7 @@ class TestFindAvailablePort:
 
     def test_returns_none_when_exhausted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify `None` is returned when all probed ports are unavailable."""
-        monkeypatch.setattr(_mod, "check_port_in_use", lambda _port: True)
+        monkeypatch.setattr(_mod._core, "check_port_in_use", lambda _port: True)
         assert find_available_port(9000, max_tries=3) is None
 
 
