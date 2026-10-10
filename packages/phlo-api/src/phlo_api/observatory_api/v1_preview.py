@@ -16,6 +16,7 @@ import httpx
 
 from phlo_api.observatory_api.http_client import backend_client
 from phlo_api.observatory_api.trino import resolve_trino_url
+from phlo_api.settings import get_deployment_settings
 
 _MAX_ROWS = 100
 _MAX_RESPONSE_BYTES = 1_048_576
@@ -42,7 +43,7 @@ class PreviewLimitExceeded(RuntimeError):
 
 def _preview_configuration() -> dict[str, dict[str, str]]:
     try:
-        if os.environ.get("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED") != "1":
+        if not get_deployment_settings().preview_server_limits_configured:
             raise ValueError
         mapping = json.loads(os.environ["PHLO_V1_PREVIEW_CATALOGS"])
         if not isinstance(mapping, dict) or set(mapping) != {"prod", "staging"}:

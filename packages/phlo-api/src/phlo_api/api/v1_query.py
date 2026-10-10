@@ -35,10 +35,10 @@ from phlo_api.observatory_api.v1_preview import (
     preview_catalog,
 )
 from phlo_api.errors import BackendUnavailableError
+from phlo_api.settings import get_deployment_settings
 from phlo_api.v1_contract import Environment, WireModel
 
 router = APIRouter(tags=["v1 query workspace"])
-_QUERY_SINGLE_REPLICA_ENV = "PHLO_V1_QUERY_SINGLE_REPLICA"
 _QUERY_COLLECTION = "v1_saved_queries"
 _QUERY_LIMIT = 100
 _QUERY_SESSION_LIMIT = 500
@@ -203,7 +203,7 @@ def _remember_session(session: QuerySession) -> None:
 
 def _mapped_catalog(request: Request, env: Environment) -> tuple[str, str]:
     target = _target(request, env)
-    if os.environ.get(_QUERY_SINGLE_REPLICA_ENV) != "1":
+    if not get_deployment_settings().query_single_replica:
         raise BackendUnavailableError(
             "Query workspace requires an explicitly single-replica API deployment."
         )
