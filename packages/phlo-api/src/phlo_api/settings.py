@@ -12,7 +12,7 @@ behaviour means a changed limit applies without a restart.
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from phlo.config.base import BaseConfig
 
@@ -57,6 +57,20 @@ class ApiSettings(BaseConfig):
     phlo_api_rate_limit_mutation: int = Field(
         default=60, description="Other mutation requests allowed per principal per minute"
     )
+
+    @field_validator(
+        "phlo_api_audit_max_bytes",
+        "phlo_api_audit_max_files",
+        "phlo_api_rate_limit_materialize",
+        "phlo_api_rate_limit_retry",
+        "phlo_api_rate_limit_cancel",
+        "phlo_api_rate_limit_mutation",
+        mode="before",
+    )
+    @classmethod
+    def _parse_integer_string(cls, value: object) -> object:
+        # Preserve int(env_value): Pydantic also accepts decimal strings such as "0.0".
+        return int(value) if isinstance(value, str) else value
 
     def cors_origins(self) -> list[str]:
         """Return the configured CORS origins with blanks removed."""
