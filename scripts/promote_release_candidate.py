@@ -21,8 +21,9 @@ non-success ``partial_publication`` receipt.
 
 Every operation is bounded, non-publishing verification by default (dry run).
 Real publication additionally requires ``--execute`` together with a validated
-authorization record; without both, nothing is tagged, pushed, uploaded, or
-finalised.
+authorization record and ``--qualification-archive``; without these, nothing
+is tagged, pushed, uploaded, or finalised. The archive is uploaded and its
+public SHA-256 checked before removing the release's draft status.
 
 Support-status promotion is explicitly out of scope:
 ``registry/support/v1.json`` and ``scripts/validate_support_manifest.py`` are
@@ -33,13 +34,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
+import os
 import subprocess
 import sys
+import tarfile
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -53,6 +58,10 @@ AUTHORIZATION_SCHEMA = "phlo.release-promotion-authorization/v1"
 RECEIPT_SCHEMA = "phlo.release-promotion-receipt/v1"
 REJECTION_SCHEMA = "phlo.release-promotion-rejection/v1"
 LOCK_SCHEMA = "phlo.release-candidate-lock/v1"
+SIGNING_IDENTITY = (
+    "https://github.com/phlohouse/phlo/.github/workflows/release-promotion.yml@refs/heads/main"
+)
+SIGNING_ISSUER = "https://token.actions.githubusercontent.com"
 
 #: Qualifying-evidence thresholds. These values define the promotion contract
 #: and must not be tuned at this call site.
@@ -637,6 +646,7 @@ def _image_commands(bom: dict[str, object], version: str) -> list[list[str]]:
     commands = []
     for artifact in _first_party_images(bom):
         target = f"{artifact['name']}:{version}"
+        exists = False
         try:
             digest = release_candidate_bom.resolve_image_digest(target)
         except release_candidate_bom.BomError as exc:
@@ -647,25 +657,82 @@ def _image_commands(bom: dict[str, object], version: str) -> list[list[str]]:
         else:
             if digest != artifact["digest"]:
                 raise PublishBlockedError(f"image {target} differs from candidate digest")
-            continue
-        commands.append(
-            [
-                "docker",
-                "buildx",
-                "imagetools",
-                "create",
-                "-t",
-                target,
-                "--prefer-index=false",
-                f"{artifact['name']}@{artifact['digest']}",
-            ]
-        )
+            exists = True
+        if not exists:
+            commands.extend(_dry_run_image_commands([artifact], version))
+        # A retry may have copied the digest but failed before signing. Always
+        # sign the immutable subject, never a mutable tag or a rebuilt image.
+        commands.append(["cosign", "sign", "--yes", f"{artifact['name']}@{artifact['digest']}"])
     return commands
 
 
-def _release_commands(executor: ExecutingExecutor, tag: str, paths: list[str]) -> list[list[str]]:
+def _signature_command(artifact: dict[str, object]) -> list[str]:
+    return [
+        "cosign",
+        "verify",
+        "--certificate-identity",
+        SIGNING_IDENTITY,
+        "--certificate-oidc-issuer",
+        SIGNING_ISSUER,
+        f"{artifact['name']}@{artifact['digest']}",
+    ]
+
+
+def _published_distributions(
+    bom: dict[str, object], assets: dict[str, str]
+) -> list[dict[str, object]]:
+    comparisons = []
+    for artifact in _distribution_artifacts(bom):
+        files = release_candidate_bom._pypi_release_files(
+            str(artifact["name"]), str(artifact["version"])
+        )
+        names = [name for name, digest in assets.items() if digest == artifact["digest"]]
+        if not names:
+            raise PublishBlockedError("no staged filename for candidate distribution")
+        for name in names:
+            actual = files.get(name, (None, ""))[0]
+            if actual != artifact["digest"]:
+                raise PublishBlockedError(f"public PyPI file {name} differs from candidate bytes")
+            comparisons.append(
+                {
+                    "identity": f"pypi:{artifact['name']}/{artifact['version']}/{name}",
+                    "candidate_sha256": artifact["digest"],
+                    "published_sha256": actual,
+                }
+            )
+    return comparisons
+
+
+def _published_images(
+    bom: dict[str, object], executor: ExecutingExecutor
+) -> list[dict[str, object]]:
+    comparisons = []
+    version = next(str(a["version"]) for a in bom["artifacts"] if a["kind"] == "source")
+    for artifact in _first_party_images(bom):
+        target = f"{artifact['name']}:{version}"
+        actual = release_candidate_bom.resolve_image_digest(target)
+        if actual != artifact["digest"]:
+            raise PublishBlockedError(f"public image {target} differs from candidate digest")
+        signatures = json.loads(executor.run(_signature_command(artifact)))
+        if not isinstance(signatures, list) or not signatures:
+            raise PublishBlockedError(f"no verified signature for {target}@{actual}")
+        comparisons.append(
+            {
+                "identity": target,
+                "candidate_digest": artifact["digest"],
+                "published_digest": actual,
+                "signature_identity": SIGNING_IDENTITY,
+                "signature_issuer": SIGNING_ISSUER,
+                "verified_signatures": signatures,
+            }
+        )
+    return comparisons
+
+
+def _release_commands(
+    executor: ExecutingExecutor, tag: str, paths: list[str], assets: dict[str, str]
+) -> list[list[str]]:
     release = _release(executor, tag)
-    assets = {Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in paths}
     existing = _check_assets(release, assets) if release else set()
     commands = (
         []
@@ -691,6 +758,12 @@ def _release_commands(executor: ExecutingExecutor, tag: str, paths: list[str]) -
     if release is None or release["draft"]:
         commands.append(["gh", "release", "edit", tag, "--draft=false"])
     return commands
+
+
+def _verify_release_assets(executor: ExecutingExecutor, tag: str, assets: dict[str, str]) -> None:
+    release = _release(executor, tag)
+    if not release or set(assets) - _check_assets(release, assets):
+        raise PublishBlockedError("draft release is missing digest-verified qualification assets")
 
 
 def _verify_tag_identity(
@@ -816,6 +889,7 @@ class _StepRunner:
         bound_digests: list[str],
         commands: list[list[str]] | Callable[[], list[list[str]]],
         dry_run_detail: str,
+        verify_published: Callable[[], object] | None = None,
     ) -> None:
         if self.aborted:
             self.steps.append(
@@ -842,8 +916,14 @@ class _StepRunner:
         if isinstance(self.executor, ExecutingExecutor):
             try:
                 for command in recorded:
+                    # Qualification assets must be verified while the release
+                    # is still draft, not only after the announcement.
+                    if verify_published is not None and command[:3] == ["gh", "release", "edit"]:
+                        verify_published()
                     self.executor.run(command)
-            except PublishBlockedError as exc:
+                if verify_published is not None:
+                    verify_published()
+            except (PublishBlockedError, release_candidate_bom.BomError, ValueError) as exc:
                 self._fail(step_id, order, str(exc))
                 return
             status, detail = STEP_COMPLETED, "executed and digest-verified"
@@ -867,6 +947,8 @@ def promote(
     bom_path: Path,
     staging_dir: Path,
     executor: DryRunExecutor | ExecutingExecutor,
+    *,
+    qualification_archive: tuple[Path, str] | None = None,
 ) -> list[StepResult]:
     """Run the ordered, digest-verified publish steps for one qualified candidate.
 
@@ -886,6 +968,18 @@ def promote(
     distributions_dir = staging_dir / "distributions"
     tag_commands = [["git", "tag", tag, commit], ["git", "push", "origin", f"refs/tags/{tag}"]]
     _verify_staged_bytes(bom, staging_dir)
+    if isinstance(executor, ExecutingExecutor) and any(
+        os.environ.get(name)
+        for name in (
+            "UV_PUBLISH_TOKEN",
+            "UV_PUBLISH_USERNAME",
+            "UV_PUBLISH_PASSWORD",
+            "PYPI_API_TOKEN",
+        )
+    ):
+        raise PromotionGateError(
+            "token_configured", "publication requires OIDC, not token credentials"
+        )
     runner = _StepRunner(executor)
 
     # Create the release tag on the release commit first.
@@ -914,14 +1008,25 @@ def promote(
         bound_digests=[str(artifact["digest"]) for artifact in distribution_artifacts],
         commands=(
             lambda: (
-                [["uv", "publish", *missing]] if (missing := _missing_pypi(bom, by_digest)) else []
+                [["uv", "publish", "--trusted-publishing", "always", *missing]]
+                if (missing := _missing_pypi(bom, by_digest))
+                else []
             )
         )
         if runner.executing
         else [
-            ["uv", "publish", *[str(by_digest[str(a["digest"])]) for a in distribution_artifacts]]
+            [
+                "uv",
+                "publish",
+                "--trusted-publishing",
+                "always",
+                *[str(by_digest[str(a["digest"])]) for a in distribution_artifacts],
+            ]
         ],
         dry_run_detail="dry run: would upload the exact staged bytes, digest-verified",
+        verify_published=lambda: _published_distributions(
+            bom, {path.name: digest for digest, path in by_digest.items()}
+        ),
     )
     runner.steps[-1].assets = {path.name: digest for digest, path in by_digest.items()}
 
@@ -937,34 +1042,49 @@ def promote(
         bound_digests=[str(artifact["digest"]) for artifact in image_artifacts],
         commands=(lambda: _image_commands(bom, version))
         if runner.executing
-        else _dry_run_image_commands(image_artifacts, version),
+        else _dry_run_image_commands(image_artifacts, version)
+        + [
+            command
+            for a in image_artifacts
+            for command in (
+                ["cosign", "sign", "--yes", f"{a['name']}@{a['digest']}"],
+                _signature_command(a),
+            )
+        ],
         dry_run_detail="dry run: would re-tag images by digest; no Dockerfile is run",
+        verify_published=lambda: _published_images(bom, executor),
     )
 
     # Step 4 — finalise the draft GitHub Release with the final BOM + bytes.
     final_assets = [str(bom_path)] + [
         str(path) for path in sorted(distributions_dir.iterdir()) if path.is_file()
     ]
+    final_asset_digests = {
+        Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in final_assets
+    }
+    if qualification_archive is not None:
+        archive_path, validated_digest = qualification_archive
+        final_assets.append(str(archive_path))
+        final_asset_digests[archive_path.name] = validated_digest
     runner.attempt(
         "release_finalisation",
         4,
         lambda: _verify_staged_bytes(bom, staging_dir),
         public_identity=f"github-release:{tag} (final; assets: bom.json, staged distributions)",
         bound_digests=[str(bom["canonical_candidate_digest"])],
-        commands=(lambda: _release_commands(executor, tag, final_assets))
+        commands=(lambda: _release_commands(executor, tag, final_assets, final_asset_digests))
         if runner.executing
         else _dry_run_release_commands(tag, final_assets),
         dry_run_detail="dry run: would finalise the draft release attaching BOM + bytes",
+        verify_published=lambda: _verify_release_assets(executor, tag, final_asset_digests),
     )
-    runner.steps[-1].assets = {
-        Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in final_assets
-    }
+    runner.steps[-1].assets = final_asset_digests
     return runner.steps
 
 
 def _verify_public_step(
     bom: dict[str, object], step: StepResult, executor: ExecutingExecutor
-) -> None:
+) -> list[dict[str, object]]:
     version = next(str(a["version"]) for a in bom["artifacts"] if a["kind"] == "source")
     tag = f"v{version}"
     if step.status != STEP_COMPLETED:
@@ -973,22 +1093,9 @@ def _verify_public_step(
         if _remote_tag(executor, tag) != bom["release_commit"]:
             raise PublishBlockedError("public release tag differs from candidate commit")
     elif step.step_id == "pypi_publish":
-        for artifact in _distribution_artifacts(bom):
-            files = release_candidate_bom._pypi_release_files(
-                str(artifact["name"]), str(artifact["version"])
-            )
-            names = [name for name, digest in step.assets.items() if digest == artifact["digest"]]
-            if not names or any(
-                files.get(name, (None, ""))[0] != artifact["digest"] for name in names
-            ):
-                raise PublishBlockedError("public PyPI files differ from candidate bytes")
+        return _published_distributions(bom, step.assets)
     elif step.step_id == "image_promotion":
-        for artifact in _first_party_images(bom):
-            if (
-                release_candidate_bom.resolve_image_digest(f"{artifact['name']}:{version}")
-                != artifact["digest"]
-            ):
-                raise PublishBlockedError("public image differs from candidate digest")
+        return _published_images(bom, executor)
     elif step.step_id == "release_finalisation":
         release = _release(executor, tag)
         if not release or release["draft"] or not step.assets:
@@ -996,6 +1103,7 @@ def _verify_public_step(
         existing = _check_assets(release, step.assets)
         if set(step.assets) - existing:
             raise PublishBlockedError("public GitHub release is missing candidate assets")
+    return []
 
 
 def reconcile_publication(
@@ -1040,9 +1148,10 @@ def reconcile_publication(
             continue
         unbound = sorted(set(step.bound_digests) - bom_digests)
         matched = not unbound
+        comparisons = []
         if isinstance(executor, ExecutingExecutor):
             try:
-                _verify_public_step(bom, step, executor)
+                comparisons = _verify_public_step(bom, step, executor)
             except (
                 PublishBlockedError,
                 release_candidate_bom.BomError,
@@ -1052,7 +1161,14 @@ def reconcile_publication(
                 matched = False
                 mismatches.append(f"{step.step_id}: {exc}")
         covered.update(step.bound_digests)
-        checked.append({"step": step.step_id, "status": step.status, "matched": matched})
+        checked.append(
+            {
+                "step": step.step_id,
+                "status": step.status,
+                "matched": matched,
+                "comparisons": comparisons,
+            }
+        )
         if unbound:
             mismatches.append(
                 f"{step.step_id}: public identity is bound to digest(s) outside the BOM: "
@@ -1223,15 +1339,21 @@ def write_rejection_record(
     return record
 
 
+def _evidence_members(paths: list[Path]) -> dict[str, Path]:
+    members: dict[str, Path] = {}
+    for root in paths:
+        # Workflow artifact downloads nest bundles in per-run directories.
+        for item in sorted(root.rglob("*.json")) if root.is_dir() else [root]:
+            relative = item.relative_to(root).as_posix() if root.is_dir() else item.name
+            name = f"evidence/{relative}"
+            if name in members:
+                raise PromotionGateError("ambiguous_evidence", f"duplicate archive member {name}")
+            members[name] = item
+    return members
+
+
 def _collect_bundles(paths: list[Path]) -> list[dict[str, object]]:
-    bundles: list[dict[str, object]] = []
-    for path in paths:
-        if path.is_dir():
-            # Workflow artifact downloads nest bundles in per-run directories.
-            bundles.extend(load_evidence_bundle(item) for item in sorted(path.rglob("*.json")))
-        else:
-            bundles.append(load_evidence_bundle(path))
-    return bundles
+    return [load_evidence_bundle(item) for item in _evidence_members(paths).values()]
 
 
 def _prior_bundle_checksums(receipt_paths: list[Path]) -> set[str]:
@@ -1244,6 +1366,131 @@ def _prior_bundle_checksums(receipt_paths: list[Path]) -> set[str]:
             if isinstance(recorded, list):
                 prior.update(item for item in recorded if isinstance(item, str))
     return prior
+
+
+def verify_published(bom_path: Path, staging_dir: Path) -> dict[str, object]:
+    """Read public state only; fail if published bytes or signatures differ."""
+    bom = load_candidate_bom(bom_path)
+    paths = _verify_staged_bytes(bom, staging_dir)
+    assets = {path.name: release_candidate_bom.file_sha256(path) for path in paths}
+    executor = ExecutingExecutor()
+    version = next(str(a["version"]) for a in bom["artifacts"] if a["kind"] == "source")
+    tag = f"v{version}"
+    if _remote_tag(executor, tag) != bom["release_commit"]:
+        raise PublishBlockedError("public tag differs from candidate commit")
+    release = _release(executor, tag)
+    assets[bom_path.name] = release_candidate_bom.file_sha256(bom_path)
+    if not release or release["draft"] or set(assets) - _check_assets(release, assets):
+        raise PublishBlockedError("public release is missing candidate assets")
+    return {
+        "schema": "phlo.release-publication-audit/v1",
+        "release_commit": bom["release_commit"],
+        "canonical_candidate_digest": bom["canonical_candidate_digest"],
+        "checked_utc": format_utc(utc_now()),
+        "comparisons": _published_distributions(bom, assets) + _published_images(bom, executor),
+        "status": RECONCILE_MATCHED,
+    }
+
+
+def _audit_cli(bom_path: Path, staging_dir: Path, output: Path) -> int:
+    try:
+        report = verify_published(bom_path, staging_dir)
+    except (
+        PromotionGateError,
+        PublishBlockedError,
+        release_candidate_bom.BomError,
+        ValueError,
+    ) as exc:
+        print(f"public publication audit failed: {exc}", file=sys.stderr)
+        return 1
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"public publication audit matched: {len(report['comparisons'])} artifacts")
+    return 0
+
+
+def _qualification_inputs(
+    args: argparse.Namespace,
+    bom: dict[str, object],
+    authorization: dict[str, object],
+    bundles: list[dict[str, object]],
+) -> dict[str, bytes]:
+    evidence = _evidence_members(args.evidence)
+    paths = {
+        "bom.json": args.candidate_bom,
+        "provenance.json": args.staging_dir / "provenance.json",
+        "authorization.json": args.authorization,
+        **evidence,
+    }
+    try:
+        expected = {name: path.read_bytes() for name, path in paths.items()}
+        qualified = {
+            "bom.json": bom,
+            "authorization.json": authorization,
+            **dict(zip(evidence, bundles, strict=True)),
+        }
+        if any(json.loads(expected[name]) != value for name, value in qualified.items()):
+            raise ValueError("qualification inputs changed after adjudication")
+        provenance = json.loads(expected["provenance.json"])
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("candidate_sha") != bom["release_commit"]
+            or provenance.get("canonical_candidate_digest") != bom["canonical_candidate_digest"]
+            or provenance.get("bom_sha256") != hashlib.sha256(expected["bom.json"]).hexdigest()
+            or (args.staged_utc is not None and provenance.get("staged_utc") != args.staged_utc)
+        ):
+            raise ValueError("staged provenance does not bind the qualified BOM and staging time")
+        return expected
+    except (OSError, ValueError) as exc:
+        raise PromotionGateError("invalid_qualification_archive", str(exc)) from exc
+
+
+def _require_qualification_archive(
+    args: argparse.Namespace,
+    bom: dict[str, object],
+    authorization: dict[str, object],
+    bundles: list[dict[str, object]],
+) -> tuple[Path, str]:
+    path = args.qualification_archive
+    if path is None or not path.is_file():
+        raise PromotionGateError(
+            "missing_qualification_archive",
+            "real publication requires the qualification bundles, BOM, provenance and authorization archive",
+        )
+    inputs = _qualification_inputs(args, bom, authorization, bundles)
+    directories = {str(parent) for name in inputs for parent in PurePosixPath(name).parents} - {"."}
+    seen: set[str] = set()
+    try:
+        payload = path.read_bytes()
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz", ignore_zeros=True) as archive:
+            for member in archive:
+                name = member.name.rstrip("/") if member.isdir() else member.name
+                pure = PurePosixPath(name)
+                if (
+                    pure.is_absolute()
+                    or ".." in pure.parts
+                    or "\\" in name
+                    or name != pure.as_posix()
+                    or name in seen
+                    or not (member.isfile() or member.isdir())
+                ):
+                    raise ValueError(f"unsafe or duplicate archive member {member.name}")
+                seen.add(name)
+                if member.isdir():
+                    if name not in directories:
+                        raise ValueError(f"unexpected archive directory {name}")
+                    continue
+                content = inputs.get(name)
+                if content is None or member.size != len(content):
+                    raise ValueError(f"missing, changed or unexpected qualification member {name}")
+                with archive.extractfile(member) as stream:
+                    if stream.read(len(content) + 1) != content:
+                        raise ValueError(f"changed qualification member {name}")
+            if set(inputs) - seen:
+                raise ValueError(f"missing qualification members: {sorted(set(inputs) - seen)}")
+        return path, hashlib.sha256(payload).hexdigest()
+    except (OSError, tarfile.TarError, zlib.error, ValueError, EOFError) as exc:
+        raise PromotionGateError("invalid_qualification_archive", str(exc)) from exc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1282,6 +1529,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     promote_parser.add_argument("--target-channel", default="pypi+ghcr+github-releases")
     promote_parser.add_argument("--receipt-output", type=Path, default=None)
+    promote_parser.add_argument("--qualification-archive", type=Path, default=None)
     promote_parser.add_argument("--now", default=None)
 
     receipt_parser = subparsers.add_parser("verify-receipt", help="Verify a promotion receipt")
@@ -1293,7 +1541,17 @@ def main(argv: list[str] | None = None) -> int:
     lock_parser.add_argument("--candidate-bom", type=Path, required=True)
     lock_parser.add_argument("--lock-dir", type=Path, required=True)
 
+    audit_parser = subparsers.add_parser(
+        "verify-published", help="Read-only public hash, digest and keyless signature audit"
+    )
+    audit_parser.add_argument("--candidate-bom", type=Path, required=True)
+    audit_parser.add_argument("--staging-dir", type=Path, required=True)
+    audit_parser.add_argument("--report-output", type=Path, required=True)
+
     args = parser.parse_args(argv)
+
+    if args.command == "verify-published":
+        return _audit_cli(args.candidate_bom, args.staging_dir, args.report_output)
 
     if args.command == "lock":
         try:
@@ -1343,6 +1601,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         executor: DryRunExecutor | ExecutingExecutor
+        qualification_archive = None
         if args.execute:
             if args.authorization is None:
                 raise PromotionGateError(
@@ -1352,6 +1611,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             authorization = load_authorization(args.authorization)
             validate_authorization(authorization, bom, qualification.checksums)
+            qualification_archive = _require_qualification_archive(
+                args, bom, authorization, bundles
+            )
             try:
                 release_provenance.verify_live_authorization(authorization)
             except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
@@ -1384,6 +1646,7 @@ def main(argv: list[str] | None = None) -> int:
             args.candidate_bom.resolve(),
             args.staging_dir.resolve(),
             executor,
+            qualification_archive=qualification_archive,
         )
         reconciliation = reconcile_publication(bom, steps, executor)
         receipt = build_receipt(

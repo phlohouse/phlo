@@ -69,6 +69,7 @@ def test_resolve_ports_points_lineage_at_project_postgres(
 ) -> None:
     monkeypatch.setattr(run_golden_path, "resolve_port", lambda name, default: default)
     monkeypatch.setattr(run_golden_path, "apply_env_updates", lambda phlo_dir, updates: None)
+    monkeypatch.setenv("LINEAGE_DB_URL", "")
     monkeypatch.delenv("LINEAGE_DB_URL", raising=False)
     run = _run(tmp_path, "--test-lineage")
     run.env_vars = {"POSTGRES_USER": "u", "POSTGRES_PASSWORD": "p", "POSTGRES_DB": "d"}

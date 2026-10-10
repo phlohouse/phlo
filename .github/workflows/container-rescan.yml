@@ -41,6 +41,9 @@ jobs:
           version: "0.12.1"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22
+        with:
+          cosign-release: v3.0.5
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
@@ -97,7 +100,59 @@ jobs:
             '. + $minio | unique_by(.image)' published/generated-service-images.json \
             > "$RUNNER_TEMP/rescan-images.json"
           mv "$RUNNER_TEMP/rescan-images.json" published/generated-service-images.json
+      - name: Reconcile published bytes and signatures against the release BOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p published/downloads published/candidate/distributions reports
+          gh release download "$RELEASE_TAG" --pattern bom.json --dir published/candidate
+          gh release download "$RELEASE_TAG" --pattern '*.whl' --pattern '*.tar.gz' \
+            --dir published/downloads
+          python3 - <<'PY'
+          import shutil
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          import release_candidate_bom as candidate_bom
+          candidate = Path("published/candidate")
+          bom = candidate_bom.load_bom(candidate / "bom.json")
+          digests = {
+              artifact["digest"] for artifact in bom["artifacts"]
+              if artifact["kind"] in (candidate_bom.KIND_WHEEL, candidate_bom.KIND_SDIST)
+          }
+          for path in Path("published/downloads").iterdir():
+              if candidate_bom.file_sha256(path) in digests:
+                  shutil.copyfile(path, candidate / "distributions" / path.name)
+          PY
+          python3 scripts/promote_release_candidate.py verify-published \
+            --candidate-bom published/candidate/bom.json --staging-dir published/candidate \
+            --report-output reports/publication-audit.json
+      - name: Verify signatures for every first-party rescan subject
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          jq -ce '.[] | select(.image | startswith("ghcr.io/phlohouse/"))' \
+            published/generated-service-images.json > "$RUNNER_TEMP/signature-targets.jsonl"
+          while read -r target; do
+            image="$(jq -r .image <<< "$target")"
+            digest="$(jq -r .digest <<< "$target")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            workflow=release-promotion.yml
+            if [[ "${image%:*}" = ghcr.io/phlohouse/phlo-minio ]]; then
+              workflow=publish-minio.yml
+            fi
+            safe="$(tr -d '\n' <<< "$image" | tr '/:@' '___')"
+            cosign verify --certificate-identity \
+              "https://github.com/phlohouse/phlo/.github/workflows/$workflow@refs/heads/main" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              "${image%:*}@$digest" > "reports/${safe}-signatures.json"
+          done < "$RUNNER_TEMP/signature-targets.jsonl"
       - name: Rescan immutable images with fresh Trivy data
+        if: ${{ !cancelled() }}
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
