@@ -63,11 +63,13 @@ from phlo.operations.upgrade import (
     upgrade_operation_id,
 )
 from phlo_api.api.operation_controls import (
+    IdempotencyConflict,
     audit_operation,
     enforce_rate_limit,
     idempotency_key_target,
     require_scope,
     replay_or_execute,
+    shared_operation_controls,
 )
 
 router = APIRouter(tags=["continuity"])
@@ -171,14 +173,18 @@ class ContinuityApplyRequest(BaseModel):
 # --- shared guards ----------------------------------------------------------
 
 
-def _durable_journal() -> FileOperationJournalStore:
+def _durable_journal() -> OperationJournalStore:
     """Resolve the configured durable journal; fail closed when none is present.
 
     An authorized mutation must never silently fall back to an ephemeral
     in-memory journal, or the exactly-once contract disappears with the
-    process. This is the same store the CLI resolves from the same environment
-    variable, so both surfaces share one canonical verification handle.
+    process. Shared API controls own the journal in PostgreSQL when configured.
+    Local mode uses the CLI's file journal; do not run file-backed CLI operations
+    concurrently with shared-store API operations on the same target.
     """
+    shared = shared_operation_controls()
+    if shared is not None:
+        return shared
     directory = os.environ.get(JOURNAL_DIR_ENV)
     if not directory:
         raise HTTPException(
@@ -488,6 +494,7 @@ def post_continuity_apply(request: ContinuityApplyRequest, http_request: Request
             idempotency_key=request.idempotency_key,
             operation=operation,
             target=target,
+            exclusion_target=target,
             execute=execute,
             audit=lambda result: audit_operation(
                 operation=operation,
@@ -498,6 +505,15 @@ def post_continuity_apply(request: ContinuityApplyRequest, http_request: Request
                 result=result,
             ),
         )
+    except IdempotencyConflict as exc:
+        if isinstance(exc.detail, dict) and exc.detail.get("error") in {
+            "operation_pending",
+            "operation_unknown",
+        }:
+            raise _error(409, "conflicting_claim", (target,)) from exc
+        if isinstance(exc.detail, dict) and exc.detail.get("error") == "target_mismatch":
+            raise _error(409, "idempotency_key_conflict", (target,)) from exc
+        raise
     except OperationJournalError as exc:
         raise _continuity_error(exc) from exc
     except (RestoreError, UpgradeError) as exc:

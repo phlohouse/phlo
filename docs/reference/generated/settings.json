@@ -1,5 +1,5 @@
 {
-  "field_count": 193,
+  "field_count": 196,
   "model_count": 30,
   "models": [
     {
@@ -497,6 +497,14 @@
           "description": "Process-only single API replica assertion for staging promotion. Only 'true' enables.",
           "name": "staging_single_replica",
           "required": false
+        },
+        {
+          "alias": "WEB_CONCURRENCY",
+          "annotation": "<class 'int'>",
+          "default": 1,
+          "description": "Configured API worker count; local operation controls require one worker",
+          "name": "workers",
+          "required": false
         }
       ],
       "module": "phlo_api.settings",
@@ -529,6 +537,22 @@
           "default": "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3005,http://127.0.0.1:3005,http://localhost:4000,http://127.0.0.1:4000",
           "description": "Comma-separated browser origins allowed by CORS. Use '*' to allow any origin without credentials.",
           "name": "phlo_api_cors_origins",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_operation_controls_db_url",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL DSN for shared API idempotency, exclusion and rate limits",
+          "name": "phlo_api_operation_controls_db_url",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_operation_controls_namespace",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "Stable project identity shared by every API replica; required with the controls DSN",
+          "name": "phlo_api_operation_controls_namespace",
           "required": false
         },
         {

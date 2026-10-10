@@ -96,6 +96,24 @@ def create_workflow(request: CreateWorkflowRequest, http_request: Request) -> di
     """Create a workflow scaffold in the current project."""
     auth = require_scope(http_request, "project:write")
     enforce_rate_limit(auth["subject"], "create_workflow")
+    return replay_or_execute(
+        idempotency_key=None,
+        operation="create_workflow",
+        target=f"{request.domain}/{request.table}",
+        execute=lambda: _create_workflow_files(request, auth),
+        audit=lambda response: audit_operation(
+            operation="create_workflow",
+            target=f"{request.domain}/{request.table}",
+            dry_run=False,
+            auth=auth,
+            payload=request.model_dump(mode="json"),
+            result=response,
+        ),
+    )
+
+
+def _create_workflow_files(request: CreateWorkflowRequest, auth: dict[str, Any]) -> dict[str, Any]:
+    """Create files only after operation controls have claimed the target."""
     try:
         result = create_workflow_with_provider(
             project_root=_project_root(),
@@ -140,7 +158,7 @@ def create_workflow(request: CreateWorkflowRequest, http_request: Request) -> di
             result=payload,
         )
         raise HTTPException(status_code=422, detail=payload) from exc
-    payload = {
+    return {
         "workflow_type": result.workflow_type,
         "provider": result.provider,
         "domain": result.domain,
@@ -149,20 +167,6 @@ def create_workflow(request: CreateWorkflowRequest, http_request: Request) -> di
         "next_steps": result.next_steps,
         "metadata": result.metadata,
     }
-    return replay_or_execute(
-        idempotency_key=None,
-        operation="create_workflow",
-        target=f"{request.domain}/{request.table}",
-        execute=lambda: payload,
-        audit=lambda response: audit_operation(
-            operation="create_workflow",
-            target=f"{request.domain}/{request.table}",
-            dry_run=False,
-            auth=auth,
-            payload=request.model_dump(mode="json"),
-            result=response,
-        ),
-    )
 
 
 @router.post("/workflows/validate")

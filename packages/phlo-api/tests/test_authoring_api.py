@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from phlo_api.main import app
@@ -141,6 +142,27 @@ def test_authoring_create_workflow_uses_project_root_and_provider(monkeypatch, t
     assert captured["project_root"] == project_root
     assert captured["provider"] == "sling"
     assert response.json()["provider"] == "sling"
+
+
+def test_authoring_unknown_effect_blocks_unkeyed_retry(monkeypatch, tmp_path) -> None:
+    from phlo_api.api import authoring
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    effect = tmp_path / "provider-effects.txt"
+
+    def lose_response(**kwargs):  # noqa: ANN003, ANN202
+        with effect.open("a", encoding="utf-8") as handle:
+            handle.write("created\n")
+        raise HTTPException(504, "Provider response lost after creating files")
+
+    monkeypatch.setattr(authoring, "create_workflow_with_provider", lose_response)
+    client = authenticated_client("operator")
+    payload = {"domain": "demo", "table": "orders", "unique_key": "id"}
+    assert client.post("/api/authoring/workflows", json=payload).status_code == 504
+    retry = client.post("/api/authoring/workflows", json=payload)
+    assert retry.status_code == 409
+    assert retry.json()["detail"]["error"] == "operation_unknown"
+    assert effect.read_text(encoding="utf-8") == "created\n"
 
 
 def test_authoring_write_routes_require_project_write_scope(monkeypatch, tmp_path) -> None:

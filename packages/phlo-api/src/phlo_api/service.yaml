@@ -70,6 +70,9 @@ compose:
         PHLO_V1_ACTIONS_SINGLE_PROCESS: ${PHLO_V1_ACTIONS_SINGLE_PROCESS:-}
         PHLO_V1_ACTIONS_REF_TAG_CONTRACT: ${PHLO_V1_ACTIONS_REF_TAG_CONTRACT:-}
         PHLO_V1_BRANCH_CHECK_JOBS: ${PHLO_V1_BRANCH_CHECK_JOBS:-}
+        PHLO_API_OPERATION_CONTROLS_DB_URL: ${PHLO_API_OPERATION_CONTROLS_DB_URL:-}
+        PHLO_API_OPERATION_CONTROLS_NAMESPACE: ${PHLO_API_OPERATION_CONTROLS_NAMESPACE:-}
+        WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
         POSTGRES_HOST: postgres
         POSTGRES_PORT: "5432"
         POSTGRES_USER: ${POSTGRES_USER:-phlo}
@@ -107,6 +110,13 @@ compose:
         start_period: 10s
 
 env_vars:
+    PHLO_API_OPERATION_CONTROLS_DB_URL:
+        default: ""
+        secret: true
+        description: PostgreSQL DSN for shared API operation controls; use the existing stack database
+    PHLO_API_OPERATION_CONTROLS_NAMESPACE:
+        default: ""
+        description: Stable project identity shared by every API replica; required with the controls DSN
     PHLO_VERSION:
         default: ""
         package: phlo

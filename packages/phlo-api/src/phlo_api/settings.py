@@ -30,6 +30,14 @@ DEFAULT_CORS_ORIGINS = (
 class ApiSettings(BaseConfig):
     """CORS, audit journal and mutation rate-limit settings for phlo-api."""
 
+    phlo_api_operation_controls_db_url: str | None = Field(
+        default=None,
+        description="PostgreSQL DSN for shared API idempotency, exclusion and rate limits",
+    )
+    phlo_api_operation_controls_namespace: str = Field(
+        default="",
+        description="Stable project identity shared by every API replica; required with the controls DSN",
+    )
     phlo_api_cors_origins: str = Field(
         default=DEFAULT_CORS_ORIGINS,
         description=(
@@ -96,6 +104,12 @@ class ApiDeploymentSettings(BaseSettings):
 
     model_config = SettingsConfigDict(case_sensitive=True, extra="ignore")
 
+    workers: int = Field(
+        1,
+        ge=1,
+        validation_alias="WEB_CONCURRENCY",
+        description="Configured API worker count; local operation controls require one worker",
+    )
     actions_single_replica: bool = Field(
         False,
         validation_alias="PHLO_V1_ACTIONS_SINGLE_REPLICA",

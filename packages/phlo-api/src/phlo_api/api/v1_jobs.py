@@ -18,6 +18,7 @@ from anyio.to_thread import run_sync
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
+from phlo_api.api.operation_controls import shared_operation_controls
 from phlo_api.api.v1 import _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, ConflictError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
@@ -1084,10 +1085,9 @@ async def v1_maintenance_windows(
 def _require_single_replica_actions() -> None:
     settings = get_deployment_settings()
     if (
-        not settings.actions_single_replica
-        or not settings.actions_single_process
-        or not settings.actions_ref_tag_contract
-    ):
+        shared_operation_controls() is None
+        and (not settings.actions_single_replica or not settings.actions_single_process)
+    ) or not settings.actions_ref_tag_contract:
         raise BackendUnavailableError("Environment-pinned job actions are not enabled.")
 
 
@@ -1202,6 +1202,7 @@ async def v1_job_launch(
         idempotency_key=payload.idempotency_key,
         operation="v1_job_launch",
         target=action_target,
+        exclusion_target=f"{env}:{target.dagster_location}:{job_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
         audit=lambda value: audit(
             operation="v1_job_launch",
@@ -1295,6 +1296,7 @@ async def v1_schedule_action(
         idempotency_key=payload.idempotency_key,
         operation="v1_schedule_action",
         target=action_target,
+        exclusion_target=f"{env}:{target.dagster_location}:{schedule_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
         audit=lambda value: audit(
             operation="v1_schedule_action",
@@ -1369,6 +1371,7 @@ async def _run_action(
         idempotency_key=payload.idempotency_key,
         operation=f"v1_run_{action}",
         target=action_target,
+        exclusion_target=f"{env}:{target.dagster_location}:{run_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
         audit=lambda value: audit(
             operation=f"v1_run_{action}",
