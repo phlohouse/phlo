@@ -99,7 +99,6 @@ version = "0.17.0"
 [project.entry-points."phlo.plugins.transforms"]
 
 [project.optional-dependencies]
-blueprints = ["phlo-retail-files==0.1.0"]
 codemods = ["libcst>=1.5.0"]
 core-services = [
     "phlo-dagster>=0.3.2",
@@ -388,9 +387,6 @@ workspace = true
 
 [tool.uv.sources.phlo-prometheus]
 workspace = true
-
-[tool.uv.sources.phlo-retail-files]
-path = "examples/lakehouses/retail-files"
 
 [tool.uv.sources.phlo-rustfs]
 workspace = true
