@@ -79,10 +79,14 @@ def test_read_failure_rejects_every_check_without_rereading(
 def test_check_mutation_does_not_leak_into_next_check(
     staged_paths: list[Path], monkeypatch: pytest.MonkeyPatch, copy_on_write: bool
 ) -> None:
+    # The lockfile resolves pandas 3, where copy-on-write is always on, so the
+    # True case is real; the False case exercises the pandas 2 deep-copy branch.
     monkeypatch.setattr("phlo_dlt.executor._copy_on_write_enabled", lambda: copy_on_write)
 
     def _mutating_check(frame: pd.DataFrame) -> str | None:
-        frame["value"] = -1
+        # In-place cell writes hit the shared block unless the loader isolates it.
+        frame.iloc[:, 0] = -1
+        frame.loc[frame.index[0], "value"] = -2
         frame.drop(frame.index, inplace=True)
         return None
 
