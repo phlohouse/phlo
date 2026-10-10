@@ -105,12 +105,16 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           gh auth setup-git
+          archive="qualification-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
+          tar -czf "$archive" authorization.json inputs/evidence \
+            "inputs/candidate-$CANDIDATE_SHA/bom.json" "inputs/candidate-$CANDIDATE_SHA/provenance.json"
           python3 scripts/promote_release_candidate.py promote \
             --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json" \
             --staging-dir "inputs/candidate-$CANDIDATE_SHA" --evidence inputs/evidence \
             --staged-utc "$(jq -r .staged_utc "inputs/candidate-$CANDIDATE_SHA/provenance.json")" \
-            --authorization authorization.json --execute --receipt-output promotion-receipt.json
-      - name: Archive qualification and exact-byte publication evidence on the release
+            --authorization authorization.json --qualification-archive "$archive" \
+            --execute --receipt-output promotion-receipt.json
+      - name: Archive the matched final promotion receipt on the release
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -119,8 +123,7 @@ jobs:
           jq -e '.status == "promoted" and .success == true' promotion-receipt.json > /dev/null
           version="$(jq -er '.artifacts[] | select(.kind == "source") | .version' "inputs/candidate-$CANDIDATE_SHA/bom.json")"
           archive="release-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
-          tar -czf "$archive" promotion-receipt.json authorization.json inputs/evidence \
-            "inputs/candidate-$CANDIDATE_SHA/bom.json" "inputs/candidate-$CANDIDATE_SHA/provenance.json"
+          tar -czf "$archive" promotion-receipt.json
           gh release upload "v$version" "$archive"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
@@ -129,5 +132,6 @@ jobs:
           path: |
             promotion-receipt.json
             authorization.json
+            qualification-evidence-*.tar.gz
             release-evidence-*.tar.gz
           if-no-files-found: error

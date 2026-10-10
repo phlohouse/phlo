@@ -21,8 +21,9 @@ non-success ``partial_publication`` receipt.
 
 Every operation is bounded, non-publishing verification by default (dry run).
 Real publication additionally requires ``--execute`` together with a validated
-authorization record; without both, nothing is tagged, pushed, uploaded, or
-finalised.
+authorization record and ``--qualification-archive``; without these, nothing
+is tagged, pushed, uploaded, or finalised. The archive is uploaded and its
+public SHA-256 checked before removing the release's draft status.
 
 Support-status promotion is explicitly out of scope:
 ``registry/support/v1.json`` and ``scripts/validate_support_manifest.py`` are
@@ -755,6 +756,12 @@ def _release_commands(executor: ExecutingExecutor, tag: str, paths: list[str]) -
     return commands
 
 
+def _verify_release_assets(executor: ExecutingExecutor, tag: str, assets: dict[str, str]) -> None:
+    release = _release(executor, tag)
+    if not release or set(assets) - _check_assets(release, assets):
+        raise PublishBlockedError("draft release is missing digest-verified qualification assets")
+
+
 def _verify_tag_identity(
     tag: str,
     commit: str,
@@ -905,6 +912,10 @@ class _StepRunner:
         if isinstance(self.executor, ExecutingExecutor):
             try:
                 for command in recorded:
+                    # Qualification assets must be verified while the release
+                    # is still draft, not only after the announcement.
+                    if verify_published is not None and command[:3] == ["gh", "release", "edit"]:
+                        verify_published()
                     self.executor.run(command)
                 if verify_published is not None:
                     verify_published()
@@ -932,6 +943,8 @@ def promote(
     bom_path: Path,
     staging_dir: Path,
     executor: DryRunExecutor | ExecutingExecutor,
+    *,
+    qualification_archive: Path | None = None,
 ) -> list[StepResult]:
     """Run the ordered, digest-verified publish steps for one qualified candidate.
 
@@ -1042,6 +1055,11 @@ def promote(
     final_assets = [str(bom_path)] + [
         str(path) for path in sorted(distributions_dir.iterdir()) if path.is_file()
     ]
+    if qualification_archive is not None:
+        final_assets.append(str(qualification_archive))
+    final_asset_digests = {
+        Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in final_assets
+    }
     runner.attempt(
         "release_finalisation",
         4,
@@ -1052,10 +1070,9 @@ def promote(
         if runner.executing
         else _dry_run_release_commands(tag, final_assets),
         dry_run_detail="dry run: would finalise the draft release attaching BOM + bytes",
+        verify_published=lambda: _verify_release_assets(executor, tag, final_asset_digests),
     )
-    runner.steps[-1].assets = {
-        Path(path).name: release_candidate_bom.file_sha256(Path(path)) for path in final_assets
-    }
+    runner.steps[-1].assets = final_asset_digests
     return runner.steps
 
 
@@ -1380,6 +1397,14 @@ def _audit_cli(bom_path: Path, staging_dir: Path, output: Path) -> int:
     return 0
 
 
+def _require_qualification_archive(path: Path | None) -> None:
+    if path is None or not path.is_file():
+        raise PromotionGateError(
+            "missing_qualification_archive",
+            "real publication requires the qualification bundles, BOM, provenance and authorization archive",
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the promotion gate CLI."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1416,6 +1441,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     promote_parser.add_argument("--target-channel", default="pypi+ghcr+github-releases")
     promote_parser.add_argument("--receipt-output", type=Path, default=None)
+    promote_parser.add_argument("--qualification-archive", type=Path, default=None)
     promote_parser.add_argument("--now", default=None)
 
     receipt_parser = subparsers.add_parser("verify-receipt", help="Verify a promotion receipt")
@@ -1496,6 +1522,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             authorization = load_authorization(args.authorization)
             validate_authorization(authorization, bom, qualification.checksums)
+            _require_qualification_archive(args.qualification_archive)
             try:
                 release_provenance.verify_live_authorization(authorization)
             except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
@@ -1528,6 +1555,7 @@ def main(argv: list[str] | None = None) -> int:
             args.candidate_bom.resolve(),
             args.staging_dir.resolve(),
             executor,
+            qualification_archive=args.qualification_archive,
         )
         reconciliation = reconcile_publication(bom, steps, executor)
         receipt = build_receipt(

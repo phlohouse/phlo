@@ -239,15 +239,66 @@ def test_rescan_verifies_exact_subject_and_workflow_and_rejects_unsigned_images(
     assert scan["if"] == "${{ !cancelled() }}"
 
 
+@pytest.mark.parametrize("missing_input", [False, True])
+def test_qualification_archive_is_created_before_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing_input: bool
+) -> None:
+    step = next(
+        s
+        for s in workflow("release-promotion.yml")["jobs"]["promote"]["steps"]
+        if s.get("name") == "Publish only the authorized staged bytes, never rebuild"
+    )
+    candidate = tmp_path / "inputs" / ("candidate-" + "e" * 40)
+    candidate.mkdir(parents=True)
+    bom_bytes = b'{"artifacts":[{"kind":"source","version":"0.15.0"}]}'
+    (candidate / "bom.json").write_bytes(bom_bytes)
+    (candidate / "provenance.json").write_text('{"staged":true}')
+    evidence = tmp_path / "inputs/evidence"
+    evidence.mkdir()
+    (evidence / "bundle.json").write_text('{"qualifying":true}')
+    if not missing_input:
+        (tmp_path / "authorization.json").write_text('{"authorized":true}')
+    for command in ("git", "gh", "python3"):
+        stub = tmp_path / command
+        stub.write_text(
+            '#!/bin/bash\necho "$*" >> executed-commands\n'
+            + ('echo "$*" > promoted-arguments\n' if command == "python3" else "")
+        )
+        stub.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("CANDIDATE_SHA", "e" * 40)
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    result = subprocess.run(
+        ["bash", "-c", step["run"]], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert (result.returncode != 0) is missing_input, result.stderr
+    assert (tmp_path / "promoted-arguments").exists() is not missing_input
+    if not missing_input:
+        assert (
+            "--qualification-archive qualification-evidence-123-2.tar.gz"
+            in (tmp_path / "promoted-arguments").read_text()
+        )
+        with tarfile.open(tmp_path / "qualification-evidence-123-2.tar.gz") as archive:
+            assert archive.extractfile("authorization.json").read() == b'{"authorized":true}'
+            assert (
+                archive.extractfile("inputs/evidence/bundle.json").read() == b'{"qualifying":true}'
+            )
+            assert archive.extractfile(f"inputs/candidate-{'e' * 40}/bom.json").read() == bom_bytes
+            assert (
+                archive.extractfile(f"inputs/candidate-{'e' * 40}/provenance.json").read()
+                == b'{"staged":true}'
+            )
+
+
 @pytest.mark.parametrize("promoted", [True, False])
-def test_release_archives_real_qualification_only_after_matched_publication(
+def test_release_archives_final_receipt_only_after_matched_publication(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, promoted: bool
 ) -> None:
     step = next(
         s
         for s in workflow("release-promotion.yml")["jobs"]["promote"]["steps"]
-        if s.get("name")
-        == "Archive qualification and exact-byte publication evidence on the release"
+        if s.get("name") == "Archive the matched final promotion receipt on the release"
     )
     candidate = tmp_path / "inputs" / ("candidate-" + "e" * 40)
     candidate.mkdir(parents=True)
@@ -280,9 +331,4 @@ def test_release_archives_real_qualification_only_after_matched_publication(
     assert (tmp_path / "uploaded-archive").exists() is promoted
     if promoted:
         with tarfile.open(tmp_path / "release-evidence-123-2.tar.gz") as archive:
-            assert (
-                archive.extractfile("inputs/evidence/bundle.json").read() == b'{"qualifying":true}'
-            )
-            assert archive.extractfile("authorization.json").read() == b'{"authorized":true}'
-            assert "promotion-receipt.json" in archive.getnames()
-            assert "inputs/candidate-" + "e" * 40 + "/bom.json" in archive.getnames()
+            assert archive.getnames() == ["promotion-receipt.json"]

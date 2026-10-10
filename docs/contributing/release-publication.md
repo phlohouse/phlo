@@ -72,10 +72,15 @@ release evidence.
    Promotion reauthenticates the evidence and uploads only the staged files.
 6. Retain the successful promotion run URL, BOM, authorization, and receipt.
 
-Promotion attaches a uniquely named `release-evidence-<run>-<attempt>.tar.gz`
-to the final release. The archive contains the receipt, authorization, staged
-BOM and provenance, and all collected acceptance evidence. Preserve this asset
-for the release's support life and at least 24 months.
+Promotion attaches `qualification-evidence-<run>-<attempt>.tar.gz` to the draft
+release alongside the staged BOM and distribution bytes. The archive contains
+the authorization, staged BOM and provenance, and all collected acceptance
+evidence. Promotion checks every uploaded asset's SHA-256 before finalisation.
+An archive creation, upload or digest-check failure blocks release finalisation.
+After successful finalisation, the workflow attaches the matched receipt as
+`release-evidence-<run>-<attempt>.tar.gz`. A receipt archival failure does not
+remove the qualification evidence already attached before finalisation.
+Preserve both assets for the release's support life and at least 24 months.
 
 The promotion receipt must report `status=promoted`, `success=true`, and matched
 reconciliation. Its comparison records pair each candidate SHA-256 or image

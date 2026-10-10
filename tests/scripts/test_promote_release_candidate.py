@@ -502,6 +502,9 @@ def _run_promotion(tmp_path: Path, bundles: list[dict[str, object]], **kwargs: o
         authorization_path = tmp_path / "authorization.json"
         authorization_path.write_text(json.dumps(authorization, sort_keys=True), encoding="utf-8")
         args += ["--authorization", str(authorization_path)]
+    archive = kwargs.pop("qualification_archive", None)
+    if archive is not None:
+        args += ["--qualification-archive", str(archive)]
     assert not kwargs, f"unused kwargs: {kwargs}"
     code = promote_release_candidate.main(args)
     return code, tmp_path / "receipt.json"
@@ -604,12 +607,34 @@ def test_execute_with_hand_written_authorization_cannot_publish(
 ) -> None:
     _, _, bom = _stage_candidate(tmp_path)
     bundles = _qualifying_bundles(bom)
+    archive = tmp_path / "qualification.tar.gz"
+    archive.write_bytes(b"offline qualification archive fixture")
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     code, receipt = _run_promotion(
-        tmp_path, bundles, execute=True, authorization=_authorization(bom, bundles)
+        tmp_path,
+        bundles,
+        execute=True,
+        authorization=_authorization(bom, bundles),
+        qualification_archive=archive,
     )
     assert code == 1
     assert not receipt.exists()
+
+
+@pytest.mark.parametrize("supplied", [False, True])
+def test_execute_requires_existing_qualification_archive(tmp_path, capsys, supplied):
+    _, _, bom = _stage_candidate(tmp_path)
+    bundles = _qualifying_bundles(bom)
+    code, receipt = _run_promotion(
+        tmp_path,
+        bundles,
+        execute=True,
+        authorization=_authorization(bom, bundles),
+        qualification_archive=tmp_path / "missing.tar.gz" if supplied else None,
+    )
+    assert code == 1
+    assert not receipt.exists()
+    assert "missing_qualification_archive" in capsys.readouterr().err
 
 
 def test_partial_publication_cannot_yield_a_success_receipt(tmp_path: Path) -> None:
@@ -1003,6 +1028,56 @@ def test_partial_github_assets_complete_without_reupload(tmp_path, monkeypatch):
     assert (
         promote_release_candidate.reconcile_publication(bom, second, systems)["status"] == "matched"
     )
+
+
+@pytest.mark.parametrize("failure", ["upload", "missing", "digest"])
+def test_qualification_archive_failure_keeps_release_draft(tmp_path, monkeypatch, failure):
+    staging, bom_path, bom = _stage_candidate(tmp_path)
+    archive = tmp_path / "qualification-evidence-123-2.tar.gz"
+    archive.write_bytes(b"offline qualification archive fixture")
+
+    class ArchiveFailure(PublishedSystems):
+        fail_archive = True
+
+        def run(self, command):
+            output = super().run(command)
+            if (
+                self.fail_archive
+                and command[:3] == ["gh", "release", "upload"]
+                and Path(command[4]) == archive
+            ):
+                self.fail_archive = False
+                if failure == "upload":
+                    raise promote_release_candidate.PublishBlockedError("archive upload outage")
+                if failure == "missing":
+                    self.release["assets"].pop()
+                else:
+                    self.release["assets"][-1]["digest"] = "sha256:" + "0" * 64
+            return output
+
+    systems = ArchiveFailure(monkeypatch)
+    systems.outage = False
+    first = promote_release_candidate.promote(
+        bom, bom_path, staging, systems, qualification_archive=archive
+    )
+    assert first[-1].status == "failed"
+    assert systems.release["draft"] is True
+    assert not any(command[:3] == ["gh", "release", "edit"] for command in systems.commands)
+    # A corrupted asset must not be overwritten or accepted on retry.
+    second = promote_release_candidate.promote(
+        bom, bom_path, staging, systems, qualification_archive=archive
+    )
+    if failure == "digest":
+        assert second[-1].status == "failed"
+        assert systems.release["draft"] is True
+    else:
+        assert all(step.status == "completed" for step in second)
+        assert systems.release["draft"] is False
+        assert second[-1].assets[archive.name] == release_candidate_bom.file_sha256(archive)
+        assert (
+            promote_release_candidate.reconcile_publication(bom, second, systems)["status"]
+            == "matched"
+        )
 
 
 @pytest.mark.parametrize("annotated", [False, True])
