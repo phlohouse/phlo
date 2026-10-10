@@ -1,6 +1,6 @@
 {
-  "field_count": 180,
-  "model_count": 28,
+  "field_count": 187,
+  "model_count": 29,
   "models": [
     {
       "class": "BaseConfig",
@@ -445,6 +445,71 @@
       "module": "phlo_alerting.settings",
       "package": "phlo-alerting",
       "source": "packages/phlo-alerting/src/phlo_alerting/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ApiSettings",
+      "fields": [
+        {
+          "alias": "phlo_api_audit_max_bytes",
+          "annotation": "<class 'int'>",
+          "default": 10485760,
+          "description": "Size in bytes at which the operation audit journal rotates (0 disables rotation)",
+          "name": "phlo_api_audit_max_bytes",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_audit_max_files",
+          "annotation": "<class 'int'>",
+          "default": 5,
+          "description": "Rotated operation audit segments to retain (0 disables rotation; reads require 1-20)",
+          "name": "phlo_api_audit_max_files",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_cors_origins",
+          "annotation": "<class 'str'>",
+          "default": "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3005,http://127.0.0.1:3005,http://localhost:4000,http://127.0.0.1:4000",
+          "description": "Comma-separated browser origins allowed by CORS. Use '*' to allow any origin without credentials.",
+          "name": "phlo_api_cors_origins",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_rate_limit_cancel",
+          "annotation": "<class 'int'>",
+          "default": 60,
+          "description": "Run cancel requests allowed per principal per minute",
+          "name": "phlo_api_rate_limit_cancel",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_rate_limit_materialize",
+          "annotation": "<class 'int'>",
+          "default": 10,
+          "description": "Materialize and backfill requests allowed per principal per minute",
+          "name": "phlo_api_rate_limit_materialize",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_rate_limit_mutation",
+          "annotation": "<class 'int'>",
+          "default": 60,
+          "description": "Other mutation requests allowed per principal per minute",
+          "name": "phlo_api_rate_limit_mutation",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_rate_limit_retry",
+          "annotation": "<class 'int'>",
+          "default": 30,
+          "description": "Failed-run retry requests allowed per principal per minute",
+          "name": "phlo_api_rate_limit_retry",
+          "required": false
+        }
+      ],
+      "module": "phlo_api.settings",
+      "package": "phlo-api",
+      "source": "packages/phlo-api/src/phlo_api/settings.py",
       "status": "introspected"
     },
     {
