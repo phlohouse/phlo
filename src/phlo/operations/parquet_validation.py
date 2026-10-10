@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 ValidationMode = Literal["materialized", "full", "sample"]
 
@@ -58,6 +59,7 @@ def parquet_validation_frames(
     sample_size: int,
 ) -> Iterator[pd.DataFrame]:
     """Yield full bounded batches or a deterministic prefix sample across files."""
+    import pandas as pd
     import pyarrow.parquet as pq
 
     if mode not in {"materialized", "full", "sample"}:
