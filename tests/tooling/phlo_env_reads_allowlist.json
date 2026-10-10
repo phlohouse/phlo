@@ -144,11 +144,6 @@
   "packages/phlo-api/src/phlo_api/api/v1_admin_identity.py": [
     "PHLO_IDENTITY_AUTHORITY_ENABLED"
   ],
-  "packages/phlo-api/src/phlo_api/api/v1_assets.py": [
-    "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
-    "PHLO_V1_ACTIONS_SINGLE_PROCESS",
-    "PHLO_V1_ACTIONS_SINGLE_REPLICA"
-  ],
   "packages/phlo-api/src/phlo_api/api/v1_branch_workflows.py": [
     "PHLO_V1_BRANCH_CHECK_JOBS"
   ],
@@ -161,12 +156,10 @@
     "PHLO_V1_MAINTENANCE_WINDOWS"
   ],
   "packages/phlo-api/src/phlo_api/api/v1_query.py": [
-    "PHLO_RUN_EVIDENCE_DB_URL",
-    "PHLO_V1_QUERY_SINGLE_REPLICA"
+    "PHLO_RUN_EVIDENCE_DB_URL"
   ],
   "packages/phlo-api/src/phlo_api/api/v1_staging.py": [
-    "PHLO_PROMOTION_DAGSTER_CHECK_JOBS",
-    "PHLO_STAGING_SINGLE_REPLICA"
+    "PHLO_PROMOTION_DAGSTER_CHECK_JOBS"
   ],
   "packages/phlo-api/src/phlo_api/api/v1_wap.py": [
     "PHLO_PROJECT_PATH"
@@ -199,8 +192,7 @@
     "PHLO_OBSERVATORY_ENVIRONMENT"
   ],
   "packages/phlo-api/src/phlo_api/observatory_api/v1_preview.py": [
-    "PHLO_V1_PREVIEW_CATALOGS",
-    "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED"
+    "PHLO_V1_PREVIEW_CATALOGS"
   ],
   "packages/phlo-api/src/phlo_api/security_manifest.py": [
     "PHLO_AUTHORIZATION_MODE",

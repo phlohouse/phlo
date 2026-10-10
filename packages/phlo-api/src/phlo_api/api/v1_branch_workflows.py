@@ -40,6 +40,7 @@ from phlo_api.branch_schema_resolution import (
     prepare_schema_resolutions,
     verify_schema_resolutions,
 )
+from phlo_api.settings import get_deployment_settings
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
 router = APIRouter(tags=["v1 branches"])
@@ -250,13 +251,11 @@ def _validate_name(name: str, env: Environment) -> str:
 
 
 def _require_branch_actions() -> None:
-    if any(
-        os.environ.get(name) != "1"
-        for name in (
-            "PHLO_V1_ACTIONS_SINGLE_REPLICA",
-            "PHLO_V1_ACTIONS_SINGLE_PROCESS",
-            "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
-        )
+    settings = get_deployment_settings()
+    if (
+        not settings.actions_single_replica
+        or not settings.actions_single_process
+        or not settings.actions_ref_tag_contract
     ):
         raise BackendUnavailableError("Environment-pinned branch actions are not enabled.")
 

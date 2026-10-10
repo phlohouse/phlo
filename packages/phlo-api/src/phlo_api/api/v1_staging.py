@@ -30,6 +30,7 @@ from phlo_api.api.operation_controls import (
 from phlo_api.api.v1_branch_workflows import BranchReference, _nessie, _reference, _run_check_job
 from phlo_api.errors import BackendUnavailableError, BadGatewayError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
+from phlo_api.settings import get_deployment_settings
 from phlo_api.v1_contract import WireModel
 
 router = APIRouter(tags=["v1 staging"])
@@ -118,7 +119,7 @@ class ResyncRequest(WireModel):
 
 def _configured() -> tuple[Path, Path, str, str, str]:
     if (
-        os.environ.get("PHLO_STAGING_SINGLE_REPLICA") != "true"
+        not get_deployment_settings().staging_single_replica
         or os.environ.get("WEB_CONCURRENCY", "1") != "1"
     ):
         raise HTTPException(

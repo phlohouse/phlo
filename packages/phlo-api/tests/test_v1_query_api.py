@@ -125,6 +125,27 @@ def test_catalog_refs_and_engines_are_resolved_from_each_environment(query_api):
     assert client.get("/api/v1/query/catalog?env=invalid").status_code == 422
 
 
+@pytest.mark.parametrize(
+    "name", ["PHLO_V1_QUERY_SINGLE_REPLICA", "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED"]
+)
+def test_query_deployment_gates_are_exact_and_read_per_request(query_api, monkeypatch, name):
+    client, calls = query_api
+    endpoint = "/api/v1/query/catalog?env=prod"
+    for value in (None, "true", "TRUE", "yes", " 1 ", "0", "invalid"):
+        if value is None:
+            monkeypatch.delenv(name)
+        else:
+            monkeypatch.setenv(name, value)
+        assert client.get(endpoint).status_code == 503
+        assert calls == []
+    monkeypatch.setenv(name, "1")
+    response = client.get(endpoint)
+    assert response.status_code == 200
+    assert response.json()["catalogs"][0]["name"] == "warehouse_prod"
+    monkeypatch.setenv(name, "0")
+    assert client.get(endpoint).status_code == 503
+
+
 @pytest.mark.parametrize("supported", [False, True])
 def test_catalog_probes_only_role_tables_and_retains_supported_metadata(
     query_api, monkeypatch, supported

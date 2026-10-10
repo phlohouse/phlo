@@ -21,6 +21,7 @@ from pydantic import AwareDatetime, Field
 from phlo_api.api.v1 import _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, ConflictError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
+from phlo_api.settings import get_deployment_settings
 from phlo_api.v1_contract import Environment, RunStatus, WireModel
 
 router = APIRouter(tags=["v1 jobs and runs"])
@@ -1081,13 +1082,11 @@ async def v1_maintenance_windows(
 
 
 def _require_single_replica_actions() -> None:
-    if any(
-        os.environ.get(name) != "1"
-        for name in (
-            "PHLO_V1_ACTIONS_SINGLE_REPLICA",
-            "PHLO_V1_ACTIONS_SINGLE_PROCESS",
-            "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
-        )
+    settings = get_deployment_settings()
+    if (
+        not settings.actions_single_replica
+        or not settings.actions_single_process
+        or not settings.actions_ref_tag_contract
     ):
         raise BackendUnavailableError("Environment-pinned job actions are not enabled.")
 

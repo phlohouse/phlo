@@ -1,6 +1,6 @@
 {
-  "field_count": 187,
-  "model_count": 29,
+  "field_count": 193,
+  "model_count": 30,
   "models": [
     {
       "class": "BaseConfig",
@@ -445,6 +445,63 @@
       "module": "phlo_alerting.settings",
       "package": "phlo-alerting",
       "source": "packages/phlo-alerting/src/phlo_alerting/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ApiDeploymentSettings",
+      "fields": [
+        {
+          "alias": "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only environment-pinned ref/tag contract assertion. Only '1' enables.",
+          "name": "actions_ref_tag_contract",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_ACTIONS_SINGLE_PROCESS",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API process assertion for v1 actions. Only '1' enables.",
+          "name": "actions_single_process",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_ACTIONS_SINGLE_REPLICA",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API replica assertion for v1 actions. Only '1' enables.",
+          "name": "actions_single_replica",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only assertion of configured Trino preview server limits. Only '1' enables.",
+          "name": "preview_server_limits_configured",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_QUERY_SINGLE_REPLICA",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API replica assertion for query workspace. Only '1' enables.",
+          "name": "query_single_replica",
+          "required": false
+        },
+        {
+          "alias": "PHLO_STAGING_SINGLE_REPLICA",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API replica assertion for staging promotion. Only 'true' enables.",
+          "name": "staging_single_replica",
+          "required": false
+        }
+      ],
+      "module": "phlo_api.settings",
+      "package": "phlo-api",
+      "source": "packages/phlo-api/src/phlo_api/settings.py",
       "status": "introspected"
     },
     {

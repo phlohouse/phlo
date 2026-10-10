@@ -504,7 +504,7 @@ def test_job_summary_histogram_and_maintenance_windows_are_explicitly_scoped(api
 
 
 def test_actions_require_authorization_and_single_replica_gate(api, monkeypatch):
-    client, _, _ = api
+    client, state, _ = api
     from phlo_api.api import operation_controls
 
     def denied(request, required_scope):
@@ -524,6 +524,24 @@ def test_actions_require_authorization_and_single_replica_gate(api, monkeypatch)
         lambda request, required_scope: {"subject": "operator", "scopes": [required_scope]},
     )
     assert client.post("/api/v1/schedules/daily/pause?env=prod", json=body).status_code == 503
+
+    gates = (
+        "PHLO_V1_ACTIONS_SINGLE_REPLICA",
+        "PHLO_V1_ACTIONS_SINGLE_PROCESS",
+        "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
+    )
+    for gate in gates:
+        monkeypatch.setenv(gate, "1")
+    for gate in gates:
+        for value in (None, "true", " 1 ", "invalid"):
+            if value is None:
+                monkeypatch.delenv(gate)
+            else:
+                monkeypatch.setenv(gate, value)
+            response = client.post("/api/v1/schedules/daily/pause?env=prod", json=body)
+            assert response.status_code == 503
+            assert state["schedule_status"]["prod_loc"] == "RUNNING"
+        monkeypatch.setenv(gate, "1")
 
 
 def test_unconfirmed_schedule_action_does_not_consume_idempotency_key(api, monkeypatch, tmp_path):

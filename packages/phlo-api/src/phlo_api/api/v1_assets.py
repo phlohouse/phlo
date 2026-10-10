@@ -7,7 +7,6 @@ import asyncio
 import hashlib
 import json
 import math
-import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
@@ -54,6 +53,7 @@ from phlo_api.api.v1_git_review import (
     publish_project_draft_pr,
 )
 from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
+from phlo_api.settings import get_deployment_settings
 from phlo_api.usage import QueryUsagePage, read_query_usage
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
@@ -1640,10 +1640,8 @@ async def v1_asset_audit_proposal(
     action_target = (
         f"{env}:{asset_id}@{target.nessie_ref}:audit-proposal:{source_digest}:{schema_digest}"
     )
-    idempotency_store_ready = (
-        os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") == "1"
-        and os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") == "1"
-    )
+    settings = get_deployment_settings()
+    idempotency_store_ready = settings.actions_single_replica and settings.actions_single_process
     if not idempotency_store_ready:
         raise BackendUnavailableError(
             "Audit proposal creation requires the verified single-replica idempotency store."
@@ -1822,10 +1820,8 @@ async def v1_asset_audit_proposal_pull_request(
     auth = require_scope(request, "project:write")
     enforce_rate_limit(auth["subject"], "publish_asset_audit_proposal")
     require_idempotency_key(payload.idempotency_key)
-    if (
-        os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") != "1"
-        or os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") != "1"
-    ):
+    settings = get_deployment_settings()
+    if not settings.actions_single_replica or not settings.actions_single_process:
         raise BackendUnavailableError(
             "Project Git publishing requires the verified single-replica idempotency store."
         )
@@ -1913,10 +1909,11 @@ async def _action_context(
     *,
     allowed_query: frozenset[str] = frozenset({"env"}),
 ) -> tuple[EnvironmentTarget, str, list[str]]:
+    settings = get_deployment_settings()
     if (
-        os.environ.get("PHLO_V1_ACTIONS_SINGLE_REPLICA") != "1"
-        or os.environ.get("PHLO_V1_ACTIONS_SINGLE_PROCESS") != "1"
-        or os.environ.get("PHLO_V1_ACTIONS_REF_TAG_CONTRACT") != "1"
+        not settings.actions_single_replica
+        or not settings.actions_single_process
+        or not settings.actions_ref_tag_contract
     ):
         raise BackendUnavailableError("Environment-pinned actions are not enabled.")
     target = _target(request, env, allowed_query=allowed_query)
