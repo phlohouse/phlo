@@ -54,23 +54,24 @@ from time import sleep as _sleep
 from typing import Optional
 
 import click
-
 from phlo.capabilities.discovery import discover_capabilities
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
-from phlo.cli.output import command_failed_error, service_unavailable_error, json_envelope
-from phlo.cli.contract import PhloCommand
+from phlo.cli.output import command_failed_error, json_envelope, service_unavailable_error
 from phlo.config.env import load_project_env
+from phlo.config_schema import WapConfig
 from phlo.infrastructure import load_wap_config
+from phlo.logging import get_logger
+
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import launch_materialize, wait_for_dagster_http
 from phlo_dagster.settings import get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import prepare_wap_launch
-from phlo.logging import get_logger
 
 
 def _summarize_process_output(lines: list[str]) -> str | None:
@@ -133,7 +134,7 @@ def wait_for_dagster_runtime(
 )
 @click.option("--dry-run", is_flag=True, help="Show command without executing")
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
-def materialize(  # noqa: C901
+def materialize(
     asset_name: str | None,
     partition: Optional[str],
     no_default_partition: bool,
@@ -159,6 +160,20 @@ def materialize(  # noqa: C901
         partition = datetime.now(UTC).strftime("%Y-%m-%d")
 
     wap_config = load_wap_config()
+    if wap_config.enabled:
+        _materialize_wap(wap_config, asset_name, select, partition, dry_run, output_json)
+        return
+    _materialize_container(asset_name, select, partition, no_contract_refresh, dry_run, output_json)
+
+
+def _materialize_wap(
+    wap_config: WapConfig,
+    asset_name: str | None,
+    select: str | None,
+    partition: str | None,
+    dry_run: bool,
+    output_json: bool,
+) -> None:
     if wap_config.enabled:
         if not asset_name or select:
             raise click.UsageError(
@@ -269,6 +284,16 @@ def materialize(  # noqa: C901
             f"(logical run {logical_run_id}, Dagster run {result.run_id})"
         )
         return
+
+
+def _materialize_container(
+    asset_name: str | None,
+    select: str | None,
+    partition: str | None,
+    no_contract_refresh: bool,
+    dry_run: bool,
+    output_json: bool,
+) -> None:
     effective_selection = select or asset_name or ""
 
     logger = get_logger("phlo.dagster.materialize", service="dagster")
@@ -286,49 +311,15 @@ def materialize(  # noqa: C901
     )
 
     try:
-        host_platform = platform.system()
         backend = select_project_container_backend()
 
         container_name = find_dagster_container(project_name)
         if not dry_run:
             wait_for_dagster_runtime(container_name, backend=backend)
 
-        exec_env = {
-            "PHLO_HOST_PLATFORM": host_platform,
-            "PHLO_PROJECT_PATH": "/app",
-            "PHLO_AUTO_REFRESH_CONTRACTS": "0" if no_contract_refresh else "1",
-            "PHLO_CONTRACT_REFRESH_SELECTION": effective_selection,
-        }
-        # Pretty opt-in from the shell or project env must reach the run
-        # process — the drain attaches and the console quieting decides
-        # inside the container, where SDK capability is knowable.
-        project_env = load_project_env()
-        for pretty_var in (
-            "PHLO_OBSERVE_PRETTY",
-            "PHLO_OBSERVE_PRETTY_VERBOSE",
-            "OBSERVE_DRAINS",
-        ):
-            if project_env.get(pretty_var):
-                exec_env[pretty_var] = project_env[pretty_var]
-
-        cmd = backend.container_exec_cmd(
-            container_name=container_name,
-            user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
-            env=exec_env,
-            workdir="/app",
-            command=[
-                "dagster",
-                "asset",
-                "materialize",
-                "-m",
-                "phlo_dagster.framework.definitions",
-            ],
+        cmd = _materialize_command(
+            backend, container_name, effective_selection, partition, no_contract_refresh
         )
-
-        cmd.extend(["--select", effective_selection])
-
-        if partition:
-            cmd.extend(["--partition", partition])
 
         if dry_run:
             if output_json:
@@ -471,3 +462,34 @@ def materialize(  # noqa: C901
             exc_info=True,
         )
         raise
+
+
+def _materialize_command(
+    backend: ContainerBackend,
+    container_name: str,
+    selection: str,
+    partition: str | None,
+    no_contract_refresh: bool,
+) -> list[str]:
+    host_platform = platform.system()
+    exec_env = {
+        "PHLO_HOST_PLATFORM": host_platform,
+        "PHLO_PROJECT_PATH": "/app",
+        "PHLO_AUTO_REFRESH_CONTRACTS": "0" if no_contract_refresh else "1",
+        "PHLO_CONTRACT_REFRESH_SELECTION": selection,
+    }
+    project_env = load_project_env()
+    for pretty_var in ("PHLO_OBSERVE_PRETTY", "PHLO_OBSERVE_PRETTY_VERBOSE", "OBSERVE_DRAINS"):
+        if project_env.get(pretty_var):
+            exec_env[pretty_var] = project_env[pretty_var]
+    cmd = backend.container_exec_cmd(
+        container_name=container_name,
+        user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
+        env=exec_env,
+        workdir="/app",
+        command=["dagster", "asset", "materialize", "-m", "phlo_dagster.framework.definitions"],
+    )
+    cmd.extend(["--select", selection])
+    if partition:
+        cmd.extend(["--partition", partition])
+    return cmd

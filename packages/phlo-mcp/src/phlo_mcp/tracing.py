@@ -6,8 +6,10 @@ import json
 import os
 import warnings
 from collections import defaultdict
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from contextvars import ContextVar
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -110,6 +112,20 @@ class CanonicalTracer:
 def get_tracer() -> CanonicalTracer:
     """Return the MCP operation façade; no OTel provider is installed here."""
     return CanonicalTracer()
+
+
+def trace_tool[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
+    """Trace every tool dispatch without changing its MCP signature."""
+
+    @wraps(fn)
+    def traced(*args: P.args, **kwargs: P.kwargs) -> R:
+        tracer = get_tracer()
+        attributes = {"mcp.tool.name": traced.__name__}
+        with tracer.start_as_current_span("mcp.request", attributes=attributes):
+            with tracer.start_as_current_span("mcp.tool.execute", attributes=attributes):
+                return fn(*args, **kwargs)
+
+    return traced
 
 
 def _write_debug_span(span: dict[str, Any]) -> None:

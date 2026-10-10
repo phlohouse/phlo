@@ -11,9 +11,9 @@ rename, never exposing partially written records.
 from __future__ import annotations
 
 import contextlib
-import importlib
 import hashlib
 import hmac
+import importlib
 import json
 import os
 import re
@@ -24,9 +24,6 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
-
-from phlo_api.settings import get_process_settings
 from phlo.capabilities import (
     WorkflowApplyAction,
     WorkflowFilePreview,
@@ -36,6 +33,9 @@ from phlo.capabilities import (
     detect_file_conflicts,
     validate_proposal_request,
 )
+from pydantic import BaseModel, Field
+
+from phlo_api.settings import get_process_settings
 
 _fcntl: Any = None
 try:
@@ -917,7 +917,7 @@ def _is_contained(path: Path, root: Path) -> bool:
     return True
 
 
-def _proposal_from_request(request: WorkflowProposalRequest) -> WorkflowProposal:  # noqa: C901
+def _proposal_from_request(request: WorkflowProposalRequest) -> WorkflowProposal:
     source = request.selection_for("source")
     if source is None:
         raise RuntimeError("Missing source selection in workflow proposal request.")
@@ -1015,6 +1015,32 @@ def _proposal_from_request(request: WorkflowProposalRequest) -> WorkflowProposal
             f"Source contribution {source.contribution_id!r} does not provide proposal rendering."
         )
 
+    planned_models = _append_transform_files(
+        request, table_name, unique_key, fields, files, selected
+    )
+    return _finish_proposal(
+        request,
+        domain,
+        table_name,
+        unique_key,
+        files,
+        selected,
+        planned_assets,
+        planned_tables,
+        planned_models,
+        warnings,
+    )
+
+
+def _append_transform_files(
+    request: WorkflowProposalRequest,
+    table_name: str,
+    unique_key: str,
+    fields: list[str],
+    files: list[WorkflowFilePreview],
+    selected: list[str],
+) -> list[str]:
+    planned_models: list[str] = []
     for transform in request.selections_for("transform"):
         if not transform.contribution_id:
             continue
@@ -1146,6 +1172,21 @@ def _proposal_from_request(request: WorkflowProposalRequest) -> WorkflowProposal
                 )
             )
 
+    return planned_models
+
+
+def _finish_proposal(
+    request: WorkflowProposalRequest,
+    domain: str,
+    table_name: str,
+    unique_key: str,
+    files: list[WorkflowFilePreview],
+    selected: list[str],
+    planned_assets: list[str],
+    planned_tables: list[str],
+    planned_models: list[str],
+    warnings: list[str],
+) -> WorkflowProposal:
     for quality in request.selections_for("quality"):
         if quality.contribution_id != "pandera.quality-checks":
             continue
