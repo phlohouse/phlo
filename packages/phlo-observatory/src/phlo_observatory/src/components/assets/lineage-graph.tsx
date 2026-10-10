@@ -3,6 +3,7 @@ import '@xyflow/react/dist/base.css'
 import * as React from 'react'
 import { ClientOnly, Link } from '@tanstack/react-router'
 import { Controls, Handle, Position, ReactFlow } from '@xyflow/react'
+import { ChevronRightIcon } from 'lucide-react'
 import type { Edge, Node, NodeProps } from '@xyflow/react'
 import type {
   Env,
@@ -256,59 +257,191 @@ function Flow({ columns, edges: pairs, label, env }: Props) {
   )
 }
 
+/** The graph's nodes and directed edges, in column order, with each node's neighbours. */
+export function lineageRows(
+  columns: Array<LineageColumn>,
+  pairs: Array<[string, string]>,
+) {
+  const all = columns.flatMap((c) =>
+    c.nodes.map((node) => ({ node, position: c.heading })),
+  )
+  const byId = new Map(all.map((row) => [row.node.id, row.node]))
+  // Same edges the graph draws: both ends present, each drawn once.
+  const edges = [
+    ...new Map(
+      pairs
+        .filter(([a, b]) => byId.has(a) && byId.has(b))
+        .map(([a, b]): [string, [string, string]] => [`${a}->${b}`, [a, b]]),
+    ).values(),
+  ]
+  const rows = all.map(({ node, position }) => ({
+    node,
+    position,
+    upstream: edges.filter(([, b]) => b === node.id).map(([a]) => byId.get(a)!),
+    downstream: edges
+      .filter(([a]) => a === node.id)
+      .map(([, b]) => byId.get(b)!),
+  }))
+  return { rows, edges }
+}
+
+function NodeLinks({ nodes, env }: { nodes: Array<LineageNode>; env: Env }) {
+  if (!nodes.length) return <span className="text-muted-foreground">None</span>
+  return (
+    <ul className="flex flex-col gap-0.5">
+      {nodes.map((n) => (
+        <li key={n.id} className="break-all">
+          <NodeName node={n} env={env} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function NodeName({ node, env }: { node: LineageNode; env: Env }) {
+  if (node.tone === 'self')
+    return (
+      <span className="font-mono font-semibold">
+        {node.name}
+        <span className="sr-only"> (this asset)</span>
+      </span>
+    )
+  return node.href ? (
+    <Link
+      to={node.href}
+      search={{ env }}
+      className="rounded-sm font-mono text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    >
+      {node.name}
+    </Link>
+  ) : (
+    <span className="font-mono">{node.name}</span>
+  )
+}
+
 /** Upstream → this table → downstream, laid out left to right by depth. */
 export function LineageGraph(props: Props) {
   const all = props.columns.flatMap((c) => c.nodes)
-  const nameOf = (id: string) => all.find((m) => m.id === id)?.name ?? id
+  const self = all.find((n) => n.tone === 'self')
+  const { rows, edges } = lineageRows(props.columns, props.edges)
+  const [open, setOpen] = React.useState(false)
+  const panelId = React.useId()
   // Phones draw at 100 %, so size the box to the graph (up to 420px) rather than leave it half empty.
-  const rows = Math.max(1, ...props.columns.map((c) => c.nodes.length))
+  const height = Math.max(1, ...props.columns.map((c) => c.nodes.length))
   const phoneH = Math.min(
     420,
-    Math.max(260, TOP + (rows - 1) * ROW + NODE_H + 48),
+    Math.max(260, TOP + (height - 1) * ROW + NODE_H + 48),
   )
+  const summary = `${all.length} ${all.length === 1 ? 'asset' : 'assets'}, ${edges.length} ${edges.length === 1 ? 'relationship' : 'relationships'}`
   return (
-    <div className="relative">
+    <div className="flex flex-col gap-2">
+      {/* The canvas is pointer-only; the table below carries the same nodes, edges and links. */}
       <div
         role="group"
-        aria-label={props.label}
+        aria-label={`${props.label} The lineage table after this graph lists the same assets and relationships.`}
         style={{ '--flow-h': `${phoneH}px` } as React.CSSProperties}
         className="h-(--flow-h) overflow-hidden rounded-lg border border-border-card bg-sunken md:h-[360px]"
       >
         <ClientOnly
           fallback={<Skeleton className="h-full w-full rounded-none" />}
         >
-          <Flow key={all.find((n) => n.tone === 'self')?.id} {...props} />
+          <Flow key={self?.id} {...props} />
         </ClientOnly>
       </div>
-      {/* The graph is a picture; this list carries the same facts and links for keyboards and screen readers. */}
-      <nav
-        aria-label="Lineage"
-        className="sr-only focus-within:not-sr-only focus-within:absolute focus-within:top-2 focus-within:right-2 focus-within:z-10 focus-within:rounded-lg focus-within:border focus-within:border-border focus-within:bg-popover focus-within:p-3 focus-within:text-[13px] focus-within:shadow-dialog"
-      >
-        <ul className="flex flex-col gap-1">
-          {all.map((n) => {
-            const to = props.edges
-              .filter(([a]) => a === n.id)
-              .map(([, b]) => nameOf(b))
-            return (
-              <li key={n.id}>
-                {n.href ? (
-                  <Link to={n.href} search={{ env: props.env }}>
-                    {n.name}
-                  </Link>
-                ) : (
-                  n.name
-                )}
-                <span className="text-muted-foreground">
-                  {' '}
-                  · {n.sub}
-                  {to.length ? ` · feeds ${to.join(', ')}` : ''}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
+      <div className="rounded-lg border border-line text-[13px]">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen((value) => !value)}
+          className="flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-left text-text-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          <ChevronRightIcon
+            aria-hidden
+            className={cn('size-3.5 transition-transform', open && 'rotate-90')}
+          />
+          Lineage as a table · {summary}
+        </button>
+        <div
+          id={panelId}
+          hidden={!open}
+          className="border-t border-line px-3 pt-2 pb-3"
+        >
+          {edges.length ? null : (
+            <p className="pb-2 text-muted-foreground">
+              No declared upstream or downstream assets
+              {self ? ` for ${self.name}` : ''}.
+            </p>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-left">
+              <caption className="sr-only">
+                Lineage{self ? ` of ${self.name}` : ''}: each asset, where it
+                sits, what feeds it and what it feeds.
+              </caption>
+              <thead>
+                <tr className="text-xs text-muted-foreground">
+                  <th scope="col" className="py-1.5 pr-3 font-normal">
+                    Asset
+                  </th>
+                  <th scope="col" className="py-1.5 pr-3 font-normal">
+                    Position
+                  </th>
+                  <th scope="col" className="py-1.5 pr-3 font-normal">
+                    Fed by (upstream)
+                  </th>
+                  <th scope="col" className="py-1.5 font-normal">
+                    Feeds (downstream)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ node, position, upstream, downstream }) => (
+                  <tr
+                    key={node.id}
+                    aria-current={node.tone === 'self' ? 'true' : undefined}
+                    className={cn(
+                      'border-t border-line-soft align-top',
+                      node.tone === 'self' && 'bg-primary-soft',
+                    )}
+                  >
+                    <th scope="row" className="py-1.5 pr-3 font-normal">
+                      <span className="block break-all">
+                        <NodeName node={node} env={props.env} />
+                      </span>
+                      <span
+                        className={cn(
+                          'block text-xs',
+                          node.subBad
+                            ? 'text-bad-text'
+                            : 'text-muted-foreground',
+                        )}
+                      >
+                        {node.sub}
+                      </span>
+                    </th>
+                    <td className="py-1.5 pr-3 text-text-2">
+                      {node.tone === 'self' ? (
+                        <strong className="font-medium text-foreground">
+                          This asset
+                        </strong>
+                      ) : (
+                        position
+                      )}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <NodeLinks nodes={upstream} env={props.env} />
+                    </td>
+                    <td className="py-1.5">
+                      <NodeLinks nodes={downstream} env={props.env} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
