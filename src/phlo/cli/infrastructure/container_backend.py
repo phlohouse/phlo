@@ -19,6 +19,9 @@ from phlo.infrastructure.container_backend import (
     ServiceStatus as ServiceStatus,
 )
 from phlo.infrastructure.container_backend import (
+    _compose_base_cmd as _compose_base_cmd,
+)
+from phlo.infrastructure.container_backend import (
     select_container_backend as select_container_backend,
 )
 from phlo.infrastructure.container_backend import (

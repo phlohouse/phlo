@@ -191,7 +191,7 @@ source_paths = ["src/"]
 only_mutate = [
     "src/phlo/security/mode.py",
     "src/phlo/quality_rules.py",
-    "src/phlo/cli/commands/services/utils.py",
+    "src/phlo/config/project.py",
 ]
 pytest_add_cli_args_test_selection = [
     "tests/security/test_mode.py",

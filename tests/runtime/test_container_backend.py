@@ -439,8 +439,8 @@ def test_compose_layers_reject_production(tmp_path: Path, filename: str) -> None
 
 
 def test_compose_environment_layers_match_settings_precedence(tmp_path: Path) -> None:
+    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
     from phlo.config.layout import project_env_paths
-    from phlo.infrastructure.container_backend import _compose_base_cmd
 
     state = tmp_path / ".phlo"
     paths = project_env_paths(state)
