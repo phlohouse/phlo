@@ -20,6 +20,8 @@ The browser used the built bundled Node application, real local FastAPI, a dispo
 
 Stopping the disposable database produced HTTP 503 from the Dataset endpoint with `Core Dataset authority is unavailable.` The browser's shared incident bootstrap failed first with its own 503. No inventory appeared. This checks the real API outage boundary, not an isolated rendered Dataset error component. The database was restarted afterwards.
 
+After that restart, the existing cached PostgreSQL run-evidence store returned HTTP 500 with `connection already closed`. Restarting the local API restored the same retained report and terminal outcome. Automatic store reconnection is not proved or fixed here. The new report alias uses the same existing builder and store as the legacy endpoint.
+
 | Remaining criterion | Executed evidence | Still unproved or requiring a decision |
 | --- | --- | --- |
 | Governed Dataset inventory | HTTP parity test loads a real project workflow declaration and compares inventory entries with CLI core projections. Bounds and rejection of environment filters pass. Browser renders `gold.orders`, owner `analytics`, publication not recorded, and blocked quality readiness from the real authority and PostgreSQL store. | Not a candidate-store explorer or environment-specific publication model. Those are not inferred from materialisation. |
