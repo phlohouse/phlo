@@ -150,7 +150,7 @@ def test_authoring_unknown_effect_blocks_unkeyed_retry(monkeypatch, tmp_path) ->
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     effect = tmp_path / "provider-effects.txt"
 
-    def lose_response(**kwargs):  # noqa: ANN003, ANN202
+    def lose_response(**kwargs: object) -> None:
         with effect.open("a", encoding="utf-8") as handle:
             handle.write("created\n")
         raise HTTPException(504, "Provider response lost after creating files")

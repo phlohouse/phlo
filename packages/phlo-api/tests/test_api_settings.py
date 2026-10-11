@@ -44,6 +44,33 @@ def test_settings_are_read_per_call(monkeypatch) -> None:
     assert get_settings().phlo_api_rate_limit_retry == 8
 
 
+def test_generated_api_environment_keeps_shared_controls_opt_in(tmp_path, monkeypatch) -> None:
+    from phlo.plugins.compose.env import generate_env, generate_env_local
+    from phlo.plugins.discovery.services import ServiceDiscovery
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.delenv("PHLO_API_OPERATION_CONTROLS_DB_URL", raising=False)
+    monkeypatch.delenv("PHLO_API_OPERATION_CONTROLS_NAMESPACE", raising=False)
+    service = ServiceDiscovery().get_service("phlo-api")
+    assert service is not None
+    state = tmp_path / ".phlo"
+    state.mkdir()
+    (state / ".env").write_text(generate_env([service]), encoding="utf-8")
+    local = state / ".env.local"
+    local.write_text(generate_env_local([service]), encoding="utf-8")
+    local.chmod(0o600)
+    shared_configured = bool(get_settings().phlo_api_operation_controls_db_url)
+    assert shared_configured is False
+
+    # Explicit connection strings stay in the operator's protected local overrides.
+    dsn = "postgresql://fixture:fixture@postgres:5432/fixture"
+    local.write_text(
+        generate_env_local([service], existing_values={"PHLO_API_OPERATION_CONTROLS_DB_URL": dsn}),
+        encoding="utf-8",
+    )
+    assert get_settings().phlo_api_operation_controls_db_url == dsn
+
+
 @pytest.mark.parametrize(
     "name",
     [
