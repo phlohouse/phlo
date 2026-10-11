@@ -24,7 +24,8 @@ from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
 from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.specs import CatalogSpec
 from phlo.run_evidence import PipelineRun, RunEvent, RunStage, SQLiteRunEvidenceStore
-from security_test_support import _regulated_api_boundary, authenticated_client  # noqa: F401
+from security_test_support import _regulated_api_boundary as _regulated_api_boundary
+from security_test_support import authenticated_client as authenticated_client
 
 from phlo_api.main import app
 from phlo_api.observatory_api import observatory, observatory_services
