@@ -55,7 +55,13 @@ from phlo_api.api.v1_git_review import (
 from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
 from phlo_api.settings import get_deployment_settings
 from phlo_api.usage import QueryUsagePage, read_query_usage
-from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
+from phlo_api.v1_contract import (
+    Environment,
+    EnvironmentTarget,
+    ProviderActionResult,
+    RunStatus,
+    WireModel,
+)
 
 router = APIRouter(tags=["v1 assets"])
 Limit = Annotated[int, Query(ge=1, le=500)]
@@ -316,7 +322,7 @@ class ColumnLineageDependency(WireModel):
 class AssetRun(WireModel):
     run_id: str
     job_id: str
-    status: str
+    status: RunStatus
     created_at: AwareDatetime
     started_at: AwareDatetime | None
     ended_at: AwareDatetime | None
@@ -391,6 +397,13 @@ class SnapshotRollback(WireModel):
     nessie_ref: str = Field(min_length=1, max_length=128)
     confirmed: Literal[True]
     idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class SnapshotRollbackResult(WireModel):
+    env: Environment
+    table_name: str
+    nessie_ref: str
+    rolled_back_to: str
 
 
 class IcebergField(WireModel):
@@ -494,6 +507,22 @@ class AssetActionResponse(WireModel):
     asset_id: str
     nessie_ref: str
     result: dict[str, Any]
+
+
+class PlannedMaterializationResult(WireModel):
+    accepted: bool
+    run_ids: list[str]
+    runs: list[ProviderActionResult]
+    job_name: str
+    plan_hash: str | None
+    dry_run: bool
+
+
+class MaterializationResponse(WireModel):
+    env: Environment
+    asset_id: str
+    nessie_ref: str
+    result: PlannedMaterializationResult | ProviderActionResult
 
 
 class LayerView(WireModel):
@@ -1305,7 +1334,7 @@ async def v1_table_snapshots(
     return history
 
 
-@router.post("/tables/{table_name}/rollback")
+@router.post("/tables/{table_name}/rollback", response_model=SnapshotRollbackResult)
 async def v1_table_rollback(
     request: Request, table_name: str, payload: SnapshotRollback, env: Environment = Query()
 ) -> dict[str, Any]:
@@ -2347,7 +2376,7 @@ def _require_full_refresh_mfa(request: Request) -> None:
         )
 
 
-@router.post("/assets/{asset_id:path}/materialize", response_model=AssetActionResponse)
+@router.post("/assets/{asset_id:path}/materialize", response_model=MaterializationResponse)
 async def v1_asset_materialize(
     request: Request,
     asset_id: str,
