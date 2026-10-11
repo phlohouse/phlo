@@ -19,7 +19,7 @@ compose:
   environment:
     GF_PLUGINS_PREINSTALL_DISABLED: "true"
     GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-    GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run phlo services init to generate GRAFANA_ADMIN_PASSWORD}
     GF_USERS_ALLOW_SIGN_UP: "false"
   ports:
     - "${GRAFANA_PORT:-3003}:3000"
@@ -52,7 +52,6 @@ env_vars:
     default: admin
     description: Grafana admin username
   GRAFANA_ADMIN_PASSWORD:
-    default: admin
     description: Grafana admin password
     secret: true
   GRAFANA_PUBLIC_URL:

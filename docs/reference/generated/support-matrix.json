@@ -1,5 +1,5 @@
 {
-  "component_count": 90,
+  "component_count": 95,
   "components": [
     {
       "applicable_gates": [
@@ -743,6 +743,15 @@
     {
       "applicable_gates": [],
       "blockers": [],
+      "component": "service:alloy-docker",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
       "component": "service:clickhouse",
       "current_maturity": "preview",
       "readiness": "not gated",
@@ -840,6 +849,15 @@
       "applicable_gates": [],
       "blockers": [],
       "component": "service:loki",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:loki-setup",
       "current_maturity": "preview",
       "readiness": "not gated",
       "target_profile": "optional",
@@ -1047,6 +1065,15 @@
       "target_status": "preview"
     },
     {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:polaris-bootstrap",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "preview"
+    },
+    {
       "applicable_gates": [
         "security",
         "upgrade_restore",
@@ -1116,6 +1143,15 @@
     {
       "applicable_gates": [],
       "blockers": [],
+      "component": "service:prometheus-setup",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
       "component": "service:rustfs",
       "current_maturity": "preview",
       "readiness": "not gated",
@@ -1153,6 +1189,15 @@
       "applicable_gates": [],
       "blockers": [],
       "component": "service:traefik",
+      "current_maturity": "alpha",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:traefik-docker",
       "current_maturity": "alpha",
       "readiness": "not gated",
       "target_profile": "optional",
