@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import (
     DefaultMaintenanceReadModel,
     DefaultObservabilityBackend,
@@ -19,7 +20,6 @@ from phlo.capabilities import (
     get_capability_registry,
 )
 from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
-from phlo.capabilities.discovery import discover_capabilities
 from phlo.capabilities.interfaces import Principal, ResourceRef
 
 
@@ -184,7 +184,7 @@ def test_links_resolve_from_service_config(monkeypatch, tmp_path: Path) -> None:
         ),
     }
 
-    monkeypatch.setattr("phlo.capabilities.observability._discover_service", services.get)
+    monkeypatch.setattr("phlo.application.observability._discover_service", services.get)
 
     links = backend.dashboard_links()
     assert links[0].url == "http://localhost:18080"

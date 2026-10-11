@@ -425,8 +425,8 @@ def _maintenance_store() -> Any:
     (``MaintenanceRetentionStore``). Engine executors are the delegated
     submit boundary the store resolves internally.
     """
-    from phlo.capabilities import resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
+    from phlo.capabilities.resolver import resolve_capability
 
     discover_capabilities()
     resolution = resolve_capability("table_store", "iceberg")
@@ -440,8 +440,8 @@ def _maintenance_store() -> Any:
 
 def _maintenance_executor() -> Any:
     """Resolve the optional engine executor the store delegates mutation to."""
-    from phlo.capabilities import resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
+    from phlo.capabilities.resolver import resolve_capability
 
     discover_capabilities()
     resolution = resolve_capability("maintenance_executor")
@@ -460,7 +460,7 @@ _STORE_OPERATION_NAME = {"compact": "compact", "expire_snapshots": "snapshot_exp
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 def maintenance_inventory(output_format: str, output_json: bool = False) -> None:
     """List v1 tables with their provider and maintenance state (read-only)."""
-    from phlo.capabilities import MaintenanceDiscovery
+    from phlo.capabilities.interfaces import MaintenanceDiscovery
 
     store = _maintenance_store()
     if not isinstance(store, MaintenanceDiscovery):

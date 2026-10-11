@@ -25,7 +25,7 @@ from phlo._flow_authoring import (
     contract_metadata,
     normalize_asset_deps,
 )
-from phlo.capabilities import AssetCheckSpec, AssetSpec
+from phlo.capabilities.specs import AssetCheckSpec, AssetSpec
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 
 

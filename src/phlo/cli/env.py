@@ -15,8 +15,8 @@ import yaml
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.config.layout import env_secrets_path
 from phlo.logging import get_logger
-from phlo.plugins.compose import ComposeGenerator
-from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.plugins.compose.generator import ComposeGenerator
+from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 logger = get_logger(__name__)
 

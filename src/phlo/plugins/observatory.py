@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from phlo.config import get_settings
+from phlo.config.settings import get_settings
 from phlo.logging import get_logger
 from phlo.plugins.base.plugin import Plugin
 from phlo.plugins.discovery._entry_points import entry_points_for_group

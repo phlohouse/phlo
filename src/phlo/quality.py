@@ -196,7 +196,8 @@ def _load_quality_provider() -> QualityProviderPlugin | None:
     # provider, broken provider internals -- is surfaced as one actionable
     # ModuleNotFoundError telling users what to install.
     try:
-        from phlo.plugins.discovery import discover_plugins, get_global_registry
+        from phlo.plugins.discovery._plugin_loading import discover_plugins
+        from phlo.plugins.discovery.registry import get_global_registry
 
         discover_plugins()
         provider = cast(
@@ -265,14 +266,14 @@ def _ensure_quality_provider_loaded() -> None:
 
 def _discover_quality_providers() -> None:
     """Load installed quality providers into the plugin registry."""
-    from phlo.plugins.discovery import discover_plugins
+    from phlo.plugins.discovery._plugin_loading import discover_plugins
 
     discover_plugins(plugin_type="quality_provider", auto_register=True)
 
 
 def providers() -> list[str]:
     """Return installed quality provider names."""
-    from phlo.plugins.discovery import get_global_registry
+    from phlo.plugins.discovery.registry import get_global_registry
 
     _discover_quality_providers()
     return get_global_registry().list("quality_provider")
@@ -290,7 +291,7 @@ def _missing_quality_provider_error(name: str) -> ModuleNotFoundError:
 
 def _quality_provider_or_raise(name: str) -> QualityProviderPlugin:
     """Resolve a quality provider plugin or raise a public install error."""
-    from phlo.plugins.discovery import get_global_registry
+    from phlo.plugins.discovery.registry import get_global_registry
 
     _discover_quality_providers()
     provider_plugin = cast(

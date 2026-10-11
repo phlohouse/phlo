@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
-from phlo.capabilities import resolve_capability
+from phlo.capabilities.resolver import resolve_capability
 from phlo.exceptions import PhloConfigError
 from phlo.helpers._common import redact_mapping
 

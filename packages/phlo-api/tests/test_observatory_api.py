@@ -10,26 +10,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import threading
 from pathlib import Path
-import subprocess
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-
 from phlo.capabilities import ResourceRef
-from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.authentication import ServiceTokenAuthenticationProvider
 from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
+from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.specs import CatalogSpec
-from phlo_api.main import app
-from security_test_support import _regulated_api_boundary, authenticated_client  # noqa: F401
 from phlo.run_evidence import PipelineRun, RunEvent, RunStage, SQLiteRunEvidenceStore
-from phlo_api.observatory_api import observatory
-from phlo_api.observatory_api import observatory_services
-from phlo_api.observatory_api.service_payloads import DockerInspectContainer, DockerPayloadError
+from security_test_support import _regulated_api_boundary, authenticated_client  # noqa: F401
+
+from phlo_api.main import app
+from phlo_api.observatory_api import observatory, observatory_services
 from phlo_api.observatory_api import observatory_runs as observatory_runs_module
 from phlo_api.observatory_api.observatory import (
     _execute_action,
@@ -65,6 +63,7 @@ from phlo_api.observatory_api.observatory_services import fallback_services as _
 from phlo_api.observatory_api.observatory_services import (
     load_docker_service_statuses as _load_docker_service_statuses,
 )
+from phlo_api.observatory_api.service_payloads import DockerInspectContainer, DockerPayloadError
 from phlo_api.security_manifest import RUN_REPORT_RESOURCE_ID_ATTRIBUTE
 
 # Lowercase concatenations catch camelCase spellings that `.lower()` would
@@ -1969,7 +1968,7 @@ def test_observatory_concurrent_idempotency_endpoint_executes_provider_once(
         clear_capabilities,
         register_capability,
     )
-    from security_test_support import _HeaderAuthenticationProvider, _backend
+    from security_test_support import _backend, _HeaderAuthenticationProvider
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv(
@@ -2066,7 +2065,7 @@ def test_observatory_idempotency_outcome_unknown_endpoint_does_not_retry(
         clear_capabilities,
         register_capability,
     )
-    from security_test_support import _HeaderAuthenticationProvider, _backend
+    from security_test_support import _backend, _HeaderAuthenticationProvider
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv(
@@ -4206,7 +4205,7 @@ def test_preview_uses_one_bounded_neutral_query_without_a_count(monkeypatch) -> 
                 has_more=True,
             )
 
-    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
     monkeypatch.setattr(
         "phlo.capabilities.resolve_capability",
         lambda *_: SimpleNamespace(provider=FakeQueryEngine()),

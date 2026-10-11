@@ -10,7 +10,7 @@ import secrets
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-from phlo.plugins.discovery import ServiceDefinition
+from phlo.plugins.discovery.services import ServiceDefinition
 
 
 def _default_package_version(package: str) -> str:

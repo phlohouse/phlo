@@ -27,7 +27,7 @@ Example:
     Adapter instantiation::
 
         from phlo_dagster.adapter import DagsterOrchestratorAdapter
-        from phlo.capabilities.discovery import discover_capabilities
+        from phlo.application.discovery import discover_capabilities
 
         # Discover capabilities from user code
         discover_capabilities()

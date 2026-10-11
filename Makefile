@@ -14,7 +14,7 @@ CHECK_CMD := scripts/run-parallel \
 	"reference docs" "uv run --locked python scripts/generate_reference_docs.py --check" \
 	"py lint" "uv run --locked ruff check ." \
 	"py complexity" "uv run --locked ruff check --config pyproject.toml --select C901 ." \
-	"py imports" "uv run --locked lint-imports --no-cache" \
+	"py imports" "uv run --locked python scripts/check_imports.py" \
 	"py format" "uv run --locked ruff format --check ." \
 	"py typecheck" "uv run --locked ty check --error-on-warning $(TY_CHECK_SCOPE)" \
 	"py test" "uv run --locked pytest -m 'not integration'" \
@@ -131,7 +131,7 @@ lint: lint-python lint-sql
 lint-python:
 	uv run --locked ruff check .
 	uv run --locked ruff check --config pyproject.toml --select C901 .
-	uv run --locked lint-imports --no-cache
+	uv run --locked python scripts/check_imports.py
 
 format-python:
 	uv run --locked ruff format --check .

@@ -16,7 +16,7 @@ from phlo.plugins.compose.artifacts import (
     shared_artifact_files,
     split_host_compose,
 )
-from phlo.plugins.discovery import ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDiscovery
 
 _SHARED_FILES = "phlo-runtime"
 

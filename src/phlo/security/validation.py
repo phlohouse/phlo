@@ -35,7 +35,7 @@ INTERNAL_BACKEND_SERVICES = frozenset({"postgres", "minio", "nessie", "trino"})
 
 def _project_rbac_loader() -> RBACConfigLoader:
     """Load canonical RBAC from the same configured project as runtime startup."""
-    from phlo.infrastructure.config import _default_project_root
+    from phlo.config.project import _default_project_root
 
     return RBACConfigLoader(_default_project_root() / ".phlo")
 
@@ -80,8 +80,8 @@ RegulatedModeValidationReport = RegulatedValidationReport  # deprecated alias
 
 def _check_authorization_backend() -> ValidationResult:
     """Validate that an authorization backend is configured."""
-    from phlo.capabilities import resolve_capability
-    from phlo.infrastructure.config import get_configured_authorization_backend_name
+    from phlo.capabilities.resolver import resolve_capability
+    from phlo.config.project import get_configured_authorization_backend_name
 
     try:
         backend_name = get_configured_authorization_backend_name() or ""
@@ -114,7 +114,7 @@ def _check_authorization_backend() -> ValidationResult:
 
 def _check_fail_closed_mode() -> ValidationResult:
     """Validate fail-closed mode is enabled."""
-    from phlo.infrastructure.config import get_api_authorization_config
+    from phlo.config.project import get_api_authorization_config
 
     mode_env = get_process_settings().get("PHLO_AUTHORIZATION_MODE", "").strip().lower()
 
@@ -255,7 +255,7 @@ def _check_backend_coverage() -> ValidationResult:
 
 def _production_compose_path() -> Path:
     """Return the generated Compose file for the configured project."""
-    from phlo.infrastructure.config import _default_project_root
+    from phlo.config.project import _default_project_root
 
     return _default_project_root() / ".phlo" / "docker-compose.yml"
 
@@ -344,7 +344,7 @@ def _check_internal_backend_boundary() -> ValidationResult:
 
 def _check_identity_provider() -> ValidationResult:
     """Validate that an identity provider is configured."""
-    from phlo.infrastructure.config import (
+    from phlo.config.project import (
         get_authentication_config,
         get_configured_authentication_provider_name,
     )
@@ -425,7 +425,7 @@ def _check_identity_provider() -> ValidationResult:
                 message=f"Invalid regulated service-token configuration: {exc}",
             )
 
-    from phlo.capabilities import list_capabilities
+    from phlo.capabilities.resolver import list_capabilities
 
     if configured_name not in list_capabilities("authentication_provider"):
         return ValidationResult(
@@ -446,8 +446,11 @@ def _check_identity_provider() -> ValidationResult:
 
 def _configured_service_names() -> list[str]:
     """Return the selected service names from project config and environment."""
-    from phlo.cli.commands.services.utils import get_enabled_disabled_service_names
-    from phlo.infrastructure.config import _default_project_root, load_project_config
+    from phlo.config.project import (
+        _default_project_root,
+        get_enabled_disabled_service_names,
+        load_project_config,
+    )
 
     configured: set[str] = set()
     configured.update(get_process_settings().phlo_enabled_services)
@@ -464,7 +467,7 @@ def _check_phlo_api_adapter(runtime: Any) -> ValidationResult:
     Per plan: phlo-api is the only required regulated surface in v1.
     Startup must fail if the adapter is missing, not installed, or inactive.
     """
-    from phlo.capabilities import get_capability_registry
+    from phlo.capabilities.registry import get_capability_registry
 
     registered = get_capability_registry().list("regulated_surface")
     phlo_api_spec = next((s for s in registered if s.name == "phlo-api"), None)
@@ -498,7 +501,7 @@ def _check_phlo_api_adapter(runtime: Any) -> ValidationResult:
 
 def _collect_adapter_taxonomy(runtime: Any) -> tuple[set[str], set[str]]:
     """Collect canonical actions and resource types from all registered adapters."""
-    from phlo.capabilities import get_capability_registry
+    from phlo.capabilities.registry import get_capability_registry
 
     surface_actions: set[str] = set()
     surface_resource_types: set[str] = set()
@@ -523,7 +526,7 @@ def _check_registered_surfaces(runtime: Any) -> ValidationResult:
     For surfaces that support the runtime-aware is_active(runtime) protocol,
     passes the runtime so activation can be checked against the real framework.
     """
-    from phlo.capabilities import get_capability_registry
+    from phlo.capabilities.registry import get_capability_registry
 
     registered = get_capability_registry().list("regulated_surface")
     registered_names = {spec.name for spec in registered}

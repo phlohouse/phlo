@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from typing import cast
 
-from phlo.config import get_settings
+from phlo.config.settings import get_settings
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
-from phlo.plugins.base import OrchestratorAdapterPlugin
-from phlo.plugins.discovery import discover_plugins, get_global_registry
+from phlo.plugins.base.orchestrator import OrchestratorAdapterPlugin
+from phlo.plugins.discovery._plugin_loading import discover_plugins
+from phlo.plugins.discovery.registry import get_global_registry
 
 logger = get_logger(__name__)
 

@@ -14,6 +14,7 @@ from typing import Any
 from phlo.capabilities import list_capabilities, resolve_capability
 from phlo.infrastructure.config import load_project_config
 from phlo.logging import get_logger
+
 from phlo_sling.settings import SlingProcessSettings, get_settings
 
 logger = get_logger(__name__)
@@ -80,7 +81,7 @@ def _ensure_capabilities_discovered(*kinds: str) -> None:
     if any(list_capabilities(kind) for kind in kinds):
         return
 
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
 
     discover_capabilities()
 

@@ -221,7 +221,7 @@ def is_write_restricted(service_name: str, regulated: bool | None = None) -> boo
 
     # Check for operator opt-in via phlo.yaml surfaces.<service>.allow_writes
     try:
-        from phlo.infrastructure.config import load_project_config
+        from phlo.config.project import load_project_config
 
         project_config = load_project_config()
         surfaces_config = project_config.get("surfaces", {})

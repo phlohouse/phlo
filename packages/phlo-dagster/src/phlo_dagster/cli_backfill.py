@@ -34,8 +34,8 @@ Example:
 
 """
 
-import json
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -49,22 +49,22 @@ from time import sleep as _sleep
 from typing import Any
 
 import click
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
-
+from phlo.application.discovery import discover_capabilities
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
-from phlo.cli.output import service_unavailable_error, json_envelope
-from phlo.cli.contract import PhloCommand
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.cli.output import json_envelope, service_unavailable_error
 from phlo.config.env import load_project_env
 from phlo.config_schema import WapConfig
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
+
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import get_run_status, launch_materialize, wait_for_dagster_http

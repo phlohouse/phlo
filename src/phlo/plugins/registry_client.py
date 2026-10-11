@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from phlo.config import get_settings
+from phlo.config.settings import get_settings
 from phlo.logging import get_logger
 from phlo.plugins.registry_models import RegistryDocument, RegistryPayloadError, parse_registry
 

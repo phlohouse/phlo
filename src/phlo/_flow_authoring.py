@@ -13,8 +13,8 @@ import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from phlo.capabilities import AssetSpec, MaterializeResult, RunSpec
 from phlo.capabilities.runtime import RuntimeContext
+from phlo.capabilities.specs import AssetSpec, MaterializeResult, RunSpec
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 from phlo.references import LogicalRelation
 

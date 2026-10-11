@@ -504,8 +504,8 @@ def _check_authn_provider(context: _CheckContext) -> ProductionReadinessCheck:
 def _check_authz_backend(context: _CheckContext) -> ProductionReadinessCheck:
     source = "registered authorization configuration"
     try:
-        from phlo.capabilities import resolve_capability
-        from phlo.infrastructure.config import get_configured_authorization_backend_name
+        from phlo.capabilities.resolver import resolve_capability
+        from phlo.config.project import get_configured_authorization_backend_name
     except Exception as exc:  # pragma: no cover - defensive
         return ProductionReadinessCheck(
             id=ProductionReadinessCheckId.AUTHZ_BACKEND,
@@ -802,7 +802,7 @@ def _check_backend_readiness(context: _CheckContext) -> ProductionReadinessCheck
     Discovers only what is already registered; a backend with no adapter, a
     ``failed`` result, or an ``unavailable`` result blocks production.
     """
-    from phlo.capabilities import resolve_capability
+    from phlo.capabilities.resolver import resolve_capability
     from phlo.security.backend_readiness import REQUIRED_BACKENDS, BackendReadinessState
 
     missing: list[str] = []

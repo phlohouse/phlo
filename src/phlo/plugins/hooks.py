@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from phlo.hooks.events import HookEvent
-from phlo.plugins.base import Plugin
+from phlo.plugins.base.plugin import Plugin
 
 
 class FailurePolicy(StrEnum):

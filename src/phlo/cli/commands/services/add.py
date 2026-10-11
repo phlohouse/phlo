@@ -29,7 +29,7 @@ from phlo.cli.infrastructure.compose import compose_base_cmd
 from phlo.cli.infrastructure.utils import get_project_name
 from phlo.cli.output import user_error
 from phlo.logging import get_logger
-from phlo.plugins.discovery import ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDiscovery
 
 logger = get_logger(__name__)
 

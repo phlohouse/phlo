@@ -12,32 +12,10 @@ from __future__ import annotations
 import csv
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
-from phlo.capabilities import get_capability_registry
-from phlo.migrations.specs import MigrationSourceValue
-
-
-class SourceAdapter(Protocol):
-    """Protocol for migration source readers."""
-
-    @property
-    def source_type(self) -> str:
-        """Identifier for this adapter (for example csv, postgres)."""
-
-    def validate_config(self, source: MigrationSourceValue) -> list[str]:
-        """Validate source configuration and return errors."""
-
-    def read_chunks(
-        self,
-        source: MigrationSourceValue,
-        *,
-        chunk_size: int = 50_000,
-    ) -> Iterator[list[dict[str, Any]]]:
-        """Yield row chunks from the source."""
-
-    def estimate_row_count(self, source: MigrationSourceValue) -> int | None:
-        """Estimate source row count if possible."""
+from phlo.capabilities.registry import get_capability_registry
+from phlo.migrations.specs import MigrationSourceValue, SourceAdapter
 
 
 class CsvSourceAdapter:

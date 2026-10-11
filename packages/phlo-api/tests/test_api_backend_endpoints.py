@@ -46,8 +46,10 @@ def test_api_backend_endpoint_returns_404_for_unknown_backend(monkeypatch) -> No
 
 def test_list_api_backends_marks_failing_provider_unhealthy(monkeypatch) -> None:
     """One failing provider should not break backend discovery for all providers."""
+    import phlo.application
+    import phlo.application.discovery
     import phlo.capabilities as capabilities_module
-    import phlo.capabilities.discovery as discovery_module
+
     import phlo_api.main as main_module
 
     class HealthyProvider:
@@ -79,7 +81,7 @@ def test_list_api_backends_marks_failing_provider_unhealthy(monkeypatch) -> None
             ]
 
     monkeypatch.setattr(capabilities_module, "get_capability_registry", lambda: FakeRegistry())
-    monkeypatch.setattr(discovery_module, "discover_capabilities", lambda: None)
+    monkeypatch.setattr(phlo.application.discovery, "discover_capabilities", lambda: None)
 
     backends = main_module._list_api_backends()
 

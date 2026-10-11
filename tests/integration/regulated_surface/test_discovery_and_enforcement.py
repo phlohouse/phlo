@@ -19,13 +19,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+import phlo.application.discovery as discovery
 from phlo.capabilities import (
     RegulatedSurfaceSpec,
     clear_capabilities,
     get_capability_registry,
     register_capability,
 )
-from phlo.capabilities import discovery as capability_discovery
 from phlo.capabilities.interfaces import (
     AuthPrincipal,
     Principal,
@@ -77,7 +77,7 @@ def isolated_authorization_policy_backend() -> Iterator[None]:
     EnforcementContext._instance = isolated_context
 
     try:
-        with patch.object(capability_discovery, "discover_capabilities", lambda: None):
+        with patch.object(discovery, "discover_capabilities", lambda: None):
             yield
     finally:
         clear_capabilities("authorization_policy_backend")
@@ -186,7 +186,7 @@ class TestEnforceFunction:
         """Discovery and no-backend enforcement remain isolated and reversible."""
         EnforcementContext.reset_instance()
 
-        from phlo.capabilities.discovery import discover_capabilities
+        from phlo.application.discovery import discover_capabilities
         from phlo.security.enforcement import enforce
 
         auth_principal = AuthPrincipal(

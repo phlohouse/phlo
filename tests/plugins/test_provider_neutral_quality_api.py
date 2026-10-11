@@ -170,11 +170,12 @@ def test_quality_provider_returns_named_provider_decorator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """phlo.quality.provider should resolve named quality providers."""
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        discovery,
+        registry,
         "get_global_registry",
         lambda: _FakeQualityRegistry({"pandera": _FakeQualityProvider("pandera")}),
     )
@@ -195,11 +196,12 @@ def test_quality_rules_decorator_translates_rules_with_selected_provider(
 ) -> None:
     """phlo.quality.rules should translate neutral rules before calling provider decorator."""
     import phlo
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        discovery,
+        registry,
         "get_global_registry",
         lambda: _FakeQualityRegistry({"pandera": _FakeQualityProvider("pandera")}),
     )
@@ -221,7 +223,8 @@ def test_quality_rules_fails_when_provider_cannot_translate_rules(
 ) -> None:
     """Providers without neutral rule support should fail with a clear message."""
     import phlo
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     class _NoRuleProvider(_FakeQualityProvider):
         def build_checks_from_rules(self, rules: list[Any]) -> None:
@@ -229,7 +232,7 @@ def test_quality_rules_fails_when_provider_cannot_translate_rules(
 
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        discovery,
+        registry,
         "get_global_registry",
         lambda: _FakeQualityRegistry({"basic": _NoRuleProvider("basic")}),
     )
@@ -261,7 +264,8 @@ def test_phlo_quality_alias_is_the_blessed_pandera_decorator() -> None:
 
 def test_phlo_quality_alias_warns_deprecation(monkeypatch: pytest.MonkeyPatch) -> None:
     """The deprecated alias warns and delegates to the provider unchanged."""
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     sentinel_kwargs: dict[str, Any] = {}
 
@@ -281,7 +285,7 @@ def test_phlo_quality_alias_warns_deprecation(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(provider, "get_decorator", _recording_decorator)
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        discovery,
+        registry,
         "get_global_registry",
         lambda: _FakeQualityRegistry({"pandera": provider}),
     )

@@ -3140,7 +3140,7 @@ dev = [
     { name = "dagster-webserver", specifier = ">=1.13,<1.14" },
     { name = "duckdb", specifier = ">=0.9.0" },
     { name = "fastapi", specifier = ">=0.127.0,<0.137" },
-    { name = "import-linter", specifier = ">=2.3" },
+    { name = "import-linter", specifier = ">=2.15" },
     { name = "libcst", specifier = ">=1.5.0" },
     { name = "minio", specifier = ">=7.2.20" },
     { name = "pandas", specifier = ">=2.3.3" },

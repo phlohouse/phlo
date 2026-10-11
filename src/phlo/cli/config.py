@@ -19,8 +19,11 @@ from rich.table import Table
 from phlo.cli.contract import PhloCommand, PhloGroup
 from phlo.cli.output import json_envelope, user_error
 from phlo.config_schema import InfrastructureConfig, ProjectConfig
-from phlo.infrastructure import clear_config_cache, load_infrastructure_config
-from phlo.infrastructure.config import ProjectConfigError
+from phlo.infrastructure.config import (
+    ProjectConfigError,
+    clear_config_cache,
+    load_infrastructure_config,
+)
 from phlo.logging import get_logger
 
 console = Console()

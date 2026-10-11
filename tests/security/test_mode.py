@@ -49,7 +49,7 @@ def test_is_regulated_precedence(
             monkeypatch.delenv(name, raising=False)
         else:
             monkeypatch.setenv(name, value)
-    monkeypatch.setattr("phlo.infrastructure.config.get_regulated_config", lambda: file_value)
+    monkeypatch.setattr("phlo.config.project.get_regulated_config", lambda: file_value)
 
     assert is_regulated(configured) is expected
 

@@ -15,7 +15,7 @@ import hashlib
 from dataclasses import asdict
 from typing import Any
 
-from phlo.capabilities import ResourceRef
+from phlo.capabilities.interfaces import ResourceRef
 from phlo.capabilities.specs import is_blocking_severity
 from phlo.hooks.events import (
     HookEvent,

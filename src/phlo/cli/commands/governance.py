@@ -17,7 +17,7 @@ from typing import Any
 
 import click
 
-from phlo.governance import build_governance_surface
+from phlo.governance.surface import build_governance_surface
 
 
 @click.group(name="governance")

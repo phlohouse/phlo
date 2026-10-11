@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
-from phlo.plugins.discovery import ServiceDefinition
+from phlo.plugins.discovery.services import ServiceDefinition
 
 
 def select_services_to_install(

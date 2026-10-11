@@ -7,9 +7,10 @@ a metadata catalog provider through global capability discovery.
 
 from unittest.mock import Mock, patch
 
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import clear_all_capabilities, resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
 from phlo.hooks import QualityResultEvent
+
 from phlo_openmetadata.resource_provider import OpenMetadataResourceProvider
 
 

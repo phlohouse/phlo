@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from phlo.capabilities import resolve_capability
+from phlo.capabilities.resolver import resolve_capability
 
 
 @dataclass(frozen=True, slots=True)

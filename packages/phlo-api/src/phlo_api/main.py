@@ -35,16 +35,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-
+from phlo.application.discovery import discover_capabilities
 from phlo.config.process import get_process_settings
 from phlo.logging import bind_context, clear_context, get_logger
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.security.validation import require_regulated_validation
+
 from phlo_api.errors import PhloApiError, error_envelope
 from phlo_api.observatory_api.http_client import lifespan_client
 from phlo_api.regulated_surface_adapter import get_adapter
 from phlo_api.security_manifest import install_manifest_enforcement
 from phlo_api.settings import get_settings as get_api_settings
-from phlo.security.validation import require_regulated_validation
 
 logger = get_logger(__name__, service="phlo-api")
 
@@ -289,8 +289,8 @@ def _list_api_backends() -> list[dict[str, Any]]:
     rather than failing the whole listing.
     """
     try:
+        from phlo.application.discovery import discover_capabilities
         from phlo.capabilities import get_capability_registry
-        from phlo.capabilities.discovery import discover_capabilities
 
         discover_capabilities()
         registry = get_capability_registry()
@@ -383,8 +383,8 @@ def _list_contracts() -> list[dict[str, Any]]:
     contracts: dict[str, dict[str, Any]] = {}
 
     try:
+        from phlo.application.discovery import discover_capabilities
         from phlo.capabilities import get_capability_registry
-        from phlo.capabilities.discovery import discover_capabilities
 
         discover_capabilities()
         registry = get_capability_registry()

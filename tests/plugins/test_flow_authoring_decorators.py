@@ -57,7 +57,7 @@ def sql_provider(monkeypatch: pytest.MonkeyPatch) -> PluginRegistry:
     monkeypatch.setattr(
         "phlo.plugins.discovery._plugin_lifecycle.get_global_registry", lambda: registry
     )
-    monkeypatch.setattr("phlo.plugins.discovery.get_global_registry", lambda: registry)
+    monkeypatch.setattr("phlo.plugins.discovery.registry.get_global_registry", lambda: registry)
     return registry
 
 

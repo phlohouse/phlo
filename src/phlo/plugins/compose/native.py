@@ -23,7 +23,7 @@ from typing import TextIO
 import httpx
 
 from phlo.logging import get_logger
-from phlo.plugins.discovery import ServiceDefinition
+from phlo.plugins.discovery.services import ServiceDefinition
 
 logger = get_logger(__name__)
 

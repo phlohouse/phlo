@@ -194,7 +194,7 @@ jobs:
 
       - name: Check import layering
         if: needs.ci-config.outputs.python == 'true'
-        run: uv run --locked lint-imports --no-cache
+        run: uv run --locked python scripts/check_imports.py
 
       - name: Check Python formatting
         if: needs.ci-config.outputs.python == 'true'

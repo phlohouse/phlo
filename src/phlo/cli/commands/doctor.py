@@ -40,7 +40,7 @@ ServiceDiscovery: Any | None = None
 def _get_service_discovery_class() -> Any:
     global ServiceDiscovery
     if ServiceDiscovery is None:
-        from phlo.plugins.discovery import ServiceDiscovery as discovered_service_discovery
+        from phlo.plugins.discovery.services import ServiceDiscovery as discovered_service_discovery
 
         ServiceDiscovery = discovered_service_discovery
     return ServiceDiscovery
@@ -479,7 +479,7 @@ def check_project(*, verbose: bool = False) -> list[DiagnosticResult]:
 
 
 def _collect_service_plugin_failures() -> list[dict[str, str]]:
-    from phlo.plugins.discovery import discover_plugins
+    from phlo.plugins.discovery._plugin_loading import discover_plugins
 
     failures: list[dict[str, str]] = []
     discover_plugins(

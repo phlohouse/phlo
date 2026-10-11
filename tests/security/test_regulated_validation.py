@@ -173,7 +173,7 @@ def test_regulated_validation_rejects_unregistered_provider(monkeypatch) -> None
 
     monkeypatch.setenv("PHLO_AUTHENTICATION_PROVIDER", "proxy")
     monkeypatch.setenv("PHLO_AUTH_PROXY_SHARED_SECRET", "proxy-secret")
-    monkeypatch.setattr("phlo.capabilities.list_capabilities", lambda family: [])
+    monkeypatch.setattr("phlo.capabilities.resolver.list_capabilities", lambda family: [])
 
     result = _check_identity_provider()
 
@@ -211,7 +211,9 @@ def test_regulated_validation_rejects_unknown_authorization_backend(monkeypatch)
     from phlo.security.validation import _check_authorization_backend
 
     monkeypatch.setenv("PHLO_AUTHORIZATION_BACKEND", "foo")
-    monkeypatch.setattr("phlo.capabilities.resolve_capability", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "phlo.capabilities.resolver.resolve_capability", lambda *_args, **_kwargs: None
+    )
 
     result = _check_authorization_backend()
 
@@ -224,7 +226,7 @@ def test_regulated_validation_requires_registered_authorization_backend(monkeypa
 
     monkeypatch.setenv("PHLO_AUTHORIZATION_BACKEND", "opa")
     monkeypatch.setattr(
-        "phlo.capabilities.resolve_capability",
+        "phlo.capabilities.resolver.resolve_capability",
         lambda *_args, **_kwargs: object(),
     )
 
@@ -256,7 +258,7 @@ def test_regulated_validation_inspects_selected_services(monkeypatch) -> None:
     from phlo.security.validation import _configured_service_names
 
     monkeypatch.setenv("PHLO_ENABLED_SERVICES", "phlo-api,pgweb")
-    monkeypatch.setattr("phlo.infrastructure.config.load_project_config", lambda _root: {})
+    monkeypatch.setattr("phlo.config.project.load_project_config", lambda _root: {})
 
     assert _configured_service_names() == ["pgweb", "phlo-api"]
     selection = validate_service_selection(["future-service"], regulated=True)
@@ -275,7 +277,7 @@ def test_regulated_validation_reads_services_from_configured_project_root(monkey
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(project_root))
     monkeypatch.setattr(
-        "phlo.infrastructure.config.load_project_config",
+        "phlo.config.project.load_project_config",
         lambda root: observed.append(root) or {"services": {"enabled": ["openmetadata"]}},
     )
 

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from phlo.capabilities.telemetry import get_telemetry_path, iter_telemetry_events
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 
 MAINTENANCE_COMPLETE_EVENT = "iceberg.maintenance.complete"
 # Floor for destructive retention operations: providers must reject snapshot

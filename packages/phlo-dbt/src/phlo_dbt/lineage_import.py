@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from phlo.logging import get_logger
+
 from phlo_dbt.translator import DbtSpecTranslator
 
 logger = get_logger(__name__)
@@ -35,7 +36,7 @@ def _discover_capabilities() -> None:
     being discovered, which can otherwise create a circular import through
     ``phlo.plugins.discovery``.
     """
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
 
     discover_capabilities()
 

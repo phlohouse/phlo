@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import builtins
 
-from phlo.logging import get_logger
-from phlo.plugins.base import Plugin
+from phlo.logging_context import get_logger
+from phlo.plugins.base.plugin import Plugin
 from phlo.plugins.discovery._plugin_constants import PLUGIN_FAMILIES, plugin_family
 from phlo.plugins.discovery._registry_metadata import plugin_metadata_to_dict
 from phlo.plugins.discovery._registry_validation import validate_plugin_interface
