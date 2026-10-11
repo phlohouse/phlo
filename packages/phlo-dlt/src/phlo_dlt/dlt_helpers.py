@@ -465,7 +465,81 @@ def stage_to_parquet(
     return parquet_paths, elapsed
 
 
-def merge_to_table_store(  # noqa: C901
+def _coerce_parquet_to_table_schema(parquet_file: Path, table_schema: Any, table_name: str) -> Path:
+    """Project staged columns for providers that do not own schema alignment."""
+    import tempfile
+
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+    from pyiceberg.types import (
+        BooleanType,
+        DateType,
+        DoubleType,
+        LongType,
+        StringType,
+        TimestamptzType,
+    )
+
+    arrow_table = pq.read_table(str(parquet_file))
+    num_rows = len(arrow_table)
+
+    def table_store_type_to_arrow_type(table_type: object) -> pa.DataType:
+        """Map the legacy provider's primitive types to Arrow."""
+        if isinstance(table_type, StringType):
+            return pa.string()
+        if isinstance(table_type, LongType):
+            return pa.int64()
+        if isinstance(table_type, DoubleType):
+            return pa.float64()
+        if isinstance(table_type, BooleanType):
+            return pa.bool_()
+        if isinstance(table_type, TimestamptzType):
+            return pa.timestamp("us", tz="UTC")
+        if isinstance(table_type, DateType):
+            return pa.date32()
+        return pa.string()
+
+    if isinstance(table_schema, pa.Schema):
+        desired_fields = list(table_schema)
+        desired_names = table_schema.names
+
+        def resolve_target_type(field: Any) -> pa.DataType:
+            return field.type
+    else:
+        desired_fields = list(table_schema.fields)
+        desired_names = [field.name for field in desired_fields]
+
+        def resolve_target_type(field: Any) -> pa.DataType:
+            return table_store_type_to_arrow_type(field.field_type)
+
+    columns: list[pa.Array] = []
+    for field in desired_fields:
+        name = field.name
+        target_type = resolve_target_type(field)
+        if name in arrow_table.column_names:
+            col = arrow_table[name]
+            try:
+                casted = pc.cast(col, target_type)
+            except Exception:
+                logger.warning(
+                    "dlt_merge_schema_cast_fallback",
+                    table_name=table_name,
+                    column_name=name,
+                    target_type=str(target_type),
+                )
+                casted = pc.cast(pc.cast(col, pa.string()), target_type)
+            columns.append(casted)
+        else:
+            columns.append(pa.nulls(num_rows, type=target_type))
+    projected = pa.table(columns, names=desired_names)
+    temp_dir = tempfile.mkdtemp()
+    coerced_path = Path(temp_dir) / "coerced.parquet"
+    pq.write_table(projected, str(coerced_path))
+    return coerced_path
+
+
+def merge_to_table_store(
     context,
     table_store: TableStore,
     table_config: TableConfig,
@@ -575,95 +649,14 @@ def merge_to_table_store(  # noqa: C901
             schema_policy=table_config.schema_policy,
         )
 
-    def _coerce_parquet_to_table_schema(parquet_file: Path) -> Path:
-        """Coerce a Parquet file's columns to match the target table schema.
-
-        Projects the file onto the schema's columns, casting types (with a
-        string round-trip fallback) and filling missing columns with nulls.
-        Returns the path of the coerced file in a temp directory.
-
-        """
-        import tempfile
-
-        import pyarrow as pa
-        import pyarrow.compute as pc
-        import pyarrow.parquet as pq
-        from pyiceberg.types import (
-            BooleanType,
-            DateType,
-            DoubleType,
-            LongType,
-            StringType,
-            TimestamptzType,
-        )
-
-        arrow_table = pq.read_table(str(parquet_file))
-        num_rows = len(arrow_table)
-
-        def table_store_type_to_arrow_type(table_type: object) -> pa.DataType:
-            """Map a subset of table-store primitive types to Arrow data types."""
-            if isinstance(table_type, StringType):
-                return pa.string()
-            if isinstance(table_type, LongType):
-                return pa.int64()
-            if isinstance(table_type, DoubleType):
-                return pa.float64()
-            if isinstance(table_type, BooleanType):
-                return pa.bool_()
-            if isinstance(table_type, TimestamptzType):
-                return pa.timestamp("us", tz="UTC")
-            if isinstance(table_type, DateType):
-                return pa.date32()
-            return pa.string()
-
-        if isinstance(table_schema, pa.Schema):
-            desired_fields = list(table_schema)
-            desired_names = table_schema.names
-
-            def resolve_target_type(field: Any) -> pa.DataType:
-                return field.type
-        else:
-            desired_fields = list(table_schema.fields)
-            desired_names = [f.name for f in desired_fields]
-
-            def resolve_target_type(field: Any) -> pa.DataType:
-                return table_store_type_to_arrow_type(field.field_type)
-
-        columns: list[pa.Array] = []
-        for field in desired_fields:
-            name = field.name
-            target_type = resolve_target_type(field)
-
-            if name in arrow_table.column_names:
-                col = arrow_table[name]
-                try:
-                    casted = pc.cast(col, target_type)
-                except Exception:
-                    # Direct cast failed; route through string, which Arrow
-                    # accepts from any column, then re-cast to the target.
-                    logger.warning(
-                        "dlt_merge_schema_cast_fallback",
-                        table_name=table_name,
-                        column_name=name,
-                        target_type=str(target_type),
-                    )
-                    casted = pc.cast(pc.cast(col, pa.string()), target_type)
-                columns.append(casted)
-            else:
-                columns.append(pa.nulls(num_rows, type=target_type))
-
-        projected = pa.table(columns, names=desired_names)
-
-        temp_dir = tempfile.mkdtemp()
-        coerced_path = Path(temp_dir) / "coerced.parquet"
-        pq.write_table(projected, str(coerced_path))
-        return coerced_path
-
     # Opted-in providers own alignment. Never hide drift or unsafe casts from them.
     coerced_parquet_paths = (
         parquet_paths
         if policies
-        else [_coerce_parquet_to_table_schema(parquet_path) for parquet_path in parquet_paths]
+        else [
+            _coerce_parquet_to_table_schema(parquet_path, table_schema, table_name)
+            for parquet_path in parquet_paths
+        ]
     )
     merge_metrics = {"rows_inserted": 0, "rows_deleted": 0}
 

@@ -10,7 +10,11 @@ Tests cover:
 """
 
 from datetime import datetime, timedelta
+from contextlib import closing
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -585,3 +589,145 @@ class TestQualityCheckMetadata:
 
         assert "duplicate_count" in result.metadata
         assert "duplicate_percentage" in result.metadata
+
+
+def test_decorator_pushes_builtin_checks_into_real_duckdb() -> None:
+    checks = [
+        CountCheck(min_rows=7),
+        NullCheck(columns=["id"], allow_threshold=0.2),
+        UniqueCheck(columns=["id", "kind"], allow_threshold=0.5),
+        RangeCheck(column="value", min_value=0, max_value=10, allow_threshold=0.25),
+    ]
+    with duckdb.connect() as connection:
+        connection.execute(
+            "CREATE TABLE events AS SELECT *, 0 AS __phlo_duplicates, 0 AS __phlo_quality_index FROM (VALUES (2, 'a', -1.0), (2, 'a', 2.0), (5, 'b', 20.0), (7, 'c', 4.0), (NULL, 'z', NULL), (NULL, 'z', NULL)) t(id, kind, value)"
+        )
+
+        @phlo_pandera(table="events", checks=checks, backend="duckdb", full_table=True)
+        def aggregate_quality():
+            pass
+
+        runtime = SimpleNamespace(
+            run_id="aggregate-run",
+            partition_key=None,
+            logger=MagicMock(),
+            resources={"duckdb": connection},
+        )
+        result = next(spec for spec in get_quality_checks() if spec.name == "aggregate_quality").fn(
+            runtime
+        )
+        assert not result.passed
+        assert result.metadata["rows_validated"] == 6
+        assert result.metadata["count_check_row_count"] == 6
+        assert result.metadata["null_check_null_counts"] == {"id": 2}
+        assert result.metadata["unique_check_duplicate_count"] == 4
+        assert result.metadata["range_check_out_of_range"] == 2
+        assert [row["row_index"] for row in result.metadata["unique_check_sample_rows"]] == [
+            0,
+            1,
+            4,
+            5,
+        ]
+
+
+@pytest.mark.parametrize(
+    "minimum,maximum", [(float("-inf"), float("inf")), (float("nan"), float("nan"))]
+)
+def test_sql_range_preserves_nonfinite_bounds(minimum, maximum):
+    with duckdb.connect() as connection:
+
+        @phlo_pandera(
+            table="unused",
+            backend="duckdb",
+            full_table=True,
+            query="SELECT * FROM (VALUES (-2.0), (3.0), (NULL)) t(value)",
+            checks=[RangeCheck(column="value", min_value=minimum, max_value=maximum)],
+        )
+        def nonfinite_bounds():
+            pass
+
+        result = get_quality_checks()[0].fn(
+            SimpleNamespace(
+                run_id="nonfinite",
+                partition_key=None,
+                logger=MagicMock(),
+                resources={"duckdb": connection},
+            )
+        )
+        assert result.passed
+        assert result.metadata["range_check_out_of_range"] == 0
+        assert result.metadata["range_check_actual_min"] == -2.0
+        assert result.metadata["range_check_actual_max"] == 3.0
+
+
+@pytest.mark.integration
+def test_aggregate_results_against_real_trino_nan_and_nulls() -> None:
+    import time
+
+    import httpx
+    from testcontainers.core.container import DockerContainer
+    from trino.dbapi import connect
+
+    with DockerContainer("trinodb/trino:483").with_exposed_ports(8080) as container:
+        port = int(container.get_exposed_port(8080))
+        host = container.get_container_host_ip()
+        for _ in range(90):
+            try:
+                response = httpx.get(f"http://{host}:{port}/v1/info", timeout=2)
+                if response.is_success and not response.json()["starting"]:
+                    break
+            except httpx.HTTPError:
+                pass
+            time.sleep(1)
+        else:
+            pytest.fail("Disposable Trino did not become ready")
+        connection = connect(host=host, port=port, user="quality-test")
+        try:
+
+            @phlo_pandera(
+                table="unused",
+                backend="trino",
+                full_table=True,
+                query="SELECT * FROM (VALUES (2e0, -1e0), (2e0, 2e0), (5e0, 20e0), (7e0, 4e0), (nan(), NULL), (NULL, NULL)) t(id, value)",
+                checks=[
+                    CountCheck(min_rows=7),
+                    NullCheck(columns=["id"]),
+                    UniqueCheck(columns=["id"]),
+                    RangeCheck(column="value", min_value=0, max_value=10),
+                ],
+            )
+            def trino_aggregate_quality():
+                pass
+
+            runtime = SimpleNamespace(
+                run_id="aggregate-trino-run",
+                partition_key=None,
+                logger=MagicMock(),
+                resources={"trino": SimpleNamespace(cursor=lambda: closing(connection.cursor()))},
+            )
+            result = next(
+                spec for spec in get_quality_checks() if spec.name == "trino_aggregate_quality"
+            ).fn(runtime)
+            assert not result.passed
+            assert result.metadata["count_check_row_count"] == 6
+            assert result.metadata["null_check_null_counts"] == {"id": 2}
+            assert result.metadata["unique_check_duplicate_count"] == 4
+            assert result.metadata["range_check_out_of_range"] == 2
+            for minimum, maximum in [(float("-inf"), float("inf")), (float("nan"), float("nan"))]:
+                clear_quality_checks()
+
+                @phlo_pandera(
+                    table="unused",
+                    backend="trino",
+                    full_table=True,
+                    query="SELECT * FROM (VALUES (-2e0), (3e0), (NULL)) t(value)",
+                    checks=[RangeCheck(column="value", min_value=minimum, max_value=maximum)],
+                )
+                def nonfinite_trino_bounds():
+                    pass
+
+                result = get_quality_checks()[0].fn(runtime)
+                assert result.passed
+                assert result.metadata["range_check_out_of_range"] == 0
+        finally:
+            connection.close()
