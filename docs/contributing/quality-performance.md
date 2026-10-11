@@ -152,9 +152,13 @@ The ordinary repository complexity gate passes.
 
 ## Verification record
 
-The final branch includes [refreshed main at 0b8685e6](https://github.com/phlohouse/phlo/commit/0b8685e66cb9a299fa1a3c62adf9cacfec0505be)
+Initial validation included [main at 0b8685e6](https://github.com/phlohouse/phlo/commit/0b8685e66cb9a299fa1a3c62adf9cacfec0505be)
 and the stable #1018 typed-evidence prerequisite. Published prerequisite history is unchanged.
-The dependent pull request targets `feat/1018-typed-evidence-base` to exclude both prerequisites from its diff.
+After [#1105](https://github.com/phlohouse/phlo/pull/1105) landed, the branch merged actual main,
+including observation-status normalization and numeric-status rejection, while retaining indexed reconciliation.
+The pull request targets `main`; typed-boundary prerequisites are excluded from its diff.
+
+Initial checks:
 
 - Refreshed `make setup` and `make check` pass. The broad run has 6520 passing tests, four existing skips, and 232 deselected integration tests.
 - The fresh focused run has 919 passing tests, two existing skips, and 12 integration tests deselected.
@@ -164,5 +168,10 @@ The dependent pull request targets `feat/1018-typed-evidence-base` to exclude bo
 - Python type checking, changed-file Ruff checks, formatting, and whitespace checks pass.
 - `make docs-build` passes, and the rendered measurement table is readable without clipping.
 - Benchmark assertions pass again on the refreshed branch, including the million-row SQL scenario after the final non-finite-bound correction.
+
+After #1105 landed, `make check` passes with 6536 tests, four existing skips, and 232 integration tests deselected.
+After #1108 also landed, the focused package, evidence, API settings, and operation-control run passes with
+947 tests, two existing skips, and 12 integration tests deselected.
+The required disposable-provider suite passes all eight lanes, and the real Trino aggregate regression passes again.
 
 This record does not claim issue closure. The full-mode compatibility limits above remain acceptance gaps.
