@@ -15,6 +15,7 @@ from typing import Any
 from uuid import uuid4
 
 import phlo.telemetry as phlo_observe
+
 from phlo_mcp.config import McpTraceSettings
 
 _CONFIGURED_PATH: str | None = None

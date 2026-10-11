@@ -51,11 +51,12 @@ class _FakeRegistry:
 
 def test_ingest_provider_returns_named_provider_decorator(monkeypatch: pytest.MonkeyPatch) -> None:
     """phlo.ingest.provider should resolve decorators from installed ingestion providers."""
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        discovery,
+        registry,
         "get_global_registry",
         lambda: _FakeRegistry({"sling": _FakeProvider("sling")}),
     )
@@ -75,11 +76,12 @@ def test_ingest_provider_raises_clear_error_for_missing_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Missing ingestion providers should produce install-focused guidance."""
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        discovery,
+        registry,
         "get_global_registry",
         lambda: _FakeRegistry({"dlt": _FakeProvider("dlt")}),
     )
@@ -98,7 +100,8 @@ def test_ingest_dlt_and_sling_aliases_resolve_named_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Convenience aliases should dispatch to explicit providers."""
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     seen: list[str] = []
 
@@ -109,7 +112,7 @@ def test_ingest_dlt_and_sling_aliases_resolve_named_providers(
 
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        discovery,
+        registry,
         "get_global_registry",
         lambda: _SeenRegistry({"dlt": _FakeProvider("dlt"), "sling": _FakeProvider("sling")}),
     )
@@ -124,12 +127,13 @@ def test_ingest_dlt_and_sling_aliases_resolve_named_providers(
 
 def test_ingest_assets_can_return_all_or_one_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     """Asset retrieval should support all providers and individual providers."""
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     providers = {"dlt": _FakeProvider("dlt"), "sling": _FakeProvider("sling")}
 
     monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
-    monkeypatch.setattr(discovery, "get_global_registry", lambda: _FakeRegistry(providers))
+    monkeypatch.setattr(registry, "get_global_registry", lambda: _FakeRegistry(providers))
     monkeypatch.delitem(sys.modules, "phlo.ingest", raising=False)
 
     ingest = importlib.import_module("phlo.ingest")
@@ -140,7 +144,8 @@ def test_ingest_assets_can_return_all_or_one_provider(monkeypatch: pytest.Monkey
 
 def test_ingest_assets_discovers_once_for_all_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Collecting all provider assets should not rediscover for each provider."""
-    import phlo.plugins.discovery as discovery
+    from phlo.plugins.discovery import _plugin_loading as discovery
+    from phlo.plugins.discovery import registry
 
     discovery_calls = 0
     providers = {"dlt": _FakeProvider("dlt"), "sling": _FakeProvider("sling")}
@@ -150,7 +155,7 @@ def test_ingest_assets_discovers_once_for_all_providers(monkeypatch: pytest.Monk
         discovery_calls += 1
 
     monkeypatch.setattr(discovery, "discover_plugins", _discover_plugins)
-    monkeypatch.setattr(discovery, "get_global_registry", lambda: _FakeRegistry(providers))
+    monkeypatch.setattr(registry, "get_global_registry", lambda: _FakeRegistry(providers))
     monkeypatch.delitem(sys.modules, "phlo.ingest", raising=False)
 
     ingest = importlib.import_module("phlo.ingest")

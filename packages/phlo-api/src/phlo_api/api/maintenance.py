@@ -45,11 +45,11 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
+from phlo.application.discovery import discover_capabilities
+from phlo.capabilities import MaintenanceReadModel, list_capabilities, resolve_capability
+from phlo.logging import get_logger
 from pydantic import BaseModel
 
-from phlo.capabilities import MaintenanceReadModel, list_capabilities, resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
-from phlo.logging import get_logger
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.settings import get_process_settings
 

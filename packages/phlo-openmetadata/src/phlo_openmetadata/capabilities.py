@@ -23,7 +23,7 @@ def _discover_capabilities() -> None:
     This internal function ensures all capability providers are loaded
     before attempting to resolve specific capabilities.
     """
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
 
     discover_capabilities()
 

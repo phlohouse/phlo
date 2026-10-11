@@ -4,7 +4,7 @@ Provides static, reverse-proxy, service-token, and JWT providers. Each loads
 its configuration from environment variables first, falling back to
 phlo.yaml; register_default_capability_providers activates a provider only
 when it is explicitly enabled in configuration.
-Imported by the phlo capabilities layer (phlo.capabilities.discovery) and phlo.security.
+Imported by application composition (phlo.application.discovery) and phlo.security.
 Registers default providers into the phlo.capabilities registry at activation time.
 """
 
@@ -23,6 +23,7 @@ from typing import Any
 
 from phlo.capabilities.interfaces import (
     AuthenticatedSession,
+    AuthenticationProvider,
     AuthPrincipal,
     AuthResult,
     BrowserLoginStart,
@@ -33,10 +34,10 @@ from phlo.capabilities.registry import register_capability
 from phlo.capabilities.specs import AuthenticationProviderSpec
 from phlo.capabilities.support import CapabilitySupport
 from phlo.config.process import JwtTimingSettings, get_process_settings
-from phlo.infrastructure.config import (
+from phlo.config.project import (
     get_authentication_config,
 )
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 from phlo.security.oidc_identity import OIDCIdentityValidator
 
 logger = get_logger(__name__)
@@ -139,7 +140,7 @@ def _log_auth_event(
     log_fn(event_name, **log_args)
 
 
-class StaticAuthenticationProvider:
+class StaticAuthenticationProvider(AuthenticationProvider):
     """Static/local development authentication provider.
 
     This provider is intended for development and testing only.
@@ -295,7 +296,7 @@ class StaticAuthenticationProvider:
         return datetime.now(UTC) < session.expires_at
 
 
-class ProxyAuthenticationProvider:
+class ProxyAuthenticationProvider(AuthenticationProvider):
     """Reverse-proxy asserted identity authentication provider.
 
     This provider validates requests from trusted reverse proxies that
@@ -496,7 +497,7 @@ class ProxyAuthenticationProvider:
         return self.authenticate(request_context)
 
 
-class ServiceTokenAuthenticationProvider:
+class ServiceTokenAuthenticationProvider(AuthenticationProvider):
     """Service principal/token authentication provider.
 
     This provider validates service accounts used for automation
@@ -573,7 +574,7 @@ class ServiceTokenAuthenticationProvider:
         return None
 
 
-class JWTAuthenticationProvider:
+class JWTAuthenticationProvider(AuthenticationProvider):
     """JWT Bearer token authentication provider.
 
     Uses issuer-pinned RS256/JWKS validation when ``jwks_url`` is configured;
@@ -1024,7 +1025,7 @@ def register_default_capability_providers() -> None:
     Authentication providers are security-sensitive and must be explicitly
     enabled via environment variables, not auto-registered on startup.
     """
-    from phlo.infrastructure.config import get_configured_authentication_provider_name
+    from phlo.config.project import get_configured_authentication_provider_name
 
     selected_provider = get_configured_authentication_provider_name()
 

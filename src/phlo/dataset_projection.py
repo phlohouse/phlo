@@ -193,7 +193,7 @@ class CapabilityEvidenceSource:
     """
 
     def evidence(self, subject: str, kinds: Collection[str]) -> tuple[EvidenceRecord, ...]:
-        from phlo.capabilities import get_capability_registry
+        from phlo.capabilities.registry import get_capability_registry
 
         records: list[EvidenceRecord] = []
         for spec in get_capability_registry().list("dataset_evidence"):

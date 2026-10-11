@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from phlo.logging import get_logger, log_event
-from phlo.plugins.base import Plugin
+from phlo.logging_context import get_logger, log_event
+from phlo.plugins.base.plugin import Plugin
 from phlo.plugins.discovery.registry import get_global_registry
 
 logger = get_logger(__name__)

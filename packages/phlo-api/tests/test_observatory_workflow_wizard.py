@@ -17,13 +17,12 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-
 from phlo.capabilities import WorkflowFilePreview, WorkflowProposal
-from phlo_api.main import app
 from security_test_support import _regulated_api_boundary, authenticated_client  # noqa: F401
+
+from phlo_api.main import app
 from phlo_api.observatory_api import observatory
 from phlo_api.observatory_api import observatory_workflow_wizard as wizard
-
 
 client = authenticated_client("admin")
 

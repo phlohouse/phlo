@@ -22,7 +22,7 @@ phlo plugin install superset
 | `SUPERSET_VERSION`        | `6.1.0`             | Superset version       |
 | `SUPERSET_SECRET_KEY`     | auto-generated      | Session encryption key |
 | `SUPERSET_ADMIN_USER`     | `admin`             | Admin username         |
-| `SUPERSET_ADMIN_PASSWORD` | `admin`             | Admin password         |
+| `SUPERSET_ADMIN_PASSWORD` | auto-generated      | Admin password         |
 | `SUPERSET_ADMIN_EMAIL`    | `admin@example.com` | Admin email            |
 | `SUPERSET_DATABASE_NAME`  | unset               | Logical database name shown in Superset; required unless a `query_engine` capability declares a default catalog |
 
@@ -55,7 +55,7 @@ phlo services start --service superset
 ## Endpoints
 
 - **Web UI**: `http://localhost:8088`
-- **Login**: admin / admin
+- **Login**: `SUPERSET_ADMIN_USER` and `SUPERSET_ADMIN_PASSWORD` from the generated configuration. `phlo services init` stores the password in `.phlo/secrets/.env` for shared-layout projects.
 
 ## Entry Points
 

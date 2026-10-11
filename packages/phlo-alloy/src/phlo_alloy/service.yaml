@@ -6,8 +6,17 @@ profile: observability
 
 image: grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308
 
+depends_on:
+  - loki
+  - alloy-docker
+networks:
+  default: {}
+  alloy-docker:
+    internal: true
 compose:
   restart: unless-stopped
+  user: "473:473"
+  networks: [default, alloy-docker]
   labels:
     phlo.metrics.enabled: "true"
     phlo.metrics.port: "alloy:12345"
@@ -21,10 +30,6 @@ compose:
     - "${ALLOY_PORT:-12345}:12345"
   volumes:
     - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
-    - /var/run/docker.sock:/var/run/docker.sock:ro
-  depends_on:
-    loki:
-      condition: service_started
   healthcheck:
     test: ["CMD", "pgrep", "alloy"]
     interval: 10s

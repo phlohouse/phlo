@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 
 from phlo.plugins.base import CatalogPlugin, PluginMetadata
+from phlo_polaris.settings import get_settings
 
 
 def _polaris_iceberg_rest_uri() -> str:
@@ -29,19 +30,21 @@ def base_iceberg_catalog_properties() -> dict[str, str]:
     """
     minio_endpoint = os.environ.get("S3_ENDPOINT", "http://minio:9000")
     s3_region = os.environ.get("AWS_REGION", "us-east-1")
-    client_id = os.environ.get("POLARIS_WRITER_CLIENT_ID", "phlo_writer")
-    client_secret = os.environ.get("POLARIS_WRITER_CLIENT_SECRET", "phlo-writer-secret")
+    credential = get_settings().writer_credential()
     warehouse = os.environ.get("POLARIS_CATALOG", "phlo")
+    uri = _polaris_iceberg_rest_uri()
 
     return {
         "connector.name": "iceberg",
         "iceberg.catalog.type": "rest",
-        "iceberg.rest-catalog.uri": _polaris_iceberg_rest_uri(),
+        "iceberg.rest-catalog.uri": uri,
         "iceberg.rest-catalog.warehouse": warehouse,
-        "iceberg.rest-catalog.security.type": "OAUTH2",
-        "iceberg.rest-catalog.oauth2.credential": f"{client_id}:{client_secret}",
+        "iceberg.rest-catalog.security": "OAUTH2",
+        "iceberg.rest-catalog.oauth2.credential": credential,
+        "iceberg.rest-catalog.oauth2.scope": "PRINCIPAL_ROLE:ALL",
+        "iceberg.rest-catalog.oauth2.server-uri": f"{uri}/v1/oauth/tokens",
         "iceberg.rest-catalog.vended-credentials-enabled": "true",
-        "fs.native-s3.enabled": "true",
+        "fs.s3.enabled": "true",
         "s3.endpoint": minio_endpoint,
         "s3.path-style-access": "true",
         "s3.region": s3_region,

@@ -94,8 +94,8 @@ def test_dagster_services_propagate_iceberg_s3_credentials():
             == "${DAGSTER_MINIO_ACCESS_KEY:-${MINIO_ROOT_USER:-minio}}"
         )
         assert (
-            environment["ICEBERG_S3_SECRET_KEY"]
-            == "${DAGSTER_MINIO_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}"
+            environment["ICEBERG_S3_SECRET_KEY"] == "${DAGSTER_MINIO_SECRET_KEY:-"
+            "${MINIO_ROOT_PASSWORD:?Run phlo services init to generate MINIO_ROOT_PASSWORD}}"
         )
         assert environment["ICEBERG_S3_ENDPOINT"] == "http://minio:9000"
         assert environment["ICEBERG_S3_REGION"] == "us-east-1"

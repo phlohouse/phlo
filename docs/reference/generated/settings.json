@@ -1,6 +1,6 @@
 {
-  "field_count": 313,
-  "model_count": 51,
+  "field_count": 316,
+  "model_count": 52,
   "models": [
     {
       "class": "BaseConfig",
@@ -466,17 +466,6 @@
           "required": false
         },
         {
-          "alias": "PHLO_PROJECT_PATH",
-          "annotation": "str | None",
-          "default": null,
-          "description": "Process project-root override. Otherwise use the caller's root or working directory; API deployment defaults may use /app/project.",
-          "environment_names": [
-            "PHLO_PROJECT_PATH"
-          ],
-          "name": "phlo_project_path",
-          "required": false
-        },
-        {
           "alias": "PHLO_REGISTRY_DB_URL",
           "annotation": "str | None",
           "default": null,
@@ -631,7 +620,9 @@
           "required": false
         }
       ],
-      "inherited_fields": {},
+      "inherited_fields": {
+        "phlo_project_path": "phlo.config.process_base.ProjectRootProcessSettings"
+      },
       "module": "phlo.config.process",
       "package": "phlo",
       "source": "src/phlo/config/process.py",
@@ -725,15 +716,6 @@
       "status": "introspected"
     },
     {
-      "class": "ProcessOverrides",
-      "fields": [],
-      "inherited_fields": {},
-      "module": "phlo.config.process",
-      "package": "phlo",
-      "source": "src/phlo/config/process.py",
-      "status": "introspected"
-    },
-    {
       "class": "RunEvidencePoolSettings",
       "fields": [
         {
@@ -752,6 +734,36 @@
       "module": "phlo.config.process",
       "package": "phlo",
       "source": "src/phlo/config/process.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ProcessOverrides",
+      "fields": [],
+      "inherited_fields": {},
+      "module": "phlo.config.process_base",
+      "package": "phlo",
+      "source": "src/phlo/config/process_base.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ProjectRootProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_PROJECT_PATH",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Process project-root override. Otherwise use the caller's root or working directory; API deployment defaults may use /app/project.",
+          "environment_names": [
+            "PHLO_PROJECT_PATH"
+          ],
+          "name": "phlo_project_path",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.process_base",
+      "package": "phlo",
+      "source": "src/phlo/config/process_base.py",
       "status": "introspected"
     },
     {
@@ -1471,6 +1483,17 @@
           ],
           "name": "staging_single_replica",
           "required": false
+        },
+        {
+          "alias": "WEB_CONCURRENCY",
+          "annotation": "<class 'int'>",
+          "default": 1,
+          "description": "Configured API worker count; local operation controls require one worker",
+          "environment_names": [
+            "WEB_CONCURRENCY"
+          ],
+          "name": "workers",
+          "required": false
         }
       ],
       "inherited_fields": {},
@@ -1765,6 +1788,28 @@
             "PHLO_API_CORS_ORIGINS"
           ],
           "name": "phlo_api_cors_origins",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_operation_controls_db_url",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL DSN for shared API idempotency, exclusion and rate limits",
+          "environment_names": [
+            "PHLO_API_OPERATION_CONTROLS_DB_URL"
+          ],
+          "name": "phlo_api_operation_controls_db_url",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_operation_controls_namespace",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "Stable project identity shared by every API replica; required with the controls DSN",
+          "environment_names": [
+            "PHLO_API_OPERATION_CONTROLS_NAMESPACE"
+          ],
+          "name": "phlo_api_operation_controls_namespace",
           "required": false
         },
         {
@@ -2625,7 +2670,7 @@
         {
           "alias": "hasura_admin_secret",
           "annotation": "str | None",
-          "default": "phlo-hasura-admin-secret",
+          "default": null,
           "description": "Hasura admin secret used for Metadata API requests",
           "environment_names": [
             "HASURA_ADMIN_SECRET"
@@ -3479,7 +3524,7 @@
         {
           "alias": "polaris_reader_client_secret",
           "annotation": "<class 'str'>",
-          "default": "phlo-reader-secret",
+          "default": "",
           "description": "Reader principal client secret",
           "environment_names": [
             "POLARIS_READER_CLIENT_SECRET"
@@ -3490,7 +3535,7 @@
         {
           "alias": "polaris_root_credentials",
           "annotation": "<class 'str'>",
-          "default": "root:s3cr3t",
+          "default": "",
           "description": "Bootstrap principal credentials as client_id:client_secret",
           "environment_names": [
             "POLARIS_ROOT_CREDENTIALS"
@@ -3512,7 +3557,7 @@
         {
           "alias": "polaris_writer_client_secret",
           "annotation": "<class 'str'>",
-          "default": "phlo-writer-secret",
+          "default": "",
           "description": "Writer principal client secret",
           "environment_names": [
             "POLARIS_WRITER_CLIENT_SECRET"
@@ -3869,7 +3914,7 @@
         {
           "alias": "superset_admin_password",
           "annotation": "<class 'str'>",
-          "default": "admin",
+          "default": "",
           "description": "Superset admin password",
           "environment_names": [
             "SUPERSET_ADMIN_PASSWORD"

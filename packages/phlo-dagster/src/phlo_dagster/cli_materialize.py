@@ -54,7 +54,7 @@ from time import sleep as _sleep
 from typing import Optional
 
 import click
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.application.discovery import discover_capabilities
 from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,

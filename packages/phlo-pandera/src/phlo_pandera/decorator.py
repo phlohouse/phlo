@@ -23,6 +23,7 @@ from phlo_pandera.checks import QualityCheck, QualityCheckResult
 from phlo_pandera.checks_extra import SchemaCheck
 from phlo_pandera.contract import PANDERA_CONTRACT_CHECK_NAME, QualityCheckContract
 from phlo_pandera.decorator_helpers import (
+    QueryCheckRunner,
     _build_metadata,
     _collect_failure_sample,
     _contract_metadata,
@@ -176,7 +177,7 @@ def _register_quality_checks(
                 runtime.logger.info("validating_partition", partition_key=partition_key)
 
             try:
-                df = _load_data(runtime, final_query, backend)
+                df = QueryCheckRunner(runtime, final_query, backend)
             except Exception as exc:
                 runtime.logger.error(
                     "quality_data_load_failed",
@@ -256,7 +257,7 @@ def _register_quality_checks(
 
             for check in non_schema_checks:
                 try:
-                    result = check.execute(df, runtime)
+                    result = df.execute(check, runtime)
                     check_results.append(result)
 
                     if not result.passed:

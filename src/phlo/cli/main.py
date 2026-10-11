@@ -25,10 +25,11 @@ from phlo.cli.commands.doctor import doctor_cmd
 from phlo.cli.commands.support import support_group
 from phlo.cli.lazy import LazyPhloGroup
 from phlo.cli.output import json_envelope, user_error
-from phlo.cli.templates import TemplateRenderContext, get_template
-from phlo.cli.templates import list_templates as get_project_templates
-from phlo.cli.templates.registry import missing_required_packages
+from phlo.cli.templates.models import TemplateRenderContext
+from phlo.cli.templates.registry import get_template, missing_required_packages
+from phlo.cli.templates.registry import list_templates as get_project_templates
 from phlo.logging import get_logger, setup_logging
+from phlo.plugins.discovery._plugin_loading import discover_plugins
 
 logger = get_logger(__name__, service="phlo-cli")
 
@@ -107,7 +108,7 @@ cli.lazy_commands.update(_BUILTIN_COMMANDS)
 
 def _load_cli_plugin_commands() -> None:
     from phlo.plugins.base.cli import CliCommandPlugin
-    from phlo.plugins.discovery import discover_plugins, get_global_registry
+    from phlo.plugins.discovery.registry import get_global_registry
 
     logger.debug("cli_plugin_discovery_started")
     discover_plugins(plugin_type="cli_command", auto_register=True, failure_level="debug")
@@ -249,7 +250,7 @@ def _display_created_structure(project_dir: Path, selected_template) -> None:
 def _available_service_count() -> int:
     """Return discovered service count, tolerating minimal installs."""
     try:
-        from phlo.plugins.discovery import ServiceDiscovery
+        from phlo.plugins.discovery.services import ServiceDiscovery
 
         return len(ServiceDiscovery().discover())
     except Exception:

@@ -17,6 +17,7 @@ import { Eyebrow, KeyValues } from '@/components/phlo/page'
 import { Stat } from '@/components/phlo/kpi'
 import { Mono } from '@/components/phlo/status'
 import { Card } from '@/components/ui/card'
+import { SchemaDecisions } from '@/components/incidents/schema-decisions'
 import {
   clearIncidentOperationKey,
   createFollowUp,
@@ -830,12 +831,20 @@ export function IncidentDetail({
             </section>
           ) : null}
           {tab === 'summary' ? (
-            <IncidentInvestigation
-              env={env}
-              incident={incident}
-              timeline={timeline}
-              investigation={investigation}
-            />
+            <>
+              <IncidentInvestigation
+                env={env}
+                incident={incident}
+                timeline={timeline}
+                investigation={investigation}
+              />
+              <SchemaDecisions
+                key={`${env}:${incident.id}`}
+                env={env}
+                incidentId={incident.id}
+                kind={incident.kind}
+              />
+            </>
           ) : null}
           {tab === 'runs' ? <IncidentRuns env={env} runs={runs} /> : null}
           {tab === 'activity' ? (

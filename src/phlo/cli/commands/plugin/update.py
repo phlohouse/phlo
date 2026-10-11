@@ -18,7 +18,7 @@ from phlo.cli.commands.plugin.utils import console, find_available_updates, run_
 from phlo.cli.contract import PhloCommand
 from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
-from phlo.plugins.registry_client import list_registry_plugins
+from phlo.plugins.registry_client import fetch_registry, list_registry_plugins
 
 logger = get_logger(__name__)
 
@@ -46,6 +46,7 @@ def update_cmd(output_json: bool, dry_run: bool):
     """Update installed plugins based on registry versions."""
     try:
         logger.info("plugin_update_started", output_json=output_json, dry_run=dry_run)
+        fetch_registry()
         registry_plugins = list_registry_plugins()
         updates = find_available_updates(registry_plugins)
 

@@ -11,7 +11,7 @@ from typing import Annotated, Any
 import psycopg2
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import AwareDatetime, Field, StringConstraints
+from pydantic import AwareDatetime, ConfigDict, Field, StringConstraints
 
 from phlo.compliance.audit.sealed import GENESIS_HASH, compute_record_hash
 from phlo.compliance.audit.sealed import AuditStore
@@ -36,12 +36,20 @@ _QUERY_BATCH_SIZE = 1000
 _SEARCH_SCAN_LIMIT = 5000
 
 
+class AuditEventView(WireModel):
+    model_config = ConfigDict(extra="allow")
+    event_type: str
+    surface: str
+    actor_subject: str
+    action: str
+
+
 class AuditRecord(WireModel):
     sequence_number: int = Field(ge=1)
     sealed_at: str
     previous_hash: str
     record_hash: str
-    event: dict[str, Any]
+    event: AuditEventView
 
 
 class AuditRecordPage(WireModel):

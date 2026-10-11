@@ -16,7 +16,7 @@ compose:
     phlo.metrics.port: "postgres-exporter:9187"
     phlo.metrics.path: "/metrics"
   environment:
-    DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}?sslmode=disable
+    DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?Run phlo services init to generate credentials}@postgres:5432/${POSTGRES_DB:-phlo}?sslmode=disable
   ports:
     - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
   healthcheck:

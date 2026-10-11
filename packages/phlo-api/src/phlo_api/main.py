@@ -35,16 +35,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-
+from phlo.application.discovery import discover_capabilities
 from phlo.config.process import get_process_settings
 from phlo.logging import bind_context, clear_context, get_logger
-from phlo.capabilities.discovery import discover_capabilities
-from phlo_api.errors import PhloApiError, error_envelope
+from phlo.plugins.observatory_settings import StorageUnavailableError
+from phlo.security.validation import require_regulated_validation
+
+from phlo_api.api.operation_controls import initialize_operation_controls
+from phlo_api.errors import BackendUnavailableError, PhloApiError, error_envelope
 from phlo_api.observatory_api.http_client import lifespan_client
 from phlo_api.regulated_surface_adapter import get_adapter
 from phlo_api.security_manifest import install_manifest_enforcement
 from phlo_api.settings import get_settings as get_api_settings
-from phlo.security.validation import require_regulated_validation
 
 logger = get_logger(__name__, service="phlo-api")
 
@@ -56,6 +58,7 @@ async def _lifespan(application: FastAPI):
 
     store = default_run_evidence_store()
     try:
+        initialize_operation_controls()
         store.initialize()
         application.state.run_evidence_store = store
         async with lifespan_client():
@@ -96,6 +99,7 @@ _ROUTERS = [
     ("phlo_api.api.v1_query", "/api/v1"),
     ("phlo_api.incidents", "/api/v1"),
     ("phlo_api.api.v1_assets", "/api/v1"),
+    ("phlo_api.api.v1_datasets", "/api/v1"),
     ("phlo_api.usage", "/api/v1"),
     ("phlo_api.api.authoring", "/api/authoring"),
     ("phlo_api.api.continuity", "/api/continuity"),
@@ -104,7 +108,7 @@ _ROUTERS = [
     ("phlo_api.observatory_api.loki", "/api/loki"),
     ("phlo_api.observatory_api.observatory", "/api/observatory"),
     ("phlo_api.observatory_api.package_install", "/api/observatory"),
-    ("phlo_api.observatory_api.run_report", "/api/observatory"),
+    ("phlo_api.observatory_api.run_report", ""),
 ]
 
 _OBSERVATORY_ROUTERS_NO_PREFIX: list[str] = []
@@ -154,6 +158,14 @@ async def _phlo_api_error_handler(request: Request, exc: PhloApiError) -> JSONRe
     """Serialize typed API errors into the shared envelope and status."""
     del request
     return JSONResponse(status_code=exc.status_code, content=error_envelope(exc))
+
+
+@app.exception_handler(StorageUnavailableError)
+async def _storage_error_handler(request: Request, exc: StorageUnavailableError) -> JSONResponse:
+    """Fail closed without exposing database credentials or driver diagnostics."""
+    del request, exc
+    error = BackendUnavailableError("Durable operation storage is unavailable.")
+    return JSONResponse(status_code=error.status_code, content=error_envelope(error))
 
 
 @app.exception_handler(RequestValidationError)
@@ -289,8 +301,8 @@ def _list_api_backends() -> list[dict[str, Any]]:
     rather than failing the whole listing.
     """
     try:
+        from phlo.application.discovery import discover_capabilities
         from phlo.capabilities import get_capability_registry
-        from phlo.capabilities.discovery import discover_capabilities
 
         discover_capabilities()
         registry = get_capability_registry()
@@ -383,8 +395,8 @@ def _list_contracts() -> list[dict[str, Any]]:
     contracts: dict[str, dict[str, Any]] = {}
 
     try:
+        from phlo.application.discovery import discover_capabilities
         from phlo.capabilities import get_capability_registry
-        from phlo.capabilities.discovery import discover_capabilities
 
         discover_capabilities()
         registry = get_capability_registry()

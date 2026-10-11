@@ -9,13 +9,13 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from pydantic import BaseModel
-
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
 from phlo.config.env import project_env_value
 from phlo.config.network import resolve_url
 from phlo.logging import get_bound_correlation_context, get_logger
+from pydantic import BaseModel
+
 from phlo_api.observatory_api.http_client import backend_client
 
 logger = get_logger(__name__)

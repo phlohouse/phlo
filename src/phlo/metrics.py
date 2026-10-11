@@ -19,8 +19,9 @@ from typing import Any
 import httpx
 from pydantic import Field
 
-from phlo.capabilities import QueryEngine, resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.application.discovery import discover_capabilities
+from phlo.capabilities.interfaces import QueryEngine
+from phlo.capabilities.resolver import resolve_capability
 from phlo.config.base import BaseConfig
 from phlo.config.network import resolve_host
 from phlo.logging import get_logger

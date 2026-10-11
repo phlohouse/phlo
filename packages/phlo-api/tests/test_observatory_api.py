@@ -10,25 +10,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import threading
 from pathlib import Path
-import subprocess
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-
 from phlo.capabilities import ResourceRef
-from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.authentication import ServiceTokenAuthenticationProvider
 from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
+from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.specs import CatalogSpec
-from phlo_api.main import app
-from security_test_support import _regulated_api_boundary, authenticated_client  # noqa: F401
 from phlo.run_evidence import PipelineRun, RunEvent, RunStage, SQLiteRunEvidenceStore
-from phlo_api.observatory_api import observatory
-from phlo_api.observatory_api import observatory_services
+from security_test_support import _regulated_api_boundary as _regulated_api_boundary
+from security_test_support import authenticated_client as authenticated_client
+
+from phlo_api.main import app
+from phlo_api.observatory_api import observatory, observatory_services
 from phlo_api.observatory_api import observatory_runs as observatory_runs_module
 from phlo_api.observatory_api.observatory import (
     _execute_action,
@@ -64,6 +64,7 @@ from phlo_api.observatory_api.observatory_services import fallback_services as _
 from phlo_api.observatory_api.observatory_services import (
     load_docker_service_statuses as _load_docker_service_statuses,
 )
+from phlo_api.observatory_api.service_payloads import DockerInspectContainer, DockerPayloadError
 from phlo_api.security_manifest import RUN_REPORT_RESOURCE_ID_ATTRIBUTE
 
 # Lowercase concatenations catch camelCase spellings that `.lower()` would
@@ -91,8 +92,9 @@ def _telemetry_event_names(tmp_path) -> set[str]:
     }
 
 
+@pytest.mark.parametrize("prefix", ["/api/observatory", "/api/v1"])
 def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
-    monkeypatch, tmp_path, regulated_api_boundary
+    monkeypatch, tmp_path, regulated_api_boundary, prefix
 ) -> None:
     database = tmp_path / "run-evidence.sqlite"
     store = SQLiteRunEvidenceStore(database)
@@ -121,7 +123,7 @@ def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
     monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(database))
 
     response = authenticated_client("viewer").get(
-        "/api/observatory/projects/project/runs/run/attempts/1/report"
+        f"{prefix}/projects/project/runs/run/attempts/1/report"
     )
 
     assert response.status_code == 200
@@ -129,15 +131,13 @@ def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
     assert [stage["stage_id"] for stage in response.json()["stages"]] == ["stage-1"]
 
     assert (
-        TestClient(app)
-        .get("/api/observatory/projects/project/runs/run/attempts/1/report")
-        .status_code
+        TestClient(app).get(f"{prefix}/projects/project/runs/run/attempts/1/report").status_code
         == 401
     )
     for path in (
-        "/api/observatory/projects/other/runs/run/attempts/1/report",
-        "/api/observatory/projects/project/runs/other/attempts/1/report",
-        "/api/observatory/projects/project/runs/run/attempts/3/report",
+        f"{prefix}/projects/other/runs/run/attempts/1/report",
+        f"{prefix}/projects/project/runs/other/attempts/1/report",
+        f"{prefix}/projects/project/runs/run/attempts/3/report",
     ):
         assert authenticated_client("viewer").get(path).status_code == 404
 
@@ -157,14 +157,15 @@ def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
     )
     assert (
         authenticated_client("viewer")
-        .get("/api/observatory/projects/project/runs/run/attempts/1/report")
+        .get(f"{prefix}/projects/project/runs/run/attempts/1/report")
         .status_code
         == 403
     )
 
 
+@pytest.mark.parametrize("prefix", ["/api/observatory", "/api/v1"])
 def test_scoped_service_token_cannot_read_another_run_report(
-    monkeypatch, tmp_path, regulated_api_boundary
+    monkeypatch, tmp_path, regulated_api_boundary, prefix
 ) -> None:
     database = tmp_path / "run-evidence.sqlite"
     store = SQLiteRunEvidenceStore(database)
@@ -213,11 +214,11 @@ def test_scoped_service_token_cannot_read_another_run_report(
 
     client = TestClient(app)
     allowed = client.get(
-        "/api/observatory/projects/project/runs/allowed/attempts/1/report",
+        f"{prefix}/projects/project/runs/allowed/attempts/1/report",
         headers={"Authorization": "Bearer dagster-report-token"},
     )
     denied = client.get(
-        "/api/observatory/projects/project/runs/other/attempts/1/report",
+        f"{prefix}/projects/project/runs/other/attempts/1/report",
         headers={"Authorization": "Bearer dagster-report-token"},
     )
 
@@ -231,7 +232,11 @@ def test_scoped_service_token_cannot_read_another_run_report(
         "attributes": {"attempt": "1"},
     }
     assert denied.status_code == 403
-    assert denied.json() == {"error": "forbidden", "reason": "run_report_scope_mismatch"}
+    assert denied.json() == (
+        {"error": {"code": "forbidden", "message": "run_report_scope_mismatch"}}
+        if prefix == "/api/v1"
+        else {"error": "forbidden", "reason": "run_report_scope_mismatch"}
+    )
 
 
 def test_unregulated_run_report_keeps_anonymous_open_but_enforces_supplied_scope(
@@ -1328,19 +1333,21 @@ def test_observatory_docker_statuses_warn_on_recent_container_kill(monkeypatch) 
     monkeypatch.setenv("PHLO_COMPOSE_PROJECT", "phlo")
     monkeypatch.setattr(
         "phlo_api.observatory_api.observatory_services.docker_inspect_container",
-        lambda _container_id: {
-            "RestartCount": 3,
-            "State": {
-                "ExitCode": 0,
-                "OOMKilled": False,
-                "StartedAt": "2026-07-04T08:50:43Z",
-                "FinishedAt": "2026-07-04T08:50:42Z",
-                "Health": {
-                    "Status": "healthy",
-                    "Log": [{"ExitCode": 137}],
+        lambda _container_id: DockerInspectContainer.model_validate(
+            {
+                "RestartCount": 3,
+                "State": {
+                    "ExitCode": 0,
+                    "OOMKilled": False,
+                    "StartedAt": "2026-07-04T08:50:43Z",
+                    "FinishedAt": "2026-07-04T08:50:42Z",
+                    "Health": {
+                        "Status": "healthy",
+                        "Log": [{"ExitCode": 137}],
+                    },
                 },
-            },
-        },
+            }
+        ),
     )
 
     statuses = _load_docker_service_statuses({"trino"}, containers)
@@ -1348,6 +1355,39 @@ def test_observatory_docker_statuses_warn_on_recent_container_kill(monkeypatch) 
     assert statuses["trino"][0] == "running"
     assert statuses["trino"][1].state == "warning"
     assert "recent container kill" in (statuses["trino"][1].message or "")
+
+
+@pytest.mark.parametrize(
+    "payload", ['{"State": 4}', '{"State": "running", "Labels": {"x": 2}}', "not json"]
+)
+def test_docker_ps_rejects_malformed_evidence(payload: str) -> None:
+    with pytest.raises(DockerPayloadError):
+        observatory_services.parse_docker_ps_output(payload)
+
+
+def test_docker_inspect_rejects_malformed_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(observatory_services, "docker_cli_path", lambda: "docker")
+    monkeypatch.setattr(
+        observatory_services.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout='[{"State": {"ExitCode": "bad"}}]'
+        ),
+    )
+    with pytest.raises(DockerPayloadError):
+        observatory_services.docker_inspect_container("container")
+
+
+def test_service_registry_rejects_malformed_entry(monkeypatch) -> None:
+    from phlo.plugins.registry_models import RegistryPayloadError
+
+    monkeypatch.setattr(
+        observatory_services,
+        "get_registry_data",
+        lambda: {"plugins": {"broken": {"type": "service", "package": 4}}},
+    )
+    with pytest.raises(RegistryPayloadError):
+        observatory_services.load_services(Path.cwd(), containers=[])
 
 
 def test_observatory_load_services_includes_runtime_containers_missing_from_discovery(
@@ -1933,7 +1973,7 @@ def test_observatory_concurrent_idempotency_endpoint_executes_provider_once(
         clear_capabilities,
         register_capability,
     )
-    from security_test_support import _HeaderAuthenticationProvider, _backend
+    from security_test_support import _backend, _HeaderAuthenticationProvider
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv(
@@ -2030,7 +2070,7 @@ def test_observatory_idempotency_outcome_unknown_endpoint_does_not_retry(
         clear_capabilities,
         register_capability,
     )
-    from security_test_support import _HeaderAuthenticationProvider, _backend
+    from security_test_support import _backend, _HeaderAuthenticationProvider
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv(
@@ -4170,7 +4210,7 @@ def test_preview_uses_one_bounded_neutral_query_without_a_count(monkeypatch) -> 
                 has_more=True,
             )
 
-    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
     monkeypatch.setattr(
         "phlo.capabilities.resolve_capability",
         lambda *_: SimpleNamespace(provider=FakeQueryEngine()),

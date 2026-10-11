@@ -8,10 +8,15 @@ configuration.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import (
     DefaultMaintenanceReadModel,
     DefaultObservabilityBackend,
@@ -19,8 +24,28 @@ from phlo.capabilities import (
     get_capability_registry,
 )
 from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
-from phlo.capabilities.discovery import discover_capabilities
 from phlo.capabilities.interfaces import Principal, ResourceRef
+
+
+@pytest.mark.parametrize("module", ["phlo.application.discovery", "phlo.application.observability"])
+def test_application_first_import_preserves_public_provider_exports(module: str) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """import importlib, sys
+importlib.import_module(sys.argv[1])
+from phlo import capabilities
+from phlo.application import observability
+assert capabilities.DefaultObservabilityBackend is observability.DefaultObservabilityBackend
+assert capabilities.register_default_capability_providers is observability.register_default_capability_providers
+""",
+            module,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 class _Operation:
@@ -184,7 +209,7 @@ def test_links_resolve_from_service_config(monkeypatch, tmp_path: Path) -> None:
         ),
     }
 
-    monkeypatch.setattr("phlo.capabilities.observability._discover_service", services.get)
+    monkeypatch.setattr("phlo.application.observability._discover_service", services.get)
 
     links = backend.dashboard_links()
     assert links[0].url == "http://localhost:18080"

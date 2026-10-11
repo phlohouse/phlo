@@ -13,9 +13,10 @@ from typing import Any, cast
 import pytest
 
 from phlo.capabilities.interfaces import AccessPolicy, GovernanceBackend
-from phlo.rbac.compiler import COMPILER_REGISTRY, CompilerContext, get_compiler
+from phlo.rbac.compiler import CompilerContext
 from phlo.rbac.compilers import MinioCompiler, NessieCompiler, PostgresCompiler
 from phlo.rbac.models import CanonicalRBAC, PoliciesConfig, RolesConfig
+from phlo.rbac.registry import COMPILER_REGISTRY, get_compiler
 
 
 def _rbac(policies: list[dict[str, Any]], roles: dict[str, Any] | None = None) -> CanonicalRBAC:

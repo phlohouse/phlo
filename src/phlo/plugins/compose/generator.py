@@ -14,7 +14,7 @@ from typing import Any, Literal
 import yaml
 
 from phlo.config.layout import env_defaults_path, env_secrets_path
-from phlo.config_schema import ServiceOverride
+from phlo.config_schema import parse_service_override
 from phlo.logging import get_logger
 from phlo.plugins.compose.artifacts import render_shared_gitignore
 from phlo.plugins.compose.env import (
@@ -24,7 +24,7 @@ from phlo.plugins.compose.env import (
     generate_env_local as _generate_env_local,
 )
 from phlo.plugins.compose.service_files import prepare_service_files
-from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 from phlo.telemetry import metric
 
 logger = get_logger(__name__)
@@ -95,6 +95,11 @@ class ComposeGenerator:
         compose: dict[str, Any] = {"services": {}}
 
         for service in sorted_services:
+            for name, network in service.networks.items():
+                networks = compose.setdefault("networks", {})
+                if name in networks and networks[name] != network:
+                    raise ValueError(f"conflicting network definition: {name}")
+                networks[name] = network
             # Get user override for this service (if any)
             service_override = user_overrides.get(service.name, {})
 
@@ -439,7 +444,7 @@ class ComposeGenerator:
             for dep in service.depends_on:
                 dep_service = self.discovery.get_service(dep)
                 if dep_service:
-                    if dep.endswith("-setup"):
+                    if dep.endswith("-setup") or dep_service.compose.get("restart") == "no":
                         depends_config[dep] = {"condition": "service_completed_successfully"}
                     elif dep_service.compose.get("healthcheck"):
                         depends_config[dep] = {"condition": "service_healthy"}
@@ -546,7 +551,7 @@ class ComposeGenerator:
 
         # `services init` reads raw project YAML, so validate it here as well as
         # in `phlo config validate` before it reaches Docker Compose.
-        user_override = ServiceOverride.model_validate(user_override).model_dump(exclude_none=True)
+        user_override = parse_service_override(user_override).model_dump(exclude_none=True)
 
         # Ports: replace
         if user_override.get("ports"):

@@ -24,6 +24,7 @@ from phlo_api.api.v1 import _run_on_ref, _target
 from phlo_api.api.v1_query import QuerySessionView, start_exact_asset_count
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.asset_preview_filters import preview_filters, preview_where
+from phlo_api.api.operation_controls import shared_operation_controls
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.observatory_api.v1_preview import (
@@ -55,7 +56,13 @@ from phlo_api.api.v1_git_review import (
 from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
 from phlo_api.settings import get_deployment_settings
 from phlo_api.usage import QueryUsagePage, read_query_usage
-from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
+from phlo_api.v1_contract import (
+    Environment,
+    EnvironmentTarget,
+    ProviderActionResult,
+    RunStatus,
+    WireModel,
+)
 
 router = APIRouter(tags=["v1 assets"])
 Limit = Annotated[int, Query(ge=1, le=500)]
@@ -316,7 +323,7 @@ class ColumnLineageDependency(WireModel):
 class AssetRun(WireModel):
     run_id: str
     job_id: str
-    status: str
+    status: RunStatus
     created_at: AwareDatetime
     started_at: AwareDatetime | None
     ended_at: AwareDatetime | None
@@ -391,6 +398,13 @@ class SnapshotRollback(WireModel):
     nessie_ref: str = Field(min_length=1, max_length=128)
     confirmed: Literal[True]
     idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class SnapshotRollbackResult(WireModel):
+    env: Environment
+    table_name: str
+    nessie_ref: str
+    rolled_back_to: str
 
 
 class IcebergField(WireModel):
@@ -494,6 +508,22 @@ class AssetActionResponse(WireModel):
     asset_id: str
     nessie_ref: str
     result: dict[str, Any]
+
+
+class PlannedMaterializationResult(WireModel):
+    accepted: bool
+    run_ids: list[str]
+    runs: list[ProviderActionResult]
+    job_name: str
+    plan_hash: str | None
+    dry_run: bool
+
+
+class MaterializationResponse(WireModel):
+    env: Environment
+    asset_id: str
+    nessie_ref: str
+    result: PlannedMaterializationResult | ProviderActionResult
 
 
 class LayerView(WireModel):
@@ -1305,7 +1335,7 @@ async def v1_table_snapshots(
     return history
 
 
-@router.post("/tables/{table_name}/rollback")
+@router.post("/tables/{table_name}/rollback", response_model=SnapshotRollbackResult)
 async def v1_table_rollback(
     request: Request, table_name: str, payload: SnapshotRollback, env: Environment = Query()
 ) -> dict[str, Any]:
@@ -1384,6 +1414,7 @@ async def v1_table_rollback(
         idempotency_key=payload.idempotency_key,
         operation="v1_table_rollback",
         target=action_target,
+        exclusion_target=f"{env}:{name}@{target.nessie_ref}",
         execute=execute,
         audit=lambda result: audit_operation(
             operation="v1_table_rollback",
@@ -1911,10 +1942,9 @@ async def _action_context(
 ) -> tuple[EnvironmentTarget, str, list[str]]:
     settings = get_deployment_settings()
     if (
-        not settings.actions_single_replica
-        or not settings.actions_single_process
-        or not settings.actions_ref_tag_contract
-    ):
+        shared_operation_controls() is None
+        and (not settings.actions_single_replica or not settings.actions_single_process)
+    ) or not settings.actions_ref_tag_contract:
         raise BackendUnavailableError("Environment-pinned actions are not enabled.")
     target = _target(request, env, allowed_query=allowed_query)
     definitions = [
@@ -2347,7 +2377,7 @@ def _require_full_refresh_mfa(request: Request) -> None:
         )
 
 
-@router.post("/assets/{asset_id:path}/materialize", response_model=AssetActionResponse)
+@router.post("/assets/{asset_id:path}/materialize", response_model=MaterializationResponse)
 async def v1_asset_materialize(
     request: Request,
     asset_id: str,
@@ -2464,6 +2494,7 @@ async def v1_asset_materialize(
         idempotency_key=payload.idempotency_key,
         operation="v1_materialize_asset",
         target=action_target,
+        exclusion_target=f"{env}:{asset_id}@{target.nessie_ref}",
         execute=execute,
         audit=lambda value: audit_operation(
             operation="v1_materialize_asset",
@@ -2569,6 +2600,7 @@ async def v1_asset_backfill(
         idempotency_key=payload.idempotency_key,
         operation="v1_backfill_asset",
         target=action_target,
+        exclusion_target=f"{env}:{asset_id}@{target.nessie_ref}",
         execute=execute,
         audit=lambda value: audit_operation(
             operation="v1_backfill_asset",

@@ -64,6 +64,7 @@ from phlo_iceberg.schema_alignment import (
     validate_declared_schema,
     validate_schema_policy,
 )
+from phlo_iceberg.storage import list_storage_files, storage_path_key
 
 logger = get_logger(__name__)
 
@@ -154,6 +155,12 @@ def _write_arrow_table(
     transaction, aligned, additions = prepare_arrow_write(
         table, arrow_table, table_name=table_name, schema_policy=schema_policy
     )
+    keys = []
+    if operation == "merge":
+        assert unique_key is not None
+        # Alignment fixes key types before conversion; additive schema retries
+        # cannot change an existing key field's type.
+        keys = aligned.column(unique_key).unique().to_pylist()
     for attempt in range(3):
         rows_deleted = 0
         try:
@@ -163,7 +170,6 @@ def _write_arrow_table(
                 else:
                     if operation == "merge":
                         assert unique_key is not None
-                        keys = list(set(aligned.column(unique_key).to_pylist()))
                         for start in range(0, len(keys), 1000):
                             batch = keys[start : start + 1000]
                             with warnings.catch_warnings():
@@ -526,12 +532,11 @@ def merge_to_table(
                     duplicates_removed=duplicates_removed,
                 )
         else:
-            key_values = arrow_table.column(unique_key).to_pylist()
-            distinct_keys = set(key_values)
-            if len(distinct_keys) < len(key_values):
+            distinct_count = len(arrow_table.column(unique_key).unique())
+            if distinct_count < len(arrow_table):
                 logger.warning(
                     "source_duplicates_detected_after_deduplication",
-                    duplicates_count=len(key_values) - len(distinct_keys),
+                    duplicates_count=len(arrow_table) - distinct_count,
                     unique_key=unique_key,
                     table_name=table_name,
                 )
@@ -938,16 +943,14 @@ def _is_older_than(file_info: Any, cutoff: datetime) -> bool:
 
 def _unreferenced_data_files(table: Table, older_than: datetime) -> list[str]:
     """List unreferenced data files older than the cutoff; return [] when listing fails."""
-    from phlo_iceberg.resource import _list_storage_files, _storage_path_key
-
     referenced_files = _referenced_files(table)
     table_location = table.location()
     try:
-        normalized_references = {_storage_path_key(path) for path in referenced_files}
+        normalized_references = {storage_path_key(path) for path in referenced_files}
         return [
             file_info.path
-            for file_info in _list_storage_files(table.io, f"{table_location}/data")
-            if _storage_path_key(str(file_info.path)) not in normalized_references
+            for file_info in list_storage_files(table.io, f"{table_location}/data")
+            if storage_path_key(str(file_info.path)) not in normalized_references
             and _is_older_than(file_info, older_than)
         ]
     except Exception as e:

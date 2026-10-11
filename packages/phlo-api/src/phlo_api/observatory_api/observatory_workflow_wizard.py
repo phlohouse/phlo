@@ -35,6 +35,7 @@ from phlo.capabilities import (
 )
 from pydantic import BaseModel, Field
 
+from phlo_api.api.operation_controls import operation_exclusion
 from phlo_api.settings import get_process_settings
 
 _fcntl: Any = None
@@ -666,7 +667,7 @@ def _workflow_apply_lock(project_root: Path):
         os.fchmod(descriptor, 0o600)
         handle = os.fdopen(descriptor, "a+", encoding="utf-8")
         descriptor = -1
-        with handle:
+        with handle, operation_exclusion("workflow_apply", "project-files"):
             if _fcntl is not None:
                 _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
             try:

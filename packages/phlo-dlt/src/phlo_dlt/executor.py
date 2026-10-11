@@ -66,6 +66,7 @@ import pandas as pd
 
 from phlo.logging import log_event
 from phlo.operations.ingestion import BaseIngester, IngestionResult
+from phlo.operations.parquet_validation import ValidationMode
 from phlo.hooks import (
     HookCorrelation,
     IngestionEventContext,
@@ -211,6 +212,14 @@ def _resource_identity(
     }
 
 
+def _ingestion_attempt(raw_attempt: Any) -> int | None:
+    """Keep invalid attempt correlation out of durable ingestion evidence."""
+    try:
+        return normalize_attempt(raw_attempt)
+    except ValueError:
+        return None
+
+
 class DltIngester(BaseIngester):
     """DLT-specific implementation of the ingestion engine.
 
@@ -259,6 +268,9 @@ class DltIngester(BaseIngester):
         merge_strategy: str = "merge",
         merge_config: Dict[str, Any] | None = None,
         quality_checks: Sequence[Callable[[pd.DataFrame], str | None]] | None = None,
+        validation_mode: ValidationMode = "materialized",
+        validation_batch_size: int = 65_536,
+        validation_sample_size: int = 1_000,
     ):
         """Store the ingester's collaborators and validation/merge options."""
         super().__init__(context, logger)
@@ -272,8 +284,109 @@ class DltIngester(BaseIngester):
         self.merge_strategy = merge_strategy
         self.merge_config = merge_config or {}
         self.quality_checks = tuple(quality_checks or ())
+        self.validation_mode = validation_mode
+        self.validation_batch_size = validation_batch_size
+        self.validation_sample_size = validation_sample_size
 
-    def run_ingestion(  # noqa: C901
+    def _validate_staged_contract(
+        self, parquet_paths: list[Path]
+    ) -> tuple[dict[str, Any] | None, tuple[DomainQualityEvaluation, ...]]:
+        """Validate staged schemas and domain rules before publication."""
+        evaluation_metadata = None
+        if self.validate and self.validation_schema is not None:
+            evaluation = evaluate_pandera_contract_parquet_files(
+                parquet_paths,
+                schema_class=self.validation_schema,
+                mode=self.validation_mode,
+                batch_size=self.validation_batch_size,
+                sample_size=self.validation_sample_size,
+            )
+            evaluation_metadata = serialize_pandera_contract_evaluation(evaluation)
+            if self.strict_validation and not evaluation.passed:
+                raise PanderaContractValidationError(
+                    evaluation=evaluation, parquet_paths=tuple(parquet_paths)
+                )
+        domain = _evaluate_domain_quality_checks(
+            parquet_paths=parquet_paths, quality_checks=self.quality_checks
+        )
+        if self.strict_validation and any(not evaluation.passed for evaluation in domain):
+            raise DomainQualityValidationError(
+                evaluations=domain, parquet_paths=tuple(parquet_paths)
+            )
+        return evaluation_metadata, domain
+
+    def _annotate_failure(
+        self,
+        exc: Exception,
+        resources: list[dict[str, Any]],
+        project_id: str | None,
+        branch_name: str,
+        safe_error: str,
+    ) -> None:
+        """Retain failed validation and ambiguous history-write evidence."""
+        if isinstance(exc, HistoryWriteError):
+            for resource in resources:
+                if resource.get("role") == "output":
+                    resource["metadata"].update(
+                        outcome="unknown" if exc.reconciliation is not None else "failed",
+                        reconciliation=exc.reconciliation,
+                    )
+        if isinstance(exc, DomainQualityValidationError):
+            for evaluation in exc.evaluations:
+                if evaluation.passed:
+                    continue
+                resources.append(
+                    {
+                        "resource_kind": "quality_check",
+                        "role": "validation",
+                        "resource_identity": _resource_identity(
+                            project_id=project_id,
+                            resource_type="quality_check",
+                            resource_id=f"{self.table_config.full_table_name}:{evaluation.check_name}",
+                            attributes={"check_name": evaluation.check_name},
+                        ),
+                        "ref_name": branch_name,
+                        "metadata": {"status": "failed", "error": safe_error},
+                    }
+                )
+
+    def _emit_ingestion_lineage(
+        self,
+        *,
+        run_id: str,
+        project_id: str | None,
+        attempt: int | None,
+        staged_objects: list[dict[str, Any]],
+        source_identity: str | None,
+        partition_key: str | None,
+        execution_identity: str | None,
+    ) -> None:
+        """Emit exact lineage only when run correlation is complete."""
+        if run_id == "unknown" or not project_id or attempt is None:
+            return
+        edges = [
+            (str(item["identity"]), self.table_config.full_table_name) for item in staged_objects
+        ]
+        if source_identity:
+            edges.extend((source_identity, str(item["identity"])) for item in staged_objects)
+        emit_lifecycle_safely(
+            LineageEventEmitter(
+                LineageEventContext(
+                    project_id=project_id,
+                    run_id=run_id,
+                    producer="phlo-dlt",
+                    correlation=HookCorrelation(
+                        project_id=project_id, run_id=run_id, attempt=attempt
+                    ),
+                )
+            ),
+            "emit_edges",
+            edges=edges,
+            metadata={"origin": "phlo-dlt", "derivation": "exact"},
+            operation_id=f"{self.table_config.full_table_name}:{partition_key}:{execution_identity}",
+        )
+
+    def run_ingestion(
         self,
         partition_key: str | None,
         parameters: Dict[str, Any] | None = None,
@@ -309,10 +422,7 @@ class DltIngester(BaseIngester):
         if project_error:
             project_id = None
         raw_attempt = parameters.get("attempt", routing.attempt)
-        try:
-            attempt = normalize_attempt(raw_attempt)
-        except ValueError:
-            attempt = None
+        attempt = _ingestion_attempt(raw_attempt)
         correlation_attempt = attempt if attempt is not None else 1
 
         partition_date = partition_key or "unpartitioned"
@@ -540,30 +650,9 @@ class DltIngester(BaseIngester):
                 },
             ]
 
-            evaluation_metadata: dict[str, Any] | None = None
-            if self.validate and self.validation_schema is not None:
-                evaluation = evaluate_pandera_contract_parquet_files(
-                    parquet_paths,
-                    schema_class=self.validation_schema,
-                )
-                evaluation_metadata = serialize_pandera_contract_evaluation(evaluation)
-                if self.strict_validation and not evaluation.passed:
-                    raise PanderaContractValidationError(
-                        evaluation=evaluation,
-                        parquet_paths=tuple(parquet_paths),
-                    )
-
-            domain_quality_evaluations = _evaluate_domain_quality_checks(
-                parquet_paths=parquet_paths,
-                quality_checks=self.quality_checks,
+            evaluation_metadata, domain_quality_evaluations = self._validate_staged_contract(
+                parquet_paths
             )
-            if self.strict_validation and any(
-                not evaluation.passed for evaluation in domain_quality_evaluations
-            ):
-                raise DomainQualityValidationError(
-                    evaluations=domain_quality_evaluations,
-                    parquet_paths=tuple(parquet_paths),
-                )
 
             output_resource: dict[str, Any] = {
                 "resource_kind": "iceberg_table",
@@ -682,31 +771,15 @@ class DltIngester(BaseIngester):
                     ),
                 )
 
-            if run_id != "unknown" and project_id and attempt is not None:
-                edges = [
-                    (str(item["identity"]), self.table_config.full_table_name)
-                    for item in staged_objects
-                ]
-                if source_identity:
-                    edges.extend(
-                        (source_identity, str(item["identity"])) for item in staged_objects
-                    )
-                emit_lifecycle_safely(
-                    LineageEventEmitter(
-                        LineageEventContext(
-                            project_id=project_id,
-                            run_id=run_id,
-                            producer="phlo-dlt",
-                            correlation=HookCorrelation(
-                                project_id=project_id, run_id=run_id, attempt=attempt
-                            ),
-                        )
-                    ),
-                    "emit_edges",
-                    edges=edges,
-                    metadata={"origin": "phlo-dlt", "derivation": "exact"},
-                    operation_id=f"{self.table_config.full_table_name}:{partition_key}:{execution_identity}",
-                )
+            self._emit_ingestion_lineage(
+                run_id=run_id,
+                project_id=project_id,
+                attempt=attempt,
+                staged_objects=staged_objects,
+                source_identity=source_identity,
+                partition_key=partition_key,
+                execution_identity=execution_identity,
+            )
 
             return IngestionResult(
                 status="success",
@@ -736,36 +809,7 @@ class DltIngester(BaseIngester):
             total_elapsed = time.time() - start_time
             safe_error = safe_error_summary(exc)
             failure_metrics = exc.metrics if isinstance(exc, HistoryWriteError) else {}
-            if isinstance(exc, HistoryWriteError):
-                for resource in evidence_resources:
-                    if resource.get("role") == "output":
-                        resource["metadata"].update(
-                            outcome="unknown" if exc.reconciliation is not None else "failed",
-                            reconciliation=exc.reconciliation,
-                        )
-            if isinstance(exc, DomainQualityValidationError):
-                for evaluation in exc.evaluations:
-                    if evaluation.passed:
-                        continue
-                    evidence_resources.append(
-                        {
-                            "resource_kind": "quality_check",
-                            "role": "validation",
-                            "resource_identity": _resource_identity(
-                                project_id=project_id,
-                                resource_type="quality_check",
-                                resource_id=(
-                                    f"{self.table_config.full_table_name}:{evaluation.check_name}"
-                                ),
-                                attributes={"check_name": evaluation.check_name},
-                            ),
-                            "ref_name": branch_name,
-                            "metadata": {
-                                "status": "failed",
-                                "error": safe_error,
-                            },
-                        }
-                    )
+            self._annotate_failure(exc, evidence_resources, project_id, branch_name, safe_error)
             if attempt is not None:
                 emit_lifecycle_safely(
                     emitter,
