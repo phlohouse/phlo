@@ -14,6 +14,8 @@ This record covers the remaining work in [#1035](https://github.com/phlohouse/ph
 
 The frozen prerequisite `issue-1035-contract-base` points to [a3dbd26](https://github.com/phlohouse/phlo/commit/a3dbd26d793a068c04f18a91458250fac258040f). It contains contract corrections only. Product additions follow it on the same issue branch and PR.
 
+The additional stable prerequisite `issue-1035-text-contract-base` points to [6613371](https://github.com/phlohouse/phlo/commit/6613371d0bf55c6645bbc366162b4c54a1a2e625). It adds subscription and follow-up mutation response models, preserving the created follow-up's incident identity and nullable dates. Persisted replay dates are restored through the same wire model before serialization. A real PostgreSQL HTTP regression checks required response metadata, true and false subscriptions, nullable dates, completed timestamps, and identical replay responses. The original frozen branch is unchanged. There is no second issue PR.
+
 ## Executed evidence and outstanding acceptance
 
 The browser used the built bundled Node application, real local FastAPI, a disposable PostgreSQL 18 database, and two real Dagster code locations. These are local acceptance sources, not production or staging deployments. No shared database migration, production write, or deployment was performed.
@@ -31,7 +33,7 @@ After that restart, the existing cached PostgreSQL run-evidence store returned H
 | Per-column schema decisions | Browser submits a column choice and justification to real FastAPI, then reads its durable PostgreSQL decision with actor and timestamp. Existing signed-resolution PostgreSQL tests exercise replay, stale signatures, and audit evidence. | The local form uses illustrative operator-supplied refs and hashes. Recording does not prove a valid Nessie conflict, automatic code-contract edit, or successful merge. Those end-to-end requirements remain open. |
 | Dedicated durable run reports | Actual local Dagster execution succeeds. Its real provider ID and terminal outcome are retained through the durable store, then read through canonical HTTP and the browser. Success, unknown-report 404, incomplete evidence, and narrow layout were captured and inspected. Existing report tests cover attempt isolation and scoped-token confinement for both aliases. | Local execution was not a full ingestion, transform, quality, and publication journey. Its report deliberately lists missing groups. Its unscoped local Dagster record was removed from the disposable instance after retaining the outcome. |
 | Browser extensions | Existing Python manifests, assets, and settings contracts remain intact. See [extension contracts](observatory-extensions.md). | No browser module loader or extension-specific CSP policy exists. A reviewed trust and module-loading policy is an owner decision, not permission to execute arbitrary packages in the user session. |
-| Strong drift and browser gates | Unchanged #998 strict method/schema check passes all 104 frozen-tree calls and all 111 product-tree calls. Method and renamed-required-field negative controls pass. The infrastructure remains owned by #998. | The controlled #998 HTTP fixture is not real-provider readiness evidence. CI integration belongs to its dependent PR. |
+| Strong drift and browser gates | The earlier #998 check inventoried 104 frozen-tree calls and 111 product-tree calls and passed its then-current comparisons and negative controls. | Self-review found that five text-fetched JSON responses using `jsonText(schema)` escaped inner-schema comparison. These earlier green results are not full response acceptance. #998 owns the corrected discovery and gate. The controlled HTTP fixture is not real-provider readiness evidence. |
 | Deployment restrictions | Existing phase-4, query, staging, and signature restrictions remain in place. | #989 shared-store guarantees are not integrated by this change. Single-replica assertions and file-backed operation/audit limitations are not cross-replica safety. |
 
 The seven additional product-tree variants are intentional additions, not gate exclusions. All paths below are relative to the inner frontend's `src/lib/data/api` directory.
@@ -61,7 +63,7 @@ These executed checks prove bounded contracts, not all original phase exits. Tes
 | 8 | [Staging contracts](../../packages/phlo-api/tests/test_v1_staging.py) exercise stale candidates, signature binding, conflicts, distinct targets, and idempotent promotion. These are isolated Git/provider fixtures, not a deployed promotion. |
 | 9 | Built frontend, frontend tests, and real local captures cover the additions listed above. Complete nine-area real-provider acceptance and browser extension loading remain open. No legacy URL was deleted. |
 
-The focused Dataset, report, and release-consumer run passed 181 tests. The separate disposable PostgreSQL selection passed three tests, covering shared history and signed-resolution persistence. The contract-correction selection passed 178 tests with six integration cases deselected.
+The focused Dataset, report, and release-consumer run passed 181 tests. The final disposable PostgreSQL selection passed four tests, covering shared history, incident mutation HTTP contracts, transaction grouping, and signed-resolution persistence. The earlier contract-correction selection passed 178 tests with six integration cases deselected.
 
 The following commands reproduce the public-boundary checks. Integration tests require Docker and create disposable databases. They do not use a shared database.
 
@@ -69,13 +71,13 @@ The following commands reproduce the public-boundary checks. Integration tests r
 make setup
 make check
 uv run --locked pytest packages/phlo-api/tests/test_dataset_cutover_parity.py packages/phlo-api/tests/test_observatory_api.py tests/scripts/test_release_golden_path.py -m 'not integration'
-uv run --locked pytest packages/phlo-api/tests/test_v1_query_api.py packages/phlo-api/tests/test_incident_signed_resolution_postgres.py -m integration
+uv run --locked pytest packages/phlo-api/tests/test_v1_query_api.py packages/phlo-api/tests/test_incidents_postgres.py packages/phlo-api/tests/test_incident_signed_resolution_postgres.py -m integration
 make docs-build
 npm --prefix packages/phlo-observatory/src/phlo_observatory test
 npm --prefix packages/phlo-observatory/src/phlo_observatory run build
 ```
 
-The strict 111-call comparison used #998's unchanged `client-contracts.mjs` and `contracts.test.mjs`. Those files were removed after validation, not copied into this PR. Its frozen 104-call comparison was also independently rerun by #998. Normal frontend tests pass 115 tests in 24 files. The additional strict check passes its full comparison and two negative controls. The report's narrow viewport has one `main`, no document-level horizontal overflow at 390 pixels, and a vertically scrollable report container.
+The earlier 111-call comparison used #998's unchanged `client-contracts.mjs` and `contracts.test.mjs`. Those files were removed after validation, not copied into this PR. Its frozen 104-call comparison was also independently rerun by #998. The later text-response discovery defect invalidates any claim of full response-schema acceptance from those results. Normal frontend tests pass 115 tests in 24 files, and `make check` passes after the audit test's formatter correction. The report's narrow viewport has one `main`, no document-level horizontal overflow at 390 pixels, and a vertically scrollable report container.
 
 ## Remaining legacy consumers
 
