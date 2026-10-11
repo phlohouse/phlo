@@ -3,7 +3,7 @@
   "phlo-airbyte": { "line": 74.5, "branch": 52.9 },
   "phlo-alerting": { "line": 70.7, "branch": 53.9 },
   "phlo-alloy": { "line": 100.0, "branch": 100.0 },
-  "phlo-api": { "line": 80.5, "branch": 63.2 },
+  "phlo-api": { "line": 80.7, "branch": 63.2 },
   "phlo-clickhouse": { "line": 69.4, "branch": 45.0 },
   "phlo-clickstack": { "line": 93.7, "branch": 86.6 },
   "phlo-core-plugins": { "line": 86.4, "branch": 55.8 },
@@ -38,5 +38,5 @@
   "phlo-testing": { "line": 54.8, "branch": 31.4 },
   "phlo-traefik": { "line": 62.5, "branch": 100.0 },
   "phlo-trino": { "line": 81.4, "branch": 60.8 },
-  "scripts": { "line": 70.7, "branch": 66.0 }
+  "scripts": { "line": 71.0, "branch": 66.3 }
 }
