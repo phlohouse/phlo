@@ -18,6 +18,7 @@ import {
   XIcon,
 } from 'lucide-react'
 import type { QueryTab, QueryTable } from '@/lib/query-workspace'
+import type { ErrorComponentProps } from '@tanstack/react-router'
 import type { QuerySession } from '@/lib/data/api/query'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import {
@@ -33,13 +34,14 @@ import {
   submitQuery,
 } from '@/lib/data/api/query'
 import { CatalogTree } from '@/components/query/catalog-tree'
+import { QueryHistory } from '@/components/query/history'
 import { SqlEditor } from '@/components/query/sql-editor'
 import {
   PlanView,
   ResultsChart,
   ResultsGrid,
 } from '@/components/query/result-views'
-import { EmptyState } from '@/components/phlo/states'
+import { EmptyState, RouteError } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -91,8 +93,19 @@ export const Route = createFileRoute('/_app/query')({
   loaderDeps: ({ search }) => ({ env: search.env, sql: search.sql }),
   loader: ({ deps }) => getQueryWorkspace({ data: deps }),
   head: () => ({ meta: [{ title: 'Query · phlo' }] }),
+  errorComponent: QueryUnavailable,
   component: QueryPage,
 })
+
+function QueryUnavailable(props: ErrorComponentProps) {
+  const { env } = appRoute.useSearch()
+  return (
+    <div className="min-h-0 overflow-y-auto p-4 lg:p-7">
+      <RouteError {...props} />
+      <QueryHistory key={env} env={env} />
+    </div>
+  )
+}
 
 type Tab = QueryTab
 const terminal = new Set<QuerySession['status']>([
@@ -1108,14 +1121,17 @@ function QueryWorkspace({
     pending,
   )
   const tree = (
-    <CatalogTree
-      catalog={data.catalog.catalogs}
-      saved={savedQueries}
-      selected={selected ? queryTableName(selected) : ''}
-      onSelect={selectTable}
-      onOpenSaved={openSaved}
-      activeSaved={tab.saved?.id}
-    />
+    <>
+      <CatalogTree
+        catalog={data.catalog.catalogs}
+        saved={savedQueries}
+        selected={selected ? queryTableName(selected) : ''}
+        onSelect={selectTable}
+        onOpenSaved={openSaved}
+        activeSaved={tab.saved?.id}
+      />
+      <QueryHistory key={env} env={env} />
+    </>
   )
 
   return (

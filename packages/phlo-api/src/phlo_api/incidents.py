@@ -157,6 +157,34 @@ class SchemaDecisionPage(WireModel):
     items: list[SchemaDecision]
 
 
+class IncidentEffect(WireModel):
+    id: str
+    kind: Literal["notification", "pause"]
+    status: Literal["pending", "delivering", "delivered", "failed"]
+    attempts: int
+    error: str | None
+
+
+class FollowUpView(WireModel):
+    id: str
+    description: str
+    due_at: datetime | None
+    completed_at: datetime | None
+
+
+class CreatedFollowUpView(FollowUpView):
+    incident_id: str
+
+
+class IncidentSubscriptionView(WireModel):
+    incident_id: str
+    subscribed: bool
+
+
+class FollowUpPage(WireModel):
+    items: list[FollowUpView]
+
+
 class IncidentView(WireModel):
     id: str
     asset_id: str
@@ -172,7 +200,7 @@ class IncidentView(WireModel):
     description: str = ""
     notify_qa: bool = False
     pause_downstream: bool = False
-    effects: list[dict[str, Any]] = Field(default_factory=list)
+    effects: list[IncidentEffect] = Field(default_factory=list)
     layers: list[str] = Field(default_factory=list)
 
 
@@ -453,6 +481,27 @@ def persist_query_execution(
         )
 
 
+def list_query_executions(env: Environment, nessie_ref: str, limit: int) -> list[dict[str, Any]]:
+    """List shared execution identities without confidential statements or results."""
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            """SELECT query_id,env,nessie_ref,engine,statement_sha256,completed_at
+               FROM phlo.query_execution WHERE env=%s AND nessie_ref=%s
+               ORDER BY completed_at DESC,query_id DESC LIMIT %s""",
+            (env, nessie_ref, limit),
+        )
+        return [
+            dict(
+                zip(
+                    ("id", "env", "nessie_ref", "engine", "sql_hash", "completed_at"),
+                    row,
+                    strict=True,
+                )
+            )
+            for row in cur.fetchall()
+        ]
+
+
 def load_query_execution(query_id: str, env: Environment, actor: str) -> dict[str, Any] | None:
     """Return confidential evidence only to its initiating actor in the same environment."""
     with _transaction() as connection, connection.cursor() as cur:
@@ -688,14 +737,16 @@ def dispatch_incident_effects(
                 )
 
 
-def _effect_status(cur: Any, incident_id: str, env: Environment) -> list[dict[str, Any]]:
+def _effect_status(cur: Any, incident_id: str, env: Environment) -> list[IncidentEffect]:
     cur.execute(
         """SELECT effect_id,kind,status,attempts,error FROM phlo.incident_effect
            WHERE incident_id=%s AND env=%s ORDER BY updated_at,effect_id""",
         (incident_id, env),
     )
     return [
-        dict(zip(("id", "kind", "status", "attempts", "error"), row, strict=True))
+        IncidentEffect.model_validate(
+            dict(zip(("id", "kind", "status", "attempts", "error"), row, strict=True))
+        )
         for row in cur.fetchall()
     ]
 
@@ -1205,7 +1256,7 @@ def update_incident(
     return _deliver_and_view(request, env, view)
 
 
-@router.put("/incidents/{incident_id}/subscriptions")
+@router.put("/incidents/{incident_id}/subscriptions", response_model=IncidentSubscriptionView)
 def subscribe_incident(
     request: Request,
     incident_id: str,
@@ -1243,7 +1294,7 @@ def subscribe_incident(
     return result
 
 
-@router.get("/incidents/{incident_id}/follow-ups")
+@router.get("/incidents/{incident_id}/follow-ups", response_model=FollowUpPage)
 def list_follow_ups(
     request: Request, incident_id: str, env: Environment = Query()
 ) -> dict[str, Any]:
@@ -1267,7 +1318,9 @@ def list_follow_ups(
     }
 
 
-@router.post("/incidents/{incident_id}/follow-ups", status_code=201)
+@router.post(
+    "/incidents/{incident_id}/follow-ups", status_code=201, response_model=CreatedFollowUpView
+)
 def create_follow_up(
     request: Request,
     incident_id: str,
@@ -1282,7 +1335,7 @@ def create_follow_up(
             cur, env, actor, action_target, idempotency_key, body.model_dump(mode="json")
         )
         if replay:
-            return replay
+            return CreatedFollowUpView.model_validate_json(json.dumps(replay)).model_dump()
         cur.execute(
             "SELECT 1 FROM phlo.incident WHERE incident_id=%s AND env=%s FOR KEY SHARE",
             (incident_id, env),
@@ -1306,7 +1359,7 @@ def create_follow_up(
         return result
 
 
-@router.patch("/incidents/{incident_id}/follow-ups/{follow_up_id}")
+@router.patch("/incidents/{incident_id}/follow-ups/{follow_up_id}", response_model=FollowUpView)
 def update_follow_up(
     request: Request,
     incident_id: str,
@@ -1321,7 +1374,7 @@ def update_follow_up(
     with _transaction() as connection, connection.cursor() as cur:
         replay = _idempotent(cur, env, actor, action_target, idempotency_key, payload)
         if replay:
-            return replay
+            return FollowUpView.model_validate_json(json.dumps(replay)).model_dump()
         cur.execute(
             "UPDATE phlo.incident_follow_up SET completed_at=CASE WHEN %s THEN COALESCE(completed_at,now()) ELSE NULL END WHERE follow_up_id=%s AND incident_id=%s AND env=%s RETURNING follow_up_id,description,due_at,completed_at",
             (body.completed, follow_up_id, incident_id, env),
