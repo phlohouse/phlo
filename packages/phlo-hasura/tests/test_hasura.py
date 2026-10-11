@@ -246,6 +246,27 @@ class TestHasuraClient:
         assert "glucose_readings" in tracked["api"]
 
     @patch("phlo_hasura.client.requests.request")
+    def test_get_tables_filters_source_and_schema(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "sources": [
+                {"name": "other", "tables": [{"table": {"schema": "api", "name": "hidden"}}]},
+                {
+                    "name": "default",
+                    "tables": [
+                        {"table": {"schema": "public", "name": "unrelated"}},
+                        {"table": {"schema": "api", "name": "orders"}},
+                    ],
+                },
+            ]
+        }
+        mock_request.return_value = mock_response
+        client = HasuraClient(admin_secret="test-secret")
+        assert client.get_tables("api") == ["orders"]
+        assert client.get_tables("missing") == []
+
+    @patch("phlo_hasura.client.requests.request")
     def test_request_error_handling(self, mock_request):
         """Should handle API errors."""
         mock_response = MagicMock()

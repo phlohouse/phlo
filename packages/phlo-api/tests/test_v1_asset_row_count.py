@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 
 from fastapi import FastAPI, Request
@@ -201,8 +202,10 @@ def test_delayed_snapshot_lookup_times_out(monkeypatch: MonkeyPatch):
             }
         ]
 
+    release = threading.Event()
+
     def delayed_snapshot_lookup(*_args):
-        time.sleep(0.1)
+        assert release.wait(timeout=5)
         return "42"
 
     def unexpected_count(*_args, **_kwargs):
@@ -213,8 +216,14 @@ def test_delayed_snapshot_lookup_times_out(monkeypatch: MonkeyPatch):
     monkeypatch.setattr(v1_assets, "_EXACT_COUNT_SNAPSHOT_LOOKUP_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(v1_assets, "start_exact_asset_count", unexpected_count)
 
+    async def request_and_release():
+        try:
+            await v1_assets.v1_asset_exact_row_count(request, "orders", "prod")
+        finally:
+            release.set()
+
     with raises(BackendUnavailableError, match="snapshot identity is unavailable"):
-        asyncio.run(v1_assets.v1_asset_exact_row_count(request, "orders", "prod"))
+        asyncio.run(request_and_release())
 
 
 def test_snapshot_identity_preserves_the_current_iceberg_id(monkeypatch: MonkeyPatch):

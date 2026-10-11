@@ -80,6 +80,11 @@ def test_observatory_metadata_selects_frontend() -> None:
     assert select({"packages/phlo-observatory/pyproject.toml"})["frontend"] is True
 
 
+def test_api_changes_run_real_client_contract_and_browser_gates() -> None:
+    assert select({"packages/phlo-api/src/phlo_api/v1_contract.py"})["frontend"] is True
+    assert select({"packages/phlo-traefik/src/phlo_traefik/plugin.py"})["frontend"] is False
+
+
 def test_plugin_only_selects_actual_plugin_checks() -> None:
     selection = select({".amp/plugins/phlo-github/lib.ts"})
     assert selection["plugin"] is True

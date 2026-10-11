@@ -6,6 +6,7 @@ in-memory cache, or common project filesystem can satisfy these assertions.
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -16,8 +17,13 @@ import pytest
 from testcontainers.postgres import PostgresContainer
 
 from phlo.operations.journal import OperationJournalEntry, OperationJournalState
+from phlo.plugins.observatory_settings import StorageUnavailableError
 from phlo_api.api.operation_controls import resolve_idempotency_claim
-from phlo_postgres.operation_controls import RATE_BUCKET_CAP, PostgresOperationControls
+from phlo_postgres.operation_controls import (
+    RATE_BUCKET_CAP,
+    OperationExclusionConflict,
+    PostgresOperationControls,
+)
 
 from process_test_support import process_operation_control_app
 
@@ -190,6 +196,70 @@ def test_shared_journal_blocks_unknown_until_reconciled(postgres_dsn):
     assert stores[1].read("first").state == OperationJournalState.UNKNOWN
     assert stores[1].transition("first", OperationJournalState.SUCCEEDED, {"accepted": True})
     assert stores[0].claim(replace(entry, operation_id="second"))
+
+
+def test_shared_claim_resolution_and_namespace_isolation(postgres_dsn):
+    namespace = str(uuid4())
+    store = PostgresOperationControls(postgres_dsn, namespace)
+    replica = PostgresOperationControls(postgres_dsn, namespace)
+    other = PostgresOperationControls(postgres_dsn, namespace + "-other")
+    store.initialize()
+    assert store.idempotency_target("missing", "restore") is None
+    assert store.read("missing") is None
+    assert not store.transition("missing", OperationJournalState.SUCCEEDED)
+    assert store.claim_idempotency("key", "restore", "original", "resource") == (
+        True,
+        "pending",
+        "",
+    )
+    assert replica.idempotency_target("key", "restore") == "original"
+    assert (
+        replica.claim_idempotency("key", "restore", "changed", "resource")[1] == "target_mismatch"
+    )
+    assert replica.claim_idempotency("key", "restore", "original", "resource")[1] == "pending"
+    assert (
+        replica.claim_idempotency("new", "restore", "different", "resource")[1]
+        == "operation_pending"
+    )
+    assert other.claim_idempotency("key", "restore", "original", "resource")[0]
+    store.finish_idempotency("key", "restore", "original", "unknown")
+    assert (
+        replica.claim_idempotency("new", "restore", "different", "resource")[1]
+        == "operation_unknown"
+    )
+    evidence = {"provider_lookup": "not applied"}
+    replica.resolve_idempotency(
+        "key", "restore", "original", "safe_to_retry", "operator", evidence, None
+    )
+    replica.resolve_idempotency(
+        "key", "restore", "original", "safe_to_retry", "operator", evidence, None
+    )
+    with pytest.raises(ValueError, match="only pending or unknown"):
+        replica.resolve_idempotency(
+            "key", "restore", "original", "safe_to_retry", "other", evidence, None
+        )
+    assert store.claim_idempotency("key", "restore", "original", "resource")[0]
+    store.finish_idempotency("key", "restore", "original", "completed", {"accepted": True})
+    claimed, state, response = replica.claim_idempotency("key", "restore", "original", "resource")
+    assert (claimed, state) == (False, "completed")
+    assert json.loads(response) == {"accepted": True}
+    with pytest.raises(StorageUnavailableError, match="claim changed"):
+        replica.finish_idempotency("key", "restore", "original", "completed")
+    assert store.claim_idempotency("resolved", "restore", "second")[0]
+    store.resolve_idempotency(
+        "resolved", "restore", "second", "succeeded", "operator", evidence, {"restored": True}
+    )
+    claimed, state, response = replica.claim_idempotency("resolved", "restore", "second")
+    assert (claimed, state) == (False, "completed")
+    assert json.loads(response) == {"restored": True}
+    with store.exclusion("workflow", "resource"):
+        with pytest.raises(OperationExclusionConflict):
+            with replica.exclusion("workflow", "resource"):
+                pytest.fail("independent connection bypassed the exclusion")
+        with other.exclusion("workflow", "resource"):
+            pass
+    with replica.exclusion("workflow", "resource"):
+        pass
 
 
 def test_postgres_rate_storage_is_bounded_and_expired_buckets_are_reclaimed(postgres_dsn):
