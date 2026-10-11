@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from phlo.capabilities import get_capability_registry
-from phlo.migrations.specs import MigrationSource
+from phlo.migrations.specs import MigrationSourceValue
 
 
 class SourceAdapter(Protocol):
@@ -25,18 +25,18 @@ class SourceAdapter(Protocol):
     def source_type(self) -> str:
         """Identifier for this adapter (for example csv, postgres)."""
 
-    def validate_config(self, source: MigrationSource) -> list[str]:
+    def validate_config(self, source: MigrationSourceValue) -> list[str]:
         """Validate source configuration and return errors."""
 
     def read_chunks(
         self,
-        source: MigrationSource,
+        source: MigrationSourceValue,
         *,
         chunk_size: int = 50_000,
     ) -> Iterator[list[dict[str, Any]]]:
         """Yield row chunks from the source."""
 
-    def estimate_row_count(self, source: MigrationSource) -> int | None:
+    def estimate_row_count(self, source: MigrationSourceValue) -> int | None:
         """Estimate source row count if possible."""
 
 
@@ -48,7 +48,7 @@ class CsvSourceAdapter:
         """Return this adapter's source type identifier."""
         return "csv"
 
-    def validate_config(self, source: MigrationSource) -> list[str]:
+    def validate_config(self, source: MigrationSourceValue) -> list[str]:
         """Return configuration errors for a CSV migration source."""
         errors: list[str] = []
         if not source.path:
@@ -65,7 +65,7 @@ class CsvSourceAdapter:
 
     def read_chunks(
         self,
-        source: MigrationSource,
+        source: MigrationSourceValue,
         *,
         chunk_size: int = 50_000,
     ) -> Iterator[list[dict[str, Any]]]:
@@ -85,7 +85,7 @@ class CsvSourceAdapter:
             if buffer:
                 yield buffer
 
-    def estimate_row_count(self, source: MigrationSource) -> int | None:
+    def estimate_row_count(self, source: MigrationSourceValue) -> int | None:
         """Estimate source row count by counting physical lines minus the header.
 
         Quoted fields containing embedded newlines inflate the count, so treat

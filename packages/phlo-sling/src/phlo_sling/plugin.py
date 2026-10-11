@@ -14,7 +14,7 @@ Contributes Sling asset and ingestion providers plus wizard workflows via phlo.c
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -205,7 +205,7 @@ class SlingIngestionProvider(IngestionProviderPlugin):
 class SlingWorkflowAuthoringProvider:
     """Create Sling-backed replication workflow files."""
 
-    def create_workflow(self, *, project_root: Path, request: dict[str, Any]) -> dict[str, Any]:
+    def create_workflow(self, *, project_root: Path, request: Mapping[str, Any]) -> dict[str, Any]:
         """Write the Sling ingestion asset module and replication config for
         a new workflow, returning created files and next steps.
 

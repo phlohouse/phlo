@@ -29,6 +29,7 @@ from security_test_support import _regulated_api_boundary, authenticated_client 
 from phlo.run_evidence import PipelineRun, RunEvent, RunStage, SQLiteRunEvidenceStore
 from phlo_api.observatory_api import observatory
 from phlo_api.observatory_api import observatory_services
+from phlo_api.observatory_api.service_payloads import DockerInspectContainer, DockerPayloadError
 from phlo_api.observatory_api import observatory_runs as observatory_runs_module
 from phlo_api.observatory_api.observatory import (
     _execute_action,
@@ -1328,19 +1329,21 @@ def test_observatory_docker_statuses_warn_on_recent_container_kill(monkeypatch) 
     monkeypatch.setenv("PHLO_COMPOSE_PROJECT", "phlo")
     monkeypatch.setattr(
         "phlo_api.observatory_api.observatory_services.docker_inspect_container",
-        lambda _container_id: {
-            "RestartCount": 3,
-            "State": {
-                "ExitCode": 0,
-                "OOMKilled": False,
-                "StartedAt": "2026-07-04T08:50:43Z",
-                "FinishedAt": "2026-07-04T08:50:42Z",
-                "Health": {
-                    "Status": "healthy",
-                    "Log": [{"ExitCode": 137}],
+        lambda _container_id: DockerInspectContainer.model_validate(
+            {
+                "RestartCount": 3,
+                "State": {
+                    "ExitCode": 0,
+                    "OOMKilled": False,
+                    "StartedAt": "2026-07-04T08:50:43Z",
+                    "FinishedAt": "2026-07-04T08:50:42Z",
+                    "Health": {
+                        "Status": "healthy",
+                        "Log": [{"ExitCode": 137}],
+                    },
                 },
-            },
-        },
+            }
+        ),
     )
 
     statuses = _load_docker_service_statuses({"trino"}, containers)
@@ -1348,6 +1351,39 @@ def test_observatory_docker_statuses_warn_on_recent_container_kill(monkeypatch) 
     assert statuses["trino"][0] == "running"
     assert statuses["trino"][1].state == "warning"
     assert "recent container kill" in (statuses["trino"][1].message or "")
+
+
+@pytest.mark.parametrize(
+    "payload", ['{"State": 4}', '{"State": "running", "Labels": {"x": 2}}', "not json"]
+)
+def test_docker_ps_rejects_malformed_evidence(payload: str) -> None:
+    with pytest.raises(DockerPayloadError):
+        observatory_services.parse_docker_ps_output(payload)
+
+
+def test_docker_inspect_rejects_malformed_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(observatory_services, "docker_cli_path", lambda: "docker")
+    monkeypatch.setattr(
+        observatory_services.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout='[{"State": {"ExitCode": "bad"}}]'
+        ),
+    )
+    with pytest.raises(DockerPayloadError):
+        observatory_services.docker_inspect_container("container")
+
+
+def test_service_registry_rejects_malformed_entry(monkeypatch) -> None:
+    from phlo.plugins.registry_models import RegistryPayloadError
+
+    monkeypatch.setattr(
+        observatory_services,
+        "get_registry_data",
+        lambda: {"plugins": {"broken": {"type": "service", "package": 4}}},
+    )
+    with pytest.raises(RegistryPayloadError):
+        observatory_services.load_services(Path.cwd(), containers=[])
 
 
 def test_observatory_load_services_includes_runtime_containers_missing_from_discovery(
