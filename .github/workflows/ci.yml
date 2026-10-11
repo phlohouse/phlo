@@ -344,8 +344,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - uses: ./.github/actions/docker-mirror
       - uses: ./.github/actions/python-workspace
-      - name: Measure complete non-integration workspace and enforce floors
+      - name: Measure workspace and required PostgreSQL controls and enforce floors
         run: make test-coverage
       - name: Publish per-source line/branch totals and skip reasons
         if: always()

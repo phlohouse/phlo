@@ -3,7 +3,12 @@
 ## Coverage and required lanes
 
 `make test-coverage` runs the complete non-integration workspace with branch
-coverage. It measures `src/phlo`, `scripts`, and every `packages/*/src` tree.
+coverage, then appends the required PostgreSQL operation-control suite before
+checking floors. Docker is required: the suite provisions disposable PostgreSQL
+and rejects skips through `scripts.ci_required`. Its public lifecycle tests cover
+shared claims, replay, evidence resolution, namespace isolation, advisory locks,
+and bounded rate storage. It measures `src/phlo`, `scripts`, and every
+`packages/*/src` tree.
 `scripts/coverage_report.py` publishes separate line and branch percentages and
 checks each against `tests/coverage-floors.json`. A new source tree without a
 measurement or floor fails. The existing package-specific coverage collection
@@ -92,7 +97,7 @@ identity forwarding. Phlo API owns authorisation, provider access, queries,
 governance, and backend state. Node handlers validate inputs, forward the user's
 identity, parse responses, and assemble presentation data only.
 
-The current 61 production handlers all belong to that API-adapter category.
+The current 66 production handlers all belong to that API-adapter category.
 There are no UI-only server handlers or approved duplicate backend handlers.
 Each named handler below stays in its API adapter module. Legacy consumer
 migration and URL retirement belong to #1035, not this guard.
@@ -103,9 +108,11 @@ migration and URL retirement belong to #1035, not this guard.
 | assets.ts | 12 | `getAssetPreview`, `rollbackAssetSnapshot`, `getAssetList`, `getAssetDetail`, `startAssetExactRowCount`, `getMaterializationEstimate`, `materializeAsset`, `backfillAsset`, `createAuditProposal`, `getAuditProposal`, `testAuditProposal`, `publishAuditProposal` |
 | branches.ts | 9 | `getBranchesPage`, `getWapRuns`, `getBranchDetail`, `createBranch`, `deleteBranch`, `runBranchChecks`, `rebaseBranch`, `trialMerge`, `signAndMerge` |
 | core.ts | 2 | `getShell`, `getOverview` |
-| incidents.ts | 8 | `getIncidentList`, `getIncidentDetail`, `createIncident`, `updateIncident`, `setIncidentSubscription`, `createFollowUp`, `updateFollowUp`, `resolveIncident` |
+| datasets.ts | 1 | `getDatasetInventory` |
+| incidents.ts | 10 | `getSchemaDecisions`, `recordSchemaDecision`, `getIncidentList`, `getIncidentDetail`, `createIncident`, `updateIncident`, `setIncidentSubscription`, `createFollowUp`, `updateFollowUp`, `resolveIncident` |
 | pipelines.ts | 7 | `getPipelineList`, `getPipelineJob`, `getRunLogPage`, `launchJob`, `changeSchedule`, `cancelRun`, `retryRun` |
-| query.ts | 10 | `getQueryWorkspace`, `submitQuery`, `explainQuery`, `getQuerySession`, `getQueryIncidentTargets`, `pinQueryToIncident`, `cancelQuery`, `downloadQueryCsv`, `saveQuery`, `deleteSavedQuery` |
+| query.ts | 11 | `getQueryHistory`, `getQueryWorkspace`, `submitQuery`, `explainQuery`, `getQuerySession`, `getQueryIncidentTargets`, `pinQueryToIncident`, `cancelQuery`, `downloadQueryCsv`, `saveQuery`, `deleteSavedQuery` |
+| reports.ts | 1 | `getRunReport` |
 | settings.ts | 2 | `getSettings`, `saveSettings` |
 | staging.ts | 4 | `getStagingOverview`, `runStagingChecks`, `resyncStaging`, `promoteStaging` |
 

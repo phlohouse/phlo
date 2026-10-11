@@ -63,7 +63,13 @@ test-coverage:
 	for source in packages/*/src; do args+=("--cov=$$source"); done; \
 	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked pytest -m 'not integration' \
 		"$${args[@]}" --cov-branch --cov-report=json:$(COVERAGE_DIR)/coverage.json \
-		--cov-report= --junitxml=$(COVERAGE_DIR)/results.xml --tb=short -ra
+		--cov-report= --junitxml=$(COVERAGE_DIR)/results.xml --tb=short -ra || exit $$?; \
+	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked python -m pytest \
+		-p scripts.ci_required -o addopts= -m integration \
+		packages/phlo-api/tests/test_operation_controls_postgres.py \
+		"$${args[@]}" --cov-append --cov-branch \
+		--cov-report=json:$(COVERAGE_DIR)/coverage.json --cov-report= \
+		--junitxml=$(COVERAGE_DIR)/postgres.xml --tb=short -ra
 	python3 scripts/coverage_report.py $(COVERAGE_DIR)/coverage.json --output $(COVERAGE_DIR)/totals.json
 
 test-core-regression:
