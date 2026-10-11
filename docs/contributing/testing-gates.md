@@ -74,10 +74,15 @@ The browser covers actual navigation and the real editor.
 `contracts.test.mjs` generates OpenAPI from the installed FastAPI application.
 `scripts/client-contracts.mjs` discovers actual production `phloApi` calls and
 evaluates their actual Zod response parsers. It compares HTTP methods and response
-types, required fields, unions, enums, and nested arrays/objects. Negative tests
-remove GET and rename a required response field. URL-only checks and duplicated
-hand-written fixture schemas are not the authority. Untyped API responses remain
-failures until API and product owners align their contracts.
+types, required fields, unions, enums, and nested arrays/objects. JSON-text calls
+use their production inner schemas after verifying the real `jsonText` helper
+decodes JSON and rejects parse failures. Tests also execute that production
+transform. CSV and NDJSON require string response schemas; no-content responses
+must have no body. An OpenAPI default annotation does not make a field required.
+Negative tests remove GET, rename required fields in ordinary and JSON-text
+responses, and break text or no-content declarations. URL-only checks and
+duplicated hand-written fixture schemas are not the authority. Untyped API
+responses remain failures until API and product owners align their contracts.
 
 ## Retained Node runtime and handler ownership
 

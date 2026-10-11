@@ -73,12 +73,19 @@ export function discoverContracts() {
       true,
     )
     const entries = []
+    let jsonTextDefinition
     function visit(node) {
+      if (
+        ts.isVariableDeclaration(node) &&
+        node.name.getText(tree) === 'jsonText'
+      )
+        jsonTextDefinition = node.initializer
       if (
         ts.isCallExpression(node) &&
         node.expression.getText(tree) === 'phloApi'
       ) {
-        const [path, schema, options] = node.arguments
+        const [path, parser, options] = node.arguments
+        let schema = parser
         assert(path && schema, 'API call needs a response parser')
         const props =
           options && ts.isObjectLiteralExpression(options)
@@ -93,16 +100,77 @@ export function discoverContracts() {
                 : 'GET',
             ]
         const paths = alternatives(path, tree).map(normalize)
-        const text = props.some(
+        let text = props.some(
           (p) =>
             p.name?.getText(tree) === 'responseType' &&
             p.initializer?.getText(tree) === "'text'",
         )
+        if (
+          ts.isCallExpression(schema) &&
+          schema.expression.getText(tree) === 'jsonText'
+        ) {
+          assert(
+            text && schema.arguments.length === 1,
+            'Unexpected JSON-text parser call',
+          )
+          const helper = jsonTextDefinition
+          assert(
+            helper &&
+              ts.isArrowFunction(helper) &&
+              ts.isCallExpression(helper.body),
+            'JSON-text helper changed',
+          )
+          const transform = helper.body.arguments[0]
+          assert(
+            helper.body.expression.getText(tree) === 'z.string().transform' &&
+              ts.isArrowFunction(transform) &&
+              ts.isBlock(transform.body),
+            'JSON-text helper must decode a string',
+          )
+          const statement = transform.body.statements[0]
+          assert(
+            transform.body.statements.length === 1 &&
+              ts.isTryStatement(statement) &&
+              !statement.finallyBlock,
+            'JSON-text helper has unchecked branches',
+          )
+          const accepted = statement.tryBlock.statements
+          const rejected = statement.catchClause?.block.statements
+          const schemaName = helper.parameters[0].name.getText(tree)
+          const textName = transform.parameters[0].name.getText(tree)
+          const contextName = transform.parameters[1].name.getText(tree)
+          assert(
+            accepted.length === 1 &&
+              ts.isReturnStatement(accepted[0]) &&
+              accepted[0].expression?.getText(tree).replace(/\s/g, '') ===
+                `${schemaName}.parse(JSON.parse(${textName}))`,
+            'JSON-text helper must apply its actual inner schema to parsed JSON',
+          )
+          const rejection = rejected?.[0].expression
+          assert(
+            rejected?.length === 2 &&
+              rejection &&
+              ts.isCallExpression(rejection) &&
+              rejection.expression.getText(tree) ===
+                `${contextName}.addIssue` &&
+              rejection.arguments[0]?.properties.some(
+                (p) =>
+                  p.name?.getText(tree) === 'code' &&
+                  p.initializer?.text === 'custom',
+              ) &&
+              ts.isReturnStatement(rejected[1]) &&
+              rejected[1].expression?.getText(tree) === 'z.NEVER',
+            'JSON-text helper must reject invalid JSON and schema failures',
+          )
+          // The real helper JSON-decodes text before applying this production parser.
+          schema = schema.arguments[0]
+          text = false
+        }
         // Conditional path/method pairs use the same condition in saveQuery.
         for (const [i, route] of paths.entries()) {
           const verb = methods.length === paths.length ? methods[i] : methods[0]
           entries.push(
-            `{path:${JSON.stringify(route)},method:${JSON.stringify(verb.toLowerCase())},text:${text},schema:${schema.getText(tree)}}`,
+            `{path:${JSON.stringify(route)},method:${JSON.stringify(verb.toLowerCase())},text:${text},schema:${schema.getText(tree)},parser:${parser.getText(tree)}}`,
           )
         }
       }
@@ -204,8 +272,7 @@ function compatible(api, client, document, location) {
     )
   for (const key of client.required ?? []) {
     assert(
-      api.properties?.[key] &&
-        (api.required?.includes(key) || 'default' in api.properties[key]),
+      api.properties?.[key] && api.required?.includes(key),
       `${location}: API no longer requires ${key}`,
     )
   }
@@ -231,12 +298,39 @@ export function checkContract(document, contract) {
     /^2\d\d$/.test(status),
   )
   assert(successes.length, `${path}: no success response`)
-  if (contract.text) return
   const client = z.toJSONSchema(contract.schema, {
     io: 'input',
     unrepresentable: 'any',
   })
-  for (const [, response] of successes) {
+  for (const [status, response] of successes) {
+    if (contract.text) {
+      const output = z.toJSONSchema(contract.schema, {
+        io: 'output',
+        unrepresentable: 'any',
+      })
+      assert(
+        client.type === 'string' && output.type === 'string',
+        `${path}: unrecognised text parser`,
+      )
+      if (status === '204') {
+        assert(
+          !response.content,
+          `${path}: no-content response unexpectedly has a body`,
+        )
+        continue
+      }
+      const api = Object.values(response.content ?? {}).find(
+        (media) => media.schema?.type === 'string',
+      )?.schema
+      assert(api, `${path}: API text success response has no string schema`)
+      compatible(
+        api,
+        client,
+        document,
+        `${contract.method.toUpperCase()} ${path}`,
+      )
+      continue
+    }
     const api = response.content?.['application/json']?.schema
     assert(
       api && Object.keys(api).length,
