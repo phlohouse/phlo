@@ -10,7 +10,7 @@ dependencies = [
     "phlo>=0.17.0,<0.18",
     "dlt>=1.18.2",
     "pandas>=2.3.3",
-    "pyarrow>=21.0.0",
+    "pyarrow>=26.0.0,<27",
     "pyiceberg>=0.10.0,<0.12",
     "python-ulid>=2.0.0",
 ]

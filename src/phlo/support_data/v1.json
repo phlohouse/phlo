@@ -187,7 +187,8 @@
       "reason": "API and Observatory integration are implemented and tested, but mandatory authorization remains a release gate.",
       "evidence": [
         "packages/phlo-api/pyproject.toml",
-        "packages/phlo-api/tests"
+        "packages/phlo-api/tests",
+        "registry/support/dependency-qualification.md#fastapi-and-pyiceberg-deferrals"
       ]
     },
     {
@@ -231,7 +232,8 @@
       "reason": "dlt ingestion is part of the current core path and has focused tests; run-evidence correlation is not included in this manifest version.",
       "evidence": [
         "packages/phlo-dlt/pyproject.toml",
-        "packages/phlo-dlt/tests"
+        "packages/phlo-dlt/tests",
+        "registry/support/dependency-qualification.md#arrow-26-with-pyiceberg-dlt-and-pandas"
       ]
     },
     {
@@ -242,7 +244,9 @@
       "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
       "evidence": [
         "packages/phlo-iceberg/pyproject.toml",
-        "packages/phlo-iceberg/tests"
+        "packages/phlo-iceberg/tests",
+        "registry/support/dependency-qualification.md#arrow-26-with-pyiceberg-dlt-and-pandas",
+        "registry/support/dependency-qualification.md#fastapi-and-pyiceberg-deferrals"
       ]
     },
     {
@@ -277,7 +281,8 @@
         "packages/phlo-observatory/pyproject.toml",
         "packages/phlo-observatory/tests",
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/pipelines.ts"
+        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/pipelines.ts",
+        "registry/support/dependency-qualification.md#typescript-6-not-an-unsupported-typescript-7-override"
       ]
     },
     {
