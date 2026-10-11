@@ -630,6 +630,36 @@ def test_decorator_pushes_builtin_checks_into_real_duckdb() -> None:
         ]
 
 
+@pytest.mark.parametrize(
+    "minimum,maximum", [(float("-inf"), float("inf")), (float("nan"), float("nan"))]
+)
+def test_sql_range_preserves_nonfinite_bounds(minimum, maximum):
+    with duckdb.connect() as connection:
+
+        @phlo_pandera(
+            table="unused",
+            backend="duckdb",
+            full_table=True,
+            query="SELECT * FROM (VALUES (-2.0), (3.0), (NULL)) t(value)",
+            checks=[RangeCheck(column="value", min_value=minimum, max_value=maximum)],
+        )
+        def nonfinite_bounds():
+            pass
+
+        result = get_quality_checks()[0].fn(
+            SimpleNamespace(
+                run_id="nonfinite",
+                partition_key=None,
+                logger=MagicMock(),
+                resources={"duckdb": connection},
+            )
+        )
+        assert result.passed
+        assert result.metadata["range_check_out_of_range"] == 0
+        assert result.metadata["range_check_actual_min"] == -2.0
+        assert result.metadata["range_check_actual_max"] == 3.0
+
+
 @pytest.mark.integration
 def test_aggregate_results_against_real_trino_nan_and_nulls() -> None:
     import time
@@ -683,5 +713,21 @@ def test_aggregate_results_against_real_trino_nan_and_nulls() -> None:
             assert result.metadata["null_check_null_counts"] == {"id": 2}
             assert result.metadata["unique_check_duplicate_count"] == 4
             assert result.metadata["range_check_out_of_range"] == 2
+            for minimum, maximum in [(float("-inf"), float("inf")), (float("nan"), float("nan"))]:
+                clear_quality_checks()
+
+                @phlo_pandera(
+                    table="unused",
+                    backend="trino",
+                    full_table=True,
+                    query="SELECT * FROM (VALUES (-2e0), (3e0), (NULL)) t(value)",
+                    checks=[RangeCheck(column="value", min_value=minimum, max_value=maximum)],
+                )
+                def nonfinite_trino_bounds():
+                    pass
+
+                result = get_quality_checks()[0].fn(runtime)
+                assert result.passed
+                assert result.metadata["range_check_out_of_range"] == 0
         finally:
             connection.close()

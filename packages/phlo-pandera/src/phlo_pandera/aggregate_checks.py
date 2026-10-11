@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -20,6 +21,14 @@ from phlo_pandera.checks import (
 def supports_aggregation(check: QualityCheck) -> bool:
     """Do not bypass execute overrides on user-defined subclasses."""
     return type(check) in (CountCheck, NullCheck, RangeCheck, UniqueCheck)
+
+
+def _bound_condition(column: str, operator: str, value: float) -> str:
+    """Match pandas comparisons with non-finite bounds in both SQL engines."""
+    if math.isnan(value):
+        return "FALSE"
+    literal = str(float(value)).replace("inf", "Infinity")
+    return f"{column} {operator} CAST('{literal}' AS DOUBLE)"
 
 
 def execute_aggregate_check(
@@ -82,9 +91,9 @@ def execute_aggregate_check(
         name = quoted(check.column)
         bounds = []
         if check.min_value is not None:
-            bounds.append(f"{name} < {float(check.min_value)!r}")
+            bounds.append(_bound_condition(name, "<", check.min_value))
         if check.max_value is not None:
-            bounds.append(f"{name} > {float(check.max_value)!r}")
+            bounds.append(_bound_condition(name, ">", check.max_value))
         condition = f"NOT ({null(check.column)}) AND ({' OR '.join(bounds) or 'FALSE'})"
         values = (
             fetch(
