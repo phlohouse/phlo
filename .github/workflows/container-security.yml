@@ -86,4 +86,4 @@ jobs:
           add_args=()
           for service in "${services[@]}"; do add_args+=(--service "$service"); done
           uv --project "$GITHUB_WORKSPACE" run --locked phlo services add "${add_args[@]}" --no-start
-          docker compose --profile '*' -f "$project/.phlo/docker-compose.yml" --project-directory "$project/.phlo" config --format json > "$RUNNER_TEMP/generated-compose.json"
+          docker compose --env-file "$project/.phlo/overrides/.env" --env-file "$project/.phlo/secrets/.env" --profile '*' -f "$project/.phlo/docker-compose.yml" --project-directory "$project/.phlo" config --format json > "$RUNNER_TEMP/generated-compose.json"
