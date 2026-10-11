@@ -17,8 +17,8 @@ compose:
     phlo.metrics.path: "/v1/metrics"
   environment:
     HASURA_GRAPHQL_DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-phlo}
-    HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
-    HASURA_GRAPHQL_DEV_MODE: "true"
+    HASURA_GRAPHQL_ENABLE_CONSOLE: "false"
+    HASURA_GRAPHQL_DEV_MODE: "false"
     HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
     HASURA_GRAPHQL_ADMIN_SECRET: ${HASURA_ADMIN_SECRET:?Run phlo services init to generate HASURA_ADMIN_SECRET}
     HASURA_GRAPHQL_UNAUTHORIZED_ROLE: anonymous
@@ -29,6 +29,11 @@ compose:
     interval: 10s
     timeout: 5s
     retries: 5
+
+dev:
+  environment:
+    HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+    HASURA_GRAPHQL_DEV_MODE: "true"
 
 env_vars:
   HASURA_IMAGE:

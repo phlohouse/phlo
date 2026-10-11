@@ -57,7 +57,8 @@ def _load_source_catalog() -> Any:
             "warehouse": "warehouse",
             "s3.endpoint": os.environ.get("ICEBERG_S3_ENDPOINT", "http://minio:9000/"),
             "s3.access-key-id": os.environ.get("ICEBERG_S3_ACCESS_KEY", "minio"),
-            "s3.secret-access-key": os.environ.get("ICEBERG_S3_SECRET_KEY", "minio123"),
+            "s3.secret-access-key": os.environ.get("ICEBERG_S3_SECRET_KEY")
+            or os.environ.get("MINIO_ROOT_PASSWORD", ""),
             "s3.path-style-access": "true",
             "s3.region": os.environ.get("ICEBERG_S3_REGION", "us-east-1"),
         },

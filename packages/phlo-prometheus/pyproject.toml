@@ -43,6 +43,7 @@ include-package-data = true
 phlo_prometheus = [
     "service.yaml",
     "prometheus.yml",
+    "prometheus-setup.yaml",
 ]
 
 [tool.setuptools.package-dir]

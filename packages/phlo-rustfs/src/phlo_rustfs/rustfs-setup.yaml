@@ -24,5 +24,5 @@ compose:
     "
   environment:
     AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
-    AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+    AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:?Run phlo services init to generate RUSTFS_SECRET_KEY}
     AWS_DEFAULT_REGION: us-east-1

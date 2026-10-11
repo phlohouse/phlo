@@ -12,7 +12,6 @@ import os
 from functools import lru_cache
 from typing import Any
 
-from phlo.config.process import get_process_settings
 from phlo_polaris.settings import get_settings
 
 
@@ -27,33 +26,8 @@ def current_snapshot_id(table: Any) -> int | None:
 
 
 def _writer_credential() -> str:
-    """Resolve the writer credential from env, then the bootstrap file.
-
-    Polaris generates principal secrets at creation time; the bootstrap hook
-    persists them to ``.phlo/polaris-principals.json`` in the project.
-    The file value is already ``clientId:clientSecret`` (the OAuth client id
-    differs from the principal name) and must be used verbatim.
-    """
-    import json
-    import os
-    from pathlib import Path
-
-    settings = get_settings()
-    client_id = settings.polaris_writer_client_id
-    try:
-        stored = json.loads(
-            (
-                Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
-                / ".phlo"
-                / "polaris-principals.json"
-            ).read_text(encoding="utf-8")
-        )
-        if stored.get(client_id):
-            return str(stored[client_id])
-    except (OSError, json.JSONDecodeError):
-        pass
-    secret = os.environ.get("POLARIS_WRITER_CLIENT_SECRET") or settings.polaris_writer_client_secret
-    return f"{client_id}:{secret}"
+    """Use the same persisted principal credential as the Trino adapter."""
+    return get_settings().writer_credential()
 
 
 def _pyiceberg_catalog_config() -> dict[str, Any]:
@@ -67,7 +41,8 @@ def _pyiceberg_catalog_config() -> dict[str, Any]:
         "oauth2-server-uri": settings.oauth_token_uri(),
         "s3.endpoint": os.environ.get("ICEBERG_S3_ENDPOINT", "http://minio:9000/"),
         "s3.access-key-id": os.environ.get("ICEBERG_S3_ACCESS_KEY", "minio"),
-        "s3.secret-access-key": os.environ.get("ICEBERG_S3_SECRET_KEY", "minio123"),
+        "s3.secret-access-key": os.environ.get("ICEBERG_S3_SECRET_KEY")
+        or os.environ.get("MINIO_ROOT_PASSWORD", ""),
         "s3.path-style-access": "true",
         "s3.region": os.environ.get("ICEBERG_S3_REGION", "us-east-1"),
     }

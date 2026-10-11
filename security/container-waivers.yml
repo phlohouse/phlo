@@ -2,3 +2,45 @@
 # Keep this list empty until an approved, time-limited exception is necessary.
 version: 1
 waivers: []
+
+# Runtime exceptions are separate from vulnerability waivers. They do not waive CVEs.
+runtime_waivers:
+  - id: clickstack-root-entrypoint
+    service: clickstack
+    image: docker.io/hyperdx/hyperdx-all-in-one:2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1
+    exception: root-runtime
+    rationale: >-
+      The pinned all-in-one entrypoint writes /etc/hosts, creates logs in /var/log,
+      and starts embedded ClickHouse and MongoDB. A fixed non-root UID cannot run
+      this unchanged image. Splitting the upstream distribution is outside #984.
+    source: https://github.com/hyperdxio/hyperdx/blob/4b1aefbae22ac02bffbdf7fca932f43095d3d8d6/docker/hyperdx/entry.local.base.sh
+    compensating_control: Optional service; generated host ports bind to loopback; no Docker socket or privileged mode.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/issues/984
+    review_by: 2026-11-10
+  - id: alloy-filtered-socket
+    service: alloy-docker
+    image: haproxy:3.2-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
+    exception: root-runtime-and-docker-socket
+    rationale: The proxy needs the root-owned host socket. Alloy itself has no socket mount.
+    compensating_control: >-
+      Dedicated internal network, no published ports, read-only root filesystem/socket
+      mount, all capabilities dropped, no-new-privileges. Only GET/HEAD discovery,
+      inspection, events and log endpoints pass; mutation, archive, exec and image
+      endpoints are denied. Container inspection/logs may contain sensitive data.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/issues/984
+    review_by: 2026-11-10
+  - id: traefik-filtered-socket
+    service: traefik-docker
+    image: haproxy:3.2-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
+    exception: root-runtime-and-docker-socket
+    rationale: The proxy needs the root-owned host socket. Traefik itself has no socket mount.
+    compensating_control: >-
+      Dedicated internal network, no published ports, read-only root filesystem/socket
+      mount, all capabilities dropped, no-new-privileges. Only GET/HEAD discovery,
+      inspection and events endpoints pass; logs, mutation, archive, exec and image
+      endpoints are denied. Container inspection may contain sensitive data.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/issues/984
+    review_by: 2026-11-10

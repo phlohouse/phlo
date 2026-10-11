@@ -598,10 +598,10 @@ Source: `packages/phlo-polaris/src/phlo_polaris/settings.py`
 | `polaris_port` | `["POLARIS_PORT"]` | `<class 'int'>` | false | `8181` | Polaris API port |
 | `polaris_query_engine` | `["POLARIS_QUERY_ENGINE"]` | `str \| None` | false | `none` | Optional query-engine capability used by catalog scanners |
 | `polaris_reader_client_id` | `["POLARIS_READER_CLIENT_ID"]` | `<class 'str'>` | false | `phlo_reader` | Reader principal client id |
-| `polaris_reader_client_secret` | `["POLARIS_READER_CLIENT_SECRET"]` | `<class 'str'>` | false | `phlo-reader-secret` | Reader principal client secret |
-| `polaris_root_credentials` | `["POLARIS_ROOT_CREDENTIALS"]` | `<class 'str'>` | false | `root:s3cr3t` | Bootstrap principal credentials as client_id:client_secret |
+| `polaris_reader_client_secret` | `["POLARIS_READER_CLIENT_SECRET"]` | `<class 'str'>` | false | `""` | Reader principal client secret |
+| `polaris_root_credentials` | `["POLARIS_ROOT_CREDENTIALS"]` | `<class 'str'>` | false | `""` | Bootstrap principal credentials as client_id:client_secret |
 | `polaris_writer_client_id` | `["POLARIS_WRITER_CLIENT_ID"]` | `<class 'str'>` | false | `phlo_writer` | Writer principal client id |
-| `polaris_writer_client_secret` | `["POLARIS_WRITER_CLIENT_SECRET"]` | `<class 'str'>` | false | `phlo-writer-secret` | Writer principal client secret |
+| `polaris_writer_client_secret` | `["POLARIS_WRITER_CLIENT_SECRET"]` | `<class 'str'>` | false | `""` | Writer principal client secret |
 
 ## `phlo-postgres`: `PostgresSettings`
 
