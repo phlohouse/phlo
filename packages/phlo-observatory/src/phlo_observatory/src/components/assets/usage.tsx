@@ -1,3 +1,6 @@
+/**
+ * Displays preview and verified-query usage without treating absent evidence as zero use.
+ */
 import type { ApiAssetQueryUsage, ApiAssetUsage } from '@/lib/data/api/assets'
 
 export function UsageTab({

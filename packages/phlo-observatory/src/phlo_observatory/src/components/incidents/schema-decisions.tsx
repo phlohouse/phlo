@@ -1,3 +1,6 @@
+/**
+ * Records per-column schema choices without claiming a merge or code-contract edit.
+ */
 import * as React from 'react'
 import {
   getSchemaDecisions,

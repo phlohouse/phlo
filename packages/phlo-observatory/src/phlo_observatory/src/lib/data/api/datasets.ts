@@ -1,3 +1,6 @@
+/**
+ * Validates the project-scoped core Dataset inventory response.
+ */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { phloApi } from './client'

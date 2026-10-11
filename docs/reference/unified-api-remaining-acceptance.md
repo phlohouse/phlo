@@ -16,6 +16,8 @@ The frozen prerequisite `issue-1035-contract-base` points to [a3dbd26](https://g
 
 The additional stable prerequisite `issue-1035-text-contract-base` points to [6613371](https://github.com/phlohouse/phlo/commit/6613371d0bf55c6645bbc366162b4c54a1a2e625). It adds subscription and follow-up mutation response models, preserving the created follow-up's incident identity and nullable dates. Persisted replay dates are restored through the same wire model before serialization. A real PostgreSQL HTTP regression checks required response metadata, true and false subscriptions, nullable dates, completed timestamps, and identical replay responses. The original frozen branch is unchanged. There is no second issue PR.
 
+The new narrow prerequisite `issue-1035-effect-contract-base` points to [937694c](https://github.com/phlohouse/phlo/commit/937694cfb03f5b781d74b3896421296daeecc0d0), based exactly on frozen 6613371. Hosted integration found seven stale dictionary-style assumptions in the Python incident parity tests after effects became typed models. The tests now read model attributes and also check the actual FastAPI JSON effect fields against disposable PostgreSQL. Producer models and response gates are unchanged. All five parity tests pass with the required no-skip plugin on both this narrow prerequisite and the product tree. The frozen branches are unchanged.
+
 ## Executed evidence and outstanding acceptance
 
 The browser used the built bundled Node application, real local FastAPI, a disposable PostgreSQL 18 database, and two real Dagster code locations. These are local acceptance sources, not production or staging deployments. No shared database migration, production write, or deployment was performed.

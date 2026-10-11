@@ -1,3 +1,6 @@
+/**
+ * Lists shared completed-query metadata independently of workspace availability.
+ */
 import * as React from 'react'
 import { getQueryHistory } from '@/lib/data/api/query'
 import { Button } from '@/components/ui/button'

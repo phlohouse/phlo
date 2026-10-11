@@ -1,3 +1,6 @@
+/**
+ * Displays retained run outcomes with incomplete and unavailable evidence explicit.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 import { getRunReport } from '@/lib/data/api/reports'

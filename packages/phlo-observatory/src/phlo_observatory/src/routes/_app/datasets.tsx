@@ -1,3 +1,6 @@
+/**
+ * Renders project-governed Dataset inventory and explicit unavailable evidence.
+ */
 import { createFileRoute } from '@tanstack/react-router'
 import { getDatasetInventory } from '@/lib/data/api/datasets'
 import { PageHeader } from '@/components/phlo/page'

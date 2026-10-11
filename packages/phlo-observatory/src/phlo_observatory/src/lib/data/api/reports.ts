@@ -1,3 +1,6 @@
+/**
+ * Reads durable reports for exact project, logical run and attempt identities.
+ */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { phloApi } from './client'
