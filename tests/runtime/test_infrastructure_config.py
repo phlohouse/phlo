@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from phlo.config_schema import InfrastructureConfig, ServiceConfig
 from phlo.infrastructure import (
@@ -27,7 +26,7 @@ from phlo.infrastructure import (
     load_project_config,
     load_wap_config,
 )
-from phlo.infrastructure.config import get_api_authorization_config
+from phlo.infrastructure.config import ProjectConfigError, get_api_authorization_config
 from phlo.security.mode import is_regulated, is_regulated_mode_enabled
 
 
@@ -143,7 +142,7 @@ def test_get_capability_defaults_from_config_reads_defaults_block(tmp_path: Path
     assert defaults == {"table_store": "iceberg", "query_engine": "trino"}
 
 
-def test_get_api_authorization_config_ignores_non_mapping_service_auth(tmp_path: Path) -> None:
+def test_get_api_authorization_config_rejects_non_mapping_service_auth(tmp_path: Path) -> None:
     config_path = tmp_path / "phlo.yaml"
     _write_phlo_yaml(
         config_path,
@@ -153,11 +152,8 @@ def test_get_api_authorization_config_ignores_non_mapping_service_auth(tmp_path:
         },
     )
 
-    auth_config = get_api_authorization_config(tmp_path)
-
-    assert auth_config is not None
-    assert auth_config.mode == "required"
-    assert auth_config.backend is None
+    with pytest.raises(ProjectConfigError, match="authorization"):
+        get_api_authorization_config(tmp_path)
 
 
 def test_get_regulated_config_reads_root_boolean(tmp_path: Path) -> None:
@@ -171,7 +167,7 @@ def test_get_regulated_config_rejects_non_boolean(tmp_path: Path) -> None:
     config_path = tmp_path / "phlo.yaml"
     _write_phlo_yaml(config_path, {"regulated": "true"})
 
-    with pytest.raises(ValueError, match="regulated.*must be a boolean"):
+    with pytest.raises(ProjectConfigError, match="regulated"):
         get_regulated_config(tmp_path)
 
 
@@ -197,7 +193,7 @@ def test_get_authentication_config_rejects_non_mapping(tmp_path: Path) -> None:
     config_path = tmp_path / "phlo.yaml"
     _write_phlo_yaml(config_path, {"authentication": True})
 
-    with pytest.raises(ValueError, match="authentication must be a mapping"):
+    with pytest.raises(ProjectConfigError, match="authentication"):
         get_authentication_config(tmp_path)
 
 
@@ -212,7 +208,7 @@ def test_get_authentication_provider_config_rejects_non_string(tmp_path: Path) -
     config_path = tmp_path / "phlo.yaml"
     _write_phlo_yaml(config_path, {"authentication": {"provider": True}})
 
-    with pytest.raises(ValueError, match="authentication.provider must be a string"):
+    with pytest.raises(ProjectConfigError, match="authentication.provider"):
         get_authentication_provider_config(tmp_path)
 
 
@@ -371,7 +367,7 @@ wap:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ProjectConfigError, match="wap"):
         load_wap_config(tmp_path)
 
 
@@ -414,7 +410,7 @@ def test_load_infrastructure_config_invalid_yaml_raises(tmp_path: Path):
     config_path = tmp_path / "phlo.yaml"
     config_path.write_text("infrastructure:\n  services:\n    dagster: [")
 
-    with pytest.raises(yaml.YAMLError):
+    with pytest.raises(ProjectConfigError, match="invalid YAML"):
         load_infrastructure_config(tmp_path)
 
 
@@ -430,7 +426,7 @@ def test_load_infrastructure_config_invalid_schema_raises(tmp_path: Path):
         },
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ProjectConfigError, match="container_naming_pattern"):
         load_infrastructure_config(tmp_path)
 
 
@@ -445,7 +441,8 @@ def test_get_project_name_from_config_handles_missing_and_invalid_config(tmp_pat
 
     config_path.write_text("name: [")
     clear_config_cache()
-    assert get_project_name_from_config(tmp_path) is None
+    with pytest.raises(ProjectConfigError, match="invalid YAML"):
+        get_project_name_from_config(tmp_path)
 
 
 def test_service_config_and_container_name_helpers_use_service_override(tmp_path: Path):
@@ -579,3 +576,53 @@ def test_is_regulated_mode_enabled_alias_emits_deprecation_warning(
         result = is_regulated_mode_enabled()
 
     assert result is True
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"image": "alpine"},
+        {"type": "installed", "build": {"context": "."}},
+        {"type": "inline"},
+        {"type": "unknown", "image": "alpine"},
+    ],
+)
+def test_service_override_invalid_states_fail_at_project_boundary(tmp_path: Path, override) -> None:
+    _write_phlo_yaml(tmp_path / "phlo.yaml", {"services": {"worker": override}})
+    with pytest.raises(ProjectConfigError, match="services"):
+        load_project_config(tmp_path)
+
+
+def test_project_queries_share_one_validated_parse(tmp_path: Path, monkeypatch) -> None:
+    from phlo.config_schema import InlineServiceOverride, InstalledServiceOverride
+    from phlo.infrastructure.config import load_project_model
+
+    _write_phlo_yaml(
+        tmp_path / "phlo.yaml",
+        {
+            "name": "typed-project",
+            "services": {
+                "api": {"enabled": False},
+                "worker": {"type": "inline", "image": "alpine"},
+            },
+            "capabilities": {"defaults": {"query_engine": "trino"}},
+            "provider_extension": {"opaque": [1, 2]},
+        },
+    )
+    reads = []
+    original = yaml.safe_load
+
+    def read(stream):
+        reads.append(stream.name)
+        return original(stream)
+
+    monkeypatch.setattr(yaml, "safe_load", read)
+    model = load_project_model(tmp_path)
+    assert isinstance(model.services.overrides["api"], InstalledServiceOverride)
+    assert isinstance(model.services.overrides["worker"], InlineServiceOverride)
+    assert get_project_name_from_config(tmp_path) == "typed-project"
+    assert get_capability_defaults_from_config(tmp_path) == {"query_engine": "trino"}
+    legacy = load_project_config(tmp_path)
+    assert legacy["services"]["api"] == {"enabled": False}
+    assert legacy["provider_extension"] == {"opaque": [1, 2]}
+    assert len(reads) == 1

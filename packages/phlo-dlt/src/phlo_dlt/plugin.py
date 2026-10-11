@@ -45,7 +45,7 @@ Example:
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
@@ -264,7 +264,7 @@ class DLTIngestionProvider(IngestionProviderPlugin):
 class DltWorkflowAuthoringProvider:
     """Create DLT-backed ingestion workflow files."""
 
-    def create_workflow(self, *, project_root: Path, request: dict[str, Any]) -> dict[str, Any]:
+    def create_workflow(self, *, project_root: Path, request: Mapping[str, Any]) -> dict[str, Any]:
         """Create a DLT ingestion workflow from an authoring request and return its files."""
         from phlo_dlt.scaffold import create_ingestion_workflow
 
