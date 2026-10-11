@@ -32,6 +32,14 @@ def test_services_stop_uses_podman_backend(monkeypatch, tmp_path) -> None:
         calls.append(cmd)
         return CompletedProcess(cmd, 0)
 
+    class UnavailableStatusBackend:
+        def list_project_containers(self, project_name: str):
+            raise RuntimeError("Container status unavailable after shutdown")
+
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.stop.select_project_container_backend",
+        lambda **_kwargs: UnavailableStatusBackend(),
+    )
     monkeypatch.setattr(
         "phlo.cli.commands.services.stop.require_container_backend",
         lambda *_args, **_kwargs: None,

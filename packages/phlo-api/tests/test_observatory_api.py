@@ -3605,6 +3605,72 @@ def test_observatory_operations_classify_terminal_wap_reports(
     assert wap["health"]["state"] == health_state
 
 
+def test_maintenance_operations_and_search_read_isolated_telemetry(
+    monkeypatch, tmp_path, observatory_loaders
+) -> None:
+    from phlo.capabilities import DefaultMaintenanceReadModel
+    from phlo.capabilities.specs import MaintenanceReadModelSpec
+
+    telemetry = tmp_path / "events.jsonl"
+    telemetry.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "event_type": "telemetry.log",
+                    "name": "iceberg.maintenance.complete",
+                    "timestamp": "2026-06-17T10:00:00+00:00",
+                    "tags": {"operation": "expire_snapshots", "namespace": "raw", "ref": ref},
+                    "payload": {"status": "succeeded", "duration_seconds": 12.5, "dry_run": True},
+                }
+            )
+            for ref in ("main", "other")
+        )
+        + "\n"
+    )
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_TELEMETRY_PATH", str(telemetry))
+    registry = CapabilityRegistry()
+    registry.register(
+        "maintenance_read_model",
+        MaintenanceReadModelSpec(name="default", provider=DefaultMaintenanceReadModel()),
+    )
+    observatory_loaders(capability_registry=registry, assets=[], tables=[], services=[], logs=[])
+    observatory._clear_read_model_cache()
+    client = authenticated_client("admin")
+
+    response = client.get("/api/observatory/operations")
+    assert response.status_code == 200
+    operations = {item["id"]: item for item in response.json()["items"]}
+    assert set(operations) == {"expire_snapshots:raw:main", "expire_snapshots:raw:other"}
+    main = operations["expire_snapshots:raw:main"]
+    assert main["status"] == "succeeded" and main["health"]["state"] == "ok"
+    assert main["completed_at"] == "2026-06-17T10:00:00+00:00"
+    assert main["duration_seconds"] == 12.5
+    assert main["target"]["id"] == "main"
+    assert main["metadata"]["dry_run"] is True
+    assert "completed_at" not in main["metadata"]
+
+    overview = client.get("/api/observatory/overview")
+    assert overview.status_code == 200
+    assert {item["id"] for item in overview.json()["events"]} == {
+        "operation:expire_snapshots:raw:main",
+        "operation:expire_snapshots:raw:other",
+    }
+
+    search = client.get("/api/observatory/search", params={"q": "raw:main"})
+    assert search.status_code == 200
+    assert search.json()["items"] == [
+        {
+            "id": "operation:expire_snapshots:raw:main",
+            "label": "expire_snapshots",
+            "kind": "operation",
+            "summary": "maintenance · succeeded",
+            "href": "/operations?operationId=expire_snapshots%3Araw%3Amain",
+            "metadata": {},
+        }
+    ]
+
+
 def test_observatory_branch_detail_uses_wap_report_tables_when_catalog_tables_missing(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -3631,13 +3697,25 @@ def test_observatory_branch_detail_uses_wap_report_tables_when_catalog_tables_mi
         ),
         encoding="utf-8",
     )
+    (reports_dir / "other.json").write_text(
+        json.dumps(
+            {
+                "run_id": "other",
+                "status": "promoted",
+                "branch": "other-branch",
+                "tables": ["private.other_table"],
+                "updated_at": "2026-06-17T11:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(
         "phlo_api.observatory_api.observatory._load_branches",
         lambda: [
             ObservatoryBranch(
                 id="pipeline-run-1",
                 name="pipeline-run-1",
-                metadata={"changed": 1, "tables": 1},
+                metadata={"changed": 1, "tables": 1, "ahead": "unavailable", "behind": 5},
             )
         ],
     )
@@ -3646,8 +3724,10 @@ def test_observatory_branch_detail_uses_wap_report_tables_when_catalog_tables_mi
 
     payload = authenticated_client("admin").get("/api/observatory/branches/pipeline-run-1").json()
 
-    assert payload["tables"][0]["id"] == "analytics.orders"
+    assert [table["id"] for table in payload["tables"]] == ["analytics.orders"]
     assert payload["contents"][0]["label"] == "orders"
+    assert payload["compare"]["ahead"] == 0
+    assert payload["compare"]["behind"] == 5
 
 
 def test_observatory_branch_actions_use_registered_catalog_provider(
