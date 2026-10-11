@@ -1,5 +1,5 @@
 {
-  "field_count": 313,
+  "field_count": 316,
   "model_count": 51,
   "models": [
     {
@@ -1471,6 +1471,17 @@
           ],
           "name": "staging_single_replica",
           "required": false
+        },
+        {
+          "alias": "WEB_CONCURRENCY",
+          "annotation": "<class 'int'>",
+          "default": 1,
+          "description": "Configured API worker count; local operation controls require one worker",
+          "environment_names": [
+            "WEB_CONCURRENCY"
+          ],
+          "name": "workers",
+          "required": false
         }
       ],
       "inherited_fields": {},
@@ -1765,6 +1776,28 @@
             "PHLO_API_CORS_ORIGINS"
           ],
           "name": "phlo_api_cors_origins",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_operation_controls_db_url",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL DSN for shared API idempotency, exclusion and rate limits",
+          "environment_names": [
+            "PHLO_API_OPERATION_CONTROLS_DB_URL"
+          ],
+          "name": "phlo_api_operation_controls_db_url",
+          "required": false
+        },
+        {
+          "alias": "phlo_api_operation_controls_namespace",
+          "annotation": "<class 'str'>",
+          "default": "",
+          "description": "Stable project identity shared by every API replica; required with the controls DSN",
+          "environment_names": [
+            "PHLO_API_OPERATION_CONTROLS_NAMESPACE"
+          ],
+          "name": "phlo_api_operation_controls_namespace",
           "required": false
         },
         {

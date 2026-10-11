@@ -30,6 +30,7 @@ from phlo_api.api.operation_controls import (
     load_operational_settings,
     replay_or_execute_async,
     require_scope,
+    shared_operation_controls,
 )
 from phlo_api.api.v1 import _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
@@ -252,10 +253,9 @@ def _validate_name(name: str, env: Environment) -> str:
 def _require_branch_actions() -> None:
     settings = get_deployment_settings()
     if (
-        not settings.actions_single_replica
-        or not settings.actions_single_process
-        or not settings.actions_ref_tag_contract
-    ):
+        shared_operation_controls() is None
+        and (not settings.actions_single_replica or not settings.actions_single_process)
+    ) or not settings.actions_ref_tag_contract:
         raise BackendUnavailableError("Environment-pinned branch actions are not enabled.")
 
 
@@ -1104,6 +1104,7 @@ async def v1_branch_create(
         idempotency_key=key,
         operation=operation,
         target=action_target,
+        exclusion_target=f"{env}:{name}",
         execute=execute,
         audit=_audit_callback(
             _action_actor(request, auth),
@@ -1168,6 +1169,7 @@ async def v1_branch_delete(
         idempotency_key=key,
         operation=operation,
         target=action_target,
+        exclusion_target=f"{env}:{name}",
         execute=execute,
         audit=_audit_callback(
             _action_actor(request, auth),
@@ -1326,6 +1328,7 @@ async def v1_branch_rebase(
         idempotency_key=key,
         operation=operation,
         target=action_target,
+        exclusion_target=f"{env}:{source_name}",
         execute=execute,
         audit=_audit_callback(
             _action_actor(request, auth),
@@ -1375,6 +1378,7 @@ async def v1_branch_checks(
         idempotency_key=key,
         operation=operation,
         target=action_target,
+        exclusion_target=f"{env}:{branch_name}",
         execute=execute,
         audit=_audit_callback(
             _action_actor(request, auth),
@@ -1468,6 +1472,7 @@ async def v1_branch_trial_merge(
         idempotency_key=key,
         operation=operation,
         target=action_target,
+        exclusion_target=f"{env}:{payload.target}",
         execute=execute,
         audit=_audit_callback(
             _action_actor(request, auth),
@@ -1648,6 +1653,7 @@ async def v1_branch_merge(
         idempotency_key=key,
         operation=operation,
         target=action_target,
+        exclusion_target=f"{env}:{payload.target}",
         execute=execute,
         audit=_audit_callback(
             actor,
