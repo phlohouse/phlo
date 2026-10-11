@@ -160,7 +160,7 @@ export function SchemaDecisions({
           </div>
           {columns.map((column, index) => (
             <div key={index} className="flex flex-wrap items-end gap-2">
-              <label className="min-w-0 flex-1 text-sm">
+              <label className="min-w-0 basis-full text-sm sm:flex-1">
                 Column {index + 1}
                 <Input
                   value={column.name}
