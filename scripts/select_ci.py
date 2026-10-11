@@ -101,7 +101,9 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
         for group, packages in groups.items()
         if affected.intersection(packages)
     ]
-    frontend = any(path.startswith("packages/phlo-observatory/") for path in paths)
+    frontend = "phlo-api" in affected or any(
+        path.startswith("packages/phlo-observatory/") for path in paths
+    )
     writer = any(path.startswith("apps/phlo-github-writer/") for path in paths)
     return {
         "groups": selected,
@@ -114,7 +116,9 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
         "mutation": "phlo-api" in affected,
         "reasons": {
             "packages": "changed packages and reverse dependencies: " + ", ".join(sorted(affected)),
-            "frontend": "all Observatory package inputs" if frontend else "no Observatory changes",
+            "frontend": "Observatory or authoritative API inputs"
+            if frontend
+            else "no client/API changes",
             "docs": "package API or documentation changes",
             "plugin": "plugin source changes",
         },

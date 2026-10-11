@@ -144,10 +144,13 @@ def test_concurrent_idempotency_async_executes_provider_once(monkeypatch, tmp_pa
     """Two concurrent async calls invoke the provider exactly once."""
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     provider_calls: list[int] = []
+    entered = asyncio.Event()
+    release = asyncio.Event()
 
     async def execute() -> dict[str, Any]:
         provider_calls.append(1)
-        await asyncio.sleep(0.3)
+        entered.set()
+        await release.wait()
         return {"ok": True, "run_id": "run-async-1"}
 
     async def caller() -> dict[str, Any]:
@@ -159,7 +162,15 @@ def test_concurrent_idempotency_async_executes_provider_once(monkeypatch, tmp_pa
         )
 
     async def main() -> tuple[Any, Any]:
-        return await asyncio.gather(caller(), caller(), return_exceptions=True)
+        first = asyncio.create_task(caller())
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        try:
+            second = await caller()
+        except IdempotencyConflict as exc:
+            second = exc
+        finally:
+            release.set()
+        return await first, second
 
     r1, r2 = asyncio.run(main())
 

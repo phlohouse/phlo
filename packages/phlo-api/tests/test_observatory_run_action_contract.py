@@ -313,10 +313,13 @@ def test_pending_key_conflicts_without_duplicate_execution(monkeypatch, tmp_path
     import httpx
 
     calls: list[str] = []
+    entered = asyncio.Event()
+    release = asyncio.Event()
 
     async def retry_run(run_id: str, payload: Any) -> dict[str, Any]:
         calls.append(run_id)
-        await asyncio.sleep(0.4)
+        entered.set()
+        await release.wait()
         return _retry_provider_result("run-new-456")
 
     provider = _fake_provider(retry_run=retry_run)
@@ -330,8 +333,13 @@ def test_pending_key_conflicts_without_duplicate_execution(monkeypatch, tmp_path
             return await client.post(RETRY_URL, json=body, headers=OPERATE_HEADERS)
 
     async def main() -> tuple[httpx.Response, httpx.Response]:
-        first, second = await asyncio.gather(call_once(), call_once())
-        return first, second
+        first = asyncio.create_task(call_once())
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        try:
+            second = await call_once()
+        finally:
+            release.set()
+        return await first, second
 
     r1, r2 = asyncio.run(main())
 

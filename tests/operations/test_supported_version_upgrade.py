@@ -1,4 +1,4 @@
-"""Integration: prove the supported version upgrade journey (Plan 013 Step 5)."""
+"""In-process version upgrade with injected provider boundaries (Plan 013 Step 5)."""
 
 from __future__ import annotations
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
-import time
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -1181,15 +1181,20 @@ def test_asset_list_page_stats_have_a_whole_operation_deadline(client, monkeypat
     async def graphql(*args, **kwargs):
         return _asset_inventory_response(nodes)
 
+    release = threading.Event()
+
     def slow_table_metadata(name, ref):
-        time.sleep(0.05)
+        assert release.wait(timeout=5)
         return {"row_count": 42, "size_bytes": 2048}
 
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     monkeypatch.setattr(v1_assets, "_iceberg_asset_metadata", slow_table_metadata)
     monkeypatch.setattr(v1_assets, "_ASSET_PAGE_STATS_TIMEOUT_SECONDS", 0.01)
 
-    response = http.get("/api/v1/assets?env=prod&limit=9")
+    try:
+        response = http.get("/api/v1/assets?env=prod&limit=9")
+    finally:
+        release.set()
 
     assert response.status_code == 200, response.text
     payload = response.json()
