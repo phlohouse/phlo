@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 209,
+  "endpoint_count": 212,
   "endpoints": [
     {
       "method": "GET",
@@ -1318,6 +1318,15 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_datasets_api_v1_datasets_get",
+      "path": "/api/v1/datasets",
+      "summary": "V1 Datasets",
+      "tags": [
+        "v1 datasets"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_environments_api_v1_environments_get",
       "path": "/api/v1/environments",
       "summary": "V1 Environments",
@@ -1551,6 +1560,15 @@
       ]
     },
     {
+      "method": "GET",
+      "operation_id": "v1_run_report_api_v1_projects__project_id__runs__run_id__attempts__attempt__report_get",
+      "path": "/api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
+      "summary": "V1 Run Report",
+      "tags": [
+        "observatory"
+      ]
+    },
+    {
       "method": "POST",
       "operation_id": "v1_query_submit_api_v1_queries_post",
       "path": "/api/v1/queries",
@@ -1564,6 +1582,15 @@
       "operation_id": "v1_query_explain_api_v1_queries_explain_post",
       "path": "/api/v1/queries/explain",
       "summary": "V1 Query Explain",
+      "tags": [
+        "v1 query workspace"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_query_history_api_v1_queries_history_get",
+      "path": "/api/v1/queries/history",
+      "summary": "V1 Query History",
       "tags": [
         "v1 query workspace"
       ]

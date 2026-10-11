@@ -472,6 +472,27 @@ def persist_query_execution(
         )
 
 
+def list_query_executions(env: Environment, nessie_ref: str, limit: int) -> list[dict[str, Any]]:
+    """List shared execution identities without confidential statements or results."""
+    with _transaction() as connection, connection.cursor() as cur:
+        cur.execute(
+            """SELECT query_id,env,nessie_ref,engine,statement_sha256,completed_at
+               FROM phlo.query_execution WHERE env=%s AND nessie_ref=%s
+               ORDER BY completed_at DESC,query_id DESC LIMIT %s""",
+            (env, nessie_ref, limit),
+        )
+        return [
+            dict(
+                zip(
+                    ("id", "env", "nessie_ref", "engine", "sql_hash", "completed_at"),
+                    row,
+                    strict=True,
+                )
+            )
+            for row in cur.fetchall()
+        ]
+
+
 def load_query_execution(query_id: str, env: Environment, actor: str) -> dict[str, Any] | None:
     """Return confidential evidence only to its initiating actor in the same environment."""
     with _transaction() as connection, connection.cursor() as cur:

@@ -97,6 +97,76 @@ def _wait_for_result(client: TestClient, query_id: str, env: str = "prod") -> di
     raise AssertionError("query did not settle")
 
 
+def test_query_history_reports_missing_evidence_without_inventing_empty_success(
+    query_api, monkeypatch
+):
+    client, _ = query_api
+    monkeypatch.delenv("PHLO_RUN_EVIDENCE_DB_URL", raising=False)
+    response = client.get("/api/v1/queries/history?env=staging")
+    assert response.status_code == 200
+    assert response.json() == {
+        "env": "staging",
+        "status": "unavailable",
+        "reason": "durable_query_evidence_not_configured",
+        "items": [],
+        "truncated": False,
+    }
+    for query in ("env=invalid", "env=prod&env=staging", "env=prod&limit=101"):
+        assert client.get(f"/api/v1/queries/history?{query}").status_code == 422
+    assert client.get("/api/v1/queries/history?env=prod&ref=main").status_code == 400
+
+
+@pytest.mark.integration
+def test_shared_query_history_is_durable_bounded_ref_scoped_and_keeps_results_private(
+    query_api, monkeypatch
+):
+    import hashlib
+    from testcontainers.postgres import PostgresContainer
+    from phlo_api import incidents
+
+    client, _ = query_api
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
+        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
+        incidents.initialize_incidents()
+        for query_id, actor, env, ref in (
+            ("prod-1", "alice", "prod", "main"),
+            ("staging-1", "bob", "staging", "candidate"),
+            ("old-ref", "alice", "prod", "previous"),
+            ("prod-2", "bob", "prod", "main"),
+        ):
+            incidents.persist_query_execution(
+                query_id=query_id,
+                actor=actor,
+                env=env,
+                nessie_ref=ref,
+                statement="SELECT 'private value'",
+                executed_statement="SELECT 'private value' LIMIT 1",
+                result={"rows": [{"secret": "private result"}]},
+                provider_query_id=None,
+            )
+        v1_query._QUERY_SESSIONS.clear()
+        response = client.get("/api/v1/queries/history?env=prod&limit=1")
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["status"] == "partial"
+        assert page["truncated"] is True
+        assert [item["id"] for item in page["items"]] == ["prod-2"]
+        assert page["items"][0]["sql_hash"] == hashlib.sha256(b"SELECT 'private value'").hexdigest()
+        assert set(page["items"][0]) == {
+            "id",
+            "env",
+            "nessie_ref",
+            "engine",
+            "sql_hash",
+            "completed_at",
+        }
+        assert "private" not in response.text
+        assert [
+            item["id"] for item in client.get("/api/v1/queries/history?env=staging").json()["items"]
+        ] == ["staging-1"]
+        assert client.get("/api/v1/queries/prod-2?env=prod").status_code == 404
+
+
 def test_catalog_refs_and_engines_are_resolved_from_each_environment(query_api):
     client, _ = query_api
     prod = client.get("/api/v1/query/catalog?env=prod").json()

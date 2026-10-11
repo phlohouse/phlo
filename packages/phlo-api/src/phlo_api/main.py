@@ -96,6 +96,7 @@ _ROUTERS = [
     ("phlo_api.api.v1_query", "/api/v1"),
     ("phlo_api.incidents", "/api/v1"),
     ("phlo_api.api.v1_assets", "/api/v1"),
+    ("phlo_api.api.v1_datasets", "/api/v1"),
     ("phlo_api.usage", "/api/v1"),
     ("phlo_api.api.authoring", "/api/authoring"),
     ("phlo_api.api.continuity", "/api/continuity"),
@@ -104,7 +105,7 @@ _ROUTERS = [
     ("phlo_api.observatory_api.loki", "/api/loki"),
     ("phlo_api.observatory_api.observatory", "/api/observatory"),
     ("phlo_api.observatory_api.package_install", "/api/observatory"),
-    ("phlo_api.observatory_api.run_report", "/api/observatory"),
+    ("phlo_api.observatory_api.run_report", ""),
 ]
 
 _OBSERVATORY_ROUTERS_NO_PREFIX: list[str] = []

@@ -53,6 +53,33 @@ def _cli_projection(tmp_path, dataset_id: str = "gold.orders") -> dict:
     return json.loads(result.output)["data"]
 
 
+def test_v1_dataset_inventory_matches_core_declarations(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, _declared_orders
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_DATASET_STATE_STORE", "memory")
+    expected = _cli_projection(tmp_path)
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    (workflows / "invoices.py").write_text(
+        "import phlo\n"
+        "@phlo.contract(table='gold.invoices', owner='billing')\n"
+        "def invoices_contract(): pass\n",
+        encoding="utf-8",
+    )
+    client = authenticated_client("admin")
+    response = client.get("/api/v1/datasets")
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "scope": "project",
+        "source": "core_dataset_authority",
+        "items": [_cli_projection(tmp_path, "gold.invoices"), expected],
+        "truncated": False,
+    }
+    assert client.get("/api/v1/datasets?env=staging").status_code == 400
+    assert client.get("/api/v1/datasets?limit=501").status_code == 422
+
+
 def test_cli_show_json_matches_api_profile_canonical(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

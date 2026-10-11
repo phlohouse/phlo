@@ -788,7 +788,7 @@ def fetch_run_report(config: RunConfig, wap_run: WapRun, token: str) -> dict[str
         config,
         "phlo-api",
         4000,
-        f"/api/observatory/projects/{config.project_name}/runs/{wap_run.logical_run_id}/attempts/1/report",
+        f"/api/v1/projects/{config.project_name}/runs/{wap_run.logical_run_id}/attempts/1/report",
     )
     deadline = time.monotonic() + RUN_REPORT_TIMEOUT_SECONDS
     last_error: Exception | None = None
@@ -820,7 +820,7 @@ def verify_run_report(config: RunConfig, wap_run: WapRun) -> None:
         config,
         "phlo-api",
         4000,
-        f"/api/observatory/projects/{config.project_name}/runs/{wap_run.logical_run_id}-other/attempts/1/report",
+        f"/api/v1/projects/{config.project_name}/runs/{wap_run.logical_run_id}-other/attempts/1/report",
     )
     request = urllib.request.Request(
         other_url,
@@ -832,8 +832,7 @@ def verify_run_report(config: RunConfig, wap_run: WapRun) -> None:
     except urllib.error.HTTPError as exc:
         body = json.load(exc)
         if exc.code == 403 and body == {
-            "error": "forbidden",
-            "reason": "run_report_scope_mismatch",
+            "error": {"code": "forbidden", "message": "run_report_scope_mismatch"},
         }:
             return
         raise RuntimeError(f"unexpected scoped report response: {exc.code} {body!r}") from exc

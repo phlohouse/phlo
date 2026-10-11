@@ -29,8 +29,9 @@ def test_package_install_router_preserves_the_observatory_route_contract() -> No
         for method in route.methods or ()
     }
     run_report_operations = {
-        (method, route.path.replace(":path}", "}"))
+        (method, route.path.removeprefix("/api/observatory").replace(":path}", "}"))
         for route in run_report.router.routes
+        if route.path.startswith("/api/observatory")
         for method in route.methods or ()
     }
     registered_operations = {

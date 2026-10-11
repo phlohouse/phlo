@@ -178,6 +178,10 @@ function AssetsPage() {
         meta={
           <>
             {loaded} assets loaded in <Mono>{env}</Mono>
+            {' · '}
+            <Link to="/datasets" className="text-primary hover:underline">
+              Governed Datasets
+            </Link>
           </>
         }
         actions={
