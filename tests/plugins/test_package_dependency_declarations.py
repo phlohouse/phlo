@@ -17,6 +17,7 @@ ALLOWED_PROVIDER_EDGES = {
     ("phlo-api", "phlo-dagster"),
     ("phlo-api", "phlo-iceberg"),
     ("phlo-api", "phlo-pandera"),
+    ("phlo-api", "phlo-postgres"),
     ("phlo-core-plugins", "phlo-pandera"),
     ("phlo-dbt", "phlo-pandera"),
     ("phlo-observe-plugin", "phlo-dagster"),

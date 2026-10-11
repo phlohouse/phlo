@@ -21,7 +21,7 @@ Nessie outages return an unavailable error; they are not represented as empty re
 
 ## Guarded branch operations
 
-All branch mutations require `lakehouse:operate`, a non-blank `Idempotency-Key`, and the operator gates `PHLO_V1_ACTIONS_SINGLE_REPLICA=1`, `PHLO_V1_ACTIONS_SINGLE_PROCESS=1`, and `PHLO_V1_ACTIONS_REF_TAG_CONTRACT=1`. These gates are assertions, not replica discovery. Keep them disabled unless the API is actually one replica and one worker process and the mapped Dagster jobs honour their environment/ref tags. The operation journal and locks are not shared across replicas; production use remains restricted until #989 provides its shared-store guarantees.
+All branch mutations require `lakehouse:operate`, a non-blank `Idempotency-Key`, and `PHLO_V1_ACTIONS_REF_TAG_CONTRACT=1`. Shared PostgreSQL operation controls coordinate claims and resource exclusion across replicas. Without shared controls, `PHLO_V1_ACTIONS_SINGLE_REPLICA=1` and `PHLO_V1_ACTIONS_SINGLE_PROCESS=1` remain required operator assertions. The [production guide](../guides/run-in-production.md#configure-api-operation-controls-before-adding-workers) defines the shared-store deployment and migration requirements. In both modes, mapped Dagster jobs must honour their environment/ref tags, and signatures and provider hash preconditions remain mandatory.
 
 Branch names created through this API must start with the selected environment prefix. The configured environment ref cannot be deleted; signed, hash-pinned merges may target that ref after checks pass.
 
