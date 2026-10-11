@@ -157,6 +157,25 @@ class SchemaDecisionPage(WireModel):
     items: list[SchemaDecision]
 
 
+class IncidentEffect(WireModel):
+    id: str
+    kind: Literal["notification", "pause"]
+    status: Literal["pending", "delivering", "delivered", "failed"]
+    attempts: int
+    error: str | None
+
+
+class FollowUpView(WireModel):
+    id: str
+    description: str
+    due_at: datetime | None
+    completed_at: datetime | None
+
+
+class FollowUpPage(WireModel):
+    items: list[FollowUpView]
+
+
 class IncidentView(WireModel):
     id: str
     asset_id: str
@@ -172,7 +191,7 @@ class IncidentView(WireModel):
     description: str = ""
     notify_qa: bool = False
     pause_downstream: bool = False
-    effects: list[dict[str, Any]] = Field(default_factory=list)
+    effects: list[IncidentEffect] = Field(default_factory=list)
     layers: list[str] = Field(default_factory=list)
 
 
@@ -688,14 +707,16 @@ def dispatch_incident_effects(
                 )
 
 
-def _effect_status(cur: Any, incident_id: str, env: Environment) -> list[dict[str, Any]]:
+def _effect_status(cur: Any, incident_id: str, env: Environment) -> list[IncidentEffect]:
     cur.execute(
         """SELECT effect_id,kind,status,attempts,error FROM phlo.incident_effect
            WHERE incident_id=%s AND env=%s ORDER BY updated_at,effect_id""",
         (incident_id, env),
     )
     return [
-        dict(zip(("id", "kind", "status", "attempts", "error"), row, strict=True))
+        IncidentEffect.model_validate(
+            dict(zip(("id", "kind", "status", "attempts", "error"), row, strict=True))
+        )
         for row in cur.fetchall()
     ]
 
@@ -1243,7 +1264,7 @@ def subscribe_incident(
     return result
 
 
-@router.get("/incidents/{incident_id}/follow-ups")
+@router.get("/incidents/{incident_id}/follow-ups", response_model=FollowUpPage)
 def list_follow_ups(
     request: Request, incident_id: str, env: Environment = Query()
 ) -> dict[str, Any]:

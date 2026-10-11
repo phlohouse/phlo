@@ -614,24 +614,35 @@ export const materializeAsset = createServerFn({ method: 'POST' })
       confirmed: z.literal(true),
     }),
   )
-  .handler(({ data: { env, id, ...body } }) =>
-    phloApi(
+  .handler(async ({ data: { env, id, ...body } }) => {
+    const response = await phloApi(
       `api/v1/assets/${encodeURIComponent(id)}/materialize?env=${env}`,
       z.object({
         env: environmentSchema,
         nessie_ref: z.string(),
-        result: z.object({
-          accepted: z.boolean(),
-          job_name: z.string(),
-          run_ids: z.array(z.string()),
-          runs: z.array(
-            z.object({ accepted: z.boolean(), message: z.string().optional() }),
-          ),
-        }),
+        result: z.union([
+          z.object({
+            accepted: z.boolean(),
+            job_name: z.string(),
+            run_ids: z.array(z.string()),
+            runs: z.array(
+              z.object({
+                accepted: z.boolean(),
+                message: z.string().nullable().optional(),
+              }),
+            ),
+          }),
+          z.object({ accepted: z.boolean(), run_id: z.string().nullable() }),
+        ]),
       }),
       { env, body: { ...body, dry_run: false }, timeoutMs: 120_000 },
-    ),
-  )
+    )
+    if (!('run_ids' in response.result))
+      throw new Error(
+        'Phlo did not return the requested materialization plan outcome.',
+      )
+    return { ...response, result: response.result }
+  })
 
 export const backfillAsset = createServerFn({ method: 'POST' })
   .inputValidator(

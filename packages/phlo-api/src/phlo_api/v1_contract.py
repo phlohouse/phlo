@@ -35,6 +35,15 @@ class EnvironmentSelection(WireModel):
     env: Environment
 
 
+class ProviderActionResult(WireModel):
+    """Required acceptance decision with optional provider-specific outcome evidence."""
+
+    model_config = ConfigDict(extra="allow")
+    accepted: bool
+    run_id: str | None = None
+    message: str | None = None
+
+
 class EnvironmentTarget(WireModel):
     """Operator-configured target, never supplied by the request caller."""
 

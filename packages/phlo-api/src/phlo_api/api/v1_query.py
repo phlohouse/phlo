@@ -89,6 +89,17 @@ class QueryRequest(WireModel):
     engine: Literal["trino"] = "trino"
 
 
+class QueryColumn(WireModel):
+    name: str
+    type: str | None
+
+
+class QueryResult(WireModel):
+    columns: list[QueryColumn]
+    rows: list[dict[str, Any]]
+    has_more: bool
+
+
 class QuerySessionView(WireModel):
     id: str
     env: Environment
@@ -99,7 +110,7 @@ class QuerySessionView(WireModel):
     sql_hash: str
     created_at: datetime
     updated_at: datetime
-    result: dict[str, Any] | None
+    result: QueryResult | None
     error: str | None
 
 
@@ -224,7 +235,7 @@ def _query_view(session: QuerySession) -> QuerySessionView:
         sql_hash=hashlib.sha256(session.sql.encode()).hexdigest(),
         created_at=session.created_at,
         updated_at=session.updated_at,
-        result=session.result,
+        result=QueryResult.model_validate(session.result) if session.result is not None else None,
         error=session.error,
     )
 
