@@ -42,6 +42,31 @@ const savedQuerySchema = z.object({
   metadata: z.record(z.string(), z.json()),
 })
 const inputSchema = z.object({ env: environmentSchema })
+const historySchema = z.object({
+  env: environmentSchema,
+  status: z.enum(['partial', 'unavailable']),
+  reason: z.string().nullable(),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      env: environmentSchema,
+      nessie_ref: z.string(),
+      engine: z.literal('trino'),
+      sql_hash: z.string(),
+      completed_at: z.string(),
+    }),
+  ),
+  truncated: z.boolean(),
+})
+
+export const getQueryHistory = createServerFn({ method: 'GET' })
+  .inputValidator(inputSchema)
+  .handler(({ data }) =>
+    phloApi(`/api/v1/queries/history?env=${data.env}&limit=50`, historySchema, {
+      env: data.env,
+    }),
+  )
+
 const queryInputSchema = inputSchema.extend({
   engine: z.literal('trino').default('trino'),
   sql: z

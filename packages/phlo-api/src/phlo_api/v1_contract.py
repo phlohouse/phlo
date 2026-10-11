@@ -24,13 +24,24 @@ ReadPermission = Literal["service.read", "run.read"]
 
 
 class WireModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(
+        extra="forbid", strict=True, json_schema_serialization_defaults_required=True
+    )
 
 
 class EnvironmentSelection(WireModel):
     """Required query selection for an environment-sensitive resource."""
 
     env: Environment
+
+
+class ProviderActionResult(WireModel):
+    """Required acceptance decision with optional provider-specific outcome evidence."""
+
+    model_config = ConfigDict(extra="allow")
+    accepted: bool
+    run_id: str | None = None
+    message: str | None = None
 
 
 class EnvironmentTarget(WireModel):

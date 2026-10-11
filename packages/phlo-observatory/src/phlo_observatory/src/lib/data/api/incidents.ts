@@ -115,6 +115,59 @@ export function clearIncidentOperationKey(
 }
 
 const detailInput = z.object({ env: environmentSchema, id: z.string().min(1) })
+const schemaDecisionInput = z.object({
+  source_ref: z.string().trim().min(1).max(256),
+  target_ref: z.string().trim().min(1).max(256),
+  source_hash: z.string().trim().min(1).max(256),
+  target_hash: z.string().trim().min(1).max(256),
+  table_key: z.string().trim().min(1).max(512),
+  columns: z
+    .record(z.string().trim().min(1).max(512), z.enum(['source', 'target']))
+    .refine(
+      (columns) =>
+        Object.keys(columns).length > 0 && Object.keys(columns).length <= 500,
+    ),
+  justification: z.string().trim().min(1).max(4000),
+})
+const schemaDecision = schemaDecisionInput.extend({
+  id: z.string(),
+  incident_id: z.string(),
+  env: environmentSchema,
+  actor: z.string(),
+  created_at: z.string(),
+})
+export const getSchemaDecisions = createServerFn({ method: 'GET' })
+  .inputValidator(detailInput)
+  .handler(({ data }) =>
+    phloApi(
+      `api/v1/incidents/${encodeURIComponent(data.id)}/schema-decisions?env=${data.env}`,
+      z.object({
+        env: environmentSchema,
+        incident_id: z.string(),
+        items: z.array(schemaDecision),
+      }),
+      { env: data.env },
+    ),
+  )
+export const recordSchemaDecision = createServerFn({ method: 'POST' })
+  .inputValidator(
+    detailInput.extend({
+      decision: schemaDecisionInput,
+      idempotencyKey: z.string().min(1),
+    }),
+  )
+  .handler(({ data }) =>
+    phloApi(
+      `api/v1/incidents/${encodeURIComponent(data.id)}/schema-decisions?env=${data.env}`,
+      schemaDecision,
+      {
+        env: data.env,
+        method: 'POST',
+        body: data.decision,
+        idempotencyKey: data.idempotencyKey,
+      },
+    ),
+  )
 
 export const getIncidentList = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)

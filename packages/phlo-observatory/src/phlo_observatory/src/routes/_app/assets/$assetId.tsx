@@ -26,6 +26,7 @@ import {
   UnavailableTab,
 } from '@/components/assets/asset-tabs'
 import { MaterializeDialog } from '@/components/assets/materialize-dialog'
+import { UsageTab } from '@/components/assets/usage'
 import { BackfillDialog } from '@/components/assets/backfill-dialog'
 import { AddAuditDialog } from '@/components/assets/add-audit-dialog'
 import { cn } from '@/lib/utils'
@@ -49,6 +50,7 @@ const labels = {
   lineage: 'Lineage',
   snapshots: 'Snapshots',
   audits: 'Audits',
+  usage: 'Usage evidence',
 }
 const layerSoft: Record<Layer, string> = {
   bronze: 'bg-bronze-soft',
@@ -213,6 +215,9 @@ function AssetPage() {
             </TabsList>
           </div>
           <TabsContent value={tab}>
+            {result.kind === 'usage' ? (
+              <UsageTab preview={result.preview} queries={result.queries} />
+            ) : null}
             {result.kind === 'unavailable' ? (
               <UnavailableTab
                 message={result.message}

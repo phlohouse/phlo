@@ -7,7 +7,8 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from starlette.requests import Request
 from testcontainers.postgres import PostgresContainer
 
@@ -266,8 +267,21 @@ def test_effect_authority_failures_recovery_and_concurrent_delivery(incident_db,
     sink = Sink()
     register_capability("alert_sink", AlertSinkSpec(name="qa", provider=sink))
     created = create(notify_qa=True)
-    assert created.effects[0]["status"] == "failed"
-    assert created.effects[0]["attempts"] == 1
+    assert created.effects[0].status == "failed"
+    assert created.effects[0].attempts == 1
+    app = FastAPI()
+    app.include_router(incidents.router, prefix="/api/v1")
+    response = TestClient(app).get(
+        f"/api/v1/incidents/{created.id}?env=prod", headers={"x-test-subject": "alice"}
+    )
+    assert response.status_code == 200, response.text
+    effect = response.json()["effects"][0]
+    assert set(effect) == {"id", "kind", "status", "attempts", "error"}
+    assert effect["id"] == created.effects[0].id
+    assert effect["kind"] == "notification"
+    assert effect["status"] == "failed"
+    assert effect["attempts"] == 1
+    assert isinstance(effect["error"], str) and effect["error"]
     assert "Orders audit failed" not in json.dumps(deliveries)
     incidents.dispatch_incident_effects(request("bob"), env="prod", incident_id=created.id)
     incidents.dispatch_incident_effects(
@@ -290,8 +304,8 @@ def test_effect_authority_failures_recovery_and_concurrent_delivery(incident_db,
             )
         )
     persisted = incidents.incident_detail(request(), created.id, "prod")
-    assert persisted.effects[0]["status"] == "delivered"
-    assert persisted.effects[0]["attempts"] == 2
+    assert persisted.effects[0].status == "delivered"
+    assert persisted.effects[0].attempts == 2
     assert len(deliveries) == 2
     assert deliveries[0]["run_id"] == deliveries[1]["run_id"]
     incidents.dispatch_incident_effects(None, env="prod", incident_id=created.id)
@@ -299,8 +313,6 @@ def test_effect_authority_failures_recovery_and_concurrent_delivery(incident_db,
 
     # Prove the API router starts recovery without a browser or an HTTP mutation.
     from threading import Event
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
 
     with incidents._transaction() as connection, connection.cursor() as cur:
         cur.execute(
@@ -320,9 +332,7 @@ def test_effect_authority_failures_recovery_and_concurrent_delivery(incident_db,
     with TestClient(app):
         assert recovered.wait(5)
     assert len(deliveries) == 3
-    assert (
-        incidents.incident_detail(request(), created.id, "prod").effects[0]["status"] == "delivered"
-    )
+    assert incidents.incident_detail(request(), created.id, "prod").effects[0].status == "delivered"
 
     denied = [policy for policy in incident_db if policy["action"] != "service.manage"]
     register_capability(
@@ -456,7 +466,7 @@ def test_pause_outbox_uses_scoped_graph_and_real_schedule_consumer(incident_db, 
     monkeypatch.setattr(v1_jobs, "graphql_request", graphql)
     monkeypatch.setattr(v1_assets, "graphql_request", graphql)
     created = create(pause_downstream=True)
-    assert created.effects[0]["status"] == "delivered"
+    assert created.effects[0].status == "delivered"
     assert mutations == ["prod_loc:daily"]
     assert state == {"prod_loc": "STOPPED", "stage_loc": "RUNNING"}
     with incidents._transaction() as connection, connection.cursor() as cur:
@@ -473,7 +483,7 @@ def test_pause_outbox_uses_scoped_graph_and_real_schedule_consumer(incident_db, 
     incidents.dispatch_incident_effects(None, env="prod", incident_id=created.id)
     assert len(mutations) == 1
     incidents.dispatch_incident_effects(request(), env="prod", incident_id=created.id)
-    assert incidents.incident_detail(request(), created.id, "prod").effects[0]["status"] == "failed"
+    assert incidents.incident_detail(request(), created.id, "prod").effects[0].status == "failed"
     assert len(mutations) == 1
     denied = [policy for policy in incident_db if policy["action"] != "run.manage"]
     register_capability(
