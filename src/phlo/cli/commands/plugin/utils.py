@@ -18,14 +18,14 @@ from packaging.version import parse
 from rich.console import Console
 from rich.table import Table
 
-from phlo.capabilities import missing_required_capabilities
+from phlo.capabilities.resolver import missing_required_capabilities
 from phlo.capabilities.support import coerce_capability_support
 from phlo.cli.commands.plugin.scaffold import create_plugin_package  # noqa: F401
 from phlo.logging import get_logger
-from phlo.plugins import get_plugin_info
-from phlo.plugins.base import PluginMetadata
+from phlo.plugins.base.plugin import PluginMetadata
 from phlo.plugins.base.service import ServicePlugin
-from phlo.plugins.discovery import get_global_registry
+from phlo.plugins.discovery._plugin_queries import get_plugin_info
+from phlo.plugins.discovery.registry import get_global_registry
 
 console = Console()
 logger = get_logger(__name__)

@@ -4,7 +4,7 @@ create scaffolds a workflow through the lazily resolved authoring provider and
 prints next steps; check validates workflow and schema files, optionally
 emitting JSON.
 Imported by src/phlo/cli/main.py and phlo_api.api.authoring (the workflow authoring API).
-Resolves workflow validators through phlo.capabilities.discovery.
+Resolves workflow validators through phlo.application.discovery.
 """
 
 from __future__ import annotations
@@ -15,8 +15,9 @@ from pathlib import Path
 
 import click
 
-from phlo.capabilities import WorkflowValidator, resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.application.discovery import discover_capabilities
+from phlo.capabilities.interfaces import WorkflowValidator
+from phlo.capabilities.resolver import resolve_capability
 from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
 from phlo.workflow_authoring import WorkflowCreateResult, create_workflow_with_provider

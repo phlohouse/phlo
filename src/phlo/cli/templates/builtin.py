@@ -25,7 +25,7 @@ def _build_env_example_content() -> str:
     The file documents which secrets each discovered service expects; real
     values belong in the uncommitted `.phlo/secrets/.env`.
     """
-    from phlo.plugins.discovery import ServiceDiscovery
+    from phlo.plugins.discovery.services import ServiceDiscovery
 
     lines = [
         "# Phlo Local Secrets Template",

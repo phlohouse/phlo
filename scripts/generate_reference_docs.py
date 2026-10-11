@@ -146,7 +146,13 @@ def setting_candidates(root: Path) -> list[tuple[Path, str]]:
             for node in tree.body:
                 if isinstance(node, ast.ClassDef) and any(
                     isinstance(base, ast.Name)
-                    and base.id in {"BaseConfig", "BaseSettings", "ProcessOverrides"}
+                    and base.id
+                    in {
+                        "BaseConfig",
+                        "BaseSettings",
+                        "ProcessOverrides",
+                        "ProjectRootProcessSettings",
+                    }
                     for base in node.bases
                 ):
                     found.append((path, node.name))

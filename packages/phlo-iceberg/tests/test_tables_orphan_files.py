@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import pytest
 from pyarrow.fs import LocalFileSystem, SubTreeFileSystem
 
-from phlo_iceberg import resource as resource_module
 from phlo_iceberg import tables
 
 TABLE_LOCATION = "s3://bucket/warehouse/raw/events"
@@ -125,10 +124,10 @@ def test_lists_nested_data_files_and_reads_from_the_requested_ref(store) -> None
 
 def test_files_without_a_modification_time_count_as_orphans(store, monkeypatch) -> None:
     fresh = store.write("fresh.parquet", age_days=0)
-    listing = resource_module._list_storage_files
+    listing = tables.list_storage_files
     monkeypatch.setattr(
-        resource_module,
-        "_list_storage_files",
+        tables,
+        "list_storage_files",
         lambda io, location: [
             SimpleNamespace(path=info.path, mtime=None) for info in listing(io, location)
         ],

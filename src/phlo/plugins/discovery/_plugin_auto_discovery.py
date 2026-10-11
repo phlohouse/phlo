@@ -9,8 +9,8 @@ and phlo.config to gate auto-discovery at startup.
 
 from __future__ import annotations
 
-from phlo.config import get_settings
 from phlo.config.process import PluginDiscoverySettings
+from phlo.config.settings import get_settings
 from phlo.logging import get_logger
 from phlo.plugins.discovery._plugin_loading import discover_plugins
 

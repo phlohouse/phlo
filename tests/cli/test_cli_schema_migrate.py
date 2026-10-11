@@ -96,7 +96,7 @@ def test_resolve_migrator_prefers_matching_table_store_default(monkeypatch) -> N
         "configured_capability_name",
         lambda capability_type: None if capability_type == "schema_migrator" else "iceberg",
     )
-    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
 
     resolved = schema_migrate_commands._resolve_migrator()
 
@@ -124,7 +124,7 @@ def test_resolve_migrator_prefers_explicit_schema_migrator_default(monkeypatch) 
         "configured_capability_name",
         lambda capability_type: "delta" if capability_type == "schema_migrator" else "iceberg",
     )
-    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
 
     resolved = schema_migrate_commands._resolve_migrator()
 
@@ -150,7 +150,7 @@ def test_resolve_migrator_fails_when_configured_schema_migrator_missing(monkeypa
         "list_capabilities",
         lambda capability_type: ["iceberg"] if capability_type == "schema_migrator" else [],
     )
-    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
 
     with pytest.raises(click.ClickException) as exc_info:
         schema_migrate_commands._resolve_migrator()
@@ -182,7 +182,7 @@ def test_resolve_migrator_fails_when_multiple_installed_without_selection(monkey
             ["delta", "iceberg"] if capability_type == "schema_migrator" else []
         ),
     )
-    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
 
     with pytest.raises(click.ClickException) as exc_info:
         schema_migrate_commands._resolve_migrator()
@@ -214,7 +214,7 @@ def test_resolve_migrator_reports_table_store_mismatch_when_ambiguous(monkeypatc
             ["delta", "iceberg"] if capability_type == "schema_migrator" else []
         ),
     )
-    monkeypatch.setattr("phlo.capabilities.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
 
     with pytest.raises(click.ClickException) as exc_info:
         schema_migrate_commands._resolve_migrator()

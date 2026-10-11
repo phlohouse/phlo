@@ -268,7 +268,7 @@ def test_unavailable_runtime_is_unknown(monkeypatch, tmp_path):
         list_module, "select_project_container_backend", lambda **_: DockerBackend()
     )
     monkeypatch.setattr(
-        "phlo.cli.infrastructure.container_backend.subprocess.run",
+        "phlo.infrastructure.container_backend.subprocess.run",
         lambda *args, **_: CompletedProcess(args[0], 1, stdout="", stderr="daemon unavailable"),
     )
     result = CliRunner().invoke(list_module.list_cmd, ["--json"])

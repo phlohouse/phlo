@@ -7,8 +7,9 @@ action coverage fails here instead of silently redefining the expectation.
 
 from __future__ import annotations
 
-from phlo.rbac.compiler import COMPILER_REGISTRY, TrinoCompiler
+from phlo.rbac.compiler import TrinoCompiler
 from phlo.rbac.models import CANONICAL_ACTIONS
+from phlo.rbac.registry import COMPILER_REGISTRY
 
 GOLDEN_COMPILED_ACTIONS = frozenset(
     {

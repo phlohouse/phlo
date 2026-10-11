@@ -15,51 +15,23 @@ import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
+from phlo.capabilities.resolver import list_capabilities
+from phlo.run_evidence.contracts import CANONICAL_STAGES as CANONICAL_STAGES
+from phlo.run_evidence.contracts import (
+    EvidenceProfileContribution,
+)
+from phlo.run_evidence.contracts import (
+    EvidenceProfileContributionProvider as EvidenceProfileContributionProvider,
+)
 from phlo.run_evidence.reconciliation import (
     RequiredEvidenceProfile,
     RequiredEvidenceRecord,
     RequiredEvidenceStage,
 )
 
-CANONICAL_STAGES = frozenset({"ingest", "transform", "check", "publish", "lineage"})
 PROFILE_SCHEMA_VERSION = "1"
-
-
-@dataclass(frozen=True, slots=True)
-class EvidenceProfileContribution:
-    """Declarative evidence requirements for one provider/stage."""
-
-    contribution_id: str
-    provider: str
-    profile_id: str
-    profile_version: str
-    stages: tuple[RequiredEvidenceStage, ...] = ()
-    required_run_fields: tuple[str, ...] = ()
-    required_records: tuple[RequiredEvidenceRecord, ...] = ()
-    requires_terminal_event: bool = True
-    requires_contributions: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.contribution_id.strip() or not self.provider.strip():
-            raise ValueError("contribution_id and provider must be non-empty")
-        if not self.profile_id.strip() or not self.profile_version.strip():
-            raise ValueError("profile_id and profile_version must be non-empty")
-        for stage in self.stages:
-            if stage.stage_type not in CANONICAL_STAGES:
-                raise ValueError(f"unsupported stage {stage.stage_type!r}")
-        if len({stage.stage_type for stage in self.stages}) != len(self.stages):
-            raise ValueError("a contribution must not repeat a stage")
-        if not all(dep.strip() for dep in self.requires_contributions):
-            raise ValueError("requires_contributions must contain non-empty ids")
-
-
-class EvidenceProfileContributionProvider(Protocol):
-    """Read-only provider wrapper for declarative contribution data."""
-
-    @property
-    def contribution(self) -> EvidenceProfileContribution: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,8 +268,8 @@ def resolve_composed_evidence_profile(
     Reports an unavailable profile (never an empty healthy one) when a
     required selection has no contributions.
     """
-    from phlo.capabilities import list_capabilities, resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
+    from phlo.capabilities.resolver import resolve_capability
 
     discover_capabilities()
     contributions: list[EvidenceProfileContribution] = []

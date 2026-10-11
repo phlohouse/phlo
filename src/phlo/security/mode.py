@@ -7,7 +7,7 @@ setting to determine whether regulated mode is active.
 from __future__ import annotations
 
 from phlo.config.process import get_process_settings
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 from phlo.telemetry import metric
 
 logger = get_logger(__name__)
@@ -69,7 +69,7 @@ def is_regulated(config_regulated: bool | None = None) -> bool:
         if deprecated_env_value in ("0", "false", "no", "off"):
             return False
 
-    from phlo.infrastructure.config import get_regulated_config
+    from phlo.config.project import get_regulated_config
 
     configured_value = get_regulated_config()
     if configured_value is not None:

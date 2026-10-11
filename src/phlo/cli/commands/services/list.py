@@ -17,7 +17,7 @@ from phlo.cli.infrastructure.container_backend import select_project_container_b
 from phlo.cli.infrastructure.utils import get_project_name
 from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
-from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 logger = get_logger(__name__)
 

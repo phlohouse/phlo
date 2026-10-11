@@ -5,7 +5,7 @@ and SyncController. Mutating commands (real sync, any revert) are gated by
 require_mutation_authorization; read-only commands run unauthenticated.
 
 Imported by phlo.cli.main to expose the `phlo authz` command group; covered by tests/cli.
-Drives phlo.rbac sync over phlo.capabilities.discovery with mutation authorization wrappers.
+Drives phlo.rbac sync over phlo.application.discovery with mutation authorization wrappers.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import click
 
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.application.discovery import discover_capabilities
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.logging import get_logger
 from phlo.rbac.config import RBACConfigLoader

@@ -11,8 +11,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from phlo.capabilities import resolve_capability
+from phlo.capabilities.resolver import resolve_capability
 from phlo.exceptions import PhloConfigError
+from phlo.governance.surface import GovernanceWarning
 
 
 def resolve_publish_target(name: str | None = None) -> Any:
@@ -72,7 +73,7 @@ def publish_many(
 
 def governance_publish_readiness(table_name: str) -> dict[str, Any]:
     """Return whether a table can be published under declared governance rules."""
-    from phlo.governance import GovernanceWarning, build_governance_surface
+    from phlo.governance.surface import build_governance_surface
 
     surface = build_governance_surface()
     table = surface.tables.get(table_name)

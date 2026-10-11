@@ -10,9 +10,9 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from phlo.cli.infrastructure.container_backend import select_project_container_backend
-from phlo.infrastructure.config import load_infrastructure_config
-from phlo.logging import get_logger
+from phlo.config.project import load_infrastructure_config
+from phlo.infrastructure.container_backend import select_project_container_backend
+from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 

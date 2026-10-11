@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from phlo.hooks.events import HookEvent
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
+from phlo.plugins.discovery._plugin_loading import discover_plugins
 from phlo.plugins.hooks import (
     AsyncHookHandler,
     FailurePolicy,
@@ -124,7 +125,7 @@ class HookBus:
         if self._discovered:
             return
         from phlo.hooks.telemetry import CoreTelemetryHookProvider
-        from phlo.plugins.discovery import discover_plugins, get_global_registry
+        from phlo.plugins.discovery.registry import get_global_registry
         from phlo.run_evidence.hooks import CoreRunEvidenceHookProvider
 
         self.register_provider(CoreTelemetryHookProvider(), plugin_name="core")

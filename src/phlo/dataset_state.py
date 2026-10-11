@@ -74,7 +74,7 @@ def resolve_dataset_state_store(
     mode = resolve_store_mode(mode)
     if mode == MODE_MEMORY:
         return memory_store()
-    from phlo.capabilities import resolve_capability
+    from phlo.capabilities.resolver import resolve_capability
 
     result = resolve_capability("dataset_state_store")
     if result is None:

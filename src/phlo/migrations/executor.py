@@ -17,11 +17,15 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from phlo.capabilities import configured_capability_name, list_capabilities
-from phlo.capabilities.discovery import discover_capabilities
-from phlo.capabilities.resolver import resolve_capability
+from phlo.application.discovery import discover_capabilities
+from phlo.capabilities.resolver import (
+    configured_capability_name,
+    list_capabilities,
+    resolve_capability,
+)
 from phlo.capabilities.table_store import schema_policy_kwargs
-from phlo.hooks import DataMigrationEventContext, DataMigrationEventEmitter, HookCorrelation
+from phlo.hooks.emitters import DataMigrationEventContext, DataMigrationEventEmitter
+from phlo.hooks.events import HookCorrelation
 from phlo.logging import get_logger
 from phlo.migrations.adapters import list_source_adapter_types, resolve_source_adapter
 from phlo.migrations.specs import MigrationResult, MigrationSpec

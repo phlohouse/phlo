@@ -5,8 +5,8 @@ checks) and other plugins register handlers on the shared hook bus to react to t
 Supported event types cover ingestion start/end, transform start/end, quality check
 results, service start/stop, and schema/data migrations.
 
-Exports are resolved lazily via ``__getattr__`` to avoid circular imports during
-plugin discovery.
+Exports are resolved lazily via ``__getattr__`` to avoid loading unused event
+emitters during plugin discovery.
 
 Example:
     ```python

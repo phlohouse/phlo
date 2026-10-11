@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from phlo.capabilities import resolve_capability
+from phlo.capabilities.resolver import resolve_capability
 
 PHLO_ROW_ID_COLUMN = "_phlo_row_id"
 PHLO_RUN_ID_COLUMN = "_phlo_run_id"

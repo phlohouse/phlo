@@ -374,3 +374,25 @@ def suggest_similar_field_names(
 def format_field_list(fields: list[str]) -> str:
     """Format a list of fields for error messages."""
     return ", ".join(f"'{field}'" for field in fields)
+
+
+SENSITIVE_KEYWORDS = (
+    "password",
+    "passwd",
+    "token",
+    "secret",
+    "authorization",
+    "api_key",
+    "api-key",
+    "apikey",
+    "credential",
+    "private_key",
+    "signing_key",
+    "encryption_key",
+)
+
+
+def is_sensitive_key(key: str) -> bool:
+    """Return whether a config key likely contains sensitive material."""
+    lowered = key.lower()
+    return any(token in lowered for token in SENSITIVE_KEYWORDS)

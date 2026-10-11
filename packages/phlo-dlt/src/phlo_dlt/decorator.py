@@ -65,8 +65,8 @@ from phlo.capabilities import (
     list_capabilities,
     resolve_capability,
 )
-from phlo.capabilities.runtime import RuntimeContext, routing_from_context
 from phlo.capabilities.history import HistoryPolicy
+from phlo.capabilities.runtime import RuntimeContext, routing_from_context
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
@@ -293,7 +293,7 @@ def _resolve_table_store_capability(context: RuntimeContext) -> tuple[Any, str]:
         :func:`phlo.capabilities.resolve_capability`: Core resolution logic
 
     """
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
 
     discover_capabilities()
     resolution = resolve_capability("table_store", runtime=context)
