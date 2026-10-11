@@ -58,6 +58,12 @@ def test_evaluate_pandera_contract_parquet_files_combines_file_set(tmp_path) -> 
     assert evaluation.failed_count == 0
 
 
+@pytest.mark.parametrize("mode", ["materialized", "full", "sample"])
+def test_empty_staged_file_set_cannot_pass_validation(mode) -> None:
+    with pytest.raises(FileNotFoundError, match="Missing parquet_paths"):
+        evaluate_pandera_contract_parquet_files([], schema_class=MultiFileSchema, mode=mode)
+
+
 def test_evaluate_pandera_contract_backfills_missing_nullable_columns() -> None:
     evaluation = evaluate_pandera_contract(
         pd.DataFrame([{"id": 1}]),
