@@ -157,6 +157,7 @@ def merge_keys(paths: list[Path], _optimized: bool, rows: int, _batch_size: int)
     """Run actual Iceberg key conversion and expressions without provider I/O."""
     import pyarrow.parquet as pq
     from phlo_iceberg.tables import _write_arrow_table
+    from pyiceberg.expressions import EqualTo
 
     arrow = pq.ParquetDataset(paths).read(columns=["id"])
 
@@ -171,7 +172,11 @@ def merge_keys(paths: list[Path], _optimized: bool, rows: int, _batch_size: int)
             return False
 
         def delete(self, expression):
-            literals = [literal.value for literal in expression.literals]
+            literals = (
+                [expression.literal.value]
+                if isinstance(expression, EqualTo)
+                else [literal.value for literal in expression.literals]
+            )
             self.count += len(literals)
             self.checksum += sum(literals)
 

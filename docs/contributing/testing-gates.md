@@ -19,6 +19,12 @@ aggregate. They are rounded down to one decimal place to avoid display-rounding
 failures. The JSON artifact contains the unrounded measurements. A floor is a
 minimum, not a claim that uncovered code is safe.
 
+Quality benchmark tests run every worker with real Parquet and DuckDB data and
+check emitted counts, late failure positions, merge-key checksums, and module
+provenance. They include a partial final file and a singleton final delete batch.
+The comparison test launches real before/after worker processes. These are
+correctness checks, not speed or memory thresholds.
+
 `scripts/test_summary.py` publishes executed, skipped, failed, and errored test
 counts from JUnit reports, together with skip and xfail reasons. Ordinary
 non-integration runs can contain optional skips. Named required lanes cannot:
