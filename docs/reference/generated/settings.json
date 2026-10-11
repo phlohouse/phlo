@@ -1,13 +1,757 @@
 {
-  "field_count": 187,
-  "model_count": 29,
+  "field_count": 313,
+  "model_count": 51,
   "models": [
     {
       "class": "BaseConfig",
       "fields": [],
+      "inherited_fields": {},
       "module": "phlo.config.base",
       "package": "phlo",
       "source": "src/phlo/config/base.py",
+      "status": "introspected"
+    },
+    {
+      "class": "CoreProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_AUDIT_HMAC_KEY",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Audit HMAC key, also fallback for evidence and signature keys. No deployed default.",
+          "environment_names": [
+            "PHLO_AUDIT_HMAC_KEY"
+          ],
+          "name": "phlo_audit_hmac_key",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_DEV_MODE",
+          "annotation": "bool | None",
+          "default": null,
+          "description": "Static development authentication override; lowercase 1/true/yes enable. Blank falls back to YAML; blocked in production and regulated mode.",
+          "environment_names": [
+            "PHLO_AUTH_DEV_MODE"
+          ],
+          "name": "phlo_auth_dev_mode",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_GROUPS",
+          "annotation": "list[str]",
+          "default": [],
+          "description": "CLI principal groups, comma-separated, stripped with blanks removed; default empty.",
+          "environment_names": [
+            "PHLO_AUTH_GROUPS"
+          ],
+          "name": "phlo_auth_groups",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_ALLOW_INSECURE_HTTP",
+          "annotation": "bool | None",
+          "default": null,
+          "description": "JWT loopback HTTP override; stripped lowercase 1/true/yes/on enable; YAML then disabled.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_ALLOW_INSECURE_HTTP"
+          ],
+          "name": "phlo_auth_jwt_allow_insecure_http",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_AUDIENCE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JWT audience override; presence including blank takes precedence over YAML.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_AUDIENCE"
+          ],
+          "name": "phlo_auth_jwt_audience",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_CA_FILE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JWT CA-file override; blank clears the YAML value.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_CA_FILE"
+          ],
+          "name": "phlo_auth_jwt_ca_file",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_ENABLED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "JWT provider override; any nonempty value selects the provider before YAML.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_ENABLED"
+          ],
+          "name": "phlo_auth_jwt_enabled",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_GROUPS_CLAIM",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JWT groups claim override; final default groups.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_GROUPS_CLAIM"
+          ],
+          "name": "phlo_auth_jwt_groups_claim",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_ISSUER",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JWT issuer override; presence including blank takes precedence over YAML.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_ISSUER"
+          ],
+          "name": "phlo_auth_jwt_issuer",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_JWKS_URL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JWT JWKS URL override; presence including blank takes precedence over YAML.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_JWKS_URL"
+          ],
+          "name": "phlo_auth_jwt_jwks_url",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_SECRET",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JWT secret override; presence including blank takes precedence over YAML.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_SECRET"
+          ],
+          "name": "phlo_auth_jwt_secret",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_PROXY_ENABLED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Proxy-provider enabling override; any nonempty value selects the provider before YAML.",
+          "environment_names": [
+            "PHLO_AUTH_PROXY_ENABLED"
+          ],
+          "name": "phlo_auth_proxy_enabled",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_PROXY_HEADER_EMAIL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Proxy email header override; blank falls back to YAML.",
+          "environment_names": [
+            "PHLO_AUTH_PROXY_HEADER_EMAIL"
+          ],
+          "name": "phlo_auth_proxy_header_email",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_PROXY_HEADER_GROUPS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Proxy groups header override; blank falls back to YAML.",
+          "environment_names": [
+            "PHLO_AUTH_PROXY_HEADER_GROUPS"
+          ],
+          "name": "phlo_auth_proxy_header_groups",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_PROXY_HEADER_SUBJECT",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Proxy subject header override; blank falls back to YAML.",
+          "environment_names": [
+            "PHLO_AUTH_PROXY_HEADER_SUBJECT"
+          ],
+          "name": "phlo_auth_proxy_header_subject",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_PROXY_SHARED_SECRET",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Proxy shared-secret override; blank falls back to YAML.",
+          "environment_names": [
+            "PHLO_AUTH_PROXY_SHARED_SECRET"
+          ],
+          "name": "phlo_auth_proxy_shared_secret",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_PROXY_TRUSTED_PROXIES",
+          "annotation": "list[str] | None",
+          "default": null,
+          "description": "Comma-separated trusted proxies, stripped individually without dropping empty entries; absent/blank falls back to YAML, then loopback defaults.",
+          "environment_names": [
+            "PHLO_AUTH_PROXY_TRUSTED_PROXIES"
+          ],
+          "name": "phlo_auth_proxy_trusted_proxies",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_SERVICE_ENABLED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Service-token provider override; any nonempty value selects the provider before YAML.",
+          "environment_names": [
+            "PHLO_AUTH_SERVICE_ENABLED"
+          ],
+          "name": "phlo_auth_service_enabled",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_SERVICE_TOKENS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JSON service-token map override. Invalid JSON or missing explicit subjects fail validation.",
+          "environment_names": [
+            "PHLO_AUTH_SERVICE_TOKENS"
+          ],
+          "name": "phlo_auth_service_tokens",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_STATIC_ENABLED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Static-provider enabling override; any nonempty value, including false, selects the provider before YAML.",
+          "environment_names": [
+            "PHLO_AUTH_STATIC_ENABLED"
+          ],
+          "name": "phlo_auth_static_enabled",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_STATIC_USERS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JSON static-user override; invalid JSON retains the YAML user map.",
+          "environment_names": [
+            "PHLO_AUTH_STATIC_USERS"
+          ],
+          "name": "phlo_auth_static_users",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_SUBJECT",
+          "annotation": "str | None",
+          "default": null,
+          "description": "CLI principal subject; absent uses service-account or development identity resolution.",
+          "environment_names": [
+            "PHLO_AUTH_SUBJECT"
+          ],
+          "name": "phlo_auth_subject",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_TYPE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "CLI principal type; default user for resolution, unknown for audit attribution.",
+          "environment_names": [
+            "PHLO_AUTH_TYPE"
+          ],
+          "name": "phlo_auth_type",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTHENTICATION_METHOD",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Authentication method override, stripped before YAML fallback.",
+          "environment_names": [
+            "PHLO_AUTHENTICATION_METHOD"
+          ],
+          "name": "phlo_authentication_method",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTHENTICATION_PROVIDER",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Authentication provider override, stripped before YAML fallback.",
+          "environment_names": [
+            "PHLO_AUTHENTICATION_PROVIDER"
+          ],
+          "name": "phlo_authentication_provider",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTHORIZATION_BACKEND",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Authorization backend override, stripped before YAML fallback.",
+          "environment_names": [
+            "PHLO_AUTHORIZATION_BACKEND"
+          ],
+          "name": "phlo_authorization_backend",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTHORIZATION_MODE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "HTTP authorization mode override. Consumers preserve production fail-closed validation.",
+          "environment_names": [
+            "PHLO_AUTHORIZATION_MODE"
+          ],
+          "name": "phlo_authorization_mode",
+          "required": false
+        },
+        {
+          "alias": "PHLO_CONTAINER_BACKEND",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Container backend override after explicit CLI argument, before project config; final default docker.",
+          "environment_names": [
+            "PHLO_CONTAINER_BACKEND"
+          ],
+          "name": "phlo_container_backend",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DATASET_STATE_STORE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Dataset-state storage override after explicit argument; final default durable.",
+          "environment_names": [
+            "PHLO_DATASET_STATE_STORE"
+          ],
+          "name": "phlo_dataset_state_store",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DEPLOYMENT_ID",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Deployment identity override, stripped; blank falls back to project and hostname.",
+          "environment_names": [
+            "PHLO_DEPLOYMENT_ID"
+          ],
+          "name": "phlo_deployment_id",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DEV_MODE",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "CLI local development identity fallback; any nonempty value opts in, including false; production checks still apply.",
+          "environment_names": [
+            "PHLO_DEV_MODE"
+          ],
+          "name": "phlo_dev_mode",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DEV_SOURCE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Development source checkout override for generated services.",
+          "environment_names": [
+            "PHLO_DEV_SOURCE"
+          ],
+          "name": "phlo_dev_source",
+          "required": false
+        },
+        {
+          "alias": "PHLO_ENABLED_SERVICES",
+          "annotation": "list[str]",
+          "default": [],
+          "description": "Comma-separated enabled service names used by security validation, stripped with blanks removed; default empty, combined with project enabled/disabled selections.",
+          "environment_names": [
+            "PHLO_ENABLED_SERVICES"
+          ],
+          "name": "phlo_enabled_services",
+          "required": false
+        },
+        {
+          "alias": "PHLO_EVIDENCE_HMAC_KEY",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Evidence HMAC key; blank falls back to audit key.",
+          "environment_names": [
+            "PHLO_EVIDENCE_HMAC_KEY"
+          ],
+          "name": "phlo_evidence_hmac_key",
+          "required": false
+        },
+        {
+          "alias": "PHLO_IDENTITY_AUTHORITY_ENABLED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Identity-authority deployment opt-in; only exact 1 enables.",
+          "environment_names": [
+            "PHLO_IDENTITY_AUTHORITY_ENABLED"
+          ],
+          "name": "phlo_identity_authority_enabled",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MAINTENANCE_POLICY_PATH",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Maintenance policy file override; default maintenance_policy.yaml.",
+          "environment_names": [
+            "PHLO_MAINTENANCE_POLICY_PATH"
+          ],
+          "name": "phlo_maintenance_policy_path",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OBSERVABILITY_PUBLIC_HOST",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Public observability host; default localhost.",
+          "environment_names": [
+            "PHLO_OBSERVABILITY_PUBLIC_HOST"
+          ],
+          "name": "phlo_observability_public_host",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OBSERVABILITY_PUBLIC_SCHEME",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Public observability URL scheme; default http.",
+          "environment_names": [
+            "PHLO_OBSERVABILITY_PUBLIC_SCHEME"
+          ],
+          "name": "phlo_observability_public_scheme",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OBSERVATORY_ENVIRONMENT",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Explicit prod/staging operational target for sensors; no inferred default.",
+          "environment_names": [
+            "PHLO_OBSERVATORY_ENVIRONMENT"
+          ],
+          "name": "phlo_observatory_environment",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OPERATIONS_JOURNAL_DIR",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Operation journal directory override; absent uses each consumer's project-local journal.",
+          "environment_names": [
+            "PHLO_OPERATIONS_JOURNAL_DIR"
+          ],
+          "name": "phlo_operations_journal_dir",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROJECT_NAME",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Project name override. Operation identity strips it; API resource fallback is project.",
+          "environment_names": [
+            "PHLO_PROJECT_NAME"
+          ],
+          "name": "phlo_project_name",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROJECT_PATH",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Process project-root override. Otherwise use the caller's root or working directory; API deployment defaults may use /app/project.",
+          "environment_names": [
+            "PHLO_PROJECT_PATH"
+          ],
+          "name": "phlo_project_path",
+          "required": false
+        },
+        {
+          "alias": "PHLO_REGISTRY_DB_URL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Schema registry database override, before lineage and Dagster database fallback.",
+          "environment_names": [
+            "PHLO_REGISTRY_DB_URL"
+          ],
+          "name": "phlo_registry_db_url",
+          "required": false
+        },
+        {
+          "alias": "PHLO_REGULATED",
+          "annotation": "bool | None",
+          "default": null,
+          "description": "Regulated-mode override. Stripped lowercase 1/true/yes/on or 0/false/no/off; unknown falls through to configuration.",
+          "environment_names": [
+            "PHLO_REGULATED"
+          ],
+          "name": "phlo_regulated",
+          "required": false
+        },
+        {
+          "alias": "PHLO_REGULATED_MODE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Deprecated regulated-mode override, removed in 0.19.0; explicit config and PHLO_REGULATED take precedence.",
+          "environment_names": [
+            "PHLO_REGULATED_MODE"
+          ],
+          "name": "phlo_regulated_mode",
+          "required": false
+        },
+        {
+          "alias": "PHLO_REQUEST_ID",
+          "annotation": "str | None",
+          "default": null,
+          "description": "CLI request correlation identifier override.",
+          "environment_names": [
+            "PHLO_REQUEST_ID"
+          ],
+          "name": "phlo_request_id",
+          "required": false
+        },
+        {
+          "alias": "PHLO_RUN_EVIDENCE_DB_URL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Run-evidence PostgreSQL DSN; required in production, staging and regulated environments.",
+          "environment_names": [
+            "PHLO_RUN_EVIDENCE_DB_URL"
+          ],
+          "name": "phlo_run_evidence_db_url",
+          "required": false
+        },
+        {
+          "alias": "PHLO_RUN_EVIDENCE_SQLITE_PATH",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Local run-evidence SQLite path; default .phlo/run-evidence.sqlite.",
+          "environment_names": [
+            "PHLO_RUN_EVIDENCE_SQLITE_PATH"
+          ],
+          "name": "phlo_run_evidence_sqlite_path",
+          "required": false
+        },
+        {
+          "alias": "PHLO_SERVICE_ACCOUNT",
+          "annotation": "str | None",
+          "default": null,
+          "description": "CLI service-account identity override.",
+          "environment_names": [
+            "PHLO_SERVICE_ACCOUNT"
+          ],
+          "name": "phlo_service_account",
+          "required": false
+        },
+        {
+          "alias": "PHLO_SERVICE_CREDENTIALS_FILE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Scoped service-identity JSON credentials file; must be an owner-controlled regular file.",
+          "environment_names": [
+            "PHLO_SERVICE_CREDENTIALS_FILE"
+          ],
+          "name": "phlo_service_credentials_file",
+          "required": false
+        },
+        {
+          "alias": "PHLO_SERVICE_NONCE_DB_URL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Service replay-prevention database DSN, before run-evidence DSN fallback.",
+          "environment_names": [
+            "PHLO_SERVICE_NONCE_DB_URL"
+          ],
+          "name": "phlo_service_nonce_db_url",
+          "required": false
+        },
+        {
+          "alias": "PHLO_SERVICE_SECRET",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Legacy shared service-token secret, allowed only in local development; no scheduled removal release is declared.",
+          "environment_names": [
+            "PHLO_SERVICE_SECRET"
+          ],
+          "name": "phlo_service_secret",
+          "required": false
+        },
+        {
+          "alias": "PHLO_SIGNATURE_HMAC_KEY",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Signature HMAC key; blank falls back to audit key.",
+          "environment_names": [
+            "PHLO_SIGNATURE_HMAC_KEY"
+          ],
+          "name": "phlo_signature_hmac_key",
+          "required": false
+        },
+        {
+          "alias": "PHLO_TELEMETRY_PATH",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Telemetry JSONL path override; blank leaves the capability's default path.",
+          "environment_names": [
+            "PHLO_TELEMETRY_PATH"
+          ],
+          "name": "phlo_telemetry_path",
+          "required": false
+        },
+        {
+          "alias": "PHLO_TRIVY_CACHE_DIR",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Trivy cache directory override for plugin checks.",
+          "environment_names": [
+            "PHLO_TRIVY_CACHE_DIR"
+          ],
+          "name": "phlo_trivy_cache_dir",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_ENVIRONMENTS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required JSON map of operational environment targets; validated by the environment contract at use.",
+          "environment_names": [
+            "PHLO_V1_ENVIRONMENTS"
+          ],
+          "name": "phlo_v1_environments",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.process",
+      "package": "phlo",
+      "source": "src/phlo/config/process.py",
+      "status": "introspected"
+    },
+    {
+      "class": "JwtTimingSettings",
+      "fields": [
+        {
+          "alias": "PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS",
+          "annotation": "int | None",
+          "default": null,
+          "description": "JWT integer cache TTL override; absent uses YAML then 300 seconds. Read at authentication-provider configuration.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS"
+          ],
+          "name": "phlo_auth_jwt_jwks_cache_ttl_seconds",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_LEEWAY",
+          "annotation": "int | None",
+          "default": null,
+          "description": "JWT integer leeway override; absent uses YAML then 60 seconds. Invalid strings fail at authentication-provider configuration, not unrelated core settings reads.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_LEEWAY"
+          ],
+          "name": "phlo_auth_jwt_leeway",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS",
+          "annotation": "int | None",
+          "default": null,
+          "description": "JWT integer refresh interval override; absent uses YAML then 5 seconds. Read at authentication-provider configuration.",
+          "environment_names": [
+            "PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS"
+          ],
+          "name": "phlo_auth_jwt_refresh_min_interval_seconds",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.process",
+      "package": "phlo",
+      "source": "src/phlo/config/process.py",
+      "status": "introspected"
+    },
+    {
+      "class": "LineageDatabaseSettings",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['LINEAGE_DB_URL', 'PHLO_LINEAGE_DB_URL', 'DAGSTER_PG_DB_CONNECTION_STRING'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Lineage database DSN. Resolved project config selects the first present alias including blank; fresh process resolvers skip blank in this order. Registry uses PHLO_REGISTRY_DB_URL, then only PHLO_LINEAGE_DB_URL, then DAGSTER_PG_DB_CONNECTION_STRING. Default absent; PostgreSQL connection fallback is consumer-specific.",
+          "environment_names": [
+            "LINEAGE_DB_URL",
+            "PHLO_LINEAGE_DB_URL",
+            "DAGSTER_PG_DB_CONNECTION_STRING"
+          ],
+          "name": "lineage_db_url",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.process",
+      "package": "phlo",
+      "source": "src/phlo/config/process.py",
+      "status": "introspected"
+    },
+    {
+      "class": "PluginDiscoverySettings",
+      "fields": [
+        {
+          "alias": "PHLO_NO_AUTO_DISCOVER",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Bootstrap auto-discovery override (also set by phlo init). Stripped lowercase 0/false/no/off/blank permit discovery; any other value disables, with a warning for unknown tokens. Default false; plugins_enabled remains independent.",
+          "environment_names": [
+            "PHLO_NO_AUTO_DISCOVER"
+          ],
+          "name": "no_auto_discover",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.process",
+      "package": "phlo",
+      "source": "src/phlo/config/process.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ProcessOverrides",
+      "fields": [],
+      "inherited_fields": {},
+      "module": "phlo.config.process",
+      "package": "phlo",
+      "source": "src/phlo/config/process.py",
+      "status": "introspected"
+    },
+    {
+      "class": "RunEvidencePoolSettings",
+      "fields": [
+        {
+          "alias": "PHLO_RUN_EVIDENCE_POOL_MAX",
+          "annotation": "<class 'int'>",
+          "default": 10,
+          "description": "PostgreSQL pool capacity, int syntax; clamped to at least 1. Invalid overrides fail only at first pool connection, not for injected factories or SQLite.",
+          "environment_names": [
+            "PHLO_RUN_EVIDENCE_POOL_MAX"
+          ],
+          "name": "max_connections",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.process",
+      "package": "phlo",
+      "source": "src/phlo/config/process.py",
       "status": "introspected"
     },
     {
@@ -16,8 +760,11 @@
         {
           "alias": "AliasChoices(choices=['PHLO_DEFAULT_CAPABILITIES'])",
           "annotation": "dict[str, str]",
-          "default": "<factory:dict>",
+          "default": {},
           "description": "Default capability provider names keyed by capability type (for example {'table_store': 'iceberg'})",
+          "environment_names": [
+            "PHLO_DEFAULT_CAPABILITIES"
+          ],
           "name": "phlo_default_capabilities",
           "required": false
         },
@@ -25,7 +772,11 @@
           "alias": "AliasChoices(choices=['PHLO_ENVIRONMENT', 'ENVIRONMENT'])",
           "annotation": "<class 'str'>",
           "default": "dev",
-          "description": "Runtime environment attached to structured logs",
+          "description": "Runtime environment attached to structured logs; resolved PHLO_ENVIRONMENT then ENVIRONMENT then dev, including project dotenv. Security projects only the exact process PHLO_ENVIRONMENT value, preserving absence/blank and consumer-local dev defaults.",
+          "environment_names": [
+            "PHLO_ENVIRONMENT",
+            "ENVIRONMENT"
+          ],
           "name": "phlo_environment",
           "required": false
         },
@@ -34,6 +785,9 @@
           "annotation": "<class 'str'>",
           "default": ".phlo/logs/{YMD}.log",
           "description": "Optional log file path template (empty to disable)",
+          "environment_names": [
+            "PHLO_LOG_FILE_TEMPLATE"
+          ],
           "name": "phlo_log_file_template",
           "required": false
         },
@@ -42,6 +796,9 @@
           "annotation": "<class 'str'>",
           "default": "auto",
           "description": "Log format (auto|json|console)",
+          "environment_names": [
+            "PHLO_LOG_FORMAT"
+          ],
           "name": "phlo_log_format",
           "required": false
         },
@@ -49,7 +806,10 @@
           "alias": "phlo_log_level",
           "annotation": "<class 'str'>",
           "default": "WARNING",
-          "description": "Default log level for Phlo",
+          "description": "Resolved default log level for Phlo. Telemetry also projects the exact process override alone: absent is blank, stripped uppercase DEBUG preserves framework logs; no dotenv fallback in that projection.",
+          "environment_names": [
+            "PHLO_LOG_LEVEL"
+          ],
           "name": "phlo_log_level",
           "required": false
         },
@@ -58,6 +818,9 @@
           "annotation": "<class 'bool'>",
           "default": true,
           "description": "Emit structured log events to the hook bus",
+          "environment_names": [
+            "PHLO_LOG_ROUTER_ENABLED"
+          ],
           "name": "phlo_log_router_enabled",
           "required": false
         },
@@ -66,6 +829,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "Default service name for log records",
+          "environment_names": [
+            "PHLO_LOG_SERVICE_NAME"
+          ],
           "name": "phlo_log_service_name",
           "required": false
         },
@@ -74,6 +840,10 @@
           "annotation": "<class 'str'>",
           "default": "dagster",
           "description": "Active orchestrator adapter name",
+          "environment_names": [
+            "PHLO_ORCHESTRATOR",
+            "PHLO_ORCHESTRATOR_NAME"
+          ],
           "name": "phlo_orchestrator",
           "required": false
         },
@@ -81,7 +851,10 @@
           "alias": "AliasChoices(choices=['PHLO_PROJECT'])",
           "annotation": "str | None",
           "default": null,
-          "description": "Optional project identifier attached to observability resources",
+          "description": "Optional project identifier attached to observability resources. OpenTelemetry projects the process PHLO_PROJECT override before resolved project/service-name fallback, preserving explicit blank.",
+          "environment_names": [
+            "PHLO_PROJECT"
+          ],
           "name": "phlo_project",
           "required": false
         },
@@ -90,6 +863,10 @@
           "annotation": "str | None",
           "default": null,
           "description": "Optional default service instance identifier for observability resources",
+          "environment_names": [
+            "PHLO_SERVICE_INSTANCE_ID",
+            "OTEL_SERVICE_INSTANCE_ID"
+          ],
           "name": "phlo_service_instance_id",
           "required": false
         },
@@ -98,6 +875,10 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "Default service namespace attached to observability resources",
+          "environment_names": [
+            "PHLO_SERVICE_NAMESPACE",
+            "OTEL_SERVICE_NAMESPACE"
+          ],
           "name": "phlo_service_namespace",
           "required": false
         },
@@ -106,6 +887,10 @@
           "annotation": "str | None",
           "default": null,
           "description": "Optional default service version attached to observability resources",
+          "environment_names": [
+            "PHLO_SERVICE_VERSION",
+            "OTEL_SERVICE_VERSION"
+          ],
           "name": "phlo_service_version",
           "required": false
         },
@@ -114,6 +899,9 @@
           "annotation": "<class 'int'>",
           "default": 3600,
           "description": "Registry cache TTL in seconds",
+          "environment_names": [
+            "PLUGIN_REGISTRY_CACHE_TTL_SECONDS"
+          ],
           "name": "plugin_registry_cache_ttl_seconds",
           "required": false
         },
@@ -122,6 +910,9 @@
           "annotation": "<class 'int'>",
           "default": 10,
           "description": "Registry fetch timeout in seconds",
+          "environment_names": [
+            "PLUGIN_REGISTRY_TIMEOUT_SECONDS"
+          ],
           "name": "plugin_registry_timeout_seconds",
           "required": false
         },
@@ -130,6 +921,9 @@
           "annotation": "<class 'str'>",
           "default": "https://registry.phlohouse.com/plugins.json",
           "description": "URL for the plugin registry catalog",
+          "environment_names": [
+            "PLUGIN_REGISTRY_URL"
+          ],
           "name": "plugin_registry_url",
           "required": false
         },
@@ -138,14 +932,20 @@
           "annotation": "<class 'bool'>",
           "default": true,
           "description": "Automatically discover plugins from entry points on import",
+          "environment_names": [
+            "PLUGINS_AUTO_DISCOVER"
+          ],
           "name": "plugins_auto_discover",
           "required": false
         },
         {
           "alias": "plugins_blacklist",
           "annotation": "list[str]",
-          "default": "<factory:list>",
+          "default": [],
           "description": "Blacklist of plugin names to exclude",
+          "environment_names": [
+            "PLUGINS_BLACKLIST"
+          ],
           "name": "plugins_blacklist",
           "required": false
         },
@@ -154,21 +954,71 @@
           "annotation": "<class 'bool'>",
           "default": true,
           "description": "Enable plugin system",
+          "environment_names": [
+            "PLUGINS_ENABLED"
+          ],
           "name": "plugins_enabled",
           "required": false
         },
         {
           "alias": "plugins_whitelist",
           "annotation": "list[str]",
-          "default": "<factory:list>",
+          "default": [],
           "description": "Whitelist of plugin names to load (empty = all allowed)",
+          "environment_names": [
+            "PLUGINS_WHITELIST"
+          ],
           "name": "plugins_whitelist",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo.config.settings",
       "package": "phlo",
       "source": "src/phlo/config/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "TelemetryProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_OBSERVE_ENABLED",
+          "annotation": "bool | None",
+          "default": null,
+          "description": "Telemetry opt-in/out. Unset keeps auto-selection from OBSERVE drains/endpoint; stripped lowercase 1/true/yes/on enable; other strings disable.",
+          "environment_names": [
+            "PHLO_OBSERVE_ENABLED"
+          ],
+          "name": "enabled",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OBSERVE_PRETTY",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Pretty drain request; stripped lowercase 1/true/yes/on enable, otherwise disabled.",
+          "environment_names": [
+            "PHLO_OBSERVE_PRETTY"
+          ],
+          "name": "pretty",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OBSERVE_PRETTY_VERBOSE",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Verbose pretty drain request; stripped lowercase 1/true/yes/on enable, otherwise disabled.",
+          "environment_names": [
+            "PHLO_OBSERVE_PRETTY_VERBOSE"
+          ],
+          "name": "pretty_verbose",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.telemetry",
+      "package": "phlo",
+      "source": "src/phlo/config/telemetry.py",
       "status": "introspected"
     },
     {
@@ -179,6 +1029,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Catalog name used for query-engine table stats lookups",
+          "environment_names": [
+            "METRICS_QUERY_CATALOG"
+          ],
           "name": "metrics_query_catalog",
           "required": false
         },
@@ -187,6 +1040,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Optional query_engine capability name for table stats queries",
+          "environment_names": [
+            "METRICS_QUERY_ENGINE"
+          ],
           "name": "metrics_query_engine",
           "required": false
         },
@@ -195,6 +1051,9 @@
           "annotation": "<class 'str'>",
           "default": "v1",
           "description": "Nessie API version",
+          "environment_names": [
+            "NESSIE_API_VERSION"
+          ],
           "name": "nessie_api_version",
           "required": false
         },
@@ -203,6 +1062,9 @@
           "annotation": "<class 'str'>",
           "default": "nessie",
           "description": "Nessie host",
+          "environment_names": [
+            "NESSIE_HOST"
+          ],
           "name": "nessie_host",
           "required": false
         },
@@ -211,6 +1073,9 @@
           "annotation": "<class 'int'>",
           "default": 19120,
           "description": "Nessie port",
+          "environment_names": [
+            "NESSIE_PORT"
+          ],
           "name": "nessie_port",
           "required": false
         },
@@ -219,6 +1084,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL database name",
+          "environment_names": [
+            "POSTGRES_DB"
+          ],
           "name": "postgres_db",
           "required": false
         },
@@ -227,6 +1095,9 @@
           "annotation": "<class 'str'>",
           "default": "postgres",
           "description": "PostgreSQL host",
+          "environment_names": [
+            "POSTGRES_HOST"
+          ],
           "name": "postgres_host",
           "required": false
         },
@@ -235,6 +1106,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL password",
+          "environment_names": [
+            "POSTGRES_PASSWORD"
+          ],
           "name": "postgres_password",
           "required": false
         },
@@ -243,6 +1117,9 @@
           "annotation": "<class 'int'>",
           "default": 5432,
           "description": "PostgreSQL port",
+          "environment_names": [
+            "POSTGRES_PORT"
+          ],
           "name": "postgres_port",
           "required": false
         },
@@ -251,13 +1128,38 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL username",
+          "environment_names": [
+            "POSTGRES_USER"
+          ],
           "name": "postgres_user",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo.metrics",
       "package": "phlo",
       "source": "src/phlo/metrics.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ObservatoryDatabaseSettings",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['PHLO_OBSERVATORY_SETTINGS_DB_URL'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "PostgreSQL DSN override shared by Observatory UI and settings storage. Default absent; storage resolves its database fallback at use.",
+          "environment_names": [
+            "PHLO_OBSERVATORY_SETTINGS_DB_URL"
+          ],
+          "name": "observatory_settings_db_url",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.plugins.observatory_settings",
+      "package": "phlo",
+      "source": "src/phlo/plugins/observatory_settings.py",
       "status": "introspected"
     },
     {
@@ -268,18 +1170,16 @@
           "annotation": "Literal['postgres', 'memory']",
           "default": "postgres",
           "description": "Settings storage backend: 'postgres' (durable, default) or 'memory' (dev/test only)",
+          "environment_names": [
+            "PHLO_OBSERVATORY_SETTINGS_BACKEND"
+          ],
           "name": "observatory_settings_backend",
-          "required": false
-        },
-        {
-          "alias": "AliasChoices(choices=['PHLO_OBSERVATORY_SETTINGS_DB_URL'])",
-          "annotation": "str | None",
-          "default": null,
-          "description": "PostgreSQL DSN override for Observatory settings storage",
-          "name": "observatory_settings_db_url",
           "required": false
         }
       ],
+      "inherited_fields": {
+        "observatory_settings_db_url": "phlo.plugins.observatory_settings.ObservatoryDatabaseSettings"
+      },
       "module": "phlo.plugins.observatory_settings",
       "package": "phlo",
       "source": "src/phlo/plugins/observatory_settings.py",
@@ -293,6 +1193,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Airbyte API client id for token auth",
+          "environment_names": [
+            "AIRBYTE_CLIENT_ID"
+          ],
           "name": "airbyte_client_id",
           "required": false
         },
@@ -301,6 +1204,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Airbyte API client secret for token auth",
+          "environment_names": [
+            "AIRBYTE_CLIENT_SECRET"
+          ],
           "name": "airbyte_client_secret",
           "required": false
         },
@@ -309,6 +1215,9 @@
           "annotation": "<class 'str'>",
           "default": "airbyte-server",
           "description": "Airbyte API host",
+          "environment_names": [
+            "AIRBYTE_HOST"
+          ],
           "name": "airbyte_host",
           "required": false
         },
@@ -317,6 +1226,9 @@
           "annotation": "<class 'int'>",
           "default": 10,
           "description": "Seconds between sync job status polls",
+          "environment_names": [
+            "AIRBYTE_POLL_INTERVAL_SECONDS"
+          ],
           "name": "airbyte_poll_interval_seconds",
           "required": false
         },
@@ -325,6 +1237,9 @@
           "annotation": "<class 'int'>",
           "default": 8001,
           "description": "Airbyte server API port",
+          "environment_names": [
+            "AIRBYTE_PORT"
+          ],
           "name": "airbyte_port",
           "required": false
         },
@@ -333,6 +1248,9 @@
           "annotation": "<class 'int'>",
           "default": 3600,
           "description": "Maximum seconds to wait for one sync to reach a terminal state",
+          "environment_names": [
+            "AIRBYTE_SYNC_TIMEOUT_SECONDS"
+          ],
           "name": "airbyte_sync_timeout_seconds",
           "required": false
         },
@@ -341,10 +1259,14 @@
           "annotation": "str | None",
           "default": null,
           "description": "Airbyte workspace id for connection lookups",
+          "environment_names": [
+            "AIRBYTE_WORKSPACE_ID"
+          ],
           "name": "airbyte_workspace_id",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_airbyte.settings",
       "package": "phlo-airbyte",
       "source": "packages/phlo-airbyte/src/phlo_airbyte/settings.py",
@@ -356,16 +1278,22 @@
         {
           "alias": "phlo_alert_consumer_recipients",
           "annotation": "dict[str, list[str]]",
-          "default": "<factory:dict>",
+          "default": {},
           "description": null,
+          "environment_names": [
+            "PHLO_ALERT_CONSUMER_RECIPIENTS"
+          ],
           "name": "phlo_alert_consumer_recipients",
           "required": false
         },
         {
           "alias": "phlo_alert_email_recipients",
           "annotation": "list[str]",
-          "default": "<factory:list>",
+          "default": [],
           "description": "Email recipients for alerts",
+          "environment_names": [
+            "PHLO_ALERT_EMAIL_RECIPIENTS"
+          ],
           "name": "phlo_alert_email_recipients",
           "required": false
         },
@@ -374,6 +1302,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "SMTP server hostname",
+          "environment_names": [
+            "PHLO_ALERT_EMAIL_SMTP_HOST"
+          ],
           "name": "phlo_alert_email_smtp_host",
           "required": false
         },
@@ -382,6 +1313,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "SMTP password",
+          "environment_names": [
+            "PHLO_ALERT_EMAIL_SMTP_PASSWORD"
+          ],
           "name": "phlo_alert_email_smtp_password",
           "required": false
         },
@@ -390,6 +1324,9 @@
           "annotation": "<class 'int'>",
           "default": 587,
           "description": "SMTP server port",
+          "environment_names": [
+            "PHLO_ALERT_EMAIL_SMTP_PORT"
+          ],
           "name": "phlo_alert_email_smtp_port",
           "required": false
         },
@@ -398,14 +1335,20 @@
           "annotation": "str | None",
           "default": null,
           "description": "SMTP username",
+          "environment_names": [
+            "PHLO_ALERT_EMAIL_SMTP_USER"
+          ],
           "name": "phlo_alert_email_smtp_user",
           "required": false
         },
         {
           "alias": "phlo_alert_owner_recipients",
           "annotation": "dict[str, list[str]]",
-          "default": "<factory:dict>",
+          "default": {},
           "description": null,
+          "environment_names": [
+            "PHLO_ALERT_OWNER_RECIPIENTS"
+          ],
           "name": "phlo_alert_owner_recipients",
           "required": false
         },
@@ -414,14 +1357,20 @@
           "annotation": "str | None",
           "default": null,
           "description": "PagerDuty Events API v2 integration key",
+          "environment_names": [
+            "PHLO_ALERT_PAGERDUTY_KEY"
+          ],
           "name": "phlo_alert_pagerduty_key",
           "required": false
         },
         {
           "alias": "phlo_alert_qa_email_recipients",
           "annotation": "list[str]",
-          "default": "<factory:list>",
+          "default": [],
           "description": null,
+          "environment_names": [
+            "PHLO_ALERT_QA_EMAIL_RECIPIENTS"
+          ],
           "name": "phlo_alert_qa_email_recipients",
           "required": false
         },
@@ -430,6 +1379,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Default Slack channel for alerts",
+          "environment_names": [
+            "PHLO_ALERT_SLACK_CHANNEL"
+          ],
           "name": "phlo_alert_slack_channel",
           "required": false
         },
@@ -438,13 +1390,345 @@
           "annotation": "str | None",
           "default": null,
           "description": "Slack incoming webhook URL",
+          "environment_names": [
+            "PHLO_ALERT_SLACK_WEBHOOK"
+          ],
           "name": "phlo_alert_slack_webhook",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_alerting.settings",
       "package": "phlo-alerting",
       "source": "packages/phlo-alerting/src/phlo_alerting/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ApiDeploymentSettings",
+      "fields": [
+        {
+          "alias": "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only environment-pinned ref/tag contract assertion. Only '1' enables.",
+          "environment_names": [
+            "PHLO_V1_ACTIONS_REF_TAG_CONTRACT"
+          ],
+          "name": "actions_ref_tag_contract",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_ACTIONS_SINGLE_PROCESS",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API process assertion for v1 actions. Only '1' enables.",
+          "environment_names": [
+            "PHLO_V1_ACTIONS_SINGLE_PROCESS"
+          ],
+          "name": "actions_single_process",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_ACTIONS_SINGLE_REPLICA",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API replica assertion for v1 actions. Only '1' enables.",
+          "environment_names": [
+            "PHLO_V1_ACTIONS_SINGLE_REPLICA"
+          ],
+          "name": "actions_single_replica",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only assertion of configured Trino preview server limits. Only '1' enables.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED"
+          ],
+          "name": "preview_server_limits_configured",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_QUERY_SINGLE_REPLICA",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API replica assertion for query workspace. Only '1' enables.",
+          "environment_names": [
+            "PHLO_V1_QUERY_SINGLE_REPLICA"
+          ],
+          "name": "query_single_replica",
+          "required": false
+        },
+        {
+          "alias": "PHLO_STAGING_SINGLE_REPLICA",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only single API replica assertion for staging promotion. Only 'true' enables.",
+          "environment_names": [
+            "PHLO_STAGING_SINGLE_REPLICA"
+          ],
+          "name": "staging_single_replica",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_api.settings",
+      "package": "phlo-api",
+      "source": "packages/phlo-api/src/phlo_api/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ApiProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_API_TOKENS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JSON API token map. Missing/blank disables configured tokens; validation stays in the authentication request boundary.",
+          "environment_names": [
+            "PHLO_API_TOKENS"
+          ],
+          "name": "phlo_api_tokens",
+          "required": false
+        },
+        {
+          "alias": "PHLO_COMPOSE_PROJECT",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Compose project override before COMPOSE_PROJECT_NAME and project discovery.",
+          "environment_names": [
+            "PHLO_COMPOSE_PROJECT"
+          ],
+          "name": "phlo_compose_project",
+          "required": false
+        },
+        {
+          "alias": "PHLO_LINEAGE_SINK",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Lineage sink capability name; absent uses capability selection.",
+          "environment_names": [
+            "PHLO_LINEAGE_SINK"
+          ],
+          "name": "phlo_lineage_sink",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MAINTENANCE_READ_MODEL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Maintenance read-model capability name; absent uses capability selection.",
+          "environment_names": [
+            "PHLO_MAINTENANCE_READ_MODEL"
+          ],
+          "name": "phlo_maintenance_read_model",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OBSERVABILITY_BACKEND",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Observability backend name after explicit argument; absent uses capability selection.",
+          "environment_names": [
+            "PHLO_OBSERVABILITY_BACKEND"
+          ],
+          "name": "phlo_observability_backend",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROMOTION_DAGSTER_CHECK_JOBS",
+          "annotation": "list[str]",
+          "default": [],
+          "description": "Comma-separated promotion check jobs, stripped while preserving blank positions for status validation. Default unconfigured. Launch validation filters blanks and requires three distinct job names in tests/contracts/audits order.",
+          "environment_names": [
+            "PHLO_PROMOTION_DAGSTER_CHECK_JOBS"
+          ],
+          "name": "phlo_promotion_dagster_check_jobs",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROMOTION_DAGSTER_LOCATION",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required promotion Dagster location; must agree with the environment contract.",
+          "environment_names": [
+            "PHLO_PROMOTION_DAGSTER_LOCATION"
+          ],
+          "name": "phlo_promotion_dagster_location",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROMOTION_PROD_REF",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required production promotion ref; must agree with the environment contract.",
+          "environment_names": [
+            "PHLO_PROMOTION_PROD_REF"
+          ],
+          "name": "phlo_promotion_prod_ref",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROMOTION_PROD_WORKTREE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required production worktree for staging promotion.",
+          "environment_names": [
+            "PHLO_PROMOTION_PROD_WORKTREE"
+          ],
+          "name": "phlo_promotion_prod_worktree",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROMOTION_STAGING_REF",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required staging promotion ref; must agree with the environment contract.",
+          "environment_names": [
+            "PHLO_PROMOTION_STAGING_REF"
+          ],
+          "name": "phlo_promotion_staging_ref",
+          "required": false
+        },
+        {
+          "alias": "PHLO_PROMOTION_STAGING_WORKTREE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required staging worktree for promotion.",
+          "environment_names": [
+            "PHLO_PROMOTION_STAGING_WORKTREE"
+          ],
+          "name": "phlo_promotion_staging_worktree",
+          "required": false
+        },
+        {
+          "alias": "PHLO_UV_PROJECT",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Package-install UV project override before UV_PROJECT and project discovery.",
+          "environment_names": [
+            "PHLO_UV_PROJECT"
+          ],
+          "name": "phlo_uv_project",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_BRANCH_CHECK_JOBS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JSON branch-check job configuration, validated at use.",
+          "environment_names": [
+            "PHLO_V1_BRANCH_CHECK_JOBS"
+          ],
+          "name": "phlo_v1_branch_check_jobs",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_GIT_REVIEW_BASE_BRANCH",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required Git review base branch; no inferred default.",
+          "environment_names": [
+            "PHLO_V1_GIT_REVIEW_BASE_BRANCH"
+          ],
+          "name": "phlo_v1_git_review_base_branch",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_GIT_REVIEW_REPOSITORY",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required GitHub review repository; absent fails closed in review configuration.",
+          "environment_names": [
+            "PHLO_V1_GIT_REVIEW_REPOSITORY"
+          ],
+          "name": "phlo_v1_git_review_repository",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_GIT_REVIEW_TOKEN",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required Git review credential; no development default.",
+          "environment_names": [
+            "PHLO_V1_GIT_REVIEW_TOKEN"
+          ],
+          "name": "phlo_v1_git_review_token",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_MAINTENANCE_WINDOWS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JSON maintenance-window configuration, validated at the request boundary.",
+          "environment_names": [
+            "PHLO_V1_MAINTENANCE_WINDOWS"
+          ],
+          "name": "phlo_v1_maintenance_windows",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_CATALOGS",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required JSON environment-to-preview catalog map; validated at use.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_CATALOGS"
+          ],
+          "name": "phlo_v1_preview_catalogs",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required production preview Trino credential; absent/blank fails preview configuration.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD"
+          ],
+          "name": "phlo_v1_preview_trino_password_prod",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required staging preview Trino credential; absent/blank fails preview configuration.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING"
+          ],
+          "name": "phlo_v1_preview_trino_password_staging",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_USAGE_TRINO_SOURCES",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Required JSON usage-source configuration; validated at use.",
+          "environment_names": [
+            "PHLO_V1_USAGE_TRINO_SOURCES"
+          ],
+          "name": "phlo_v1_usage_trino_sources",
+          "required": false
+        },
+        {
+          "alias": "PHLO_WORKFLOW_WIZARD_SECRET",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Workflow wizard signing secret; absent uses persisted project-local secret.",
+          "environment_names": [
+            "PHLO_WORKFLOW_WIZARD_SECRET"
+          ],
+          "name": "phlo_workflow_wizard_secret",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_api.settings",
+      "package": "phlo-api",
+      "source": "packages/phlo-api/src/phlo_api/settings.py",
       "status": "introspected"
     },
     {
@@ -455,6 +1739,9 @@
           "annotation": "<class 'int'>",
           "default": 10485760,
           "description": "Size in bytes at which the operation audit journal rotates (0 disables rotation)",
+          "environment_names": [
+            "PHLO_API_AUDIT_MAX_BYTES"
+          ],
           "name": "phlo_api_audit_max_bytes",
           "required": false
         },
@@ -463,6 +1750,9 @@
           "annotation": "<class 'int'>",
           "default": 5,
           "description": "Rotated operation audit segments to retain (0 disables rotation; reads require 1-20)",
+          "environment_names": [
+            "PHLO_API_AUDIT_MAX_FILES"
+          ],
           "name": "phlo_api_audit_max_files",
           "required": false
         },
@@ -471,6 +1761,9 @@
           "annotation": "<class 'str'>",
           "default": "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3005,http://127.0.0.1:3005,http://localhost:4000,http://127.0.0.1:4000",
           "description": "Comma-separated browser origins allowed by CORS. Use '*' to allow any origin without credentials.",
+          "environment_names": [
+            "PHLO_API_CORS_ORIGINS"
+          ],
           "name": "phlo_api_cors_origins",
           "required": false
         },
@@ -479,6 +1772,9 @@
           "annotation": "<class 'int'>",
           "default": 60,
           "description": "Run cancel requests allowed per principal per minute",
+          "environment_names": [
+            "PHLO_API_RATE_LIMIT_CANCEL"
+          ],
           "name": "phlo_api_rate_limit_cancel",
           "required": false
         },
@@ -487,6 +1783,9 @@
           "annotation": "<class 'int'>",
           "default": 10,
           "description": "Materialize and backfill requests allowed per principal per minute",
+          "environment_names": [
+            "PHLO_API_RATE_LIMIT_MATERIALIZE"
+          ],
           "name": "phlo_api_rate_limit_materialize",
           "required": false
         },
@@ -495,6 +1794,9 @@
           "annotation": "<class 'int'>",
           "default": 60,
           "description": "Other mutation requests allowed per principal per minute",
+          "environment_names": [
+            "PHLO_API_RATE_LIMIT_MUTATION"
+          ],
           "name": "phlo_api_rate_limit_mutation",
           "required": false
         },
@@ -503,10 +1805,14 @@
           "annotation": "<class 'int'>",
           "default": 30,
           "description": "Failed-run retry requests allowed per principal per minute",
+          "environment_names": [
+            "PHLO_API_RATE_LIMIT_RETRY"
+          ],
           "name": "phlo_api_rate_limit_retry",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_api.settings",
       "package": "phlo-api",
       "source": "packages/phlo-api/src/phlo_api/settings.py",
@@ -520,6 +1826,9 @@
           "annotation": "<class 'str'>",
           "default": "default",
           "description": "Default ClickHouse database",
+          "environment_names": [
+            "CLICKHOUSE_DB"
+          ],
           "name": "clickhouse_db",
           "required": false
         },
@@ -528,6 +1837,9 @@
           "annotation": "<class 'str'>",
           "default": "clickhouse",
           "description": "ClickHouse service hostname",
+          "environment_names": [
+            "CLICKHOUSE_HOST"
+          ],
           "name": "clickhouse_host",
           "required": false
         },
@@ -536,6 +1848,9 @@
           "annotation": "<class 'int'>",
           "default": 8123,
           "description": "ClickHouse HTTP interface port",
+          "environment_names": [
+            "CLICKHOUSE_HTTP_PORT"
+          ],
           "name": "clickhouse_http_port",
           "required": false
         },
@@ -544,6 +1859,9 @@
           "annotation": "<class 'int'>",
           "default": 19000,
           "description": "ClickHouse native protocol port",
+          "environment_names": [
+            "CLICKHOUSE_NATIVE_PORT"
+          ],
           "name": "clickhouse_native_port",
           "required": false
         },
@@ -552,6 +1870,9 @@
           "annotation": "<class 'str'>",
           "default": "",
           "description": "ClickHouse password",
+          "environment_names": [
+            "CLICKHOUSE_PASSWORD"
+          ],
           "name": "clickhouse_password",
           "required": false
         },
@@ -560,6 +1881,9 @@
           "annotation": "<class 'bool'>",
           "default": false,
           "description": "Use TLS for ClickHouse connections",
+          "environment_names": [
+            "CLICKHOUSE_SECURE"
+          ],
           "name": "clickhouse_secure",
           "required": false
         },
@@ -568,13 +1892,226 @@
           "annotation": "<class 'str'>",
           "default": "default",
           "description": "ClickHouse username",
+          "environment_names": [
+            "CLICKHOUSE_USER"
+          ],
           "name": "clickhouse_user",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_clickhouse.settings",
       "package": "phlo-clickhouse",
       "source": "packages/phlo-clickhouse/src/phlo_clickhouse/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DagsterOidcTimingSettings",
+      "fields": [
+        {
+          "alias": "PHLO_DAGSTER_OIDC_JWKS_CACHE_TTL_SECONDS",
+          "annotation": "<class 'int'>",
+          "default": 300,
+          "description": "JWKS cache TTL, integer seconds from 1 through 86400; ignored while identity is unconfigured.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_JWKS_CACHE_TTL_SECONDS"
+          ],
+          "name": "jwks_cache_ttl_seconds",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_LEEWAY_SECONDS",
+          "annotation": "<class 'int'>",
+          "default": 30,
+          "description": "OIDC leeway, integer seconds from 0 through 300; ignored while identity is unconfigured.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_LEEWAY_SECONDS"
+          ],
+          "name": "leeway_seconds",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_REFRESH_MIN_INTERVAL_SECONDS",
+          "annotation": "<class 'int'>",
+          "default": 5,
+          "description": "JWKS refresh interval, integer seconds from 1 through 300; ignored while identity is unconfigured.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_REFRESH_MIN_INTERVAL_SECONDS"
+          ],
+          "name": "refresh_min_interval_seconds",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_dagster.settings",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DagsterProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_AUTO_REFRESH_CONTRACTS",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Contract refresh opt-in. Stripped lowercase 1/true/yes enable (not on); default disabled.",
+          "environment_names": [
+            "PHLO_AUTO_REFRESH_CONTRACTS"
+          ],
+          "name": "phlo_auto_refresh_contracts",
+          "required": false
+        },
+        {
+          "alias": "PHLO_CONTRACT_REFRESH_SELECTION",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Optional selection for automatic contract refresh.",
+          "environment_names": [
+            "PHLO_CONTRACT_REFRESH_SELECTION"
+          ],
+          "name": "phlo_contract_refresh_selection",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_ACCESS_TOKEN",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Dagster access token for CLI operations; no default.",
+          "environment_names": [
+            "PHLO_DAGSTER_ACCESS_TOKEN"
+          ],
+          "name": "phlo_dagster_access_token",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_ALLOWED_SERVICE_IDS",
+          "annotation": "list[str]",
+          "default": [
+            "phlo-api"
+          ],
+          "description": "Comma-separated allowed service callers, stripped with blanks removed; default phlo-api. Explicit blank allows no callers.",
+          "environment_names": [
+            "PHLO_DAGSTER_ALLOWED_SERVICE_IDS"
+          ],
+          "name": "phlo_dagster_allowed_service_ids",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_INCIDENT_LOCATION_ENV_MAP",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Incident location-to-environment map, validated by the incident sensor.",
+          "environment_names": [
+            "PHLO_DAGSTER_INCIDENT_LOCATION_ENV_MAP"
+          ],
+          "name": "phlo_dagster_incident_location_env_map",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_ALLOW_INSECURE_HTTP",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "OIDC loopback HTTP opt-in; lowercase true enables, without trimming.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_ALLOW_INSECURE_HTTP"
+          ],
+          "name": "phlo_dagster_oidc_allow_insecure_http",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_AUDIENCE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "OIDC audience; stripped, default blank.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_AUDIENCE"
+          ],
+          "name": "phlo_dagster_oidc_audience",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_CA_FILE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "OIDC CA file; stripped, blank means absent.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_CA_FILE"
+          ],
+          "name": "phlo_dagster_oidc_ca_file",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_GROUPS_CLAIM",
+          "annotation": "str | None",
+          "default": null,
+          "description": "OIDC groups claim; default groups, explicit blank preserved.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_GROUPS_CLAIM"
+          ],
+          "name": "phlo_dagster_oidc_groups_claim",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_ISSUER",
+          "annotation": "str | None",
+          "default": null,
+          "description": "OIDC issuer; stripped, default blank.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_ISSUER"
+          ],
+          "name": "phlo_dagster_oidc_issuer",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_JWKS_URL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "OIDC JWKS URL; stripped, default blank.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_JWKS_URL"
+          ],
+          "name": "phlo_dagster_oidc_jwks_url",
+          "required": false
+        },
+        {
+          "alias": "PHLO_DAGSTER_OIDC_REQUIRED",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "OIDC-required override; stripped lowercase true enables. Production authorization policy remains independent.",
+          "environment_names": [
+            "PHLO_DAGSTER_OIDC_REQUIRED"
+          ],
+          "name": "phlo_dagster_oidc_required",
+          "required": false
+        },
+        {
+          "alias": "PHLO_INCIDENT_API_URL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Incident ingestion API URL; sensor handles absent configuration.",
+          "environment_names": [
+            "PHLO_INCIDENT_API_URL"
+          ],
+          "name": "phlo_incident_api_url",
+          "required": false
+        },
+        {
+          "alias": "PHLO_OBSERVATORY_MAINTENANCE_EXECUTE",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Maintenance execution opt-in; only exact 1 enables, otherwise dry-run.",
+          "environment_names": [
+            "PHLO_OBSERVATORY_MAINTENANCE_EXECUTE"
+          ],
+          "name": "phlo_observatory_maintenance_execute",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_dagster.settings",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/settings.py",
       "status": "introspected"
     },
     {
@@ -585,6 +2122,9 @@
           "annotation": "<class 'int'>",
           "default": 10006,
           "description": "Dagster webserver port",
+          "environment_names": [
+            "DAGSTER_PORT"
+          ],
           "name": "dagster_port",
           "required": false
         },
@@ -593,6 +2133,9 @@
           "annotation": "<class 'bool'>",
           "default": false,
           "description": "Force use of in-process executor",
+          "environment_names": [
+            "PHLO_FORCE_IN_PROCESS_EXECUTOR"
+          ],
           "name": "phlo_force_in_process_executor",
           "required": false
         },
@@ -601,6 +2144,9 @@
           "annotation": "<class 'bool'>",
           "default": false,
           "description": "Force use of multiprocess executor",
+          "environment_names": [
+            "PHLO_FORCE_MULTIPROCESS_EXECUTOR"
+          ],
           "name": "phlo_force_multiprocess_executor",
           "required": false
         },
@@ -609,6 +2155,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Host platform for executor selection (Darwin/Linux/Windows). Auto-detected in CLI; set explicitly for daemon/webserver on macOS.",
+          "environment_names": [
+            "PHLO_HOST_PLATFORM"
+          ],
           "name": "phlo_host_platform",
           "required": false
         },
@@ -617,13 +2166,125 @@
           "annotation": "<class 'str'>",
           "default": "workflows",
           "description": "Path to user workflows directory (for external projects)",
+          "environment_names": [
+            "PHLO_WORKFLOWS_PATH",
+            "WORKFLOWS_PATH",
+            "WORKFLOWS_PATH"
+          ],
           "name": "workflows_path",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_dagster.settings",
       "package": "phlo-dagster",
       "source": "packages/phlo-dagster/src/phlo_dagster/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DagsterWebsocketSettings",
+      "fields": [
+        {
+          "alias": "PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS",
+          "annotation": "<class 'float'>",
+          "default": 10.0,
+          "description": "Websocket connection_init timeout, float seconds greater than 0 and at most 60.",
+          "environment_names": [
+            "PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS"
+          ],
+          "name": "init_timeout_seconds",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_dagster.settings",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "WapBackfillSettings",
+      "fields": [
+        {
+          "alias": "PHLO_WAP_BACKFILL_POLL_SECONDS",
+          "annotation": "<class 'float'>",
+          "default": 2,
+          "description": "WAP backfill polling interval; float syntax, no additional range restriction.",
+          "environment_names": [
+            "PHLO_WAP_BACKFILL_POLL_SECONDS"
+          ],
+          "name": "poll_seconds",
+          "required": false
+        },
+        {
+          "alias": "PHLO_WAP_BACKFILL_TIMEOUT_SECONDS",
+          "annotation": "<class 'float'>",
+          "default": 3600,
+          "description": "WAP backfill wait timeout; float syntax, no additional range restriction.",
+          "environment_names": [
+            "PHLO_WAP_BACKFILL_TIMEOUT_SECONDS"
+          ],
+          "name": "timeout_seconds",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_dagster.settings",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "WapSensorSettings",
+      "fields": [
+        {
+          "alias": "PHLO_WAP_CLEANUP_INTERVAL_SECONDS",
+          "annotation": "<class 'int'>",
+          "default": 3600,
+          "description": "Cleanup sensor interval, int syntax; read at sensor module import.",
+          "environment_names": [
+            "PHLO_WAP_CLEANUP_INTERVAL_SECONDS"
+          ],
+          "name": "cleanup_interval_seconds",
+          "required": false
+        },
+        {
+          "alias": "PHLO_WAP_PROMOTION_INTERVAL_SECONDS",
+          "annotation": "<class 'int'>",
+          "default": 60,
+          "description": "Promotion sensor interval, int syntax; read at sensor module import.",
+          "environment_names": [
+            "PHLO_WAP_PROMOTION_INTERVAL_SECONDS"
+          ],
+          "name": "promotion_interval_seconds",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_dagster.settings",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DbtDescriptionSettings",
+      "fields": [
+        {
+          "alias": "PHLO_DBT_INCLUDE_COMPILED_SQL_IN_DESCRIPTION",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Include compiled SQL in descriptions; stripped lowercase 1/true/yes/y/on enable.",
+          "environment_names": [
+            "PHLO_DBT_INCLUDE_COMPILED_SQL_IN_DESCRIPTION"
+          ],
+          "name": "include_compiled_sql_in_description",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_dbt.settings",
+      "package": "phlo-dbt",
+      "source": "packages/phlo-dbt/src/phlo_dbt/settings.py",
       "status": "introspected"
     },
     {
@@ -634,6 +2295,9 @@
           "annotation": "<class 'str'>",
           "default": "",
           "description": "Path to dbt catalog.json for column-level documentation",
+          "environment_names": [
+            "DBT_CATALOG_PATH"
+          ],
           "name": "dbt_catalog_path",
           "required": false
         },
@@ -642,6 +2306,9 @@
           "annotation": "<class 'str'>",
           "default": "",
           "description": "Path to dbt manifest.json after running dbt docs generate",
+          "environment_names": [
+            "DBT_MANIFEST_PATH"
+          ],
           "name": "dbt_manifest_path",
           "required": false
         },
@@ -650,6 +2317,9 @@
           "annotation": "<class 'bool'>",
           "default": false,
           "description": "Prefix dbt-derived asset keys with the dbt project name (e.g. sales.deal_pipeline) to prevent cross-domain collisions. Recommended when multiple projects are activated.",
+          "environment_names": [
+            "DBT_NAMESPACED_ASSET_KEYS"
+          ],
           "name": "dbt_namespaced_asset_keys",
           "required": false
         },
@@ -658,6 +2328,9 @@
           "annotation": "<class 'str'>",
           "default": "workflows/transforms/dbt",
           "description": "Path to dbt project directory",
+          "environment_names": [
+            "DBT_PROJECT_DIR"
+          ],
           "name": "dbt_project_dir",
           "required": false
         },
@@ -666,6 +2339,9 @@
           "annotation": "<class 'str'>",
           "default": "",
           "description": "Comma-separated list of dbt project directories to activate together (multi-project federation). Overrides dbt_project_dir.",
+          "environment_names": [
+            "DBT_PROJECT_DIRS"
+          ],
           "name": "dbt_project_dirs",
           "required": false
         },
@@ -674,6 +2350,9 @@
           "annotation": "<class 'str'>",
           "default": "none",
           "description": "Auth method for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_AUTH_METHOD"
+          ],
           "name": "dbt_query_auth_method",
           "required": false
         },
@@ -682,6 +2361,9 @@
           "annotation": "<class 'str'>",
           "default": "iceberg",
           "description": "Base query engine catalog for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_CATALOG"
+          ],
           "name": "dbt_query_catalog",
           "required": false
         },
@@ -690,6 +2372,9 @@
           "annotation": "<class 'str'>",
           "default": "trino",
           "description": "Query engine adapter used by dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_ENGINE_TYPE"
+          ],
           "name": "dbt_query_engine_type",
           "required": false
         },
@@ -698,6 +2383,9 @@
           "annotation": "<class 'str'>",
           "default": "trino",
           "description": "Query engine host for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_HOST"
+          ],
           "name": "dbt_query_host",
           "required": false
         },
@@ -706,6 +2394,9 @@
           "annotation": "<class 'str'>",
           "default": "http",
           "description": "HTTP scheme for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_HTTP_SCHEME"
+          ],
           "name": "dbt_query_http_scheme",
           "required": false
         },
@@ -714,6 +2405,9 @@
           "annotation": "<class 'str'>",
           "default": "",
           "description": "Query engine password for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_PASSWORD"
+          ],
           "name": "dbt_query_password",
           "required": false
         },
@@ -722,6 +2416,9 @@
           "annotation": "<class 'int'>",
           "default": 8080,
           "description": "Query engine port for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_PORT"
+          ],
           "name": "dbt_query_port",
           "required": false
         },
@@ -730,6 +2427,9 @@
           "annotation": "<class 'str'>",
           "default": "raw",
           "description": "Default schema for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_SCHEMA"
+          ],
           "name": "dbt_query_schema",
           "required": false
         },
@@ -738,6 +2438,9 @@
           "annotation": "<class 'int'>",
           "default": 2,
           "description": "Worker threads for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_THREADS"
+          ],
           "name": "dbt_query_threads",
           "required": false
         },
@@ -746,6 +2449,9 @@
           "annotation": "<class 'str'>",
           "default": "dagster",
           "description": "Query engine user for generated dbt profiles",
+          "environment_names": [
+            "DBT_QUERY_USER"
+          ],
           "name": "dbt_query_user",
           "required": false
         },
@@ -754,10 +2460,37 @@
           "annotation": "<class 'bool'>",
           "default": false,
           "description": "Keep the shared dbt_query_schema for every activated project. By default, multi-project activation isolates each project in its own schema ({project_name}_{schema}) so independent domains do not write into the same relations.",
+          "environment_names": [
+            "DBT_SHARED_SCHEMA"
+          ],
           "name": "dbt_shared_schema",
           "required": false
         }
       ],
+      "inherited_fields": {},
+      "module": "phlo_dbt.settings",
+      "package": "phlo-dbt",
+      "source": "packages/phlo-dbt/src/phlo_dbt/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "DbtTranslatorSettings",
+      "fields": [
+        {
+          "alias": "PHLO_DBT_COMPILED_SQL_MAX_BYTES",
+          "annotation": "<class 'int'>",
+          "default": 64000,
+          "description": "Compiled SQL UTF-8 byte limit. Integer syntax; invalid values warn once and fall back to 64000. Read only for enabled descriptions or metadata; no new range restriction.",
+          "environment_names": [
+            "PHLO_DBT_COMPILED_SQL_MAX_BYTES"
+          ],
+          "name": "compiled_sql_max_bytes",
+          "required": false
+        }
+      ],
+      "inherited_fields": {
+        "include_compiled_sql_in_description": "phlo_dbt.settings.DbtDescriptionSettings"
+      },
       "module": "phlo_dbt.settings",
       "package": "phlo-dbt",
       "source": "packages/phlo-dbt/src/phlo_dbt/settings.py",
@@ -771,6 +2504,9 @@
           "annotation": "<class 'str'>",
           "default": "raw",
           "description": "Default namespace/schema for Delta tables",
+          "environment_names": [
+            "DELTA_DEFAULT_NAMESPACE"
+          ],
           "name": "delta_default_namespace",
           "required": false
         },
@@ -779,6 +2515,10 @@
           "annotation": "<class 'str'>",
           "default": "minio",
           "description": "S3 access key for Delta I/O",
+          "environment_names": [
+            "DELTA_S3_ACCESS_KEY",
+            "AWS_ACCESS_KEY_ID"
+          ],
           "name": "delta_s3_access_key",
           "required": false
         },
@@ -787,6 +2527,9 @@
           "annotation": "<class 'bool'>",
           "default": true,
           "description": "Allow unsafe rename for S3 (non-HDFS) backends",
+          "environment_names": [
+            "DELTA_S3_ALLOW_UNSAFE_RENAME"
+          ],
           "name": "delta_s3_allow_unsafe_rename",
           "required": false
         },
@@ -795,6 +2538,10 @@
           "annotation": "str | None",
           "default": "http://localhost:9000",
           "description": "S3 endpoint URL for Delta I/O",
+          "environment_names": [
+            "DELTA_S3_ENDPOINT",
+            "AWS_S3_ENDPOINT"
+          ],
           "name": "delta_s3_endpoint",
           "required": false
         },
@@ -803,6 +2550,10 @@
           "annotation": "<class 'str'>",
           "default": "us-east-1",
           "description": "S3 region for Delta I/O",
+          "environment_names": [
+            "DELTA_S3_REGION",
+            "AWS_REGION"
+          ],
           "name": "delta_s3_region",
           "required": false
         },
@@ -811,6 +2562,10 @@
           "annotation": "<class 'str'>",
           "default": "minio123",
           "description": "S3 secret key for Delta I/O",
+          "environment_names": [
+            "DELTA_S3_SECRET_KEY",
+            "AWS_SECRET_ACCESS_KEY"
+          ],
           "name": "delta_s3_secret_key",
           "required": false
         },
@@ -819,6 +2574,9 @@
           "annotation": "<class 'str'>",
           "default": "s3://lake/stage",
           "description": "S3 path for staging parquet files",
+          "environment_names": [
+            "DELTA_STAGING_PATH"
+          ],
           "name": "delta_staging_path",
           "required": false
         },
@@ -827,10 +2585,14 @@
           "annotation": "<class 'str'>",
           "default": "s3://lake/warehouse/delta",
           "description": "S3 path for Delta tables",
+          "environment_names": [
+            "DELTA_WAREHOUSE_PATH"
+          ],
           "name": "delta_warehouse_path",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_delta.settings",
       "package": "phlo-delta",
       "source": "packages/phlo-delta/src/phlo_delta/settings.py",
@@ -844,10 +2606,14 @@
           "annotation": "<class 'str'>",
           "default": "raw",
           "description": "Default namespace/schema used for generated ingestion table names.",
+          "environment_names": [
+            "DLT_DEFAULT_NAMESPACE"
+          ],
           "name": "dlt_default_namespace",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_dlt.settings",
       "package": "phlo-dlt",
       "source": "packages/phlo-dlt/src/phlo_dlt/settings.py",
@@ -861,10 +2627,14 @@
           "annotation": "str | None",
           "default": "phlo-hasura-admin-secret",
           "description": "Hasura admin secret used for Metadata API requests",
+          "environment_names": [
+            "HASURA_ADMIN_SECRET"
+          ],
           "name": "hasura_admin_secret",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_hasura.client",
       "package": "phlo-hasura",
       "source": "packages/phlo-hasura/src/phlo_hasura/client.py",
@@ -878,6 +2648,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL database name",
+          "environment_names": [
+            "POSTGRES_DB"
+          ],
           "name": "postgres_db",
           "required": false
         },
@@ -886,6 +2659,9 @@
           "annotation": "<class 'str'>",
           "default": "postgres",
           "description": "PostgreSQL host",
+          "environment_names": [
+            "POSTGRES_HOST"
+          ],
           "name": "postgres_host",
           "required": false
         },
@@ -894,6 +2670,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL password",
+          "environment_names": [
+            "POSTGRES_PASSWORD"
+          ],
           "name": "postgres_password",
           "required": false
         },
@@ -902,6 +2681,9 @@
           "annotation": "<class 'int'>",
           "default": 5432,
           "description": "PostgreSQL port",
+          "environment_names": [
+            "POSTGRES_PORT"
+          ],
           "name": "postgres_port",
           "required": false
         },
@@ -910,10 +2692,14 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL username",
+          "environment_names": [
+            "POSTGRES_USER"
+          ],
           "name": "postgres_user",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_hasura.track",
       "package": "phlo-hasura",
       "source": "packages/phlo-hasura/src/phlo_hasura/track.py",
@@ -927,6 +2713,11 @@
           "annotation": "<class 'str'>",
           "default": "http://nessie:19120/iceberg",
           "description": "Iceberg REST catalog endpoint base URI",
+          "environment_names": [
+            "ICEBERG_CATALOG_URI",
+            "PHLO_ICEBERG_CATALOG_URI",
+            "ICEBERG_CATALOG_URI"
+          ],
           "name": "iceberg_catalog_uri",
           "required": false
         },
@@ -935,6 +2726,9 @@
           "annotation": "<class 'str'>",
           "default": "raw",
           "description": "Default namespace/schema for Iceberg tables",
+          "environment_names": [
+            "ICEBERG_DEFAULT_NAMESPACE"
+          ],
           "name": "iceberg_default_namespace",
           "required": false
         },
@@ -943,6 +2737,9 @@
           "annotation": "<class 'str'>",
           "default": "main",
           "description": "Default catalog ref/branch for Iceberg operations",
+          "environment_names": [
+            "ICEBERG_DEFAULT_REF"
+          ],
           "name": "iceberg_default_ref",
           "required": false
         },
@@ -951,6 +2748,12 @@
           "annotation": "<class 'str'>",
           "default": "minio",
           "description": "S3 access key for Iceberg I/O",
+          "environment_names": [
+            "ICEBERG_S3_ACCESS_KEY",
+            "PHLO_ICEBERG_S3_ACCESS_KEY",
+            "ICEBERG_S3_ACCESS_KEY",
+            "AWS_ACCESS_KEY_ID"
+          ],
           "name": "iceberg_s3_access_key",
           "required": false
         },
@@ -959,6 +2762,11 @@
           "annotation": "<class 'str'>",
           "default": "http://minio:10001",
           "description": "S3 endpoint URL for Iceberg I/O",
+          "environment_names": [
+            "ICEBERG_S3_ENDPOINT",
+            "PHLO_ICEBERG_S3_ENDPOINT",
+            "ICEBERG_S3_ENDPOINT"
+          ],
           "name": "iceberg_s3_endpoint",
           "required": false
         },
@@ -967,6 +2775,13 @@
           "annotation": "<class 'str'>",
           "default": "us-east-1",
           "description": "S3 region for Iceberg I/O",
+          "environment_names": [
+            "ICEBERG_S3_REGION",
+            "PHLO_ICEBERG_S3_REGION",
+            "ICEBERG_S3_REGION",
+            "AWS_REGION",
+            "AWS_DEFAULT_REGION"
+          ],
           "name": "iceberg_s3_region",
           "required": false
         },
@@ -975,6 +2790,12 @@
           "annotation": "<class 'str'>",
           "default": "minio123",
           "description": "S3 secret key for Iceberg I/O",
+          "environment_names": [
+            "ICEBERG_S3_SECRET_KEY",
+            "PHLO_ICEBERG_S3_SECRET_KEY",
+            "ICEBERG_S3_SECRET_KEY",
+            "AWS_SECRET_ACCESS_KEY"
+          ],
           "name": "iceberg_s3_secret_key",
           "required": false
         },
@@ -983,6 +2804,9 @@
           "annotation": "<class 'str'>",
           "default": "s3://lake/stage",
           "description": "S3 path for staging parquet files",
+          "environment_names": [
+            "ICEBERG_STAGING_PATH"
+          ],
           "name": "iceberg_staging_path",
           "required": false
         },
@@ -991,10 +2815,16 @@
           "annotation": "<class 'str'>",
           "default": "s3://lake/warehouse",
           "description": "S3 path for Iceberg warehouse",
+          "environment_names": [
+            "ICEBERG_WAREHOUSE_PATH",
+            "PHLO_ICEBERG_WAREHOUSE_PATH",
+            "ICEBERG_WAREHOUSE_PATH"
+          ],
           "name": "iceberg_warehouse_path",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_iceberg.settings",
       "package": "phlo-iceberg",
       "source": "packages/phlo-iceberg/src/phlo_iceberg/settings.py",
@@ -1008,6 +2838,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo-ingestion-checkpoints",
           "description": "Compacted topic mirroring durable ingestion checkpoints",
+          "environment_names": [
+            "KAFKA_CHECKPOINT_TOPIC"
+          ],
           "name": "kafka_checkpoint_topic",
           "required": false
         },
@@ -1016,6 +2849,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "Prefix applied to consumer group ids",
+          "environment_names": [
+            "KAFKA_CONSUMER_GROUP_PREFIX"
+          ],
           "name": "kafka_consumer_group_prefix",
           "required": false
         },
@@ -1024,6 +2860,9 @@
           "annotation": "<class 'int'>",
           "default": 2592000000,
           "description": "Dead-letter topic retention in milliseconds (default 30d)",
+          "environment_names": [
+            "KAFKA_DEAD_LETTER_RETENTION_MS"
+          ],
           "name": "kafka_dead_letter_retention_ms",
           "required": false
         },
@@ -1032,6 +2871,9 @@
           "annotation": "<class 'str'>",
           "default": ".dlq",
           "description": "Suffix for dead-letter topics",
+          "environment_names": [
+            "KAFKA_DEAD_LETTER_SUFFIX"
+          ],
           "name": "kafka_dead_letter_suffix",
           "required": false
         },
@@ -1040,6 +2882,9 @@
           "annotation": "<class 'str'>",
           "default": "kafka",
           "description": "Kafka broker host",
+          "environment_names": [
+            "KAFKA_HOST"
+          ],
           "name": "kafka_host",
           "required": false
         },
@@ -1048,6 +2893,9 @@
           "annotation": "<class 'int'>",
           "default": 9092,
           "description": "Kafka broker port",
+          "environment_names": [
+            "KAFKA_PORT"
+          ],
           "name": "kafka_port",
           "required": false
         },
@@ -1056,6 +2904,9 @@
           "annotation": "<class 'int'>",
           "default": 604800000,
           "description": "Source topic retention in milliseconds (default 7d)",
+          "environment_names": [
+            "KAFKA_RETENTION_MS"
+          ],
           "name": "kafka_retention_ms",
           "required": false
         },
@@ -1064,10 +2915,14 @@
           "annotation": "<class 'str'>",
           "default": "additive",
           "description": "Default schema policy: additive compatible changes auto-register",
+          "environment_names": [
+            "KAFKA_SCHEMA_POLICY"
+          ],
           "name": "kafka_schema_policy",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_kafka.settings",
       "package": "phlo-kafka",
       "source": "packages/phlo-kafka/src/phlo_kafka/settings.py",
@@ -1075,19 +2930,123 @@
     },
     {
       "class": "LineageSettings",
-      "fields": [
-        {
-          "alias": "AliasChoices(choices=['LINEAGE_DB_URL', 'PHLO_LINEAGE_DB_URL', 'DAGSTER_PG_DB_CONNECTION_STRING'])",
-          "annotation": "str | None",
-          "default": null,
-          "description": "PostgreSQL DSN for the row-level lineage store",
-          "name": "lineage_db_url",
-          "required": false
-        }
-      ],
+      "fields": [],
+      "inherited_fields": {
+        "lineage_db_url": "phlo.config.process.LineageDatabaseSettings"
+      },
       "module": "phlo_lineage.settings",
       "package": "phlo-lineage",
       "source": "packages/phlo-lineage/src/phlo_lineage/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "McpSettings",
+      "fields": [
+        {
+          "alias": "PHLO_MCP_API_BASE_URL",
+          "annotation": "<class 'str'>",
+          "default": "http://127.0.0.1:4000",
+          "description": "API base URL; trailing slashes removed.",
+          "environment_names": [
+            "PHLO_MCP_API_BASE_URL"
+          ],
+          "name": "api_base_url",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MCP_API_TOKEN",
+          "annotation": "str | None",
+          "default": null,
+          "description": "API bearer token; blank means absent.",
+          "environment_names": [
+            "PHLO_MCP_API_TOKEN"
+          ],
+          "name": "api_token",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MCP_ENABLE_WRITE_TOOLS",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Write-tool opt-in; lowercase 1/true/yes/on enable, without trimming.",
+          "environment_names": [
+            "PHLO_MCP_ENABLE_WRITE_TOOLS"
+          ],
+          "name": "enable_write_tools",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MCP_HOST",
+          "annotation": "<class 'str'>",
+          "default": "127.0.0.1",
+          "description": "MCP server bind host.",
+          "environment_names": [
+            "PHLO_MCP_HOST"
+          ],
+          "name": "host",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MCP_PORT",
+          "annotation": "<class 'int'>",
+          "default": 8000,
+          "description": "MCP server port, parsed with int rather than accepting decimal strings.",
+          "environment_names": [
+            "PHLO_MCP_PORT"
+          ],
+          "name": "port",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MCP_HTTP_PATH",
+          "annotation": "<class 'str'>",
+          "default": "/mcp",
+          "description": "Streamable HTTP endpoint path.",
+          "environment_names": [
+            "PHLO_MCP_HTTP_PATH"
+          ],
+          "name": "streamable_http_path",
+          "required": false
+        },
+        {
+          "alias": "PHLO_MCP_TRANSPORT",
+          "annotation": "Literal['stdio', 'sse', 'streamable-http']",
+          "default": "stdio",
+          "description": "MCP transport: stdio, sse or streamable-http; case-sensitive.",
+          "environment_names": [
+            "PHLO_MCP_TRANSPORT"
+          ],
+          "name": "transport",
+          "required": false
+        }
+      ],
+      "inherited_fields": {
+        "trace_file": "phlo_mcp.config.McpTraceSettings"
+      },
+      "module": "phlo_mcp.config",
+      "package": "phlo-mcp",
+      "source": "packages/phlo-mcp/src/phlo_mcp/config.py",
+      "status": "introspected"
+    },
+    {
+      "class": "McpTraceSettings",
+      "fields": [
+        {
+          "alias": "PHLO_MCP_TRACE_FILE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Legacy JSONL debug drain destination; removed in 0.19.0. Explicit trace argument wins; blank disables.",
+          "environment_names": [
+            "PHLO_MCP_TRACE_FILE"
+          ],
+          "name": "trace_file",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_mcp.config",
+      "package": "phlo-mcp",
+      "source": "packages/phlo-mcp/src/phlo_mcp/config.py",
       "status": "introspected"
     },
     {
@@ -1098,6 +3057,9 @@
           "annotation": "<class 'int'>",
           "default": 10001,
           "description": "MinIO API port",
+          "environment_names": [
+            "MINIO_API_PORT"
+          ],
           "name": "minio_api_port",
           "required": false
         },
@@ -1106,6 +3068,9 @@
           "annotation": "<class 'int'>",
           "default": 10002,
           "description": "MinIO console port",
+          "environment_names": [
+            "MINIO_CONSOLE_PORT"
+          ],
           "name": "minio_console_port",
           "required": false
         },
@@ -1114,6 +3079,9 @@
           "annotation": "<class 'str'>",
           "default": "minio",
           "description": "MinIO service hostname",
+          "environment_names": [
+            "MINIO_HOST"
+          ],
           "name": "minio_host",
           "required": false
         },
@@ -1122,6 +3090,9 @@
           "annotation": "<class 'str'>",
           "default": "minio123",
           "description": "MinIO root password",
+          "environment_names": [
+            "MINIO_ROOT_PASSWORD"
+          ],
           "name": "minio_root_password",
           "required": false
         },
@@ -1130,6 +3101,9 @@
           "annotation": "<class 'str'>",
           "default": "minio",
           "description": "MinIO root username",
+          "environment_names": [
+            "MINIO_ROOT_USER"
+          ],
           "name": "minio_root_user",
           "required": false
         },
@@ -1138,10 +3112,14 @@
           "annotation": "<class 'str'>",
           "default": "us-east-1",
           "description": "S3 region",
+          "environment_names": [
+            "S3_REGION"
+          ],
           "name": "s3_region",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_minio.settings",
       "package": "phlo-minio",
       "source": "packages/phlo-minio/src/phlo_minio/settings.py",
@@ -1155,6 +3133,9 @@
           "annotation": "<class 'str'>",
           "default": "v1",
           "description": "Nessie API version",
+          "environment_names": [
+            "NESSIE_API_VERSION"
+          ],
           "name": "nessie_api_version",
           "required": false
         },
@@ -1163,6 +3144,9 @@
           "annotation": "<class 'str'>",
           "default": "main",
           "description": "Default Nessie branch/tag",
+          "environment_names": [
+            "NESSIE_DEFAULT_REF"
+          ],
           "name": "nessie_default_ref",
           "required": false
         },
@@ -1171,6 +3155,9 @@
           "annotation": "<class 'str'>",
           "default": "nessie",
           "description": "Nessie service hostname",
+          "environment_names": [
+            "NESSIE_HOST"
+          ],
           "name": "nessie_host",
           "required": false
         },
@@ -1179,6 +3166,9 @@
           "annotation": "<class 'int'>",
           "default": 19120,
           "description": "Nessie REST API port",
+          "environment_names": [
+            "NESSIE_PORT"
+          ],
           "name": "nessie_port",
           "required": false
         },
@@ -1187,6 +3177,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Optional query_engine capability name for catalog scan fallbacks",
+          "environment_names": [
+            "NESSIE_QUERY_ENGINE"
+          ],
           "name": "nessie_query_engine",
           "required": false
         },
@@ -1195,10 +3188,14 @@
           "annotation": "<class 'str'>",
           "default": "0.108.3",
           "description": "Nessie version",
+          "environment_names": [
+            "NESSIE_VERSION"
+          ],
           "name": "nessie_version",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_nessie.settings",
       "package": "phlo-nessie",
       "source": "packages/phlo-nessie/src/phlo_nessie/settings.py",
@@ -1206,19 +3203,34 @@
     },
     {
       "class": "ObservatorySettings",
-      "fields": [
-        {
-          "alias": "AliasChoices(choices=['PHLO_OBSERVATORY_SETTINGS_DB_URL'])",
-          "annotation": "str | None",
-          "default": null,
-          "description": "PostgreSQL DSN for Observatory settings storage",
-          "name": "observatory_settings_db_url",
-          "required": false
-        }
-      ],
+      "fields": [],
+      "inherited_fields": {
+        "observatory_settings_db_url": "phlo.plugins.observatory_settings.ObservatoryDatabaseSettings"
+      },
       "module": "phlo_observatory.settings",
       "package": "phlo-observatory",
       "source": "packages/phlo-observatory/src/phlo_observatory/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "OpenMetadataProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_POSTGRES_MART_SCHEMA",
+          "annotation": "<class 'str'>",
+          "default": "marts",
+          "description": "Publish-event schema fallback for unqualified table names; explicit empty string is preserved.",
+          "environment_names": [
+            "PHLO_POSTGRES_MART_SCHEMA"
+          ],
+          "name": "postgres_mart_schema",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_openmetadata.settings",
+      "package": "phlo-openmetadata",
+      "source": "packages/phlo-openmetadata/src/phlo_openmetadata/settings.py",
       "status": "introspected"
     },
     {
@@ -1229,6 +3241,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Catalog scanner capability name to use for sync operations",
+          "environment_names": [
+            "OPENMETADATA_CATALOG_SCANNER"
+          ],
           "name": "openmetadata_catalog_scanner",
           "required": false
         },
@@ -1237,6 +3252,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "OpenMetadata database name (required unless a query_engine capability declares catalog metadata)",
+          "environment_names": [
+            "OPENMETADATA_DATABASE_NAME"
+          ],
           "name": "openmetadata_database_name",
           "required": false
         },
@@ -1245,6 +3263,9 @@
           "annotation": "<class 'str'>",
           "default": "workflows/transforms/dbt/target/catalog.json",
           "description": "Path to dbt catalog.json for metadata sync",
+          "environment_names": [
+            "OPENMETADATA_DBT_CATALOG_PATH"
+          ],
           "name": "openmetadata_dbt_catalog_path",
           "required": false
         },
@@ -1253,6 +3274,9 @@
           "annotation": "<class 'str'>",
           "default": "workflows/transforms/dbt/target/manifest.json",
           "description": "Path to dbt manifest.json for metadata sync",
+          "environment_names": [
+            "OPENMETADATA_DBT_MANIFEST_PATH"
+          ],
           "name": "openmetadata_dbt_manifest_path",
           "required": false
         },
@@ -1261,6 +3285,9 @@
           "annotation": "<class 'str'>",
           "default": "openmetadata-server",
           "description": "OpenMetadata server hostname",
+          "environment_names": [
+            "OPENMETADATA_HOST"
+          ],
           "name": "openmetadata_host",
           "required": false
         },
@@ -1269,6 +3296,9 @@
           "annotation": "<class 'str'>",
           "default": "admin",
           "description": "OpenMetadata admin password",
+          "environment_names": [
+            "OPENMETADATA_PASSWORD"
+          ],
           "name": "openmetadata_password",
           "required": false
         },
@@ -1277,6 +3307,9 @@
           "annotation": "<class 'int'>",
           "default": 8585,
           "description": "OpenMetadata server port",
+          "environment_names": [
+            "OPENMETADATA_PORT"
+          ],
           "name": "openmetadata_port",
           "required": false
         },
@@ -1285,6 +3318,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Query engine capability name used to infer the OpenMetadata database name",
+          "environment_names": [
+            "OPENMETADATA_QUERY_ENGINE"
+          ],
           "name": "openmetadata_query_engine",
           "required": false
         },
@@ -1293,6 +3329,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "OpenMetadata database service name for Phlo metadata sync",
+          "environment_names": [
+            "OPENMETADATA_SERVICE_NAME"
+          ],
           "name": "openmetadata_service_name",
           "required": false
         },
@@ -1301,6 +3340,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "OpenMetadata database service type (required unless query_engine metadata declares service_type)",
+          "environment_names": [
+            "OPENMETADATA_SERVICE_TYPE"
+          ],
           "name": "openmetadata_service_type",
           "required": false
         },
@@ -1309,6 +3351,9 @@
           "annotation": "<class 'bool'>",
           "default": true,
           "description": "Enable automatic metadata sync to OpenMetadata",
+          "environment_names": [
+            "OPENMETADATA_SYNC_ENABLED"
+          ],
           "name": "openmetadata_sync_enabled",
           "required": false
         },
@@ -1317,6 +3362,9 @@
           "annotation": "<class 'int'>",
           "default": 300,
           "description": "Minimum interval between metadata syncs (seconds)",
+          "environment_names": [
+            "OPENMETADATA_SYNC_INTERVAL_SECONDS"
+          ],
           "name": "openmetadata_sync_interval_seconds",
           "required": false
         },
@@ -1325,6 +3373,9 @@
           "annotation": "<class 'str'>",
           "default": "admin",
           "description": "OpenMetadata admin username",
+          "environment_names": [
+            "OPENMETADATA_USERNAME"
+          ],
           "name": "openmetadata_username",
           "required": false
         },
@@ -1333,13 +3384,38 @@
           "annotation": "<class 'bool'>",
           "default": false,
           "description": "Verify SSL certificates for OpenMetadata connections",
+          "environment_names": [
+            "OPENMETADATA_VERIFY_SSL"
+          ],
           "name": "openmetadata_verify_ssl",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_openmetadata.settings",
       "package": "phlo-openmetadata",
       "source": "packages/phlo-openmetadata/src/phlo_openmetadata/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "PanderaSettings",
+      "fields": [
+        {
+          "alias": "PHLO_SCHEMA_SEARCH_PATHS",
+          "annotation": "list[str] | None",
+          "default": null,
+          "description": "Comma-separated paths, stripped with blanks removed. Missing/empty falls back to PHLO_PROJECT_PATH/examples and workflows, or local examples and workflows. A nonempty all-blank list selects no paths.",
+          "environment_names": [
+            "PHLO_SCHEMA_SEARCH_PATHS"
+          ],
+          "name": "schema_search_paths",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_pandera.settings",
+      "package": "phlo-pandera",
+      "source": "packages/phlo-pandera/src/phlo_pandera/settings.py",
       "status": "introspected"
     },
     {
@@ -1350,6 +3426,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "Polaris catalog name backing the Phlo warehouse",
+          "environment_names": [
+            "POLARIS_CATALOG"
+          ],
           "name": "polaris_catalog",
           "required": false
         },
@@ -1358,6 +3437,9 @@
           "annotation": "<class 'str'>",
           "default": "polaris",
           "description": "Polaris API host",
+          "environment_names": [
+            "POLARIS_HOST"
+          ],
           "name": "polaris_host",
           "required": false
         },
@@ -1366,6 +3448,9 @@
           "annotation": "<class 'int'>",
           "default": 8181,
           "description": "Polaris API port",
+          "environment_names": [
+            "POLARIS_PORT"
+          ],
           "name": "polaris_port",
           "required": false
         },
@@ -1374,6 +3459,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Optional query-engine capability used by catalog scanners",
+          "environment_names": [
+            "POLARIS_QUERY_ENGINE"
+          ],
           "name": "polaris_query_engine",
           "required": false
         },
@@ -1382,6 +3470,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo_reader",
           "description": "Reader principal client id",
+          "environment_names": [
+            "POLARIS_READER_CLIENT_ID"
+          ],
           "name": "polaris_reader_client_id",
           "required": false
         },
@@ -1390,6 +3481,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo-reader-secret",
           "description": "Reader principal client secret",
+          "environment_names": [
+            "POLARIS_READER_CLIENT_SECRET"
+          ],
           "name": "polaris_reader_client_secret",
           "required": false
         },
@@ -1398,6 +3492,9 @@
           "annotation": "<class 'str'>",
           "default": "root:s3cr3t",
           "description": "Bootstrap principal credentials as client_id:client_secret",
+          "environment_names": [
+            "POLARIS_ROOT_CREDENTIALS"
+          ],
           "name": "polaris_root_credentials",
           "required": false
         },
@@ -1406,6 +3503,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo_writer",
           "description": "Writer principal client id",
+          "environment_names": [
+            "POLARIS_WRITER_CLIENT_ID"
+          ],
           "name": "polaris_writer_client_id",
           "required": false
         },
@@ -1414,10 +3514,14 @@
           "annotation": "<class 'str'>",
           "default": "phlo-writer-secret",
           "description": "Writer principal client secret",
+          "environment_names": [
+            "POLARIS_WRITER_CLIENT_SECRET"
+          ],
           "name": "polaris_writer_client_secret",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_polaris.settings",
       "package": "phlo-polaris",
       "source": "packages/phlo-polaris/src/phlo_polaris/settings.py",
@@ -1431,6 +3535,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL database name",
+          "environment_names": [
+            "POSTGRES_DB"
+          ],
           "name": "postgres_db",
           "required": false
         },
@@ -1439,6 +3546,9 @@
           "annotation": "<class 'str'>",
           "default": "postgres",
           "description": "PostgreSQL host",
+          "environment_names": [
+            "POSTGRES_HOST"
+          ],
           "name": "postgres_host",
           "required": false
         },
@@ -1447,6 +3557,9 @@
           "annotation": "<class 'str'>",
           "default": "marts",
           "description": "Schema for published mart tables",
+          "environment_names": [
+            "POSTGRES_MART_SCHEMA"
+          ],
           "name": "postgres_mart_schema",
           "required": false
         },
@@ -1455,6 +3568,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL password",
+          "environment_names": [
+            "POSTGRES_PASSWORD"
+          ],
           "name": "postgres_password",
           "required": false
         },
@@ -1463,6 +3579,9 @@
           "annotation": "<class 'int'>",
           "default": 5432,
           "description": "PostgreSQL port",
+          "environment_names": [
+            "POSTGRES_PORT"
+          ],
           "name": "postgres_port",
           "required": false
         },
@@ -1471,10 +3590,14 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL username",
+          "environment_names": [
+            "POSTGRES_USER"
+          ],
           "name": "postgres_user",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_postgres.settings",
       "package": "phlo-postgres",
       "source": "packages/phlo-postgres/src/phlo_postgres/settings.py",
@@ -1488,6 +3611,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "dbt schema to expose through generated PostgREST views",
+          "environment_names": [
+            "DBT_API_SOURCE_SCHEMA"
+          ],
           "name": "dbt_api_source_schema",
           "required": false
         },
@@ -1496,6 +3622,9 @@
           "annotation": "<class 'str'>",
           "default": "workflows/transforms/dbt/target/manifest.json",
           "description": "Path to dbt manifest.json",
+          "environment_names": [
+            "DBT_MANIFEST_PATH"
+          ],
           "name": "dbt_manifest_path",
           "required": false
         },
@@ -1504,6 +3633,9 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL database name",
+          "environment_names": [
+            "POSTGRES_DB"
+          ],
           "name": "postgres_db",
           "required": false
         },
@@ -1512,6 +3644,9 @@
           "annotation": "<class 'str'>",
           "default": "postgres",
           "description": "PostgreSQL host",
+          "environment_names": [
+            "POSTGRES_HOST"
+          ],
           "name": "postgres_host",
           "required": false
         },
@@ -1520,6 +3655,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "PostgreSQL password (required; set PHLO_POSTGRES_PASSWORD or POSTGRES_PASSWORD env var)",
+          "environment_names": [
+            "POSTGRES_PASSWORD"
+          ],
           "name": "postgres_password",
           "required": false
         },
@@ -1528,6 +3666,9 @@
           "annotation": "<class 'int'>",
           "default": 5432,
           "description": "PostgreSQL port",
+          "environment_names": [
+            "POSTGRES_PORT"
+          ],
           "name": "postgres_port",
           "required": false
         },
@@ -1536,10 +3677,14 @@
           "annotation": "<class 'str'>",
           "default": "phlo",
           "description": "PostgreSQL username",
+          "environment_names": [
+            "POSTGRES_USER"
+          ],
           "name": "postgres_user",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_postgrest.views",
       "package": "phlo-postgrest",
       "source": "packages/phlo-postgrest/src/phlo_postgrest/views.py",
@@ -1553,6 +3698,9 @@
           "annotation": "<class 'str'>",
           "default": "rustfsadmin",
           "description": "RustFS access key",
+          "environment_names": [
+            "RUSTFS_ACCESS_KEY"
+          ],
           "name": "rustfs_access_key",
           "required": false
         },
@@ -1561,6 +3709,9 @@
           "annotation": "<class 'int'>",
           "default": 9000,
           "description": "RustFS S3 API port",
+          "environment_names": [
+            "RUSTFS_API_PORT"
+          ],
           "name": "rustfs_api_port",
           "required": false
         },
@@ -1569,6 +3720,9 @@
           "annotation": "<class 'int'>",
           "default": 9001,
           "description": "RustFS console port",
+          "environment_names": [
+            "RUSTFS_CONSOLE_PORT"
+          ],
           "name": "rustfs_console_port",
           "required": false
         },
@@ -1577,6 +3731,9 @@
           "annotation": "<class 'str'>",
           "default": "rustfs",
           "description": "RustFS service hostname",
+          "environment_names": [
+            "RUSTFS_HOST"
+          ],
           "name": "rustfs_host",
           "required": false
         },
@@ -1585,6 +3742,9 @@
           "annotation": "<class 'str'>",
           "default": "rustfsadmin",
           "description": "RustFS secret key",
+          "environment_names": [
+            "RUSTFS_SECRET_KEY"
+          ],
           "name": "rustfs_secret_key",
           "required": false
         },
@@ -1593,13 +3753,38 @@
           "annotation": "<class 'str'>",
           "default": "us-east-1",
           "description": "S3 region",
+          "environment_names": [
+            "S3_REGION"
+          ],
           "name": "s3_region",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_rustfs.settings",
       "package": "phlo-rustfs",
       "source": "packages/phlo-rustfs/src/phlo_rustfs/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "SlingProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_OBJECT_STORE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Object-store capability override; missing/blank falls back to phlo.yaml env then capability resolution.",
+          "environment_names": [
+            "PHLO_OBJECT_STORE"
+          ],
+          "name": "object_store",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_sling.settings",
+      "package": "phlo-sling",
+      "source": "packages/phlo-sling/src/phlo_sling/settings.py",
       "status": "introspected"
     },
     {
@@ -1610,6 +3795,9 @@
           "annotation": "<class 'bool'>",
           "default": true,
           "description": "Auto-generate Sling connections from Phlo capability metadata.",
+          "environment_names": [
+            "SLING_AUTO_CONNECTIONS"
+          ],
           "name": "sling_auto_connections",
           "required": false
         },
@@ -1618,6 +3806,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Override path to the sling binary. None uses the bundled binary.",
+          "environment_names": [
+            "SLING_BINARY_PATH"
+          ],
           "name": "sling_binary_path",
           "required": false
         },
@@ -1626,6 +3817,9 @@
           "annotation": "str | None",
           "default": null,
           "description": "Directory containing Sling env.yaml files for explicit connections.",
+          "environment_names": [
+            "SLING_CONNECTIONS_DIR"
+          ],
           "name": "sling_connections_dir",
           "required": false
         },
@@ -1634,6 +3828,9 @@
           "annotation": "<class 'str'>",
           "default": "incremental",
           "description": "Default replication mode (full-refresh, incremental, snapshot, backfill).",
+          "environment_names": [
+            "SLING_DEFAULT_MODE"
+          ],
           "name": "sling_default_mode",
           "required": false
         },
@@ -1642,10 +3839,14 @@
           "annotation": "<class 'str'>",
           "default": "raw",
           "description": "Default namespace for generated replication table names.",
+          "environment_names": [
+            "SLING_DEFAULT_NAMESPACE"
+          ],
           "name": "sling_default_namespace",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_sling.settings",
       "package": "phlo-sling",
       "source": "packages/phlo-sling/src/phlo_sling/settings.py",
@@ -1659,6 +3860,9 @@
           "annotation": "<class 'str'>",
           "default": "admin@example.com",
           "description": "Superset admin email",
+          "environment_names": [
+            "SUPERSET_ADMIN_EMAIL"
+          ],
           "name": "superset_admin_email",
           "required": false
         },
@@ -1667,6 +3871,9 @@
           "annotation": "<class 'str'>",
           "default": "admin",
           "description": "Superset admin password",
+          "environment_names": [
+            "SUPERSET_ADMIN_PASSWORD"
+          ],
           "name": "superset_admin_password",
           "required": false
         },
@@ -1675,6 +3882,9 @@
           "annotation": "<class 'str'>",
           "default": "admin",
           "description": "Superset admin username",
+          "environment_names": [
+            "SUPERSET_ADMIN_USER"
+          ],
           "name": "superset_admin_user",
           "required": false
         },
@@ -1683,10 +3893,14 @@
           "annotation": "<class 'int'>",
           "default": 10007,
           "description": "Superset web port",
+          "environment_names": [
+            "SUPERSET_PORT"
+          ],
           "name": "superset_port",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_superset.settings",
       "package": "phlo-superset",
       "source": "packages/phlo-superset/src/phlo_superset/settings.py",
@@ -1700,10 +3914,14 @@
           "annotation": "<class 'str'>",
           "default": "marts",
           "description": "Default mart schema",
+          "environment_names": [
+            "POSTGRES_MART_SCHEMA"
+          ],
           "name": "postgres_mart_schema",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_trino.publishing",
       "package": "phlo-trino",
       "source": "packages/phlo-trino/src/phlo_trino/publishing.py",
@@ -1717,6 +3935,9 @@
           "annotation": "<class 'str'>",
           "default": "iceberg",
           "description": "Trino catalog name for Iceberg",
+          "environment_names": [
+            "TRINO_CATALOG"
+          ],
           "name": "trino_catalog",
           "required": false
         },
@@ -1725,6 +3946,9 @@
           "annotation": "<class 'str'>",
           "default": "main",
           "description": "Default branch/tag suffix",
+          "environment_names": [
+            "TRINO_DEFAULT_REF"
+          ],
           "name": "trino_default_ref",
           "required": false
         },
@@ -1733,6 +3957,9 @@
           "annotation": "<class 'str'>",
           "default": "trino",
           "description": "Trino service hostname",
+          "environment_names": [
+            "TRINO_HOST"
+          ],
           "name": "trino_host",
           "required": false
         },
@@ -1741,6 +3968,9 @@
           "annotation": "<class 'int'>",
           "default": 10005,
           "description": "Trino HTTP port",
+          "environment_names": [
+            "TRINO_PORT"
+          ],
           "name": "trino_port",
           "required": false
         },
@@ -1749,10 +3979,14 @@
           "annotation": "<class 'str'>",
           "default": "477",
           "description": "Trino version",
+          "environment_names": [
+            "TRINO_VERSION"
+          ],
           "name": "trino_version",
           "required": false
         }
       ],
+      "inherited_fields": {},
       "module": "phlo_trino.settings",
       "package": "phlo-trino",
       "source": "packages/phlo-trino/src/phlo_trino/settings.py",

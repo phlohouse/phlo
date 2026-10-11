@@ -9,6 +9,9 @@
     "enabled": true,
     "schedule": ["before 3am on monday"]
   },
+  "dockerfile": {
+    "pinDigests": true
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -117,7 +120,15 @@
     {
       "matchPackageNames": ["python"],
       "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
       "enabled": false
+    },
+    {
+      "description": "Review Dockerfile digest updates per base image, including Python.",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["digest", "pinDigest"],
+      "automerge": false,
+      "groupName": "{{depName}} Dockerfile digests"
     },
     {
       "matchUpdateTypes": ["lockFileMaintenance"],

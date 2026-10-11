@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from phlo_api.settings import DEFAULT_CORS_ORIGINS, get_settings
+from phlo_api.settings import DEFAULT_CORS_ORIGINS, get_deployment_settings, get_settings
 
 
 def test_defaults_match_previous_call_site_defaults(tmp_path, monkeypatch) -> None:
@@ -68,3 +68,35 @@ def test_integer_strings_keep_int_parsing(tmp_path, monkeypatch, value, expected
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setenv("PHLO_API_AUDIT_MAX_BYTES", value)
     assert get_settings().phlo_api_audit_max_bytes == expected
+
+
+@pytest.mark.parametrize(
+    "name, field, enabled",
+    [
+        ("PHLO_V1_ACTIONS_SINGLE_REPLICA", "actions_single_replica", "1"),
+        ("PHLO_V1_ACTIONS_SINGLE_PROCESS", "actions_single_process", "1"),
+        ("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "actions_ref_tag_contract", "1"),
+        ("PHLO_V1_QUERY_SINGLE_REPLICA", "query_single_replica", "1"),
+        ("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "preview_server_limits_configured", "1"),
+        ("PHLO_STAGING_SINGLE_REPLICA", "staging_single_replica", "true"),
+    ],
+)
+def test_deployment_assertions_keep_exact_process_only_parsing(
+    tmp_path, monkeypatch, name, field, enabled
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text(f"{name}={enabled}\n", encoding="utf-8")
+    (phlo_dir / ".env.local").write_text(f"{name}={enabled}\n", encoding="utf-8")
+    monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(name.lower(), enabled)
+    assert getattr(get_deployment_settings(), field) is False
+
+    for value in ("", "0", "false", "true", "TRUE", "1", "yes", "on", " 1 ", " true ", "invalid"):
+        monkeypatch.setenv(name, value)
+        assert getattr(get_deployment_settings(), field) is (value == enabled)
+    monkeypatch.setenv(name, enabled)
+    assert getattr(get_deployment_settings(), field) is True
+    monkeypatch.delenv(name)
+    assert getattr(get_deployment_settings(), field) is False

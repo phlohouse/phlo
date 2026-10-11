@@ -145,7 +145,8 @@ def setting_candidates(root: Path) -> list[tuple[Path, str]]:
                 continue
             for node in tree.body:
                 if isinstance(node, ast.ClassDef) and any(
-                    isinstance(base, ast.Name) and base.id in {"BaseConfig", "BaseSettings"}
+                    isinstance(base, ast.Name)
+                    and base.id in {"BaseConfig", "BaseSettings", "ProcessOverrides"}
                     for base in node.bases
                 ):
                     found.append((path, node.name))
@@ -163,6 +164,26 @@ def module_details(root: Path, path: Path) -> tuple[str, str]:
     return module, package
 
 
+def setting_environment_names(model: Any, name: str, field: Any) -> list[str]:
+    """Describe actual environment names, including aliases and case-insensitive keys."""
+    from pydantic import AliasChoices, AliasPath
+
+    alias = field.validation_alias or field.alias
+    if isinstance(alias, AliasChoices):
+        names = [item if isinstance(item, str) else str(item.path[0]) for item in alias.choices]
+    elif isinstance(alias, AliasPath):
+        names = [str(alias.path[0])]
+    elif isinstance(alias, str):
+        names = [alias]
+    else:
+        names = [str(model.model_config.get("env_prefix", "")) + name]
+    return (
+        names
+        if model.model_config.get("case_sensitive", False)
+        else [item.upper() for item in names]
+    )
+
+
 def settings_docs(root: Path) -> tuple[dict[str, object], str]:
     prepare_imports(root)
     models = []
@@ -177,9 +198,20 @@ def settings_docs(root: Path) -> tuple[dict[str, object], str]:
         try:
             cls = getattr(importlib.import_module(module_name), class_name)
             fields = []
+            inherited_fields = {}
             for name, field in sorted(cls.model_fields.items()):
-                if field.default_factory is not None:
-                    default: object = safe(field.default_factory)
+                if name not in vars(cls).get("__annotations__", {}):
+                    owner = next(
+                        base
+                        for base in cls.__mro__[1:]
+                        if name in vars(base).get("__annotations__", {})
+                    )
+                    inherited_fields[name] = f"{owner.__module__}.{owner.__name__}"
+                    continue
+                if field.default_factory in (list, dict, set, tuple):
+                    default: object = safe(field.default_factory())
+                elif field.default_factory is not None:
+                    default = safe(field.default_factory)
                 elif field.is_required():
                     default = "<required>"
                 else:
@@ -188,13 +220,14 @@ def settings_docs(root: Path) -> tuple[dict[str, object], str]:
                     {
                         "name": name,
                         "alias": safe(field.validation_alias or field.alias or name),
+                        "environment_names": setting_environment_names(cls, name, field),
                         "annotation": str(field.annotation).replace("typing.", ""),
                         "required": field.is_required(),
                         "default": default,
                         "description": field.description,
                     }
                 )
-            model.update(status="introspected", fields=fields)
+            model.update(status="introspected", fields=fields, inherited_fields=inherited_fields)
         except Exception as exc:
             model.update(status="unavailable", fields=[], error=f"{type(exc).__name__}: {exc}")
         models.append(model)
@@ -217,6 +250,8 @@ def settings_docs(root: Path) -> tuple[dict[str, object], str]:
         "",
         "Defaults come from model metadata. The generator does not instantiate settings or read environment values. Passwords and keys shown here are public development defaults from source code, not deployed secret values; replace them outside local development.",
         "",
+        "Process-only models do not load project dotenv files and are read fresh at their documented execution boundary. A `none` override default means absent, not an effective runtime default; the description gives YAML, explicit-argument and contextual fallbacks. JSON strings retain operation-specific decoding and error handling rather than eager global validation. See [process settings and environment-read classification](../contributing/process-settings.md) for ownership, internal hooks and compatibility lifetimes.",
+        "",
     ]
     for model in models:
         lines += [
@@ -228,16 +263,22 @@ def settings_docs(root: Path) -> tuple[dict[str, object], str]:
         if model["status"] != "introspected":
             lines += [f"Introspection unavailable: `{cell(model['error'])}`", ""]
             continue
+        if model["inherited_fields"]:
+            lines += ["Inherited fields are documented once under their declaring model:", ""]
+            lines += [
+                f"- `{name}`: `{owner}`." for name, owner in model["inherited_fields"].items()
+            ]
+            lines.append("")
         if not model["fields"]:
-            lines += ["This model declares no fields.", ""]
+            lines += ["This model declares no additional fields.", ""]
             continue
         lines += [
-            "| Field | Alias | Type | Required | Default | Description |",
+            "| Field | Environment names | Type | Required | Default | Description |",
             "| --- | --- | --- | --- | --- | --- |",
         ]
         for field in model["fields"]:
             lines.append(
-                f"| `{field['name']}` | `{cell(field['alias'])}` | `{cell(field['annotation'])}` | {str(field['required']).lower()} | `{cell(field['default'])}` | {cell(field['description'])} |"
+                f"| `{field['name']}` | `{cell(field['environment_names'])}` | `{cell(field['annotation'])}` | {str(field['required']).lower()} | `{cell(field['default'])}` | {cell(field['description'])} |"
             )
         lines.append("")
     return data, "\n".join(lines).rstrip() + "\n"

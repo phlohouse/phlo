@@ -26,10 +26,10 @@ Read commands (no authorization):
 
 from __future__ import annotations
 
-import os
 import threading
 from typing import TYPE_CHECKING, Any
 
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.security.adapters import (
     EnforcementResult,
@@ -169,7 +169,7 @@ class CliPrincipalResolver:
         """Resolve AuthPrincipal from environment."""
         from phlo.capabilities.interfaces import AuthPrincipal
 
-        service_account = os.environ.get("PHLO_SERVICE_ACCOUNT")
+        service_account = get_process_settings().phlo_service_account
         if service_account:
             return AuthPrincipal(
                 subject=service_account,
@@ -179,14 +179,11 @@ class CliPrincipalResolver:
                 attributes={"authentication_source": "service_account"},
             )
 
-        subject = os.environ.get("PHLO_AUTH_SUBJECT")
-        auth_type = os.environ.get("PHLO_AUTH_TYPE", "user")
-        groups_raw = os.environ.get("PHLO_AUTH_GROUPS", "")
+        subject = get_process_settings().phlo_auth_subject
+        auth_type = get_process_settings().get("PHLO_AUTH_TYPE", "user")
+        groups = tuple(get_process_settings().phlo_auth_groups)
 
         if subject:
-            groups = (
-                tuple(g.strip() for g in groups_raw.split(",") if g.strip()) if groups_raw else ()
-            )
             return AuthPrincipal(
                 subject=subject,
                 principal_type=auth_type,
@@ -195,7 +192,7 @@ class CliPrincipalResolver:
                 attributes={"authentication_source": "env"},
             )
 
-        local_dev_fallback = os.environ.get("PHLO_DEV_MODE")
+        local_dev_fallback = get_process_settings().phlo_dev_mode
         if local_dev_fallback:
             if _is_regulated_for_principal_resolution():
                 logger.warning(
@@ -331,7 +328,7 @@ class CliSurfaceAdapter:
             resource_id=resource_id_final,
         )
 
-        request_id = os.environ.get("PHLO_REQUEST_ID")
+        request_id = get_process_settings().phlo_request_id
 
         result = self._enforce(
             principal=principal,

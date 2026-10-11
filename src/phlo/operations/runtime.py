@@ -8,8 +8,9 @@ version inventory so a set can be judged compatible before restore.
 from __future__ import annotations
 
 import importlib.metadata
-import os
 import socket
+
+from phlo.config.process import get_process_settings
 
 _VERSIONED_PACKAGES = ("phlo", "phlo-postgres", "phlo-minio", "phlo-nessie", "phlo-iceberg")
 
@@ -20,11 +21,11 @@ def get_deployment_id() -> str:
     Uses ``PHLO_DEPLOYMENT_ID`` when set (compose sets it per project);
     otherwise falls back to a hostname-derived identity.
     """
-    configured = os.environ.get("PHLO_DEPLOYMENT_ID", "").strip()
+    configured = get_process_settings().get("PHLO_DEPLOYMENT_ID", "").strip()
     if configured:
         return configured
     host = socket.gethostname().strip() or "unknown-host"
-    project = os.environ.get("PHLO_PROJECT_NAME", "").strip()
+    project = get_process_settings().get("PHLO_PROJECT_NAME", "").strip()
     return f"{project}@{host}" if project else host
 
 

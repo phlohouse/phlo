@@ -7,7 +7,6 @@ import csv
 import hashlib
 import io
 import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +16,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import Field
 
+from phlo.config.process import get_process_settings
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.operation_controls import audit_operation, project_root, replay_or_execute
 from phlo_api.api.v1 import _target
@@ -35,10 +35,10 @@ from phlo_api.observatory_api.v1_preview import (
     preview_catalog,
 )
 from phlo_api.errors import BackendUnavailableError
+from phlo_api.settings import get_deployment_settings
 from phlo_api.v1_contract import Environment, WireModel
 
 router = APIRouter(tags=["v1 query workspace"])
-_QUERY_SINGLE_REPLICA_ENV = "PHLO_V1_QUERY_SINGLE_REPLICA"
 _QUERY_COLLECTION = "v1_saved_queries"
 _QUERY_LIMIT = 100
 _QUERY_SESSION_LIMIT = 500
@@ -203,7 +203,7 @@ def _remember_session(session: QuerySession) -> None:
 
 def _mapped_catalog(request: Request, env: Environment) -> tuple[str, str]:
     target = _target(request, env)
-    if os.environ.get(_QUERY_SINGLE_REPLICA_ENV) != "1":
+    if not get_deployment_settings().query_single_replica:
         raise BackendUnavailableError(
             "Query workspace requires an explicitly single-replica API deployment."
         )
@@ -335,7 +335,7 @@ async def _execute_session(session: QuerySession) -> None:
             on_progress=progress,
             should_cancel=lambda: session.cancel_requested,
         )
-        if os.environ.get("PHLO_RUN_EVIDENCE_DB_URL"):
+        if get_process_settings().phlo_run_evidence_db_url:
             from phlo_api.incidents import persist_query_execution
 
             await asyncio.to_thread(
@@ -578,7 +578,7 @@ async def v1_query_explain(
 
 def _session_for_actor(query_id: str, request: Request, env: Environment) -> QuerySession:
     session = _QUERY_SESSIONS.get(query_id)
-    if session is None and os.environ.get("PHLO_RUN_EVIDENCE_DB_URL"):
+    if session is None and get_process_settings().phlo_run_evidence_db_url:
         from phlo_api.incidents import load_query_execution
 
         record = load_query_execution(query_id, env, _actor(request))

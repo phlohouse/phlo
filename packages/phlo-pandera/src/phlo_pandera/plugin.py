@@ -53,7 +53,6 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import inspect
-import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -66,6 +65,8 @@ from phlo.capabilities import (
     WorkflowWizardField,
 )
 from phlo.plugins.base import PluginMetadata, QualityProviderPlugin
+from phlo.config.process import get_process_settings
+from phlo_pandera.settings import get_settings
 
 
 def get_workflow_wizard_contributions() -> list[WorkflowWizardContribution]:
@@ -442,11 +443,11 @@ class PanderaSchemaDiscoveryProvider:
     def _discover_schemas_from_files() -> dict[str, type[Any]]:
         from pandera.pandas import DataFrameModel
 
-        env_paths = os.getenv("PHLO_SCHEMA_SEARCH_PATHS")
-        if env_paths:
-            search_paths = [Path(path.strip()) for path in env_paths.split(",") if path.strip()]
+        env_paths = get_settings().schema_search_paths
+        if env_paths is not None:
+            search_paths = [Path(path) for path in env_paths]
         else:
-            project_root = os.getenv("PHLO_PROJECT_PATH")
+            project_root = get_process_settings().phlo_project_path
             root = Path(project_root) if project_root else Path()
             search_paths = [root / "examples", root / "workflows"]
 

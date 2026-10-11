@@ -7,12 +7,13 @@ classifies schema changes as SAFE, WARNING, or BREAKING.
 
 import importlib
 from importlib import import_module
-import os
 import sys
 from pathlib import Path
 from typing import Optional
 
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
+from phlo_pandera.settings import get_settings
 from rich.table import Table
 
 logger = get_logger(__name__)
@@ -20,11 +21,11 @@ logger = get_logger(__name__)
 
 def _default_schema_search_paths() -> list[str]:
     """Search paths from PHLO_SCHEMA_SEARCH_PATHS, else project or local examples/workflows."""
-    env_paths = os.getenv("PHLO_SCHEMA_SEARCH_PATHS")
-    if env_paths:
-        return [path.strip() for path in env_paths.split(",") if path.strip()]
+    env_paths = get_settings().schema_search_paths
+    if env_paths is not None:
+        return env_paths
 
-    project_root = os.getenv("PHLO_PROJECT_PATH")
+    project_root = get_process_settings().phlo_project_path
     if project_root:
         return [
             str(Path(project_root) / "examples"),
