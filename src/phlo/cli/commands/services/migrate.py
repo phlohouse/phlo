@@ -98,7 +98,7 @@ def _rewrite_compose(content: str, *, shared: bool = True) -> str:
     help="Additional shared Dockerfile/config path relative to .phlo (repeatable).",
 )
 @require_mutation_authorization("services.migrate", when=lambda kwargs: not kwargs.get("dry_run"))
-def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
+def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:
     """Move personal files aside and make existing .phlo configuration shareable.
 
     Shared files remain in .phlo. Secrets and overrides remain ignored. Review
@@ -114,6 +114,17 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
     rewritten = _rewrite_compose(base.read_text())
     compose, host_compose = split_host_compose(yaml.safe_load(rewritten))
     rewritten = "# Phlo shared layout v1\n" + yaml.safe_dump(compose, sort_keys=False)
+    moves = _migration_moves(state, project)
+    shared = _migration_shared_files(state, project, compose, moves, includes)
+    writes = _migration_writes(state, project, rewritten, host_compose, moves, shared)
+    _report_migration(state, project, moves, shared, writes)
+    if dry_run:
+        return
+    _apply_migration(moves, writes, project / "phlo-runtime")
+    click.echo("Migrated. Review and commit shared .phlo files and .gitignore.")
+
+
+def _migration_moves(state: Path, project: Path) -> list[tuple[Path, Path]]:
     moves = []
     for source, target in [
         (state / ".env", state / "overrides/.env"),
@@ -148,6 +159,16 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
             raise click.ClickException(
                 f"Conflicting destination {target.relative_to(project)}; reconcile the files before migrating."
             )
+    return moves
+
+
+def _migration_shared_files(
+    state: Path,
+    project: Path,
+    compose: dict,
+    moves: list[tuple[Path, Path]],
+    includes: tuple[str, ...],
+) -> set[str]:
     shared = {"docker-compose.yml", ".gitignore", ".gitattributes"}
     shared.update(
         target.relative_to(state).as_posix()
@@ -178,7 +199,18 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
             )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
-    writes = {base: rewritten.encode()}
+    return shared
+
+
+def _migration_writes(
+    state: Path,
+    project: Path,
+    rewritten: str,
+    host_compose: dict,
+    moves: list[tuple[Path, Path]],
+    shared: set[str],
+) -> dict[Path, bytes]:
+    writes = {state / "docker-compose.yml": rewritten.encode()}
     for source, target in moves:
         if target.name.startswith("compose.") and target.suffix == ".yaml":
             writes[target] = _rewrite_compose(
@@ -199,6 +231,7 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
     old = inner_ignore.read_text() if inner_ignore.exists() else ""
     writes[inner_ignore] = render_shared_gitignore(sorted(shared), old).encode()
     attrs = state / ".gitattributes"
+    moved_targets = {target for _, target in moves}
     if not attrs.exists() and attrs not in moved_targets:
         writes[attrs] = b"* text=auto eol=lf\n"
     if host_compose.get("services"):
@@ -210,6 +243,16 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
                 "Conflicting overrides/compose.host.yaml; reconcile before migrating."
             )
         writes[host_path] = host_bytes
+    return writes
+
+
+def _report_migration(
+    state: Path,
+    project: Path,
+    moves: list[tuple[Path, Path]],
+    shared: set[str],
+    writes: dict[Path, bytes],
+) -> None:
     for source, target in moves:
         click.echo(f"Move {source.relative_to(project)} -> {target.relative_to(project)}")
     for relative in sorted(shared):
@@ -220,8 +263,11 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
     click.echo(
         "Update .gitignore and .phlo/.gitignore; ignore secrets, overrides, and runtime state."
     )
-    if dry_run:
-        return
+
+
+def _apply_migration(
+    moves: list[tuple[Path, Path]], writes: dict[Path, bytes], legacy: Path
+) -> None:
     # Keep a byte-for-byte rollback journal, including permissions. Never overwrite
     # conflicts; originals disappear only after the complete preflight succeeds.
     affected = set(writes) | {path for pair in moves for path in pair}
@@ -269,4 +315,3 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:  # noqa: C901
         ):
             directory.rmdir()
         legacy.rmdir()
-    click.echo("Migrated. Review and commit shared .phlo files and .gitignore.")
