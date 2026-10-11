@@ -83,13 +83,13 @@ def test_superset_database_uri_fails_without_config_or_metadata(monkeypatch) -> 
 
 
 def test_superset_admin_credentials_fall_back_to_settings(monkeypatch, tmp_path) -> None:
-    """Hook should use standard settings defaults when env vars are absent."""
+    """Missing configuration must not resolve to a known admin password."""
     monkeypatch.delenv("SUPERSET_ADMIN_USER", raising=False)
     monkeypatch.delenv("SUPERSET_ADMIN_PASSWORD", raising=False)
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     hooks.get_settings.cache_clear()
 
-    assert hooks._superset_admin_credentials() == ("admin", "admin")
+    assert hooks._superset_admin_credentials() == ("admin", "")
 
 
 def test_add_query_engine_database_handles_database_uri_resolution_failure(monkeypatch) -> None:
@@ -126,10 +126,13 @@ def test_add_query_engine_database_handles_database_uri_resolution_failure(monke
 
 
 def test_add_query_engine_database_uses_settings_when_env_missing(monkeypatch, tmp_path) -> None:
-    """Hook startup should still log in with generated default settings."""
+    """Hook startup should use the saved secret when process env vars are absent."""
     monkeypatch.delenv("SUPERSET_ADMIN_USER", raising=False)
     monkeypatch.delenv("SUPERSET_ADMIN_PASSWORD", raising=False)
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    secrets_dir = tmp_path / ".phlo" / "secrets"
+    secrets_dir.mkdir(parents=True)
+    (secrets_dir / ".env").write_text("SUPERSET_ADMIN_PASSWORD=saved-secret\n")
     hooks.get_settings.cache_clear()
     session = Mock()
     session.headers = {}
@@ -155,7 +158,7 @@ def test_add_query_engine_database_uses_settings_when_env_missing(monkeypatch, t
     hooks.add_query_engine_database()
 
     assert session.post.call_args_list[0].kwargs["json"]["username"] == "admin"
-    assert session.post.call_args_list[0].kwargs["json"]["password"] == "admin"
+    assert session.post.call_args_list[0].kwargs["json"]["password"] == "saved-secret"
 
 
 def test_add_query_engine_database_returns_when_admin_credentials_missing(monkeypatch) -> None:

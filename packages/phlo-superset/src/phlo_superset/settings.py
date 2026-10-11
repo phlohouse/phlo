@@ -41,7 +41,7 @@ class SupersetSettings(BaseConfig):
 
     superset_port: int = Field(default=10007, description="Superset web port")
     superset_admin_user: str = Field(default="admin", description="Superset admin username")
-    superset_admin_password: str = Field(default="admin", description="Superset admin password")
+    superset_admin_password: str = Field(default="", description="Superset admin password")
     superset_admin_email: str = Field(
         default="admin@example.com", description="Superset admin email"
     )
