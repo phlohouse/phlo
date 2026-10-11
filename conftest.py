@@ -85,6 +85,19 @@ _register_workspace_plugins()
 # Import fixtures from phlo_testing - these are auto-discovered by pytest
 
 
+def pytest_collection_modifyitems(items):
+    """Service integration directories must not leak into the default unit lane."""
+    missing = [
+        item.nodeid
+        for item in items
+        if "integration" in item.path.parts and not item.get_closest_marker("integration")
+    ]
+    if missing:
+        raise pytest.UsageError(
+            "Integration paths require the integration marker:\n" + "\n".join(missing)
+        )
+
+
 @pytest.fixture(autouse=True)
 def reset_discovery_caches():
     """Keep mocked entry points and manifest inputs isolated between tests."""

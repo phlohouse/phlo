@@ -6,6 +6,8 @@ shapes and that removed endpoints stay hard-removed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from security_test_support import authenticated_client
@@ -43,13 +45,19 @@ def test_observatory_runs_adapter_normalizes_legacy_dagster_runs(
     assert runs[0].metadata == {"source": "dagster"}
 
 
-def test_observatory_runs_endpoint_returns_provider_neutral_shape() -> None:
+@pytest.mark.parametrize("next_cursor", [None, "next-page"])
+def test_observatory_runs_endpoint_returns_provider_neutral_shape(
+    observatory_loaders: Callable[..., dict[str, object]], next_cursor: str | None
+) -> None:
+    observatory_loaders(runs=([], next_cursor))
     response = authenticated_client("admin").get("/api/observatory/runs")
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) == {"items"}
-    assert isinstance(payload["items"], list)
+    expected: dict[str, object] = {"items": []}
+    if next_cursor is not None:
+        expected["next_cursor"] = next_cursor
+    assert payload == expected
 
 
 @pytest.mark.parametrize(

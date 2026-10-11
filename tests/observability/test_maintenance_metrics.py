@@ -13,6 +13,9 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
+from phlo.capabilities import DefaultObservabilityBackend
 from phlo.capabilities.maintenance import load_maintenance_status, render_maintenance_prometheus
 
 
@@ -44,9 +47,15 @@ def _parse_exposition_samples(output: str) -> list[tuple[str, dict[str, str], st
     return samples
 
 
-def test_load_maintenance_status(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("dry_run", "expected"),
+    [(True, True), (False, False), ("YES", True), ("no", False), ("unknown", None), (17, None)],
+)
+def test_load_maintenance_status(tmp_path: Path, monkeypatch, dry_run, expected) -> None:
     timestamp = datetime(2025, 12, 30, tzinfo=UTC).isoformat()
     events = [
+        {"event_type": "telemetry.metric", "name": "iceberg.maintenance.complete"},
+        {"event_type": "telemetry.log", "name": "unrelated.complete"},
         {
             "event_type": "telemetry.log",
             "name": "iceberg.maintenance.complete",
@@ -65,14 +74,15 @@ def test_load_maintenance_status(tmp_path: Path) -> None:
                 "errors": 0,
                 "run_id": "run-123",
                 "job_name": "iceberg_maintenance_job",
+                "dry_run": dry_run,
             },
-        }
+        },
     ]
     path = tmp_path / "events.jsonl"
     _write_events(path, events)
 
     snapshot = load_maintenance_status(path)
-    assert snapshot.operations
+    assert len(snapshot.operations) == 1
     op = snapshot.operations[0]
     assert op.operation == "expire_snapshots"
     assert op.namespace == "raw"
@@ -82,6 +92,11 @@ def test_load_maintenance_status(tmp_path: Path) -> None:
     assert op.snapshots_deleted == 9
     assert op.errors == 0
     assert op.run_id == "run-123"
+    assert op.dry_run is expected
+    monkeypatch.setenv("PHLO_TELEMETRY_PATH", str(path))
+    health = DefaultObservabilityBackend().health_summary()
+    assert health.overall_status == "healthy"
+    assert health.components["maintenance"] == "healthy"
 
 
 def test_render_maintenance_prometheus(tmp_path: Path) -> None:

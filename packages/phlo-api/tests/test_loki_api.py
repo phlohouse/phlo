@@ -166,8 +166,10 @@ async def test_run_log_regex_rejects_invalid_syntax_without_log_content(monkeypa
 @pytest.mark.anyio
 async def test_run_log_regex_timeout_does_not_stall_heartbeat_request(monkeypatch) -> None:
     secret_message = "a" * 30 + "!"
+    fetched = asyncio.Event()
 
     async def fetch_entries(**_: object) -> LogQueryResult:
+        fetched.set()
         return LogQueryResult(
             entries=[LogEntry(timestamp="1", level="info", message=secret_message, metadata={})],
             has_more=False,
@@ -187,7 +189,7 @@ async def test_run_log_regex_timeout_does_not_stall_heartbeat_request(monkeypatc
         filter_request = asyncio.create_task(
             client.get("/api/loki/runs/run-1", params={"regex": r"(a+)+$"})
         )
-        await asyncio.sleep(0.02)
+        await asyncio.wait_for(fetched.wait(), timeout=5)
         heartbeat_response = await client.get("/heartbeat")
         filter_response = await filter_request
 
