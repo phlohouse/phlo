@@ -172,6 +172,15 @@ class FollowUpView(WireModel):
     completed_at: datetime | None
 
 
+class CreatedFollowUpView(FollowUpView):
+    incident_id: str
+
+
+class IncidentSubscriptionView(WireModel):
+    incident_id: str
+    subscribed: bool
+
+
 class FollowUpPage(WireModel):
     items: list[FollowUpView]
 
@@ -1247,7 +1256,7 @@ def update_incident(
     return _deliver_and_view(request, env, view)
 
 
-@router.put("/incidents/{incident_id}/subscriptions")
+@router.put("/incidents/{incident_id}/subscriptions", response_model=IncidentSubscriptionView)
 def subscribe_incident(
     request: Request,
     incident_id: str,
@@ -1309,7 +1318,9 @@ def list_follow_ups(
     }
 
 
-@router.post("/incidents/{incident_id}/follow-ups", status_code=201)
+@router.post(
+    "/incidents/{incident_id}/follow-ups", status_code=201, response_model=CreatedFollowUpView
+)
 def create_follow_up(
     request: Request,
     incident_id: str,
@@ -1324,7 +1335,7 @@ def create_follow_up(
             cur, env, actor, action_target, idempotency_key, body.model_dump(mode="json")
         )
         if replay:
-            return replay
+            return CreatedFollowUpView.model_validate_json(json.dumps(replay)).model_dump()
         cur.execute(
             "SELECT 1 FROM phlo.incident WHERE incident_id=%s AND env=%s FOR KEY SHARE",
             (incident_id, env),
@@ -1348,7 +1359,7 @@ def create_follow_up(
         return result
 
 
-@router.patch("/incidents/{incident_id}/follow-ups/{follow_up_id}")
+@router.patch("/incidents/{incident_id}/follow-ups/{follow_up_id}", response_model=FollowUpView)
 def update_follow_up(
     request: Request,
     incident_id: str,
@@ -1363,7 +1374,7 @@ def update_follow_up(
     with _transaction() as connection, connection.cursor() as cur:
         replay = _idempotent(cur, env, actor, action_target, idempotency_key, payload)
         if replay:
-            return replay
+            return FollowUpView.model_validate_json(json.dumps(replay)).model_dump()
         cur.execute(
             "UPDATE phlo.incident_follow_up SET completed_at=CASE WHEN %s THEN COALESCE(completed_at,now()) ELSE NULL END WHERE follow_up_id=%s AND incident_id=%s AND env=%s RETURNING follow_up_id,description,due_at,completed_at",
             (body.completed, follow_up_id, incident_id, env),
