@@ -65,6 +65,7 @@ See Also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -240,18 +241,31 @@ class NullCheck(QualityCheck):
         sample rows drawn from the first failing column.
 
         """
+        counts = {column: int(df[column].isna().sum()) for column in self.columns if column in df}
+        existing = [column for column in self.columns if column in df]
+        return self.result_from_counts(
+            len(df), counts, lambda column: extract_sample_rows(df, df[column].isna(), existing)
+        )
+
+    def result_from_counts(
+        self,
+        row_count: int,
+        counts: dict[str, int],
+        sample: Callable[[str], list[dict[str, Any]]],
+    ) -> QualityCheckResult:
+        """Apply thresholds to aggregate counts with a lazily loaded failure sample."""
         null_counts = {}
         null_percentages = {}
         failures = []
         sample_rows: list[dict[str, Any]] = []
 
         for column in self.columns:
-            if column not in df.columns:
+            if column not in counts:
                 failures.append(f"Column '{column}' not found in DataFrame")
                 continue
 
-            null_count = df[column].isna().sum()
-            null_pct = null_count / len(df) if len(df) > 0 else 0.0
+            null_count = counts[column]
+            null_pct = null_count / row_count if row_count > 0 else 0.0
 
             null_counts[column] = int(null_count)
             null_percentages[column] = float(null_pct)
@@ -266,9 +280,7 @@ class NullCheck(QualityCheck):
                 # exists for debugging context, and per-column samples would
                 # bloat the result metadata.
                 if not sample_rows:
-                    existing_columns = [c for c in self.columns if c in df.columns]
-                    if existing_columns:
-                        sample_rows = extract_sample_rows(df, df[column].isna(), existing_columns)
+                    sample_rows = sample(column)
 
         passed = len(failures) == 0
 
@@ -365,12 +377,35 @@ class RangeCheck(QualityCheck):
             violations |= column_data > self.max_value
 
         violation_count = violations.sum()
-        violation_pct = violation_count / len(column_data)
-
-        passed = violation_pct <= self.allow_threshold
-
         actual_min = float(column_data.min())
         actual_max = float(column_data.max())
+        sample_rows = (
+            extract_sample_rows(df, violations.reindex(df.index, fill_value=False), [self.column])
+            if violation_count > 0
+            else []
+        )
+        return self.result_from_counts(
+            len(column_data), int(violation_count), actual_min, actual_max, sample_rows
+        )
+
+    def result_from_counts(
+        self,
+        valid_count: int,
+        violation_count: int,
+        actual_min: float | None,
+        actual_max: float | None,
+        sample_rows: list[dict[str, Any]],
+    ) -> QualityCheckResult:
+        """Apply range thresholds to query or dataframe aggregates."""
+        if valid_count == 0:
+            return QualityCheckResult(
+                passed=False,
+                metric_name="range_check",
+                metric_value={"min": None, "max": None, "out_of_range": 0},
+                metadata={"note": "Column is entirely null; cannot verify range"},
+            )
+        violation_pct = violation_count / valid_count
+        passed = violation_pct <= self.allow_threshold
 
         failure_msg = None
         if not passed:
@@ -380,10 +415,6 @@ class RangeCheck(QualityCheck):
                 f"Expected range: [{self.min_value}, {self.max_value}], "
                 f"Actual range: [{actual_min}, {actual_max}]"
             )
-
-        sample_rows = (
-            extract_sample_rows(df, violations, [self.column]) if violation_count > 0 else []
-        )
 
         return QualityCheckResult(
             passed=passed,
@@ -570,7 +601,15 @@ class UniqueCheck(QualityCheck):
         # copies.
         duplicates = df.duplicated(subset=self.columns, keep=False)
         duplicate_count = duplicates.sum()
-        duplicate_pct = duplicate_count / len(df) if len(df) > 0 else 0.0
+        return self.result_from_counts(
+            len(df), int(duplicate_count), extract_sample_rows(df, duplicates, self.columns)
+        )
+
+    def result_from_counts(
+        self, row_count: int, duplicate_count: int, sample_rows: list[dict[str, Any]]
+    ) -> QualityCheckResult:
+        """Apply uniqueness thresholds to counts of all rows in duplicate groups."""
+        duplicate_pct = duplicate_count / row_count if row_count > 0 else 0.0
 
         passed = duplicate_pct <= self.allow_threshold
 
@@ -590,11 +629,8 @@ class UniqueCheck(QualityCheck):
                 "duplicate_percentage": float(duplicate_pct),
                 "threshold": self.allow_threshold,
                 "columns_checked": self.columns,
-                "total_rows": len(df),
-                "sample_rows": [
-                    {"row_index": idx if isinstance(idx, int) else str(idx), **row.to_dict()}
-                    for idx, row in df.loc[duplicates, self.columns].head(20).iterrows()
-                ],
+                "total_rows": row_count,
+                "sample_rows": sample_rows,
             },
             failure_message=failure_msg,
         )
@@ -645,8 +681,10 @@ class CountCheck(QualityCheck):
         Counts total rows and validates against the configured minimum and
         maximum bounds.
         """
-        row_count = len(df)
+        return self.result_from_count(len(df))
 
+    def result_from_count(self, row_count: int) -> QualityCheckResult:
+        """Apply row-count bounds to a dataframe or SQL aggregate."""
         failures = []
 
         if self.min_rows is not None and row_count < self.min_rows:

@@ -368,13 +368,24 @@ class AggregateConsistencyCheck(QualityCheck):
         total_checks = 0
 
         if self.group_by:
-            # Group-level comparison
-            for _, row in df.iterrows():
-                group_key = tuple(row[col] for col in self.group_by if col in df.columns)
-                target_value = row[self.aggregate_column]
-
-                # Find matching source value
-                source_value = source_values.get(group_key)
+            group_columns = [column for column in self.group_by if column in df]
+            keys = (
+                pd.Index(
+                    list(df[group_columns].itertuples(index=False, name=None)), tupleize_cols=False
+                )
+                if group_columns
+                else pd.Index([()] * len(df), tupleize_cols=False)
+            )
+            source_index = pd.Index(list(source_values), tupleize_cols=False)
+            expected = pd.Series(
+                list(source_values.values()),
+                index=source_index,
+                dtype=object,
+            ).reindex(keys)
+            expected.loc[~keys.isin(source_index)] = None
+            for group_key, target_value, source_value in zip(
+                keys, df[self.aggregate_column], expected, strict=True
+            ):
                 if source_value is not None:
                     total_checks += 1
                     if not self._values_match(target_value, source_value):
@@ -735,7 +746,7 @@ class MultiAggregateConsistencyCheck(QualityCheck):
     where_clause: str | None = None
     """Optional WHERE clause to filter source data."""
 
-    def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:  # noqa: C901
+    def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute multi-aggregate consistency check."""
         if not self.aggregates:
             return QualityCheckResult(
@@ -795,52 +806,7 @@ class MultiAggregateConsistencyCheck(QualityCheck):
         mismatches: list[dict[str, Any]] = []
 
         if self.group_by:
-            target_keys = {
-                tuple(row)
-                for row in df[self.group_by].drop_duplicates().itertuples(index=False, name=None)
-            }
-            source_keys = set(source_values.keys())
-
-            missing_in_target = source_keys - target_keys
-            missing_in_source = target_keys - source_keys
-
-            for key in missing_in_source:
-                for aggregate in self.aggregates:
-                    mismatches.append(
-                        {
-                            "group_key": str(key),
-                            "aggregate": aggregate.name,
-                            "reason": "missing_in_source",
-                        }
-                    )
-
-            for key in missing_in_target:
-                for aggregate in self.aggregates:
-                    mismatches.append(
-                        {
-                            "group_key": str(key),
-                            "aggregate": aggregate.name,
-                            "reason": "missing_in_target",
-                        }
-                    )
-
-            for _, row in df.iterrows():
-                group_key = tuple(row[col] for col in self.group_by)
-                if group_key not in source_values:
-                    continue
-                source_row = source_values[group_key]
-                for aggregate in self.aggregates:
-                    target_value = row[aggregate.target_column]
-                    source_value = source_row.get(aggregate.name)
-                    if not self._values_match(target_value, source_value):
-                        mismatches.append(
-                            {
-                                "group_key": str(group_key),
-                                "aggregate": aggregate.name,
-                                "target": target_value,
-                                "source": source_value,
-                            }
-                        )
+            mismatches = self._grouped_mismatches(df, source_values)
         else:
             target_totals = {agg.name: df[agg.target_column].sum() for agg in self.aggregates}
             source_total = source_values.get(()) if source_values else None
@@ -890,6 +856,60 @@ class MultiAggregateConsistencyCheck(QualityCheck):
             },
             failure_message=failure_msg,
         )
+
+    def _grouped_mismatches(
+        self,
+        df: pd.DataFrame,
+        source_values: dict[tuple, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Align source rows once by group, retaining duplicate target rows."""
+        keys = pd.Index(
+            list(df[self.group_by].itertuples(index=False, name=None)), tupleize_cols=False
+        )
+        target_keys = set(keys)
+        source_keys = set(source_values)
+        mismatches = []
+        for reason, missing in (
+            ("missing_in_source", target_keys - source_keys),
+            ("missing_in_target", source_keys - target_keys),
+        ):
+            for key in missing:
+                for aggregate in self.aggregates:
+                    mismatches.append(
+                        {"group_key": str(key), "aggregate": aggregate.name, "reason": reason}
+                    )
+        source = pd.DataFrame(
+            [
+                [row.get(aggregate.name) for aggregate in self.aggregates]
+                for row in source_values.values()
+            ],
+            columns=[aggregate.name for aggregate in self.aggregates],
+            index=pd.Index(list(source_values), tupleize_cols=False),
+            dtype=object,
+        ).reindex(keys)
+        matched = keys.isin(source_keys)
+        # Column arrays avoid one pandas Series allocation per target row.
+        # Keep row-major aggregate ordering in the public mismatch sample.
+        target_columns = [df[aggregate.target_column].to_numpy() for aggregate in self.aggregates]
+        source_columns = [
+            source[aggregate.name].to_numpy() if aggregate.name in source else [None] * len(df)
+            for aggregate in self.aggregates
+        ]
+        for position in matched.nonzero()[0]:
+            for aggregate, targets, sources in zip(
+                self.aggregates, target_columns, source_columns, strict=True
+            ):
+                target_value, source_value = targets[position], sources[position]
+                if not self._values_match(target_value, source_value):
+                    mismatches.append(
+                        {
+                            "group_key": str(keys[position]),
+                            "aggregate": aggregate.name,
+                            "target": target_value,
+                            "source": source_value,
+                        }
+                    )
+        return mismatches
 
     def _values_match(self, target: Any, source: Any) -> bool:
         """Check if target and source values match within tolerance."""
