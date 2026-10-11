@@ -15,7 +15,7 @@ import click
 import yaml
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
-from phlo.cli.commands.services.planner import build_service_selection_plan
+from phlo.cli.commands.services.planner import ServiceSelectionPlan, build_service_selection_plan
 from phlo.cli.commands.services.utils import (
     PHLO_CONFIG_FILE,
     PHLO_CONFIG_TEMPLATE,
@@ -178,7 +178,7 @@ def _validate_production_credentials(
     help="Enable optional profile services (e.g., --profile observability --profile api)",
 )
 @require_mutation_authorization("services.init")
-def init_cmd(  # noqa: C901
+def init_cmd(
     force: bool,
     project_name: str | None,
     dev: bool,
@@ -236,70 +236,12 @@ def init_cmd(  # noqa: C901
         click.echo("Use --force to overwrite.", err=True)
         sys.exit(1)
 
-    # Handle conflicting flags
-    if dev and no_dev:
-        click.echo("Error: Cannot specify both --dev and --no-dev.", err=True)
-        sys.exit(1)
-    if service_dev and no_dev:
-        click.echo("Error: Cannot specify both --service-dev and --no-dev.", err=True)
-        sys.exit(1)
-    if production and (dev or service_dev):
-        click.echo("Error: Production cannot be combined with --dev or --service-dev.", err=True)
-        sys.exit(1)
-
-    # --no-dev takes precedence
-    if no_dev:
-        dev = False
-    if production:
-        no_dev = True
-
-    # Auto-enable dev mode if we can detect a local Phlo checkout and the user didn't opt out.
-    phlo_src_path: str | None = None
-    if not dev and not no_dev and not phlo_source and (detected := detect_phlo_source_path()):
-        dev = True
-        phlo_src_path = detected
-        click.echo(f"Dev mode: auto-enabled (path: {phlo_src_path})")
-
-    if service_dev and not dev:
-        dev = True
-        if not phlo_src_path:
-            phlo_src_path = detect_phlo_source_path()
-
+    dev, phlo_src_path = _resolve_dev_mode(
+        dev, no_dev, service_dev, production, phlo_source, phlo_dir
+    )
     # Derive project name from directory if not specified
     if not project_name:
         project_name = Path.cwd().name.lower().replace(" ", "-").replace("_", "-")
-
-    # Auto-detect phlo source path for dev mode using flexible detection
-    if dev:
-        if phlo_source:
-            phlo_source_path = Path(phlo_source)
-            if not phlo_source_path.is_absolute():
-                phlo_source_path = (Path.cwd() / phlo_source_path).resolve()
-            else:
-                phlo_source_path = phlo_source_path.resolve()
-            resolved_phlo_source = resolve_phlo_package_dir(phlo_source_path)
-            if not resolved_phlo_source:
-                click.echo(
-                    "Error: --phlo-source must point to the phlo repo root or `src/phlo` package.",
-                    err=True,
-                )
-                sys.exit(1)
-            phlo_src_path = str(os.path.relpath(resolved_phlo_source, phlo_dir))
-            click.echo(f"Dev mode: using phlo source at {resolved_phlo_source}")
-        elif not phlo_src_path:
-            # Use flexible path detection
-            phlo_src_path = detect_phlo_source_path()
-            if phlo_src_path:
-                click.echo(f"Dev mode: auto-detected phlo source (path: {phlo_src_path})")
-            else:
-                click.echo(
-                    "Warning: --dev specified but could not auto-detect phlo source.", err=True
-                )
-                click.echo(
-                    "Set PHLO_DEV_SOURCE env var or use --phlo-source to specify the path.",
-                    err=True,
-                )
-                dev = False
 
     # Create phlo.yaml config file in project root (only if it doesn't exist)
     if not config_file.exists():
@@ -349,42 +291,8 @@ def init_cmd(  # noqa: C901
         _validate_production_credentials(env_overrides, existing_env_local)
         env_overrides = {**env_overrides, "PHLO_ENVIRONMENT": "production"}
 
-    # Collect inline custom services (those with type: inline)
-    inline_services = [
-        ServiceDefinition.from_inline(name, cfg)
-        for name, cfg in user_overrides.items()
-        if isinstance(cfg, dict) and cfg.get("type") == "inline"
-    ]
-
-    requested_profiles = tuple(
-        dict.fromkeys(profile.strip() for profile in profiles if profile.strip())
-    )
-    available_profiles = discovery.get_available_profiles()
-    unknown_profiles = sorted(set(requested_profiles) - available_profiles)
-    if unknown_profiles:
-        click.echo(
-            f"Error: Unknown profile(s): {', '.join(unknown_profiles)}. "
-            f"Available profiles: {', '.join(sorted(available_profiles)) or '(none)'}",
-            err=True,
-        )
-        sys.exit(1)
-
-    if "observability" in requested_profiles:
-        env_overrides.setdefault("OBSERVE_HTTP_ENDPOINT", "http://localhost:10010/v1/events")
-
-    selection_plan = build_service_selection_plan(
-        services=all_services,
-        config=existing_config,
-        profiles=requested_profiles,
-        requested_names=[],
-    )
-    deduped_services: dict[str, ServiceDefinition] = {}
-    for service in [*selection_plan.selected_services, *inline_services]:
-        deduped_services[service.name] = service
-    services_to_install = _expand_selected_services(
-        discovery,
-        list(deduped_services.values()),
-        additional_services=inline_services,
+    selection_plan, services_to_install = _select_initial_services(
+        discovery, all_services, existing_config, user_overrides, env_overrides, profiles
     )
     _warn_secret_env_overrides(env_overrides, services_to_install)
 
@@ -444,19 +352,7 @@ def init_cmd(  # noqa: C901
     write_sensitive_file(env_local_file, env_local_content, allow_insecure=allow_insecure)
     click.echo(f"Created: {env_local_file.relative_to(Path.cwd())}")
 
-    # Generate .gitignore
-    gitignore_file = phlo_dir / ".gitignore"
-    if shared_layout:
-        generated_ignore = composer.generate_gitignore(services_to_install)
-        # Preserve explicitly shared custom artifacts from previous migrations.
-        existing_ignore = (
-            gitignore_file.read_text(encoding="utf-8") if gitignore_file.exists() else ""
-        )
-        generated_ignore = render_shared_gitignore([], generated_ignore + existing_ignore)
-        gitignore_file.write_text(generated_ignore, encoding="utf-8")
-    elif not gitignore_file.exists():
-        gitignore_file.write_text(".env\n.env.local\nvolumes/\n", encoding="utf-8")
-    click.echo(f"Created: {gitignore_file.relative_to(Path.cwd())}")
+    _write_initial_gitignore(phlo_dir, shared_layout, composer, services_to_install)
 
     # Create volumes directory
     volumes_dir = phlo_dir / "volumes"
@@ -488,3 +384,127 @@ def init_cmd(  # noqa: C901
     click.echo(f"  2. Set secrets in {env_local_file.relative_to(Path.cwd())}")
     click.echo("  3. Run: phlo services start")
     click.echo("  4. Inspect services with: phlo services list")
+
+
+def _select_initial_services(
+    discovery: ServiceDiscovery,
+    all_services: dict[str, ServiceDefinition],
+    existing_config: dict,
+    user_overrides: dict,
+    env_overrides: dict,
+    profiles: tuple[str, ...],
+) -> tuple[ServiceSelectionPlan, list[ServiceDefinition]]:
+    inline_services = [
+        ServiceDefinition.from_inline(name, cfg)
+        for name, cfg in user_overrides.items()
+        if isinstance(cfg, dict) and cfg.get("type") == "inline"
+    ]
+    requested_profiles = tuple(
+        dict.fromkeys(profile.strip() for profile in profiles if profile.strip())
+    )
+    available_profiles = discovery.get_available_profiles()
+    unknown_profiles = sorted(set(requested_profiles) - available_profiles)
+    if unknown_profiles:
+        click.echo(
+            f"Error: Unknown profile(s): {', '.join(unknown_profiles)}. "
+            f"Available profiles: {', '.join(sorted(available_profiles)) or '(none)'}",
+            err=True,
+        )
+        sys.exit(1)
+    if "observability" in requested_profiles:
+        env_overrides.setdefault("OBSERVE_HTTP_ENDPOINT", "http://localhost:10010/v1/events")
+    selection_plan = build_service_selection_plan(
+        services=all_services,
+        config=existing_config,
+        profiles=requested_profiles,
+        requested_names=[],
+    )
+    deduped_services: dict[str, ServiceDefinition] = {}
+    for service in [*selection_plan.selected_services, *inline_services]:
+        deduped_services[service.name] = service
+    services_to_install = _expand_selected_services(
+        discovery, list(deduped_services.values()), additional_services=inline_services
+    )
+    return selection_plan, services_to_install
+
+
+def _write_initial_gitignore(
+    phlo_dir: Path,
+    shared_layout: bool,
+    composer: ComposeGenerator,
+    services: list[ServiceDefinition],
+) -> None:
+    gitignore_file = phlo_dir / ".gitignore"
+    if shared_layout:
+        generated_ignore = composer.generate_gitignore(services)
+        existing_ignore = (
+            gitignore_file.read_text(encoding="utf-8") if gitignore_file.exists() else ""
+        )
+        generated_ignore = render_shared_gitignore([], generated_ignore + existing_ignore)
+        gitignore_file.write_text(generated_ignore, encoding="utf-8")
+    elif not gitignore_file.exists():
+        gitignore_file.write_text(".env\n.env.local\nvolumes/\n", encoding="utf-8")
+    click.echo(f"Created: {gitignore_file.relative_to(Path.cwd())}")
+
+
+def _resolve_dev_mode(
+    dev: bool,
+    no_dev: bool,
+    service_dev: bool,
+    production: bool,
+    phlo_source: str | None,
+    phlo_dir: Path,
+) -> tuple[bool, str | None]:
+    if dev and no_dev:
+        click.echo("Error: Cannot specify both --dev and --no-dev.", err=True)
+        sys.exit(1)
+    if service_dev and no_dev:
+        click.echo("Error: Cannot specify both --service-dev and --no-dev.", err=True)
+        sys.exit(1)
+    if production and (dev or service_dev):
+        click.echo("Error: Production cannot be combined with --dev or --service-dev.", err=True)
+        sys.exit(1)
+    if no_dev:
+        dev = False
+    if production:
+        no_dev = True
+
+    phlo_src_path: str | None = None
+    if not dev and not no_dev and not phlo_source and (detected := detect_phlo_source_path()):
+        dev = True
+        phlo_src_path = detected
+        click.echo(f"Dev mode: auto-enabled (path: {phlo_src_path})")
+    if service_dev and not dev:
+        dev = True
+        if not phlo_src_path:
+            phlo_src_path = detect_phlo_source_path()
+    if dev:
+        if phlo_source:
+            phlo_source_path = Path(phlo_source)
+            if not phlo_source_path.is_absolute():
+                phlo_source_path = (Path.cwd() / phlo_source_path).resolve()
+            else:
+                phlo_source_path = phlo_source_path.resolve()
+            resolved_phlo_source = resolve_phlo_package_dir(phlo_source_path)
+            if not resolved_phlo_source:
+                click.echo(
+                    "Error: --phlo-source must point to the phlo repo root or `src/phlo` package.",
+                    err=True,
+                )
+                sys.exit(1)
+            phlo_src_path = str(os.path.relpath(resolved_phlo_source, phlo_dir))
+            click.echo(f"Dev mode: using phlo source at {resolved_phlo_source}")
+        elif not phlo_src_path:
+            phlo_src_path = detect_phlo_source_path()
+            if phlo_src_path:
+                click.echo(f"Dev mode: auto-detected phlo source (path: {phlo_src_path})")
+            else:
+                click.echo(
+                    "Warning: --dev specified but could not auto-detect phlo source.", err=True
+                )
+                click.echo(
+                    "Set PHLO_DEV_SOURCE env var or use --phlo-source to specify the path.",
+                    err=True,
+                )
+                dev = False
+    return dev, phlo_src_path

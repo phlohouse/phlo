@@ -62,6 +62,7 @@ def _invoke_services_start_with_statuses(
     compose: str,
     snapshots: list[list[ServiceStatus]],
     backend: object | None = None,
+    args: list[str] | None = None,
 ):
     """Invoke the public CLI with deterministic compose and status seams."""
     from phlo.cli.commands.services import start as start_module
@@ -86,7 +87,37 @@ def _invoke_services_start_with_statuses(
         start_module, "_emit_service_lifecycle_events", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_args, **_kwargs: None)
-    return CliRunner().invoke(start_module.start_cmd, [])
+    return CliRunner().invoke(start_module.start_cmd, args or [])
+
+
+@pytest.mark.parametrize(
+    ("port", "message"),
+    [
+        ("not-a-port:5432", "invalid host port value"),
+        ("${POSTGRES_PORT:-5432}:5432", "invalid host port value"),
+    ],
+)
+def test_services_start_reports_invalid_ports_through_cli(
+    monkeypatch, tmp_path, port, message
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    monkeypatch.setenv("POSTGRES_PORT", "not-a-port")
+    postgres = _service("postgres")
+    monkeypatch.setattr(
+        start_module, "ServiceDiscovery", lambda: FakeDiscovery({"postgres": postgres})
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=f"services:\n  postgres:\n    ports:\n      - '{port}'\n",
+        snapshots=[],
+        args=["--service", "postgres"],
+    )
+    assert result.exit_code == 1
+    assert message in result.output
+    assert "not-a-port" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_services_start_waits_for_declared_healthcheck(

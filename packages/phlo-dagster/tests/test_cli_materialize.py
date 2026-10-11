@@ -5,6 +5,7 @@ launches, contract-refresh defaults, and actionable failure reporting without
 live services.
 """
 
+import json
 from subprocess import PIPE, STDOUT
 from unittest.mock import patch
 
@@ -520,3 +521,41 @@ def test_materialize_can_skip_default_partition(mock_project, mock_container) ->
 
     assert result.exit_code == 0
     assert "--partition" not in result.output
+
+
+def test_materialize_json_dry_run_preserves_selection_partition_and_backend(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "phlo_dagster.cli_materialize.find_dagster_container", lambda _: "dagster-7"
+    )
+    monkeypatch.setattr("phlo_dagster.cli_materialize.get_project_name", lambda: "demo")
+    monkeypatch.setattr(
+        "phlo_dagster.cli_materialize.load_wap_config",
+        lambda: type("Config", (), {"enabled": False})(),
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.cli_materialize.select_project_container_backend", FakePodmanBackend
+    )
+
+    result = CliRunner().invoke(
+        materialize,
+        [
+            "--select",
+            "tag:silver",
+            "--partition",
+            "2026-02-03",
+            "--no-contract-refresh",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["status"] == "planned"
+    assert payload["data"]["selection"] == "tag:silver"
+    assert payload["data"]["partition"] == "2026-02-03"
+    argv = payload["data"]["argv"]
+    assert argv[:2] == ["podman", "exec"]
+    assert "dagster-7" in argv
+    assert "PHLO_AUTO_REFRESH_CONTRACTS=0" in argv
+    assert argv[-4:] == ["--select", "tag:silver", "--partition", "2026-02-03"]
