@@ -345,7 +345,8 @@ def _report_contract_validation(
     dropped: list[str] = []
     try:
         dropped = detect_dropped_source_columns(parquet_paths, schema)
-    except Exception as exc:  # noqa: BLE001 - coverage must never break ingestion
+    # reason: Source-column coverage is advisory and must never break ingestion.
+    except Exception as exc:  # noqa: BLE001
         log_event(
             logger,
             "warning",
@@ -449,7 +450,8 @@ def _report_domain_validation(
         else:
             try:
                 violation = quality_check(staged_frames.load())
-            except Exception as exc:  # noqa: BLE001 - violations must surface as checks
+            # reason: Callback failures must surface as failed quality checks.
+            except Exception as exc:  # noqa: BLE001
                 violation = f"quality check raised: {exc}"
         passed = not violation
         yield CheckResult(
