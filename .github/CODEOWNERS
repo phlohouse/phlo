@@ -1,0 +1,49 @@
+# Proposed routing for #1015; see docs/contributing/change-policy-proposal.md.
+# @iamgp is the existing administrator and human contributor, not an
+# independent reviewer or a confirmed fallback. No approval gate is added here.
+* @iamgp
+
+# Core and shared contracts
+/src/phlo/ @iamgp
+/packages/phlo-testing/ @iamgp
+/registry/ @iamgp
+
+# API and Observatory
+/packages/phlo-api/ @iamgp
+/packages/phlo-observatory/ @iamgp
+/packages/phlo-observatory-example/ @iamgp
+/packages/phlo-observe-plugin/ @iamgp
+
+# Orchestration and transformation
+/packages/phlo-dagster/ @iamgp
+/packages/phlo-dbt/ @iamgp
+
+# Storage, catalog, and query
+/packages/phlo-iceberg/ @iamgp
+/packages/phlo-delta/ @iamgp
+/packages/phlo-minio/ @iamgp
+/packages/phlo-rustfs/ @iamgp
+/packages/phlo-nessie/ @iamgp
+/packages/phlo-polaris/ @iamgp
+/packages/phlo-postgres/ @iamgp
+/packages/phlo-trino/ @iamgp
+
+# Ingestion and quality
+/packages/phlo-dlt/ @iamgp
+/packages/phlo-airbyte/ @iamgp
+/packages/phlo-sling/ @iamgp
+/packages/phlo-kafka/ @iamgp
+/packages/phlo-pandera/ @iamgp
+
+# Release, CI, and security. Second owner remains a maintainer decision.
+/.github/ @iamgp
+/scripts/ @iamgp
+/security/ @iamgp
+/SECURITY.md @iamgp
+/relx.toml @iamgp
+/pyproject.toml @iamgp
+/uv.lock @iamgp
+
+# Documentation and contributor policy
+/docs/ @iamgp
+/CONTRIBUTING.md @iamgp
