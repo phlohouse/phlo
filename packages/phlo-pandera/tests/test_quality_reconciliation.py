@@ -577,6 +577,54 @@ class TestMultiAggregateConsistencyCheck:
         assert result.passed is False
         assert result.metric_value["mismatches"] > 0
 
+    def test_duplicate_targets_and_null_groups_keep_row_major_samples(self):
+        df = pd.DataFrame(
+            {
+                "group": pd.Series([None, "a", "a"], dtype=object),
+                "total": [5, 11, 12],
+                "count": [1, 2, 3],
+            }
+        )
+        context = MagicMock()
+        context.partition_key = None
+        context.resources.trino.execute_query.return_value = [(None, 5, 1), ("a", 10, 2)]
+        check = MultiAggregateConsistencyCheck(
+            source_table="source",
+            group_by=["group"],
+            aggregates=[
+                AggregateSpec(name="total", expression="SUM(value)", target_column="total"),
+                AggregateSpec(name="count", expression="COUNT(*)", target_column="count"),
+            ],
+        )
+        result = check.execute(df, context)
+        assert not result.passed
+        assert result.metric_value == {"mismatches": 3, "total_checked": 6}
+        assert result.metadata["sample_mismatches"] == [
+            {"group_key": "('a',)", "aggregate": "total", "target": 11, "source": 10},
+            {"group_key": "('a',)", "aggregate": "total", "target": 12, "source": 10},
+            {"group_key": "('a',)", "aggregate": "count", "target": 3, "source": 2},
+        ]
+
+    def test_missing_groups_are_not_compared_as_zero(self):
+        df = pd.DataFrame({"group": ["missing", "matched"], "total": [0, 4]})
+        context = MagicMock()
+        context.partition_key = None
+        context.resources.trino.execute_query.return_value = [("matched", 4), ("extra", 0)]
+        check = MultiAggregateConsistencyCheck(
+            source_table="source",
+            group_by=["group"],
+            aggregates=[
+                AggregateSpec(name="total", expression="SUM(value)", target_column="total")
+            ],
+        )
+        result = check.execute(df, context)
+        assert not result.passed
+        assert result.metric_value == {"mismatches": 2, "total_checked": 2}
+        assert result.metadata["sample_mismatches"] == [
+            {"group_key": "('missing',)", "aggregate": "total", "reason": "missing_in_source"},
+            {"group_key": "('extra',)", "aggregate": "total", "reason": "missing_in_target"},
+        ]
+
 
 class TestChecksumReconciliationCheck:
     """Tests for ChecksumReconciliationCheck class."""

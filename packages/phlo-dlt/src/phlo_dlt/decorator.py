@@ -48,7 +48,7 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -70,6 +70,7 @@ from phlo.capabilities.history import HistoryPolicy
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
+from phlo.operations.parquet_validation import ValidationMode
 
 from phlo_dlt.contract_coverage import detect_dropped_source_columns
 from phlo_dlt.dlt_helpers import (
@@ -325,7 +326,199 @@ def _resolve_table_store_capability(context: RuntimeContext) -> tuple[Any, str]:
     )
 
 
-def phlo_ingestion(  # noqa: C901
+def _report_contract_validation(
+    *,
+    logger: Any,
+    table_config: TableConfig,
+    metadata: dict[str, Any],
+    parquet_paths: list[Path],
+    partition_date: str,
+    query_or_sql: str,
+    strict_validation: bool,
+    validation_mode: ValidationMode,
+    validation_batch_size: int,
+    validation_sample_size: int,
+) -> Generator[RunResult, None, list[str]]:
+    """Report the staged contract and source-column coverage after ingestion."""
+    schema = table_config.validation_schema
+    assert schema is not None
+    dropped: list[str] = []
+    try:
+        dropped = detect_dropped_source_columns(parquet_paths, schema)
+    except Exception as exc:  # noqa: BLE001 - coverage must never break ingestion
+        log_event(
+            logger,
+            "warning",
+            "source_column_coverage_check_failed",
+            table_name=table_config.full_table_name,
+            error=str(exc),
+        )
+    if dropped:
+        log_event(
+            logger,
+            "warning",
+            "source_columns_dropped_by_contract",
+            table_name=table_config.full_table_name,
+            dropped_columns=dropped,
+            hint="Add these columns to the validation_schema or remove them "
+            "from the source; they will not be written to the table store.",
+        )
+    details = {
+        "table_name": table_config.full_table_name,
+        "partition_date": partition_date,
+        "parquet_path": str(parquet_paths[0]) if parquet_paths else None,
+        "parquet_path_count": len(parquet_paths),
+    }
+    log_event(logger, "info", "pandera_contract_evaluation_started", **details)
+    try:
+        evaluation = deserialize_pandera_contract_evaluation(metadata.get("pandera_evaluation"))
+        if evaluation is None:
+            if len(parquet_paths) == 1:
+                evaluation = evaluate_pandera_contract_parquet(
+                    parquet_paths[0],
+                    schema_class=schema,
+                    mode=validation_mode,
+                    batch_size=validation_batch_size,
+                    sample_size=validation_sample_size,
+                )
+            else:
+                evaluation = evaluate_pandera_contract_parquet_files(
+                    parquet_paths,
+                    schema_class=schema,
+                    mode=validation_mode,
+                    batch_size=validation_batch_size,
+                    sample_size=validation_sample_size,
+                )
+        log_event(
+            logger,
+            "info" if evaluation.passed else "warning",
+            "pandera_contract_evaluation_passed"
+            if evaluation.passed
+            else "pandera_contract_evaluation_failed",
+            **details,
+            total_count=evaluation.total_count,
+            failed_count=evaluation.failed_count,
+            **({"error": evaluation.error} if not evaluation.passed else {}),
+        )
+    except Exception as exc:
+        log_event(logger, "error", "pandera_contract_evaluation_failed", **details, error=str(exc))
+        logger.exception("pandera_contract_evaluation_exception")
+        evaluation = PanderaContractEvaluation(False, 1, 0, [{"error": str(exc)}], str(exc))
+    yield pandera_contract_asset_check_result(
+        evaluation,
+        partition_key=partition_date,
+        asset_key=f"dlt_{table_config.table_name}",
+        schema_class=schema,
+        query_or_sql=query_or_sql,
+        blocking=bool(strict_validation),
+        validation_mode=validation_mode,
+    )
+    if strict_validation and not evaluation.passed:
+        raise RuntimeError("Pandera contract validation failed")
+    return dropped
+
+
+def _report_domain_validation(
+    *,
+    logger: Any,
+    table_config: TableConfig,
+    metadata: dict[str, Any],
+    parquet_paths: list[Path],
+    partition_date: str,
+    query_or_sql: str,
+    strict_validation: bool,
+    quality_checks: Sequence[Callable[[pd.DataFrame], str | None]],
+) -> Iterator[RunResult]:
+    """Reuse recorded staged checks, loading a frame only for legacy executors."""
+    recorded = metadata.get("domain_quality_evaluations")
+    staged_frames = StagedFrameLoader(parquet_paths)
+    for index, quality_check in enumerate(quality_checks):
+        check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
+        recorded_evaluation = (
+            recorded[index]
+            if isinstance(recorded, list)
+            and index < len(recorded)
+            and isinstance(recorded[index], dict)
+            else None
+        )
+        if recorded_evaluation is not None:
+            value = recorded_evaluation.get("violation")
+            violation = value if isinstance(value, str) else None
+        elif not parquet_paths:
+            violation = "no staged parquet available for domain checks"
+        else:
+            try:
+                violation = quality_check(staged_frames.load())
+            except Exception as exc:  # noqa: BLE001 - violations must surface as checks
+                violation = f"quality check raised: {exc}"
+        passed = not violation
+        yield CheckResult(
+            passed=passed,
+            check_name=f"quality_{check_name}",
+            metadata={
+                "source": "domain",
+                "partition_key": partition_date,
+                "violation": violation,
+                "staged_parquet": query_or_sql,
+            },
+            severity=None if passed else ("error" if strict_validation else "warn"),
+            asset_key=f"dlt_{table_config.table_name}",
+        )
+        if not passed:
+            log_event(
+                logger,
+                "warning",
+                "domain_quality_check_failed",
+                table_name=table_config.full_table_name,
+                check=check_name,
+                violation=violation,
+            )
+            if strict_validation:
+                raise RuntimeError(f"Domain quality check failed: {check_name}: {violation}")
+
+
+def _ingestion_partition(runtime: RuntimeContext, partitioned: bool) -> str:
+    """Never access the runtime partition key for unpartitioned assets."""
+    if not partitioned:
+        return ""
+    partition_date = runtime.partition_key or ""
+    if not partition_date:
+        raise PhloConfigError(
+            message="Missing partition key for ingestion asset",
+            suggestions=[
+                "Run the asset with a partition key (YYYY-MM-DD).",
+                "Or declare the asset with partitioned=False for reference-style sources.",
+            ],
+        )
+    return partition_date
+
+
+def _validate_ingestion_options(
+    layer: str | None,
+    table_schema: Any,
+    validation_schema: type[Any] | None,
+    validation_mode: ValidationMode,
+    validation_batch_size: int,
+    validation_sample_size: int,
+) -> None:
+    """Reject unsupported ingestion and validation configuration before registration."""
+    if layer is not None and layer not in ("bronze", "silver", "gold"):
+        raise PhloConfigError(message="layer must be bronze, silver, or gold")
+    if table_schema is None and validation_schema is None:
+        raise PhloConfigError(
+            message="Missing required schema parameter",
+            suggestions=[
+                "Add validation_schema for provider-driven schema derivation",
+                "Or add explicit table_schema parameter: table_schema=<Schema>(...)",
+            ],
+        )
+    if validation_mode not in {"materialized", "full", "sample"}:
+        raise PhloConfigError(message=f"Unknown validation mode: {validation_mode}")
+    if validation_batch_size <= 0 or validation_sample_size <= 0:
+        raise PhloConfigError(message="Validation batch and sample sizes must be positive")
+
+
+def phlo_ingestion(
     table_name: str,
     unique_key: str,
     group: str,
@@ -350,6 +543,9 @@ def phlo_ingestion(  # noqa: C901
     quality_checks: Sequence[Callable[[pd.DataFrame], str | None]] | None = None,
     layer: Literal["bronze", "silver", "gold"] | None = None,
     schema_policy: Literal["strict", "additive", "drop_extra"] = "strict",
+    validation_mode: ValidationMode = "materialized",
+    validation_batch_size: int = 65_536,
+    validation_sample_size: int = 1_000,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register a function as a DLT-backed ingestion asset.
 
@@ -497,19 +693,16 @@ def phlo_ingestion(  # noqa: C901
     """
     _validate_unique_key_in_schema(unique_key, validation_schema)
     _validate_merge_config(merge_strategy, unique_key, merge_config)
-    if layer is not None and layer not in ("bronze", "silver", "gold"):
-        raise PhloConfigError(message="layer must be bronze, silver, or gold")
+    _validate_ingestion_options(
+        layer,
+        table_schema,
+        validation_schema,
+        validation_mode,
+        validation_batch_size,
+        validation_sample_size,
+    )
 
     merge_cfg = _default_merge_config(merge_strategy, merge_config)
-
-    if table_schema is None and validation_schema is None:
-        raise PhloConfigError(
-            message="Missing required schema parameter",
-            suggestions=[
-                "Add validation_schema for provider-driven schema derivation",
-                "Or add explicit table_schema parameter: table_schema=<Schema>(...)",
-            ],
-        )
 
     table_config = TableConfig(
         table_name=table_name,
@@ -522,7 +715,7 @@ def phlo_ingestion(  # noqa: C901
     )
     normalized_consumers = normalize_consumers(consumers)
 
-    def decorator(func: Callable[..., Any]) -> Any:  # noqa: C901
+    def decorator(func: Callable[..., Any]) -> Any:
         """Wrap an ingestion source function as a Phlo asset definition.
 
         This inner function is the actual decorator that processes the user's
@@ -557,7 +750,7 @@ def phlo_ingestion(  # noqa: C901
                 )
             )
 
-        def run(runtime: RuntimeContext) -> Iterator[RunResult]:  # noqa: C901
+        def run(runtime: RuntimeContext) -> Iterator[RunResult]:
             """Execute one partitioned ingestion run for the wrapped source function.
 
             This inner function is the actual asset execution logic called by the
@@ -603,21 +796,7 @@ def phlo_ingestion(  # noqa: C901
                 :func:`phlo_dlt.dlt_helpers.get_write_branch_from_context`: WAP handling
 
             """
-            if partitioned:
-                partition_date = runtime.partition_key or ""
-                if not partition_date:
-                    raise PhloConfigError(
-                        message="Missing partition key for ingestion asset",
-                        suggestions=[
-                            "Run the asset with a partition key (YYYY-MM-DD).",
-                            "Or declare the asset with partitioned=False for "
-                            "reference-style sources.",
-                        ],
-                    )
-            else:
-                # Unpartitioned assets never read the runtime partition key:
-                # non-partitioned runs raise on access in the orchestrator.
-                partition_date = ""
+            partition_date = _ingestion_partition(runtime, partitioned)
 
             branch_name = get_branch_from_context(runtime)
             write_branch_name = get_write_branch_from_context(
@@ -663,6 +842,9 @@ def phlo_ingestion(  # noqa: C901
                     merge_strategy=merge_strategy,
                     merge_config=merge_cfg,
                     quality_checks=quality_checks,
+                    validation_mode=validation_mode,
+                    validation_batch_size=validation_batch_size,
+                    validation_sample_size=validation_sample_size,
                 )
                 log_event(
                     logger, "info", "target_table_store_selected", table_store=table_store_name
@@ -716,176 +898,34 @@ def phlo_ingestion(  # noqa: C901
                 else:
                     parquet_path = result.metadata.get("parquet_path")
                     parquet_paths = [Path(str(parquet_path))] if parquet_path else []
-                primary_parquet_path = parquet_paths[0] if parquet_paths else None
                 query_or_sql = (
                     ",".join(f"parquet://{parquet_path}" for parquet_path in parquet_paths)
                     if parquet_paths
                     else "parquet://<missing>"
                 )
                 if validate and table_config.validation_schema is not None:
-                    validation_schema = table_config.validation_schema
-                    try:
-                        dropped_source_columns = detect_dropped_source_columns(
-                            parquet_paths,
-                            validation_schema,
-                        )
-                    except Exception as exc:  # noqa: BLE001 - coverage must never break ingestion
-                        log_event(
-                            logger,
-                            "warning",
-                            "source_column_coverage_check_failed",
-                            table_name=table_config.full_table_name,
-                            error=str(exc),
-                        )
-                    if dropped_source_columns:
-                        log_event(
-                            logger,
-                            "warning",
-                            "source_columns_dropped_by_contract",
-                            table_name=table_config.full_table_name,
-                            dropped_columns=dropped_source_columns,
-                            hint="Add these columns to the validation_schema or remove them "
-                            "from the source; they will not be written to the table store.",
-                        )
-                    log_event(
-                        logger,
-                        "info",
-                        "pandera_contract_evaluation_started",
-                        table_name=table_config.full_table_name,
+                    dropped_source_columns = yield from _report_contract_validation(
+                        logger=logger,
+                        table_config=table_config,
+                        metadata=result.metadata,
+                        parquet_paths=parquet_paths,
                         partition_date=partition_date,
-                        parquet_path=str(primary_parquet_path)
-                        if primary_parquet_path is not None
-                        else None,
-                        parquet_path_count=len(parquet_paths),
-                    )
-                    try:
-                        evaluation = deserialize_pandera_contract_evaluation(
-                            result.metadata.get("pandera_evaluation")
-                        )
-                        if evaluation is None:
-                            if len(parquet_paths) == 1:
-                                assert primary_parquet_path is not None
-                                evaluation = evaluate_pandera_contract_parquet(
-                                    primary_parquet_path,
-                                    schema_class=validation_schema,
-                                )
-                            else:
-                                evaluation = evaluate_pandera_contract_parquet_files(
-                                    parquet_paths,
-                                    schema_class=validation_schema,
-                                )
-                        if evaluation.passed:
-                            log_event(
-                                logger,
-                                "info",
-                                "pandera_contract_evaluation_passed",
-                                table_name=table_config.full_table_name,
-                                partition_date=partition_date,
-                                parquet_path=str(primary_parquet_path)
-                                if primary_parquet_path is not None
-                                else None,
-                                parquet_path_count=len(parquet_paths),
-                                total_count=evaluation.total_count,
-                                failed_count=evaluation.failed_count,
-                            )
-                        else:
-                            log_event(
-                                logger,
-                                "warning",
-                                "pandera_contract_evaluation_failed",
-                                table_name=table_config.full_table_name,
-                                partition_date=partition_date,
-                                parquet_path=str(primary_parquet_path)
-                                if primary_parquet_path is not None
-                                else None,
-                                parquet_path_count=len(parquet_paths),
-                                total_count=evaluation.total_count,
-                                failed_count=evaluation.failed_count,
-                                error=evaluation.error,
-                            )
-                    except Exception as exc:
-                        log_event(
-                            logger,
-                            "error",
-                            "pandera_contract_evaluation_failed",
-                            table_name=table_config.full_table_name,
-                            partition_date=partition_date,
-                            parquet_path=str(primary_parquet_path)
-                            if primary_parquet_path is not None
-                            else None,
-                            parquet_path_count=len(parquet_paths),
-                            error=str(exc),
-                        )
-                        logger.exception("pandera_contract_evaluation_exception")
-                        evaluation = PanderaContractEvaluation(
-                            passed=False,
-                            failed_count=1,
-                            total_count=0,
-                            sample=[{"error": str(exc)}],
-                            error=str(exc),
-                        )
-                    check_result = pandera_contract_asset_check_result(
-                        evaluation,
-                        partition_key=partition_date,
-                        asset_key=f"dlt_{table_config.table_name}",
-                        schema_class=validation_schema,
                         query_or_sql=query_or_sql,
-                        blocking=bool(strict_validation),
+                        strict_validation=strict_validation,
+                        validation_mode=validation_mode,
+                        validation_batch_size=validation_batch_size,
+                        validation_sample_size=validation_sample_size,
                     )
-                    yield check_result
-                    if strict_validation and not evaluation.passed:
-                        raise RuntimeError("Pandera contract validation failed")
-
-                recorded_quality_evaluations = result.metadata.get("domain_quality_evaluations")
-                staged_frames = StagedFrameLoader(parquet_paths)
-                for index, quality_check in enumerate(quality_checks or ()):
-                    check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
-                    violation: str | None = None
-                    recorded_evaluation = (
-                        recorded_quality_evaluations[index]
-                        if isinstance(recorded_quality_evaluations, list)
-                        and index < len(recorded_quality_evaluations)
-                        and isinstance(recorded_quality_evaluations[index], dict)
-                        else None
-                    )
-                    if recorded_evaluation is not None:
-                        recorded_violation = recorded_evaluation.get("violation")
-                        violation = (
-                            recorded_violation if isinstance(recorded_violation, str) else None
-                        )
-                    elif not parquet_paths:
-                        violation = "no staged parquet available for domain checks"
-                    else:
-                        try:
-                            violation = quality_check(staged_frames.load())
-                        except Exception as exc:  # noqa: BLE001 - violations must surface as checks
-                            violation = f"quality check raised: {exc}"
-                    passed = not violation
-                    yield CheckResult(
-                        passed=passed,
-                        check_name=f"quality_{check_name}",
-                        metadata={
-                            "source": "domain",
-                            "partition_key": partition_date,
-                            "violation": violation,
-                            "staged_parquet": query_or_sql,
-                        },
-                        severity=None if passed else ("error" if strict_validation else "warn"),
-                        asset_key=f"dlt_{table_config.table_name}",
-                    )
-                    if not passed:
-                        log_event(
-                            logger,
-                            "warning",
-                            "domain_quality_check_failed",
-                            table_name=table_config.full_table_name,
-                            check=check_name,
-                            violation=violation,
-                        )
-                        if strict_validation:
-                            raise RuntimeError(
-                                f"Domain quality check failed: {check_name}: {violation}"
-                            )
+                yield from _report_domain_validation(
+                    logger=logger,
+                    table_config=table_config,
+                    metadata=result.metadata,
+                    parquet_paths=parquet_paths,
+                    partition_date=partition_date,
+                    query_or_sql=query_or_sql,
+                    strict_validation=strict_validation,
+                    quality_checks=quality_checks or (),
+                )
 
                 yield MaterializeResult(
                     metadata={

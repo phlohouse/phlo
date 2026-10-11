@@ -8,6 +8,7 @@ Int64, datetime64[ns]), and never mutates the input DataFrame.
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 from pandera.pandas import Field
 from pandera.pandas import DataFrameModel
 from pandera.typing import Series  # type: ignore[possibly-missing-import]
@@ -100,3 +101,47 @@ def test_evaluate_pandera_contract_does_not_mutate_input_dataframe() -> None:
     )
 
     assert list(df.columns) == ["id"]
+
+
+def test_full_batches_find_late_failures_and_sample_stays_explicit(tmp_path) -> None:
+    class PositiveSchema(DataFrameModel):
+        id: Series[int] = Field(gt=0)
+
+    paths = [tmp_path / "first.parquet", tmp_path / "second.parquet"]
+    pd.DataFrame({"id": [1, 2, 3]}).to_parquet(paths[0])
+    pd.DataFrame({"id": [4, -5, 6, -7]}).to_parquet(paths[1])
+    full = evaluate_pandera_contract_parquet_files(
+        paths,
+        schema_class=PositiveSchema,
+        mode="full",
+        batch_size=2,
+    )
+    materialized = evaluate_pandera_contract_parquet_files(paths, schema_class=PositiveSchema)
+    sample = evaluate_pandera_contract_parquet_files(
+        paths,
+        schema_class=PositiveSchema,
+        mode="sample",
+        batch_size=2,
+        sample_size=4,
+    )
+    assert not full.passed
+    assert full.failed_count == materialized.failed_count == 2
+    assert full.total_count == materialized.total_count == 7
+    assert full.sample == materialized.sample
+    assert sample.passed and sample.total_count == 4
+
+
+def test_full_validation_never_silently_weakens_global_uniqueness(tmp_path) -> None:
+    class UniqueSchema(DataFrameModel):
+        id: Series[int] = Field(unique=True)
+
+    path = tmp_path / "duplicates.parquet"
+    pd.DataFrame({"id": [1, 2, 1]}).to_parquet(path)
+    assert not evaluate_pandera_contract_parquet_files([path], schema_class=UniqueSchema).passed
+    with pytest.raises(ValueError, match="unique"):
+        evaluate_pandera_contract_parquet_files(
+            [path],
+            schema_class=UniqueSchema,
+            mode="full",
+            batch_size=2,
+        )

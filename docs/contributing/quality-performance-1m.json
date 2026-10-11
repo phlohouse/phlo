@@ -1,0 +1,433 @@
+{
+  "rows": 1000000,
+  "batch_size": 65536,
+  "fixture_sha256": "b5bacc175619f10cfc80e8b22e0015ffd05baac4f04cd89f3050be39cfcf15df",
+  "records": [
+    {
+      "seconds": 1.1137441099999705,
+      "total": 1000000,
+      "failures": 1,
+      "failure_index": 999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 1508.265625,
+      "scenario": "validation",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.7103605180000159,
+      "total": 1000000,
+      "failures": 1,
+      "failure_index": 999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 1504.0546875,
+      "scenario": "validation",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.8338207159999911,
+      "total": 1000000,
+      "failures": 1,
+      "failure_index": 999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 1504.82421875,
+      "scenario": "validation",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.43553272600001947,
+      "total": 1000000,
+      "failures": 1,
+      "failure_index": 999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 303.34375,
+      "scenario": "validation",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.45832326100025966,
+      "total": 1000000,
+      "failures": 1,
+      "failure_index": 999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 302.2421875,
+      "scenario": "validation",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.49586665800006813,
+      "total": 1000000,
+      "failures": 1,
+      "failure_index": 999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 304.2890625,
+      "scenario": "validation",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.560901615000148,
+      "total": 1000000,
+      "checks": 3,
+      "reads": 10,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py",
+        "phlo_dlt.executor": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/executor.py"
+      },
+      "peak_rss_mib": 769.91796875,
+      "scenario": "read_once",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.5434499289999621,
+      "total": 1000000,
+      "checks": 3,
+      "reads": 10,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py",
+        "phlo_dlt.executor": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/executor.py"
+      },
+      "peak_rss_mib": 770.66796875,
+      "scenario": "read_once",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.497142907000125,
+      "total": 1000000,
+      "checks": 3,
+      "reads": 10,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py",
+        "phlo_dlt.executor": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/executor.py"
+      },
+      "peak_rss_mib": 770.49609375,
+      "scenario": "read_once",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.44808834600007685,
+      "total": 1000000,
+      "checks": 3,
+      "reads": 10,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py",
+        "phlo_dlt.executor": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/executor.py"
+      },
+      "peak_rss_mib": 771.19140625,
+      "scenario": "read_once",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.5171722709997084,
+      "total": 1000000,
+      "checks": 3,
+      "reads": 10,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py",
+        "phlo_dlt.executor": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/executor.py"
+      },
+      "peak_rss_mib": 769.5625,
+      "scenario": "read_once",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.5469850669996958,
+      "total": 1000000,
+      "checks": 3,
+      "reads": 10,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py",
+        "phlo_dlt.executor": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/executor.py"
+      },
+      "peak_rss_mib": 771.22265625,
+      "scenario": "read_once",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 2
+    },
+    {
+      "seconds": 1.4833627279999746,
+      "total": 1000000,
+      "duplicates": 1000000,
+      "range_failures": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 1248.81640625,
+      "scenario": "aggregates",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 0
+    },
+    {
+      "seconds": 1.296293426000375,
+      "total": 1000000,
+      "duplicates": 1000000,
+      "range_failures": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 1255.96875,
+      "scenario": "aggregates",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 1
+    },
+    {
+      "seconds": 1.3041265719998592,
+      "total": 1000000,
+      "duplicates": 1000000,
+      "range_failures": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 1251.75390625,
+      "scenario": "aggregates",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 2
+    },
+    {
+      "seconds": 0.3405967490002695,
+      "total": 1000000,
+      "duplicates": 1000000,
+      "range_failures": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 205.6171875,
+      "scenario": "aggregates",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 0
+    },
+    {
+      "seconds": 0.3200597119998747,
+      "total": 1000000,
+      "duplicates": 1000000,
+      "range_failures": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 205.109375,
+      "scenario": "aggregates",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 1
+    },
+    {
+      "seconds": 0.32213513000033345,
+      "total": 1000000,
+      "duplicates": 1000000,
+      "range_failures": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 204.80859375,
+      "scenario": "aggregates",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 2
+    },
+    {
+      "seconds": 22.234404186999654,
+      "total": 1000000,
+      "mismatches": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 214.07421875,
+      "scenario": "grouped",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 0
+    },
+    {
+      "seconds": 22.83619413999986,
+      "total": 1000000,
+      "mismatches": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 214.2421875,
+      "scenario": "grouped",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 1
+    },
+    {
+      "seconds": 21.07922729699976,
+      "total": 1000000,
+      "mismatches": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/tmp/phlo-988-baseline/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 214.234375,
+      "scenario": "grouped",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 2
+    },
+    {
+      "seconds": 1.8541507160002766,
+      "total": 1000000,
+      "mismatches": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 307.3515625,
+      "scenario": "grouped",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 0
+    },
+    {
+      "seconds": 2.269679480999912,
+      "total": 1000000,
+      "mismatches": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 307.30078125,
+      "scenario": "grouped",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 1
+    },
+    {
+      "seconds": 1.787831775000086,
+      "total": 1000000,
+      "mismatches": 1,
+      "loaded_modules": {
+        "phlo_pandera.decorator_helpers": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/decorator_helpers.py",
+        "phlo_pandera.reconciliation": "/home/user/workspace/repo/packages/phlo-pandera/src/phlo_pandera/reconciliation.py"
+      },
+      "peak_rss_mib": 307.49609375,
+      "scenario": "grouped",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 2
+    },
+    {
+      "seconds": 2.0831794589998935,
+      "unique_keys": 500000,
+      "checksum": 124999750000,
+      "loaded_modules": {
+        "phlo_iceberg.tables": "/tmp/phlo-988-baseline/packages/phlo-iceberg/src/phlo_iceberg/tables.py"
+      },
+      "peak_rss_mib": 235.14453125,
+      "scenario": "merge_keys",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 0
+    },
+    {
+      "seconds": 2.449042630999884,
+      "unique_keys": 500000,
+      "checksum": 124999750000,
+      "loaded_modules": {
+        "phlo_iceberg.tables": "/tmp/phlo-988-baseline/packages/phlo-iceberg/src/phlo_iceberg/tables.py"
+      },
+      "peak_rss_mib": 235.375,
+      "scenario": "merge_keys",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 1
+    },
+    {
+      "seconds": 2.1820469109998157,
+      "unique_keys": 500000,
+      "checksum": 124999750000,
+      "loaded_modules": {
+        "phlo_iceberg.tables": "/tmp/phlo-988-baseline/packages/phlo-iceberg/src/phlo_iceberg/tables.py"
+      },
+      "peak_rss_mib": 235.1015625,
+      "scenario": "merge_keys",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 2
+    },
+    {
+      "seconds": 1.986698780000097,
+      "unique_keys": 500000,
+      "checksum": 124999750000,
+      "loaded_modules": {
+        "phlo_iceberg.tables": "/home/user/workspace/repo/packages/phlo-iceberg/src/phlo_iceberg/tables.py"
+      },
+      "peak_rss_mib": 236.2421875,
+      "scenario": "merge_keys",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 0
+    },
+    {
+      "seconds": 1.9424442909999016,
+      "unique_keys": 500000,
+      "checksum": 124999750000,
+      "loaded_modules": {
+        "phlo_iceberg.tables": "/home/user/workspace/repo/packages/phlo-iceberg/src/phlo_iceberg/tables.py"
+      },
+      "peak_rss_mib": 235.03515625,
+      "scenario": "merge_keys",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 1
+    },
+    {
+      "seconds": 2.0454859480000778,
+      "unique_keys": 500000,
+      "checksum": 124999750000,
+      "loaded_modules": {
+        "phlo_iceberg.tables": "/home/user/workspace/repo/packages/phlo-iceberg/src/phlo_iceberg/tables.py"
+      },
+      "peak_rss_mib": 235.77734375,
+      "scenario": "merge_keys",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 2
+    }
+  ]
+}

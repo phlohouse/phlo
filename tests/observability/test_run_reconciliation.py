@@ -135,6 +135,33 @@ def test_stage_success_or_table_readiness_cannot_invent_pipeline_success() -> No
     assert "event:run.terminal" in decision.missing_evidence
 
 
+@pytest.mark.parametrize("stage_count", [1, 2])
+def test_empty_event_stage_identity_is_unattributed(stage_count: int) -> None:
+    store = SQLiteRunEvidenceStore(":memory:")
+    stages = tuple(
+        RunStage(
+            project_id="project",
+            run_id="run",
+            stage_id=f"transform-{index}",
+            stage_type="transform",
+            status="success",
+        )
+        for index in range(stage_count)
+    )
+    event = replace(_event("stage.end", payload={"stage_id": ""}), stage_id="")
+    source = _Source(_observation(_event("run.terminal"), event, stages=stages))
+    profile = _profile(
+        RequiredEvidenceStage(
+            "transform", required_event_types=("stage.end",), required_status="success"
+        )
+    )
+    decision = RunReconciler(store, source).reconcile("project", "run", profile, now=NOW)
+    assert ("event:stage.end" in decision.missing_evidence) == (stage_count == 2)
+    assert decision.evidence_completeness is (
+        EvidenceCompleteness.COMPLETE if stage_count == 1 else EvidenceCompleteness.INCOMPLETE
+    )
+
+
 def test_failed_and_cancelled_profiles_can_be_complete_without_claiming_success() -> None:
     for status, stage_status in (("failed", "failed"), ("canceled", "cancelled")):
         store = SQLiteRunEvidenceStore(":memory:")

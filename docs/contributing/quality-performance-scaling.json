@@ -1,0 +1,35 @@
+{
+  "rows": 2000000,
+  "batch_size": 65536,
+  "fixture_sha256": "f043cec6d55fc1f90f07f5a5ee89e9755f990c4d3c609471fd49cc0638c04e0c",
+  "records": [
+    {
+      "seconds": 2.625883892999809,
+      "total": 2000000,
+      "failures": 1,
+      "failure_index": 1999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/tmp/phlo-988-baseline/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 2780.78515625,
+      "scenario": "validation",
+      "root": "/tmp/phlo-988-baseline",
+      "variant": "before",
+      "repeat": 0
+    },
+    {
+      "seconds": 1.0059078610001961,
+      "total": 2000000,
+      "failures": 1,
+      "failure_index": 1999999,
+      "loaded_modules": {
+        "phlo_dlt.pandera_checks": "/home/user/workspace/repo/packages/phlo-dlt/src/phlo_dlt/pandera_checks.py"
+      },
+      "peak_rss_mib": 333.27734375,
+      "scenario": "validation",
+      "root": "/home/user/workspace/repo",
+      "variant": "after",
+      "repeat": 0
+    }
+  ]
+}

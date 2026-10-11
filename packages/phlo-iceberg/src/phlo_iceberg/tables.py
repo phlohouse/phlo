@@ -154,6 +154,12 @@ def _write_arrow_table(
     transaction, aligned, additions = prepare_arrow_write(
         table, arrow_table, table_name=table_name, schema_policy=schema_policy
     )
+    keys = []
+    if operation == "merge":
+        assert unique_key is not None
+        # Alignment fixes key types before conversion; additive schema retries
+        # cannot change an existing key field's type.
+        keys = aligned.column(unique_key).unique().to_pylist()
     for attempt in range(3):
         rows_deleted = 0
         try:
@@ -163,7 +169,6 @@ def _write_arrow_table(
                 else:
                     if operation == "merge":
                         assert unique_key is not None
-                        keys = list(set(aligned.column(unique_key).to_pylist()))
                         for start in range(0, len(keys), 1000):
                             batch = keys[start : start + 1000]
                             with warnings.catch_warnings():
@@ -526,12 +531,11 @@ def merge_to_table(
                     duplicates_removed=duplicates_removed,
                 )
         else:
-            key_values = arrow_table.column(unique_key).to_pylist()
-            distinct_keys = set(key_values)
-            if len(distinct_keys) < len(key_values):
+            distinct_count = len(arrow_table.column(unique_key).unique())
+            if distinct_count < len(arrow_table):
                 logger.warning(
                     "source_duplicates_detected_after_deduplication",
-                    duplicates_count=len(key_values) - len(distinct_keys),
+                    duplicates_count=len(arrow_table) - distinct_count,
                     unique_key=unique_key,
                     table_name=table_name,
                 )
