@@ -13,7 +13,9 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as HealthzRouteImport } from './routes/healthz'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppBranchesRouteImport } from './routes/_app/branches'
+import { Route as AppDatasetsRouteImport } from './routes/_app/datasets'
 import { Route as AppQueryRouteImport } from './routes/_app/query'
+import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppStagingRouteImport } from './routes/_app/staging'
 import { Route as AppStatesRouteImport } from './routes/_app/states'
 import { Route as AppAssetsIndexRouteImport } from './routes/_app/assets/index'
@@ -47,9 +49,19 @@ const AppBranchesRoute = AppBranchesRouteImport.update({
   path: '/branches',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDatasetsRoute = AppDatasetsRouteImport.update({
+  id: '/datasets',
+  path: '/datasets',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppQueryRoute = AppQueryRouteImport.update({
   id: '/query',
   path: '/query',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
 const AppStagingRoute = AppStagingRouteImport.update({
@@ -123,7 +135,9 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/healthz': typeof HealthzRoute
   '/branches': typeof AppBranchesRoute
+  '/datasets': typeof AppDatasetsRoute
   '/query': typeof AppQueryRoute
+  '/reports': typeof AppReportsRoute
   '/staging': typeof AppStagingRoute
   '/states': typeof AppStatesRoute
   '/assets/$assetId': typeof AppAssetsAssetIdRoute
@@ -141,7 +155,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/healthz': typeof HealthzRoute
   '/branches': typeof AppBranchesRoute
+  '/datasets': typeof AppDatasetsRoute
   '/query': typeof AppQueryRoute
+  '/reports': typeof AppReportsRoute
   '/staging': typeof AppStagingRoute
   '/states': typeof AppStatesRoute
   '/': typeof AppIndexRoute
@@ -162,7 +178,9 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/healthz': typeof HealthzRoute
   '/_app/branches': typeof AppBranchesRoute
+  '/_app/datasets': typeof AppDatasetsRoute
   '/_app/query': typeof AppQueryRoute
+  '/_app/reports': typeof AppReportsRoute
   '/_app/staging': typeof AppStagingRoute
   '/_app/states': typeof AppStatesRoute
   '/_app/': typeof AppIndexRoute
@@ -184,7 +202,9 @@ export interface FileRouteTypes {
     | '/'
     | '/healthz'
     | '/branches'
+    | '/datasets'
     | '/query'
+    | '/reports'
     | '/staging'
     | '/states'
     | '/assets/$assetId'
@@ -202,7 +222,9 @@ export interface FileRouteTypes {
   to:
     | '/healthz'
     | '/branches'
+    | '/datasets'
     | '/query'
+    | '/reports'
     | '/staging'
     | '/states'
     | '/'
@@ -222,7 +244,9 @@ export interface FileRouteTypes {
     | '/_app'
     | '/healthz'
     | '/_app/branches'
+    | '/_app/datasets'
     | '/_app/query'
+    | '/_app/reports'
     | '/_app/staging'
     | '/_app/states'
     | '/_app/'
@@ -274,11 +298,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBranchesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/datasets': {
+      id: '/_app/datasets'
+      path: '/datasets'
+      fullPath: '/datasets'
+      preLoaderRoute: typeof AppDatasetsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/query': {
       id: '/_app/query'
       path: '/query'
       fullPath: '/query'
       preLoaderRoute: typeof AppQueryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/reports': {
+      id: '/_app/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/staging': {
@@ -377,7 +415,9 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppBranchesRoute: typeof AppBranchesRoute
+  AppDatasetsRoute: typeof AppDatasetsRoute
   AppQueryRoute: typeof AppQueryRoute
+  AppReportsRoute: typeof AppReportsRoute
   AppStagingRoute: typeof AppStagingRoute
   AppStatesRoute: typeof AppStatesRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -396,7 +436,9 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppBranchesRoute: AppBranchesRoute,
+  AppDatasetsRoute: AppDatasetsRoute,
   AppQueryRoute: AppQueryRoute,
+  AppReportsRoute: AppReportsRoute,
   AppStagingRoute: AppStagingRoute,
   AppStatesRoute: AppStatesRoute,
   AppIndexRoute: AppIndexRoute,

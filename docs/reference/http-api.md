@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (209)
+## Endpoints (212)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -160,6 +160,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `POST` | `/api/v1/branches/{branch_name}/merge` | V1 Branch Merge | `v1 branches` |
 | `POST` | `/api/v1/branches/{branch_name}/rebase` | V1 Branch Rebase | `v1 branches` |
 | `POST` | `/api/v1/branches/{branch_name}/trial-merge` | V1 Branch Trial Merge | `v1 branches` |
+| `GET` | `/api/v1/datasets` | V1 Datasets | `v1 datasets` |
 | `GET` | `/api/v1/environments` | V1 Environments | `v1` |
 | `GET` | `/api/v1/events` | V1 Events | `v1` |
 | `GET` | `/api/v1/incident-policies` | List Asset Incident Policies | `v1 incidents` |
@@ -186,8 +187,10 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/maintenance-windows` | V1 Maintenance Windows | `v1 jobs and runs` |
 | `GET` | `/api/v1/me` | V1 Me | `v1` |
 | `GET` | `/api/v1/overview` | V1 Overview | `v1 assets` |
+| `GET` | `/api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report` | V1 Run Report | `observatory` |
 | `POST` | `/api/v1/queries` | V1 Query Submit | `v1 query workspace` |
 | `POST` | `/api/v1/queries/explain` | V1 Query Explain | `v1 query workspace` |
+| `GET` | `/api/v1/queries/history` | V1 Query History | `v1 query workspace` |
 | `GET` | `/api/v1/queries/saved` | V1 Saved Queries | `v1 query workspace` |
 | `POST` | `/api/v1/queries/saved` | V1 Saved Query Create | `v1 query workspace` |
 | `DELETE` | `/api/v1/queries/saved/{query_id}` | V1 Saved Query Delete | `v1 query workspace` |

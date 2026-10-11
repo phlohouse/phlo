@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import Field
 
 from phlo.config.process import get_process_settings
@@ -89,6 +89,17 @@ class QueryRequest(WireModel):
     engine: Literal["trino"] = "trino"
 
 
+class QueryColumn(WireModel):
+    name: str
+    type: str | None
+
+
+class QueryResult(WireModel):
+    columns: list[QueryColumn]
+    rows: list[dict[str, Any]]
+    has_more: bool
+
+
 class QuerySessionView(WireModel):
     id: str
     env: Environment
@@ -99,8 +110,25 @@ class QuerySessionView(WireModel):
     sql_hash: str
     created_at: datetime
     updated_at: datetime
-    result: dict[str, Any] | None
+    result: QueryResult | None
     error: str | None
+
+
+class QueryHistoryItem(WireModel):
+    id: str
+    env: Environment
+    nessie_ref: str
+    engine: Literal["trino"] = "trino"
+    sql_hash: str
+    completed_at: datetime
+
+
+class QueryHistoryPage(WireModel):
+    env: Environment
+    status: Literal["partial", "unavailable"]
+    reason: str | None
+    items: list[QueryHistoryItem]
+    truncated: bool
 
 
 class SavedQuery(WireModel):
@@ -224,7 +252,7 @@ def _query_view(session: QuerySession) -> QuerySessionView:
         sql_hash=hashlib.sha256(session.sql.encode()).hexdigest(),
         created_at=session.created_at,
         updated_at=session.updated_at,
-        result=session.result,
+        result=QueryResult.model_validate(session.result) if session.result is not None else None,
         error=session.error,
     )
 
@@ -505,6 +533,34 @@ async def v1_query_refs(request: Request, env: Environment) -> QueryRefs:
 async def v1_query_engines(request: Request, env: Environment) -> QueryEngines:
     _mapped_catalog(request, env)
     return QueryEngines(env=env, items=[QueryEngine(id="trino", status="configured")])
+
+
+@router.get("/queries/history", response_model=QueryHistoryPage)
+async def v1_query_history(
+    request: Request,
+    env: Environment,
+    limit: int = Query(default=50, ge=1, le=100),
+) -> QueryHistoryPage:
+    """Shared completed-execution metadata, never another actor's SQL or results."""
+    target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
+    if not get_process_settings().phlo_run_evidence_db_url:
+        return QueryHistoryPage(
+            env=env,
+            status="unavailable",
+            reason="durable_query_evidence_not_configured",
+            items=[],
+            truncated=False,
+        )
+    from phlo_api.incidents import list_query_executions
+
+    records = await asyncio.to_thread(list_query_executions, env, target.nessie_ref, limit + 1)
+    return QueryHistoryPage(
+        env=env,
+        status="partial",
+        reason="completed_workspace_executions_only",
+        items=[QueryHistoryItem.model_validate(record) for record in records[:limit]],
+        truncated=len(records) > limit,
+    )
 
 
 @router.post("/queries", response_model=QuerySessionView, status_code=202)

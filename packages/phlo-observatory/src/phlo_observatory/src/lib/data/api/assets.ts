@@ -108,7 +108,46 @@ export const assetTabSchema = z.enum([
   'lineage',
   'snapshots',
   'audits',
+  'usage',
 ])
+const usageSchema = z.object({
+  env: environmentSchema,
+  asset_id: z.string(),
+  nessie_ref: z.string(),
+  status: z.enum(['partial', 'unavailable']),
+  source: z.literal('api_preview'),
+  reason: z.literal('no_retained_preview_evidence').nullable(),
+  items: z.array(
+    z.object({
+      observed_at: z.string(),
+      returned_row_count: z.number().int().nonnegative(),
+      has_more: z.boolean(),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+})
+const queryUsageSchema = z.object({
+  env: environmentSchema,
+  asset_id: z.string(),
+  table_name: z.string().nullable(),
+  nessie_ref: z.string(),
+  status: z.enum(['partial', 'unavailable']),
+  source: z.literal('trino_query_completed'),
+  reason: z
+    .enum(['no_verified_query_evidence', 'no_asset_relation'])
+    .nullable(),
+  items: z.array(
+    z.object({
+      query_id: z.string(),
+      source_id: z.string(),
+      occurred_at: z.string(),
+      query_state: z.literal('FINISHED'),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+})
+export type ApiAssetUsage = z.infer<typeof usageSchema>
+export type ApiAssetQueryUsage = z.infer<typeof queryUsageSchema>
 const assetRequest = z.object({
   env: environmentSchema,
   id: z.string().min(1),
@@ -458,6 +497,21 @@ export const getAssetDetail = createServerFn({ method: 'GET' })
     const base = { asset, jobs: matchingJobs, env }
     try {
       switch (tab) {
+        case 'usage': {
+          const [preview, queries] = await Promise.all([
+            phloApi(
+              `api/v1/assets/${encodeURIComponent(id)}/usage?env=${env}&limit=100`,
+              usageSchema,
+              { env },
+            ),
+            phloApi(
+              `api/v1/assets/${encodeURIComponent(id)}/query-usage?env=${env}&limit=100`,
+              queryUsageSchema,
+              { env },
+            ),
+          ])
+          return { ...base, kind: 'usage' as const, preview, queries }
+        }
         case 'data':
           return {
             ...base,
@@ -614,24 +668,35 @@ export const materializeAsset = createServerFn({ method: 'POST' })
       confirmed: z.literal(true),
     }),
   )
-  .handler(({ data: { env, id, ...body } }) =>
-    phloApi(
+  .handler(async ({ data: { env, id, ...body } }) => {
+    const response = await phloApi(
       `api/v1/assets/${encodeURIComponent(id)}/materialize?env=${env}`,
       z.object({
         env: environmentSchema,
         nessie_ref: z.string(),
-        result: z.object({
-          accepted: z.boolean(),
-          job_name: z.string(),
-          run_ids: z.array(z.string()),
-          runs: z.array(
-            z.object({ accepted: z.boolean(), message: z.string().optional() }),
-          ),
-        }),
+        result: z.union([
+          z.object({
+            accepted: z.boolean(),
+            job_name: z.string(),
+            run_ids: z.array(z.string()),
+            runs: z.array(
+              z.object({
+                accepted: z.boolean(),
+                message: z.string().nullable().optional(),
+              }),
+            ),
+          }),
+          z.object({ accepted: z.boolean(), run_id: z.string().nullable() }),
+        ]),
       }),
       { env, body: { ...body, dry_run: false }, timeoutMs: 120_000 },
-    ),
-  )
+    )
+    if (!('run_ids' in response.result))
+      throw new Error(
+        'Phlo did not return the requested materialization plan outcome.',
+      )
+    return { ...response, result: response.result }
+  })
 
 export const backfillAsset = createServerFn({ method: 'POST' })
   .inputValidator(

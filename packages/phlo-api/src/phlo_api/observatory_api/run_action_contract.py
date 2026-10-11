@@ -260,7 +260,7 @@ def resolve_run_action_reconciliation(
             "status": "reconciled",
             "canonical_report": identity,
             "canonical_report_path": (
-                f"/api/observatory/projects/{identity.project_id}"
+                f"/api/v1/projects/{identity.project_id}"
                 f"/runs/{identity.run_id}/attempts/{identity.attempt}/report"
             ),
         }

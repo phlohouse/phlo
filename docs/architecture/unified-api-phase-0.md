@@ -1,5 +1,7 @@
 # Unified API contract and route inventory (issue #1035, phase 0)
 
+The [remaining acceptance record](../reference/unified-api-remaining-acceptance.md) lists current callers, migration decisions, executed evidence, and outstanding requirements. This page retains the original phase-0 plan.
+
 This document records the **phase-0 inventory and planned** `/api/v1` behavior as it stood before implementation. Phase 1 mounts `/api/v1/me`, `/api/v1/environments`, `/api/v1/services`, and `/api/v1/events`; their current behavior is in the [phase-1 reference](../reference/unified-api-phase-1.md). The 107 legacy application endpoints below were inventoried from `phlo_api.main:app` by `scripts/generate_reference_docs.py`. The current [generated inventory](../reference/http-api.md) also includes the new v1 routes. It omits FastAPI's `/openapi.json`, `/docs`, `/docs/oauth2-redirect`, and `/redoc` framework routes; the security manifest classifies them too. Do not change the generated inventory by hand.
 
 ## Classification of every mounted application route

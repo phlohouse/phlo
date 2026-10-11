@@ -275,6 +275,12 @@ function PipelinesPage() {
         meta={`${jobs.length} jobs · ${runs.length} observed runs · ${env}`}
         actions={
           <>
+            <Button
+              variant="outline"
+              render={<Link to="/reports" search={{ env, attempt: 1 }} />}
+            >
+              Durable reports
+            </Button>
             {searchBox('job-search', 'hidden w-[220px] lg:flex')}
             <span className="hidden text-[13px] text-muted-foreground sm:inline">
               Group by

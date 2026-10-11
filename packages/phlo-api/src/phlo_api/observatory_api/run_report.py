@@ -15,8 +15,13 @@ router = APIRouter(tags=["observatory"])
 
 
 @router.get(
-    "/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
+    "/api/observatory/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
     response_model=RunReport,
+)
+@router.get(
+    "/api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
+    response_model=RunReport,
+    name="v1_run_report",
 )
 def get_observatory_run_report(
     project_id: str,

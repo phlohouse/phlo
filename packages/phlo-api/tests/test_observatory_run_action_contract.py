@@ -495,7 +495,7 @@ def test_reconciliation_resolves_canonical_identity_only_from_durable_evidence(
     }
     assert (
         reconciled.canonical_report_path
-        == "/api/observatory/projects/finance/runs/run-new-456/attempts/1/report"
+        == "/api/v1/projects/finance/runs/run-new-456/attempts/1/report"
     )
     # The handle is unchanged by reconciliation.
     assert reconciled.verification_handle == pending.verification_handle

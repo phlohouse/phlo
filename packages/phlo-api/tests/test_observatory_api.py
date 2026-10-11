@@ -91,8 +91,9 @@ def _telemetry_event_names(tmp_path) -> set[str]:
     }
 
 
+@pytest.mark.parametrize("prefix", ["/api/observatory", "/api/v1"])
 def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
-    monkeypatch, tmp_path, regulated_api_boundary
+    monkeypatch, tmp_path, regulated_api_boundary, prefix
 ) -> None:
     database = tmp_path / "run-evidence.sqlite"
     store = SQLiteRunEvidenceStore(database)
@@ -121,7 +122,7 @@ def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
     monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(database))
 
     response = authenticated_client("viewer").get(
-        "/api/observatory/projects/project/runs/run/attempts/1/report"
+        f"{prefix}/projects/project/runs/run/attempts/1/report"
     )
 
     assert response.status_code == 200
@@ -129,15 +130,13 @@ def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
     assert [stage["stage_id"] for stage in response.json()["stages"]] == ["stage-1"]
 
     assert (
-        TestClient(app)
-        .get("/api/observatory/projects/project/runs/run/attempts/1/report")
-        .status_code
+        TestClient(app).get(f"{prefix}/projects/project/runs/run/attempts/1/report").status_code
         == 401
     )
     for path in (
-        "/api/observatory/projects/other/runs/run/attempts/1/report",
-        "/api/observatory/projects/project/runs/other/attempts/1/report",
-        "/api/observatory/projects/project/runs/run/attempts/3/report",
+        f"{prefix}/projects/other/runs/run/attempts/1/report",
+        f"{prefix}/projects/project/runs/other/attempts/1/report",
+        f"{prefix}/projects/project/runs/run/attempts/3/report",
     ):
         assert authenticated_client("viewer").get(path).status_code == 404
 
@@ -157,14 +156,15 @@ def test_authenticated_run_report_isolated_by_attempt_and_path_identity(
     )
     assert (
         authenticated_client("viewer")
-        .get("/api/observatory/projects/project/runs/run/attempts/1/report")
+        .get(f"{prefix}/projects/project/runs/run/attempts/1/report")
         .status_code
         == 403
     )
 
 
+@pytest.mark.parametrize("prefix", ["/api/observatory", "/api/v1"])
 def test_scoped_service_token_cannot_read_another_run_report(
-    monkeypatch, tmp_path, regulated_api_boundary
+    monkeypatch, tmp_path, regulated_api_boundary, prefix
 ) -> None:
     database = tmp_path / "run-evidence.sqlite"
     store = SQLiteRunEvidenceStore(database)
@@ -213,11 +213,11 @@ def test_scoped_service_token_cannot_read_another_run_report(
 
     client = TestClient(app)
     allowed = client.get(
-        "/api/observatory/projects/project/runs/allowed/attempts/1/report",
+        f"{prefix}/projects/project/runs/allowed/attempts/1/report",
         headers={"Authorization": "Bearer dagster-report-token"},
     )
     denied = client.get(
-        "/api/observatory/projects/project/runs/other/attempts/1/report",
+        f"{prefix}/projects/project/runs/other/attempts/1/report",
         headers={"Authorization": "Bearer dagster-report-token"},
     )
 
@@ -231,7 +231,11 @@ def test_scoped_service_token_cannot_read_another_run_report(
         "attributes": {"attempt": "1"},
     }
     assert denied.status_code == 403
-    assert denied.json() == {"error": "forbidden", "reason": "run_report_scope_mismatch"}
+    assert denied.json() == (
+        {"error": {"code": "forbidden", "message": "run_report_scope_mismatch"}}
+        if prefix == "/api/v1"
+        else {"error": "forbidden", "reason": "run_report_scope_mismatch"}
+    )
 
 
 def test_unregulated_run_report_keeps_anonymous_open_but_enforces_supplied_scope(

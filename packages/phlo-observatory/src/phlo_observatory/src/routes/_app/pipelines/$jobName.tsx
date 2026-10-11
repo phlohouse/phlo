@@ -381,11 +381,27 @@ function PipelinePage() {
                 .join(' · ')}
             </p>
             {data.patterns.items.map((pattern) => (
-              <p key={pattern.kind} className="m-0 text-sm">
-                {pattern.count}{' '}
-                {pattern.kind === 'failure' ? 'failed runs' : 'slow runs'} in
-                the latest {data.patterns.scanned_runs} runs.
-              </p>
+              <div key={pattern.kind} className="space-y-2 text-sm">
+                <p className="m-0">
+                  {pattern.count}{' '}
+                  {pattern.kind === 'failure' ? 'failed runs' : 'slow runs'} in
+                  the latest {data.patterns.scanned_runs} runs.
+                </p>
+                <ul className="flex flex-wrap gap-2 p-0">
+                  {pattern.run_ids.map((runId) => (
+                    <li key={runId} className="list-none">
+                      <Link
+                        to="/pipelines/$jobName/runs/$runId"
+                        params={{ jobName: job.id, runId }}
+                        search={{ env }}
+                        className="font-mono text-xs underline"
+                      >
+                        {runId}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
           </section>
           <section aria-labelledby="sib-h" className="hidden flex-col lg:flex">
