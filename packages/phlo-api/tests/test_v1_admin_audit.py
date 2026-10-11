@@ -125,6 +125,13 @@ def test_verify_reads_the_full_chain_in_batches(monkeypatch) -> None:
         "first_invalid_sequence": None,
         "error_message": None,
     }
+    schema = response.request.url.path
+    document = _client(monkeypatch).get("/openapi.json").json()
+    reference = document["paths"][schema]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]["$ref"]
+    contract = document["components"]["schemas"][reference.rsplit("/", 1)[-1]]
+    assert set(contract["required"]) == set(response.json())
     assert calls == [1000, 1000]
 
 
