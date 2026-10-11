@@ -8,7 +8,6 @@ Per TEST_STRATEGY.md Level 2 (Functional):
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -89,123 +88,6 @@ class TestMinioConfiguration:
         endpoint = settings.minio_endpoint()
         # Should be a URL or host:port
         assert len(endpoint) > 0
-
-
-# =============================================================================
-# Bucket Policy Tests (Unit)
-# =============================================================================
-
-
-class TestBucketPolicies:
-    """Test bucket policy generation."""
-
-    def test_public_read_policy_structure(self):
-        """Test public read bucket policy structure."""
-        # Standard MinIO/S3 public read policy
-        policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Sid": "PublicRead",
-                    "Effect": "Allow",
-                    "Principal": "*",
-                    "Action": ["s3:GetObject"],
-                    "Resource": ["arn:aws:s3:::test-bucket/*"],
-                }
-            ],
-        }
-
-        assert policy["Version"] == "2012-10-17"
-        assert len(policy["Statement"]) == 1
-        assert policy["Statement"][0]["Effect"] == "Allow"  # type: ignore[index]
-
-    def test_read_write_policy_structure(self):
-        """Test read-write bucket policy structure."""
-        policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Sid": "ReadWrite",
-                    "Effect": "Allow",
-                    "Principal": {"AWS": ["arn:aws:iam::123456789:user/dagster"]},
-                    "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-                    "Resource": ["arn:aws:s3:::warehouse/*"],
-                }
-            ],
-        }
-
-        assert "s3:PutObject" in policy["Statement"][0]["Action"]  # type: ignore[index]
-        assert "s3:GetObject" in policy["Statement"][0]["Action"]  # type: ignore[index]
-
-
-# =============================================================================
-# MinIO Client Tests (Mocked)
-# =============================================================================
-
-
-class TestMinioClientMocked:
-    """Test MinIO client operations with mocks."""
-
-    def test_bucket_creation_mocked(self):
-        """Test bucket creation with mocked client."""
-        mock_client = MagicMock()
-        mock_client.bucket_exists.return_value = False
-
-        bucket_name = "test-bucket"
-
-        # Simulate bucket creation
-        if not mock_client.bucket_exists(bucket_name):
-            mock_client.make_bucket(bucket_name)
-
-        mock_client.make_bucket.assert_called_once_with(bucket_name)
-
-    def test_file_upload_mocked(self):
-        """Test file upload with mocked client."""
-        mock_client = MagicMock()
-
-        with tempfile.NamedTemporaryFile(delete=False) as f:
-            f.write(b"test content")
-            temp_path = f.name
-
-        try:
-            mock_client.fput_object(
-                bucket_name="test-bucket",
-                object_name="test.txt",
-                file_path=temp_path,
-            )
-
-            mock_client.fput_object.assert_called_once()
-        finally:
-            os.unlink(temp_path)
-
-    def test_file_download_mocked(self, tmp_path):
-        """Test file download with mocked client."""
-        mock_client = MagicMock()
-
-        download_path = Path(tmp_path) / "downloaded.txt"
-
-        mock_client.fget_object(
-            bucket_name="test-bucket",
-            object_name="test.txt",
-            file_path=str(download_path),
-        )
-
-        mock_client.fget_object.assert_called_once()
-
-    def test_list_objects_mocked(self):
-        """Test listing objects with mocked client."""
-        mock_client = MagicMock()
-
-        mock_objects = [
-            MagicMock(object_name="file1.parquet"),
-            MagicMock(object_name="file2.parquet"),
-            MagicMock(object_name="subdir/file3.parquet"),
-        ]
-        mock_client.list_objects.return_value = mock_objects
-
-        objects = list(mock_client.list_objects("test-bucket", prefix=""))
-
-        assert len(objects) == 3
 
 
 # =============================================================================

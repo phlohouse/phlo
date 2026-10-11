@@ -187,7 +187,7 @@ def test_catalog_role_probe_timeout_cancels_pending_work_without_hiding_tables(m
 
     async def execute(sql, **kwargs):
         try:
-            await asyncio.sleep(10)
+            await asyncio.Future()
         finally:
             cancelled.append(sql)
 

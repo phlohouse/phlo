@@ -28,8 +28,9 @@ LANE ?= all
 BASE ?= origin/main
 PYMDX_DOCS_DIR ?= docs-site
 PYMDX_DOCS_PORT ?= 3000
+COVERAGE_DIR ?= test-results/coverage
 
-.PHONY: setup setup-js install test \
+.PHONY: setup setup-js install test test-coverage \
 	dagster superset hub minio pgweb trino nessie grafana prometheus api hasura openmetadata catalog docs-open \
 	check lint lint-sql lint-python format-python typecheck-python \
 	dependency-refresh dependency-refresh-check \
@@ -54,6 +55,15 @@ install:
 
 test:
 	uv run --locked pytest
+
+test-coverage:
+	@mkdir -p $(COVERAGE_DIR)
+	@args=(--cov=src/phlo --cov=scripts); \
+	for source in packages/*/src; do args+=("--cov=$$source"); done; \
+	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked pytest -m 'not integration' \
+		"$${args[@]}" --cov-branch --cov-report=json:$(COVERAGE_DIR)/coverage.json \
+		--cov-report= --junitxml=$(COVERAGE_DIR)/results.xml --tb=short -ra
+	python3 scripts/coverage_report.py $(COVERAGE_DIR)/coverage.json --output $(COVERAGE_DIR)/totals.json
 
 test-core-regression:
 	uv run --locked pytest $(CORE_REGRESSION_TEST_PATHS) -m core_regression $(CORE_REGRESSION_PYTEST_ARGS)

@@ -1944,13 +1944,16 @@ def test_observatory_concurrent_idempotency_endpoint_executes_provider_once(
     )
     provider_call_count = 0
     provider_lock = threading.Lock()
+    entered = asyncio.Event()
+    release = asyncio.Event()
 
     async def fake_materialize(asset_id: str, payload, dagster_url: str | None = None):
         nonlocal provider_call_count
         with provider_lock:
             provider_call_count += 1
         # Hold the claim open so the contender observes the pending state.
-        await asyncio.sleep(0.4)
+        entered.set()
+        await release.wait()
         return {
             "operation": "materialize_asset",
             "dry_run": payload.dry_run,
@@ -1998,7 +2001,13 @@ def test_observatory_concurrent_idempotency_endpoint_executes_provider_once(
             )
 
     async def main() -> tuple[httpx.Response, httpx.Response]:
-        return await asyncio.gather(call_once(), call_once())
+        first = asyncio.create_task(call_once())
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        try:
+            second = await call_once()
+        finally:
+            release.set()
+        return await first, second
 
     try:
         r1, r2 = asyncio.run(main())

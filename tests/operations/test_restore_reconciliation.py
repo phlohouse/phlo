@@ -1,4 +1,4 @@
-"""Integration: restore reconciliation across every authority (Plan 012 Step 4)."""
+"""In-process restore reconciliation with injected provider boundaries (Plan 012 Step 4)."""
 
 from __future__ import annotations
 

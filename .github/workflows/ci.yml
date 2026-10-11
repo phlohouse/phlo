@@ -329,6 +329,33 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
+  python-coverage:
+    name: python / measured coverage floors
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/python-workspace
+      - name: Measure complete non-integration workspace and enforce floors
+        run: make test-coverage
+      - name: Publish per-source line/branch totals and skip reasons
+        if: always()
+        run: |
+          python3 scripts/test_summary.py test-results/coverage >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/coverage_report.py test-results/coverage/coverage.json \
+            --output test-results/coverage/totals.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: workspace-line-branch-coverage
+          path: test-results/coverage/
+          if-no-files-found: error
+          include-hidden-files: true
+
   windows-portability:
     name: windows / compose portability
     needs: ci-config
@@ -365,6 +392,10 @@ jobs:
         id: observatory_install
         run: npm ci
 
+      - name: Install authoritative API for the method/schema drift gate
+        if: needs.ci-config.outputs.frontend == 'true'
+        uses: ./.github/actions/python-workspace
+
       - name: Check formatting with Prettier
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npx prettier --check .
@@ -383,11 +414,31 @@ jobs:
 
       - name: Build production bundle
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
+        id: observatory_build
         run: npm run build
 
       - name: Run tests
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npm test
+
+      - name: Install pinned browser driver and Chromium
+        if: ${{ !cancelled() && steps.observatory_build.outcome == 'success' }}
+        # Disposable CI-only driver, kept out of the product dependency graph.
+        run: | # zizmor: ignore[adhoc-packages]
+          npm install --global agent-browser@0.38.1
+          agent-browser install --with-deps
+      - name: Smoke the built Node app against the controlled authenticated API
+        if: ${{ !cancelled() && steps.observatory_build.outcome == 'success' }}
+        env:
+          SMOKE_ARTIFACT_DIR: ${{ github.workspace }}/test-results/browser
+        run: node scripts/browser-smoke.mjs
+      - name: Upload built browser smoke evidence
+        if: always() && needs.ci-config.outputs.frontend == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: built-observatory-browser-smoke
+          path: test-results/browser/
+          if-no-files-found: error
 
       - name: Install writer dependencies
         if: ${{ !cancelled() && needs.ci-config.outputs.writer == 'true' }}
@@ -444,6 +495,7 @@ jobs:
       - python-quality
       - python-core-tests
       - python-package-tests
+      - python-coverage
       - windows-portability
       - frontend
     steps:
@@ -455,6 +507,7 @@ jobs:
           PYTHON_QUALITY: ${{ needs.python-quality.result }}
           PYTHON_CORE_TESTS: ${{ needs.python-core-tests.result }}
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
+          PYTHON_COVERAGE: ${{ needs.python-coverage.result }}
           WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
           FRONTEND: ${{ needs.frontend.result }}
           SELECT_PYTHON: ${{ needs.ci-config.outputs.python }}
@@ -476,6 +529,7 @@ jobs:
             echo "| python / core tests | ${PYTHON_CORE_TESTS} |"
             echo "| integration / Windows contracts | ${WINDOWS_PORTABILITY} |"
             echo "| python / package tests | ${PYTHON_PACKAGE_TESTS} |"
+            echo "| python / line and branch floors | ${PYTHON_COVERAGE} |"
             echo "| behaviour / JavaScript | ${FRONTEND} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -487,7 +541,7 @@ jobs:
           if [ "$SELECT_PYTHON" = true ]; then expected_python=success; fi
           if [ "$SELECT_GROUPS" != '[]' ]; then expected_groups=success; fi
           if [ "$SELECT_FRONTEND" = true ] || [ "$SELECT_WRITER" = true ] || [ "$SELECT_PLUGIN" = true ]; then expected_node=success; fi
-          for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_CORE_TESTS" "$WINDOWS_PORTABILITY"; do
+          for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_CORE_TESTS" "$PYTHON_COVERAGE" "$WINDOWS_PORTABILITY"; do
             test "$result" = "$expected_python"
           done
           test "$PYTHON_PACKAGE_TESTS" = "$expected_groups"

@@ -744,7 +744,7 @@ def test_probe_deadline_marks_unobserved_services_unavailable(monkeypatch):
 
     async def probe(name, url):
         if name == "slow":
-            await asyncio.sleep(1)
+            await asyncio.Future()
         return v1.ServiceSnapshot(
             id=name,
             status="healthy",
