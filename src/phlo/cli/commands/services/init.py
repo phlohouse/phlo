@@ -33,10 +33,10 @@ from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.cli.output import user_error
 from phlo.config.layout import SHARED_LAYOUT_MARKER, env_defaults_path, env_secrets_path
-from phlo.plugins.compose import ComposeGenerator
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
+from phlo.plugins.compose.generator import ComposeGenerator
 from phlo.plugins.compose.service_files import prepare_service_files
-from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 _PRODUCTION_USERNAME_DEFAULTS = {
     "POSTGRES_USER": "phlo",

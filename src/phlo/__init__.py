@@ -3,8 +3,8 @@
 Phlo is a decorator-driven data lakehouse framework that combines Apache Iceberg,
 Project Nessie, Trino, dbt, and Dagster into an integrated platform.
 
-This package provides the core Phlo API with lazy-loaded exports to avoid
-circular dependencies during plugin discovery. All major functionality is
+This package provides the core Phlo API with lazy-loaded exports to defer
+optional dependencies until first use. All major functionality is
 available through this top-level module.
 
 Key Features:
@@ -14,7 +14,7 @@ Key Features:
     - Schema-first development with Pandera
 
 Lazy-Loaded Modules:
-    The following modules are loaded on first access to avoid circular imports:
+    The following modules are loaded on first access to keep startup lightweight:
     - ``phlo.ingestion``: Data ingestion operations
     - ``phlo.quality``: Data quality validation
     - ``phlo.metrics``: Platform metrics collection
@@ -71,8 +71,8 @@ See Also:
     - Configuration: :mod:`phlo.config`
 
 Note:
-    This module uses ``__getattr__`` for lazy loading to prevent circular
-    imports during plugin discovery. All public exports are listed in ``__all__``.
+    This module uses ``__getattr__`` to defer optional dependency loading.
+    All public exports are listed in ``__all__``.
 
 """
 
@@ -178,7 +178,8 @@ def __getattr__(name: str) -> Any:
         globals()[name] = module
         return module
     if name in _HELPER_EXPORTS:
-        from phlo.helpers import read_dataframe, synthetic_key
+        from phlo.helpers.io import read_dataframe
+        from phlo.helpers.sql import synthetic_key
 
         globals().update({"read_dataframe": read_dataframe, "synthetic_key": synthetic_key})
         return globals()[name]

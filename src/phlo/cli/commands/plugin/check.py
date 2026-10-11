@@ -31,10 +31,11 @@ from phlo.cli.contract import PhloCommand
 from phlo.cli.output import json_envelope, user_error
 from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
-from phlo.plugins import discover_plugins, validate_plugins
 from phlo.plugins.base.service import ServicePlugin
-from phlo.plugins.discovery import ServiceDiscovery
+from phlo.plugins.discovery._plugin_loading import discover_plugins
+from phlo.plugins.discovery._plugin_queries import validate_plugins
 from phlo.plugins.discovery._service_loading import resolve_plugin_source_path
+from phlo.plugins.discovery.services import ServiceDiscovery
 
 logger = get_logger(__name__)
 

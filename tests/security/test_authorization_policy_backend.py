@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from phlo.application import discovery
 from phlo.capabilities import (
     AuthorizationPolicyBackendSpec,
     Principal,
@@ -41,12 +42,11 @@ def teardown_function() -> None:
 def test_enforcement_fails_closed_for_missing_or_ambiguous_provider(monkeypatch) -> None:
     """Discovery does not turn missing or ambiguous backend selection into access."""
     from phlo.capabilities import clear_all_capabilities
-    from phlo.capabilities import discovery as capability_discovery
     from phlo.security.enforcement import EnforcementContext
 
-    monkeypatch.setattr(capability_discovery, "discover_capabilities", lambda: None)
+    monkeypatch.setattr(discovery, "discover_capabilities", lambda: None)
     monkeypatch.setattr(
-        "phlo.infrastructure.config.get_configured_authorization_backend_name",
+        "phlo.config.project.get_configured_authorization_backend_name",
         lambda: "missing",
     )
     clear_all_capabilities()
@@ -54,7 +54,7 @@ def test_enforcement_fails_closed_for_missing_or_ambiguous_provider(monkeypatch)
         EnforcementContext()._init_authorization_backend()
 
     monkeypatch.setattr(
-        "phlo.infrastructure.config.get_configured_authorization_backend_name",
+        "phlo.config.project.get_configured_authorization_backend_name",
         lambda: None,
     )
     register_capability(

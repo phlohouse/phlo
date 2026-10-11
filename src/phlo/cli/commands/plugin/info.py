@@ -20,7 +20,7 @@ from phlo.cli.commands.plugin.utils import (
 from phlo.cli.contract import PhloCommand
 from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
-from phlo.plugins import get_plugin_info, list_plugins
+from phlo.plugins.discovery._plugin_queries import get_plugin_info, list_plugins
 
 logger = get_logger(__name__)
 

@@ -9,8 +9,8 @@ registry with read-only list/get/info/validation queries built on phlo.plugins.b
 
 from __future__ import annotations
 
-from phlo.logging import get_logger
-from phlo.plugins.base import Plugin
+from phlo.logging_context import get_logger
+from phlo.plugins.base.plugin import Plugin
 from phlo.plugins.discovery._plugin_constants import plugin_family
 from phlo.plugins.discovery.registry import get_global_registry
 

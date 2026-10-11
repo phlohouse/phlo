@@ -13,17 +13,14 @@ runtime capability providers deterministically.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 from phlo.capabilities.registry import CapabilityRegistry, get_capability_registry
 from phlo.capabilities.runtime import RuntimeContext, routing_from_context
 from phlo.capabilities.support import CapabilitySupport
-from phlo.config import get_settings
-from phlo.infrastructure import get_capability_defaults_from_config
-from phlo.logging import get_logger
-
-if TYPE_CHECKING:
-    from phlo.plugins.base.plugin import PluginMetadata
+from phlo.config.project import get_capability_defaults_from_config
+from phlo.config.settings import get_settings
+from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 
@@ -31,6 +28,16 @@ logger = get_logger(__name__)
 # configured and multiple object-store providers are installed. This avoids
 # ambiguity and install-order-dependent resolution.
 FAMILY_DEFAULT_CAPABILITIES: dict[str, str] = {"object_store": "minio"}
+
+
+class CapabilityRequirements(Protocol):
+    """Metadata needed to check requirements, independent of plugin loading."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def requires_capabilities(self) -> list[str]: ...
 
 
 @dataclass(frozen=True)
@@ -152,7 +159,7 @@ def configured_capability_name(
 
 
 def missing_required_capabilities(
-    plugin: PluginMetadata,
+    plugin: CapabilityRequirements,
     *,
     registry: CapabilityRegistry | None = None,
 ) -> list[str]:

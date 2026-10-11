@@ -108,10 +108,7 @@ def reset_catalog_cache() -> None:
             catalog = get_catalog(ref="main")  # Fresh connection
 
     """
-    from phlo_iceberg.cli_utils import get_iceberg_catalog
-
     get_catalog.cache_clear()
-    get_iceberg_catalog.cache_clear()
     logger.debug("iceberg_catalog_cache_cleared")
 
 

@@ -7,75 +7,19 @@ or ``unavailable`` blocks production readiness.
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any
 
-
-class BackendReadinessState(StrEnum):
-    """Closed readiness state for one backend (ADR 0047 §5)."""
-
-    PASSED = "passed"
-    FAILED = "failed"
-    UNAVAILABLE = "unavailable"
-    NOT_APPLICABLE = "not_applicable"
-
+from phlo.security.readiness import (
+    BackendReadinessProvider,
+    BackendReadinessResult,
+    BackendReadinessState,
+)
 
 # The blessed backends that must each register a readiness adapter.
 REQUIRED_BACKENDS = ("postgres", "trino", "minio", "nessie")
-
-
-@dataclass(frozen=True, slots=True)
-class BackendReadinessResult:
-    """Sanitized, JSON-safe readiness result for one backend."""
-
-    backend: str
-    state: BackendReadinessState
-    reason_code: str
-    message: str
-    desired_policy_digest: str = ""
-    observed_policy_digest: str = ""
-    drift: tuple[Mapping[str, Any], ...] = ()
-    evidence_source: str = ""
-    observation_time: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "backend": self.backend,
-            "state": self.state.value,
-            "reason_code": self.reason_code,
-            "message": self.message,
-            "desired_policy_digest": self.desired_policy_digest,
-            "observed_policy_digest": self.observed_policy_digest,
-            "drift": [dict(entry) for entry in self.drift],
-            "evidence_source": self.evidence_source,
-            "observation_time": self.observation_time,
-        }
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, sort_keys=False)
-
-
-class BackendReadinessProvider(Protocol):
-    """A provider-owned, read-only backend readiness inspector.
-
-    ``inspect()`` must not mutate policy, grants, credentials, or configuration.
-    An optional ``plan()`` may describe provider-native changes without applying
-    them; it is never called by readiness evaluation.
-    """
-
-    backend_name: str
-
-    def inspect(self) -> BackendReadinessResult:
-        """Return the authoritative readiness result for this backend."""
-        ...
-
-    def plan(self) -> Sequence[Mapping[str, Any]] | None:
-        """Optionally describe planned provider-native changes (never applied)."""
-        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,8 +41,9 @@ def observe_policy_convergence(backend_name: str) -> BackendReadinessResult | No
     state yields ``unavailable``; drift yields ``failed``; a verified match
     yields ``passed``.
     """
-    from phlo.capabilities import resolve_capability
-    from phlo.rbac.compiler import CompilerContext, get_compiler
+    from phlo.capabilities.resolver import resolve_capability
+    from phlo.rbac.compiler import CompilerContext
+    from phlo.rbac.registry import get_compiler
     from phlo.security.validation import _project_rbac_loader
 
     resolution = resolve_capability("governance_backend", backend_name)

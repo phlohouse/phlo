@@ -1,6 +1,6 @@
 # Verification matrix
 
-`make check` is a useful local baseline: it validates support and version metadata, Python linting, formatting, typing, non-integration pytest tests, and Observatory linting, formatting, and typing. It does not build documentation or applications, run frontend or agent tests, run SQL linting, exercise integration services, inspect UI output, audit workflows, or reproduce every CI platform and release gate.
+`make check` is a useful local baseline: it validates support and version metadata, Python linting, import layering, formatting, typing, non-integration pytest tests, and Observatory linting, formatting, and typing. It does not build documentation or applications, run frontend or agent tests, run SQL linting, exercise integration services, inspect UI output, audit workflows, or reproduce every CI platform and release gate.
 
 Select checks by changed surface. Run the focused check first, then the broader check for the boundaries touched by the change.
 

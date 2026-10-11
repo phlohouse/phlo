@@ -12,7 +12,7 @@ Example:
     >>> from phlo_superset.hooks import add_query_engine_database
     >>> add_query_engine_database()
 
-Provisions Superset databases from query engines discovered through phlo.capabilities.discovery.
+Provisions Superset databases from query engines discovered through phlo.application.discovery.
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ import os
 import time
 
 import requests
-
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
 from phlo.logging import get_logger, setup_logging
+
 from phlo_superset.settings import get_settings
 
 logger = get_logger(__name__)

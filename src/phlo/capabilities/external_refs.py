@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from phlo.capabilities.specs import AssetSpec
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 

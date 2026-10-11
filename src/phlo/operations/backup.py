@@ -35,6 +35,7 @@ from phlo.capabilities.continuity import (
     validate_contained_path,
     write_manifest_atomically,
 )
+from phlo.capabilities.resolver import list_capabilities
 from phlo.logging import get_logger
 from phlo.operations.journal import (
     OperationJournalStore,
@@ -60,8 +61,8 @@ def default_backup_contributors() -> list[tuple[str, BackupContributor]]:
     Raises ``LookupError`` when any blessed provider is missing so a partial
     contributor roster can never silently produce an incomplete set.
     """
-    from phlo.capabilities import list_capabilities, resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
+    from phlo.capabilities.resolver import resolve_capability
 
     discover_capabilities()
     registered = set(list_capabilities("backup_contributor"))

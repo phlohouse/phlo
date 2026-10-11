@@ -16,7 +16,7 @@ import click
 
 from phlo.cli.infrastructure.command import run_command
 from phlo.logging import get_logger
-from phlo.plugins.discovery import ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDiscovery
 
 if TYPE_CHECKING:
     import subprocess

@@ -11,28 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from phlo.exceptions import PhloConfigError
-
-SENSITIVE_KEYWORDS = (
-    "password",
-    "passwd",
-    "token",
-    "secret",
-    "authorization",
-    "api_key",
-    "api-key",
-    "apikey",
-    "credential",
-    "private_key",
-    "signing_key",
-    "encryption_key",
-)
-
-
-def is_sensitive_key(key: str) -> bool:
-    """Return whether a config key likely contains sensitive material."""
-    lowered = key.lower()
-    return any(token in lowered for token in SENSITIVE_KEYWORDS)
+from phlo.exceptions import SENSITIVE_KEYWORDS as SENSITIVE_KEYWORDS
+from phlo.exceptions import PhloConfigError, is_sensitive_key
 
 
 def redact_value(value: Any, *, replacement: str = "<redacted>") -> Any:

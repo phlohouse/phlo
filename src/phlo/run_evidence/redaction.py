@@ -18,8 +18,7 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 
-from phlo.exceptions import redact_sensitive_text
-from phlo.helpers._common import is_sensitive_key
+from phlo.exceptions import is_sensitive_key, redact_sensitive_text
 
 _TEXT_SECRET_PATTERN = re.compile(
     r"(?i)\b(password|passwd|token|secret|client[_-]?secret|authorization|api[_-]?key|access[_-]?token|private[_-]?key)\s*[:=]\s*([^&\s/]+)"

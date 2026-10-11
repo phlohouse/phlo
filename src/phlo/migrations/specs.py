@@ -7,8 +7,9 @@ no execution logic; runners consume these specs as-is.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
@@ -59,6 +60,28 @@ type MigrationSourceValue = Annotated[
     FileMigrationSource | QueryMigrationSource | TableMigrationSource | AdapterMigrationSource,
     Field(discriminator="kind"),
 ]
+
+
+class SourceAdapter(Protocol):
+    """Protocol for migration source readers."""
+
+    @property
+    def source_type(self) -> str:
+        """Identifier for this adapter (for example csv, postgres)."""
+
+    def validate_config(self, source: MigrationSourceValue) -> list[str]:
+        """Validate source configuration and return errors."""
+
+    def read_chunks(
+        self,
+        source: MigrationSourceValue,
+        *,
+        chunk_size: int = 50_000,
+    ) -> Iterator[list[dict[str, Any]]]:
+        """Yield row chunks from the source."""
+
+    def estimate_row_count(self, source: MigrationSourceValue) -> int | None:
+        """Estimate source row count if possible."""
 
 
 class MigrationSourceError(ValueError):
