@@ -23,6 +23,7 @@ from phlo.cli.infrastructure.container_backend import select_project_container_b
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.output import missing_compose_file_error, missing_phlo_project_error, user_error
 from phlo.config.layout import env_defaults_path, env_secrets_path
+from phlo.config.process import get_process_settings
 from phlo.infrastructure.containers import resolve_container_name as _resolve_container_name
 from phlo.logging import get_logger
 from phlo.plugins.compose.generator import UV_LOCK_METADATA_FILES
@@ -260,7 +261,7 @@ def detect_phlo_source_path() -> str | None:
     3. Returns None if not found
     """
     # Strategy 1: Environment variable
-    env_path = os.environ.get("PHLO_DEV_SOURCE")
+    env_path = get_process_settings().phlo_dev_source
     if env_path and (resolved := resolve_phlo_package_dir(Path(env_path))):
         return relpath_from_phlo_dir(resolved)
 

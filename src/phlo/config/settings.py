@@ -44,7 +44,10 @@ class Settings(BaseConfig):
         description="Active orchestrator adapter name",
     )
 
-    phlo_log_level: str = Field(default="WARNING", description="Default log level for Phlo")
+    phlo_log_level: str = Field(
+        default="WARNING",
+        description="Resolved default log level for Phlo. Telemetry also projects the exact process override alone: absent is blank, stripped uppercase DEBUG preserves framework logs; no dotenv fallback in that projection.",
+    )
     phlo_log_format: str = Field(
         default="auto",
         description="Log format (auto|json|console)",
@@ -64,7 +67,7 @@ class Settings(BaseConfig):
     phlo_environment: str = Field(
         default="dev",
         validation_alias=AliasChoices("PHLO_ENVIRONMENT", "ENVIRONMENT"),
-        description="Runtime environment attached to structured logs",
+        description="Runtime environment attached to structured logs; resolved PHLO_ENVIRONMENT then ENVIRONMENT then dev, including project dotenv. Security projects only the exact process PHLO_ENVIRONMENT value, preserving absence/blank and consumer-local dev defaults.",
     )
     phlo_service_namespace: str = Field(
         default="phlo",
@@ -84,7 +87,7 @@ class Settings(BaseConfig):
     phlo_project: str | None = Field(
         default=None,
         validation_alias=AliasChoices("PHLO_PROJECT"),
-        description="Optional project identifier attached to observability resources",
+        description="Optional project identifier attached to observability resources. OpenTelemetry projects the process PHLO_PROJECT override before resolved project/service-name fallback, preserving explicit blank.",
     )
     phlo_default_capabilities: dict[str, str] = Field(
         default_factory=dict,

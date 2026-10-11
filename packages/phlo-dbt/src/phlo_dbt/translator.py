@@ -30,32 +30,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from phlo.logging import get_logger
-from phlo_dbt.settings import get_settings
+from phlo_dbt.settings import DbtDescriptionSettings, DbtTranslatorSettings, get_settings
 
 logger = get_logger(__name__)
-
-
-def _bool_env(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-def _int_env(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        logger.warning(
-            "dbt_translator_env_int_invalid",
-            env_var=name,
-            env_value=value,
-            fallback_default=default,
-        )
-        return default
 
 
 def _first_matching_layer(segments: Sequence[str]) -> str | None:
@@ -266,8 +243,8 @@ class DbtSpecTranslator:
         if docstring:
             parts.append(docstring)
 
-        if _bool_env("PHLO_DBT_INCLUDE_COMPILED_SQL_IN_DESCRIPTION", default=False):
-            max_bytes = _int_env("PHLO_DBT_COMPILED_SQL_MAX_BYTES", default=64_000)
+        if DbtDescriptionSettings().include_compiled_sql_in_description:
+            max_bytes = DbtTranslatorSettings().compiled_sql_max_bytes
             compiled_sql, _, _, _ = get_compiled_sql_from_resource_props(
                 dbt_resource_props, max_bytes=max_bytes, project_dir=self._project_dir
             )
@@ -372,7 +349,7 @@ class DbtSpecTranslator:
             if table_columns:
                 metadata["phlo/column_schema"] = table_columns
 
-        max_bytes = _int_env("PHLO_DBT_COMPILED_SQL_MAX_BYTES", default=64_000)
+        max_bytes = DbtTranslatorSettings().compiled_sql_max_bytes
         compiled_sql, was_truncated, original_bytes, source = get_compiled_sql_from_resource_props(
             dbt_resource_props, max_bytes=max_bytes, project_dir=self._project_dir
         )

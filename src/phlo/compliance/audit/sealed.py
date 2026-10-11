@@ -10,11 +10,12 @@ from __future__ import annotations
 import hashlib
 import hmac as _hmac
 import json
-import os
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+from phlo.config.process import get_process_settings
 
 if TYPE_CHECKING:
     from phlo.audit.events import CanonicalAuditEvent
@@ -25,7 +26,7 @@ PHLO_AUDIT_HMAC_KEY_ENV = "PHLO_AUDIT_HMAC_KEY"
 
 def _get_hmac_key() -> bytes:
     """Return the HMAC key from the environment, or a default for dev/test."""
-    key = os.environ.get(PHLO_AUDIT_HMAC_KEY_ENV, "")
+    key = get_process_settings().get(PHLO_AUDIT_HMAC_KEY_ENV, "")
     if key:
         return key.encode()
     from phlo.security.mode import is_regulated

@@ -57,7 +57,7 @@ export const navItems: Array<NavItem> = [
   },
   {
     to: '/pipelines',
-    label: 'Pipelines',
+    label: 'Jobs',
     Icon: WorkflowIcon,
     exact: false,
     mobile: true,

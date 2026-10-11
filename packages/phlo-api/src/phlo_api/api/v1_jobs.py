@@ -7,7 +7,6 @@ import base64
 import binascii
 import hashlib
 import json
-import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from statistics import median
@@ -21,6 +20,7 @@ from pydantic import AwareDatetime, Field
 from phlo_api.api.v1 import _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, ConflictError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
+from phlo_api.settings import get_deployment_settings, get_process_settings
 from phlo_api.v1_contract import Environment, RunStatus, WireModel
 
 router = APIRouter(tags=["v1 jobs and runs"])
@@ -1050,7 +1050,7 @@ async def v1_maintenance_windows(
     from phlo_api.observatory_api.settings import get_operational_maintenance_windows
 
     _target(request, env, allowed_query=frozenset({"env"}))
-    raw = os.environ.get("PHLO_V1_MAINTENANCE_WINDOWS")
+    raw = get_process_settings().phlo_v1_maintenance_windows
     windows = []
     try:
         if raw:
@@ -1081,13 +1081,11 @@ async def v1_maintenance_windows(
 
 
 def _require_single_replica_actions() -> None:
-    if any(
-        os.environ.get(name) != "1"
-        for name in (
-            "PHLO_V1_ACTIONS_SINGLE_REPLICA",
-            "PHLO_V1_ACTIONS_SINGLE_PROCESS",
-            "PHLO_V1_ACTIONS_REF_TAG_CONTRACT",
-        )
+    settings = get_deployment_settings()
+    if (
+        not settings.actions_single_replica
+        or not settings.actions_single_process
+        or not settings.actions_ref_tag_contract
     ):
         raise BackendUnavailableError("Environment-pinned job actions are not enabled.")
 

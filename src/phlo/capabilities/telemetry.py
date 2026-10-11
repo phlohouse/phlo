@@ -11,13 +11,13 @@ Imported by phlo core (capabilities package, hooks telemetry) and the phlo-api o
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterator
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from phlo.config.process import get_process_settings
 from phlo.hooks import TelemetryEvent
 from phlo.logging import get_logger, redact_sensitive_fields
 
@@ -62,7 +62,7 @@ class TelemetryRecorder:
 
 def _default_path() -> Path:
     """Return the default telemetry output path."""
-    env_path = os.environ.get("PHLO_TELEMETRY_PATH")
+    env_path = get_process_settings().phlo_telemetry_path
     if env_path:
         return Path(env_path)
     return Path.cwd() / ".phlo" / "telemetry" / "events.jsonl"

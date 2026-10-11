@@ -317,7 +317,7 @@ def test_rescan_includes_independent_minio_before_a_phlo_release(
         ]
 
 
-def test_minio_plugin_publication_is_bounded_and_publishes_tested_artifacts() -> None:
+def test_minio_plugin_validation_cannot_bypass_qualified_publication() -> None:
     workflow = _load_workflow("publish-minio-plugin.yml")
     assert set(_triggers(workflow)) == {"workflow_dispatch"}
     assert _triggers(workflow)["workflow_dispatch"] is None
@@ -335,14 +335,7 @@ def test_minio_plugin_publication_is_bounded_and_publishes_tested_artifacts() ->
     upload = next(
         step for step in build["steps"] if "actions/upload-artifact@" in step.get("uses", "")
     )
-    publish = workflow["jobs"]["publish"]
-    assert publish["needs"] == "build"
-    assert publish["environment"] == "release"
-    assert publish["permissions"] == {}
-    assert not any("actions/checkout@" in step.get("uses", "") for step in publish["steps"])
-    download = next(
-        step for step in publish["steps"] if "actions/download-artifact@" in step.get("uses", "")
-    )
-    assert download["with"]["name"] == upload["with"]["name"]
-    assert publish["steps"][-1]["run"] == "uv publish dist/*"
-    assert publish["steps"][-1]["env"]["UV_PUBLISH_TOKEN"] == "${{ secrets.PYPI_API_TOKEN }}"
+    assert upload["with"]["name"] == "minio-plugin-distributions"
+    assert set(workflow["jobs"]) == {"build"}
+    assert "uv publish" not in str(workflow)
+    assert "id-token" not in str(workflow)
