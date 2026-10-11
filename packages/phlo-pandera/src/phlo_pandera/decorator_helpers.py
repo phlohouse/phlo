@@ -27,7 +27,10 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, List
+
+import pandas as pd
 
 from phlo.capabilities.runtime import RuntimeContext
 from phlo.hooks.emitters import (
@@ -38,8 +41,59 @@ from phlo.hooks.emitters import (
 )
 from phlo.hooks.events import HookCorrelation
 
-from phlo_pandera.checks import QualityCheckResult
+from phlo_pandera.checks import QualityCheck, QualityCheckResult
 from phlo_pandera.contract import QualityCheckContract
+from phlo_pandera.aggregate_checks import execute_aggregate_check, supports_aggregation
+
+
+class QueryCheckRunner:
+    """Keep result reporting independent of whole-query dataframe loading."""
+
+    def __init__(self, runtime: RuntimeContext, query: str, backend: str) -> None:
+        """Resolve one connection and obtain only the schema and row count."""
+        self.query = query.rstrip().rstrip(";")
+        self.backend = backend
+        self._frame: pd.DataFrame | None = None
+        self.fetch: Callable[[str], pd.DataFrame]
+        if backend == "trino":
+            resource = _resolve_trino_resource(runtime)
+            self.fetch = lambda sql: _load_data_trino(runtime, sql, resource)
+        elif backend == "duckdb":
+            resource = _resolve_duckdb_connection(runtime)
+            self.fetch = lambda sql: _load_data_duckdb(runtime, sql, resource)
+        else:
+            raise ValueError(f"Unknown backend: {backend}")
+        schema = self.fetch(f"SELECT * FROM ({self.query}) AS phlo_schema LIMIT 0")
+        self.columns = list(schema.columns)
+        self.floating_columns = schema.attrs["floating_columns"]
+        self.row_count = int(
+            self.fetch(f"SELECT COUNT(*) FROM ({self.query}) AS phlo_count").iloc[0, 0]
+        )
+
+    def __len__(self) -> int:
+        """Return the already measured row count."""
+        return self.row_count
+
+    @property
+    def empty(self) -> bool:
+        """Match dataframe empty-partition handling without allocating its rows."""
+        return self.row_count == 0
+
+    def execute(self, check: QualityCheck, runtime: RuntimeContext) -> QualityCheckResult:
+        """Push built-ins down, sharing one frame only for unsupported checks."""
+        if supports_aggregation(check):
+            return execute_aggregate_check(
+                check,
+                query=self.query,
+                columns=self.columns,
+                floating_columns=self.floating_columns,
+                row_count=self.row_count,
+                backend=self.backend,
+                fetch=self.fetch,
+            )
+        if self._frame is None:
+            self._frame = self.fetch(self.query)
+        return check.execute(self._frame, runtime)
 
 
 def _make_emitters(
@@ -155,9 +209,15 @@ def _load_data_trino(context: RuntimeContext, query: str, trino: Any) -> Any:
             raise ValueError("Trino did not return column metadata")
 
         columns = [desc[0] for desc in cursor.description]
+        floating_columns = {
+            desc[0]
+            for desc in cursor.description
+            if str(desc[1]).lower() in {"real", "double", "float"}
+        }
 
     # Convert to DataFrame
     df = pd.DataFrame(rows, columns=columns)
+    df.attrs["floating_columns"] = floating_columns
 
     context.logger.info("loaded_rows_from_trino", row_count=len(df))
 
@@ -247,7 +307,14 @@ def _load_data_duckdb(context: RuntimeContext, query: str, duckdb_conn: Any) -> 
     """
 
     # Execute query
-    df = duckdb_conn.execute(query).fetchdf()
+    result = duckdb_conn.execute(query)
+    floating_columns = {
+        desc[0]
+        for desc in result.description
+        if str(desc[1]).lower() in {"real", "double", "float"}
+    }
+    df = result.fetchdf()
+    df.attrs["floating_columns"] = floating_columns
 
     context.logger.info("loaded_rows_from_duckdb", row_count=len(df))
 
