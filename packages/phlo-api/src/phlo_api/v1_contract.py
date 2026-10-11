@@ -24,7 +24,9 @@ ReadPermission = Literal["service.read", "run.read"]
 
 
 class WireModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(
+        extra="forbid", strict=True, json_schema_serialization_defaults_required=True
+    )
 
 
 class EnvironmentSelection(WireModel):
