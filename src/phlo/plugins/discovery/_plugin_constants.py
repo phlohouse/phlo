@@ -11,19 +11,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from phlo.plugins.base import (
-    AssetProviderPlugin,
-    CatalogPlugin,
-    CliCommandPlugin,
-    IngestionProviderPlugin,
-    OrchestratorAdapterPlugin,
-    Plugin,
-    QualityCheckPlugin,
-    QualityProviderPlugin,
-    ResourceProviderPlugin,
-    ServicePlugin,
-    SourceConnectorPlugin,
-    TransformationPlugin,
+from phlo.plugins.base.catalog import CatalogPlugin
+from phlo.plugins.base.cli import CliCommandPlugin
+from phlo.plugins.base.ingestion_provider import IngestionProviderPlugin
+from phlo.plugins.base.orchestrator import OrchestratorAdapterPlugin
+from phlo.plugins.base.plugin import Plugin
+from phlo.plugins.base.providers import AssetProviderPlugin, ResourceProviderPlugin
+from phlo.plugins.base.quality import QualityCheckPlugin
+from phlo.plugins.base.quality_provider import QualityProviderPlugin
+from phlo.plugins.base.service import ServicePlugin
+from phlo.plugins.base.source import SourceConnectorPlugin
+from phlo.plugins.base.transform import TransformationPlugin
+from phlo.plugins.base.transformation_provider import (
     TransformationProviderPlugin,
 )
 from phlo.plugins.hooks import HookPlugin

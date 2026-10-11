@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from phlo.capabilities import list_capabilities, resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.application.discovery import discover_capabilities
+from phlo.capabilities.resolver import list_capabilities, resolve_capability
 
 
 class WorkflowAuthoringError(RuntimeError):

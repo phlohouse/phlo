@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import phlo.telemetry as phlo_observe
-from phlo.capabilities import resolve_capability
+from phlo.capabilities.resolver import resolve_capability
 from phlo.logging import log_event
 
 

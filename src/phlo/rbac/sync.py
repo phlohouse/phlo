@@ -10,11 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from phlo.logging import get_logger
-from phlo.rbac.compiler import (
-    COMPILER_REGISTRY,
-    CompilerContext,
-    GovernanceCompiler,
-)
+from phlo.rbac.compiler import CompilerContext, GovernanceCompiler
 from phlo.rbac.config import RBACConfigLoader
 from phlo.rbac.models import (
     CanonicalRBAC,
@@ -22,6 +18,7 @@ from phlo.rbac.models import (
     SyncResult,
     VerifyResult,
 )
+from phlo.rbac.registry import COMPILER_REGISTRY, get_compiler
 
 logger = get_logger(__name__)
 
@@ -278,7 +275,6 @@ class SyncController:
             return self._compilers[backend_name]
 
         from phlo.capabilities.registry import get_capability_registry
-        from phlo.rbac.compiler import get_compiler
 
         registry = get_capability_registry()
         registered_backends = registry.list("governance_backend")

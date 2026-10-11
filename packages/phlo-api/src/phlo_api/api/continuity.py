@@ -28,14 +28,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-
 from phlo.capabilities.continuity import (
     BACKUP_PROVIDER_ORDER,
     RestoreTarget,
     canonical_json_bytes,
     sha256_bytes,
 )
+from phlo.config.process import get_process_settings
 from phlo.operations.backup import create_backup_set, default_backup_contributors
 from phlo.operations.journal import (
     OperationJournalError,
@@ -47,7 +46,6 @@ from phlo.operations.journal import (
     mark_unknown,
 )
 from phlo.operations.journal_store import FileOperationJournalStore
-from phlo.config.process import get_process_settings
 from phlo.operations.restore import (
     RestoreError,
     RestorePlan,
@@ -62,12 +60,14 @@ from phlo.operations.upgrade import (
     upgrade_apply,
     upgrade_operation_id,
 )
+from pydantic import BaseModel
+
 from phlo_api.api.operation_controls import (
     audit_operation,
     enforce_rate_limit,
     idempotency_key_target,
-    require_scope,
     replay_or_execute,
+    require_scope,
 )
 
 router = APIRouter(tags=["continuity"])
@@ -236,8 +236,8 @@ def _parsed_plan(plan: dict[str, Any] | None, cls: type[RestorePlan] | type[Upgr
 
 
 def _maintenance_executor(operation: str) -> Any:
+    from phlo.application.discovery import discover_capabilities
     from phlo.capabilities import resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
 
     discover_capabilities()
     resolution = resolve_capability("maintenance_executor", operation)

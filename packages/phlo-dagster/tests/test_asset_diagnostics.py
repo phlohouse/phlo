@@ -16,7 +16,7 @@ import pytest
 from phlo.capabilities import AssetSpec, MaterializeResult, RunSpec
 from phlo.exceptions import PhloDiscoveryError
 from phlo_dagster.adapter import DagsterOrchestratorAdapter
-from phlo_dagster.framework.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
+from phlo_dagster.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
 
 
 def test_adapter_import_does_not_eagerly_build_framework_definitions() -> None:

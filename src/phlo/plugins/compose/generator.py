@@ -24,7 +24,7 @@ from phlo.plugins.compose.env import (
     generate_env_local as _generate_env_local,
 )
 from phlo.plugins.compose.service_files import prepare_service_files
-from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 from phlo.telemetry import metric
 
 logger = get_logger(__name__)

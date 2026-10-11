@@ -27,11 +27,11 @@ def _setup_project(tmp_path: Path, *, environment: str = "production") -> Path:
 def isolated_config(monkeypatch: pytest.MonkeyPatch):
     """Make config-dependent checks deterministic regardless of ambient setup."""
     monkeypatch.setattr(
-        "phlo.infrastructure.config.get_configured_authorization_backend_name",
+        "phlo.config.project.get_configured_authorization_backend_name",
         lambda: "canonical",
     )
     monkeypatch.setattr(
-        "phlo.capabilities.resolve_capability",
+        "phlo.capabilities.resolver.resolve_capability",
         lambda capability, backend: (
             object() if capability == "authorization_policy_backend" else None
         ),

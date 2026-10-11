@@ -136,33 +136,31 @@ import importlib
 from importlib.metadata import version
 from typing import TYPE_CHECKING
 
-from phlo.plugins.base import (
-    AssetProviderPlugin,
-    CatalogPlugin,
-    OrchestratorAdapterPlugin,
+from phlo.plugins.base.catalog import CatalogPlugin
+from phlo.plugins.base.cli import cli_command_plugin_class
+from phlo.plugins.base.orchestrator import OrchestratorAdapterPlugin
+from phlo.plugins.base.plugin import Plugin, PluginMetadata
+from phlo.plugins.base.providers import AssetProviderPlugin, ResourceProviderPlugin
+from phlo.plugins.base.quality import QualityCheckPlugin
+from phlo.plugins.base.quality_provider import QualityProviderPlugin
+from phlo.plugins.base.service import (
     PackageYamlServicePlugin,
-    Plugin,
-    PluginMetadata,
-    QualityCheckPlugin,
-    QualityProviderPlugin,
-    ResourceProviderPlugin,
     ServicePlugin,
-    SourceConnectorPlugin,
-    TransformationPlugin,
-    cli_command_plugin_class,
     service_plugin_class,
 )
+from phlo.plugins.base.source import SourceConnectorPlugin
+from phlo.plugins.base.transform import TransformationPlugin
 from phlo.plugins.hooks import FailurePolicy, HookFilter, HookHandler, HookPlugin, HookProvider
 
 if TYPE_CHECKING:
-    from phlo.plugins.discovery import (
-        PluginRegistry,
-        discover_plugins,
+    from phlo.plugins.discovery._plugin_loading import discover_plugins
+    from phlo.plugins.discovery._plugin_queries import (
         get_plugin,
         get_plugin_info,
         list_plugins,
         validate_plugins,
     )
+    from phlo.plugins.discovery.registry import PluginRegistry
     from phlo.plugins.observatory import (
         ObservatoryExtensionCompatibility,
         ObservatoryExtensionManifest,
@@ -184,7 +182,7 @@ if TYPE_CHECKING:
     from phlo.plugins.semantic import SemanticLayerProvider, SemanticModel
 
 
-# Import discovery functions lazily to avoid circular imports.
+# Import discovery functions lazily to avoid loading unused entry points.
 _LAZY_DISCOVERY_EXPORTS = frozenset(
     {
         "discover_plugins",
@@ -217,7 +215,7 @@ _LAZY_MODULE_EXPORTS = {
 
 
 def __getattr__(name):
-    """Lazily expose discovery symbols to avoid import cycles; raises
+    """Lazily expose discovery symbols to keep startup lightweight; raises
     AttributeError for names that are not supported lazy exports.
     """
     if name == "discovery":

@@ -54,23 +54,23 @@ from time import sleep as _sleep
 from typing import Optional
 
 import click
-
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.application.discovery import discover_capabilities
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
-from phlo.cli.output import command_failed_error, service_unavailable_error, json_envelope
-from phlo.cli.contract import PhloCommand
+from phlo.cli.output import command_failed_error, json_envelope, service_unavailable_error
 from phlo.config.env import load_project_env
 from phlo.infrastructure import load_wap_config
+from phlo.logging import get_logger
+
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import launch_materialize, wait_for_dagster_http
 from phlo_dagster.settings import get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import prepare_wap_launch
-from phlo.logging import get_logger
 
 
 def _summarize_process_output(lines: list[str]) -> str | None:

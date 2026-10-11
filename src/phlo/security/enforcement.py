@@ -117,9 +117,9 @@ class EnforcementContext:
 
     def _init_authorization_backend(self) -> None:
         """Initialize the authorization backend."""
-        from phlo.capabilities import resolve_capability
-        from phlo.capabilities.discovery import discover_capabilities
-        from phlo.infrastructure.config import get_configured_authorization_backend_name
+        from phlo.application.discovery import discover_capabilities
+        from phlo.capabilities.resolver import resolve_capability
+        from phlo.config.project import get_configured_authorization_backend_name
 
         discover_capabilities()
         configured_name = get_configured_authorization_backend_name() or ""

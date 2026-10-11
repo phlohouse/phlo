@@ -15,7 +15,7 @@ from typing import Any, cast
 
 import yaml
 
-from phlo.logging import get_logger, log_event
+from phlo.logging_context import get_logger, log_event
 from phlo.plugins.base.service import ServicePlugin
 from phlo.plugins.discovery._service_cycles import find_cycles as _find_cycles_impl
 from phlo.plugins.discovery._service_definition import ServiceDefinition, service_manifest_paths

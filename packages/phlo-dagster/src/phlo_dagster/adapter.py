@@ -27,7 +27,7 @@ Example:
     Adapter instantiation::
 
         from phlo_dagster.adapter import DagsterOrchestratorAdapter
-        from phlo.capabilities.discovery import discover_capabilities
+        from phlo.application.discovery import discover_capabilities
 
         # Discover capabilities from user code
         discover_capabilities()
@@ -70,7 +70,7 @@ from phlo.capabilities.specs import (
 )
 from phlo.logging import get_logger, setup_logging
 from phlo.plugins.base import OrchestratorAdapterPlugin, PluginMetadata
-from phlo_dagster.framework.asset_diagnostics import raise_duplicate_asset_specs_if_present
+from phlo_dagster.asset_diagnostics import raise_duplicate_asset_specs_if_present
 
 logger = get_logger(__name__)
 

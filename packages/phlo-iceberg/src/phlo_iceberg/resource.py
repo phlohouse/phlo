@@ -85,6 +85,7 @@ from phlo_iceberg.evidence import emit_mutation, table_state, unavailable_table_
 from phlo_iceberg.history import history_to_table
 from phlo_iceberg.schema_alignment import SCHEMA_POLICIES, SchemaPolicy
 from phlo_iceberg.settings import get_settings
+from phlo_iceberg.storage import storage_path_key
 from phlo_iceberg.tables import (
     _require_direct_write,
     append_to_table,
@@ -176,30 +177,6 @@ def _safe_file_size(file_info: object) -> int | None:
             except (TypeError, ValueError):
                 return None
     return None
-
-
-def _storage_path_key(path: str) -> str:
-    """Normalize URI and PyArrow filesystem paths for reference comparison."""
-    parsed = urlsplit(path)
-    if parsed.scheme in {"s3", "s3a", "s3n"}:
-        return f"{parsed.netloc}{parsed.path}".rstrip("/")
-    return path.rstrip("/")
-
-
-def _list_storage_files(io: object, location: str) -> list[Any]:
-    """List files through PyIceberg's configured PyArrow filesystem."""
-    from pyarrow.fs import FileSelector, FileType
-
-    parse_location = getattr(io, "parse_location", None)
-    fs_by_scheme = getattr(io, "fs_by_scheme", None)
-    if not callable(parse_location) or not callable(fs_by_scheme):
-        raise MaintenancePreconditionError(
-            "Configured Iceberg FileIO cannot provide a safe recursive object listing."
-        )
-    scheme, netloc, path = parse_location(location, getattr(io, "properties", {}))
-    filesystem = fs_by_scheme(scheme, netloc)
-    infos = filesystem.get_file_info(FileSelector(path, recursive=True, allow_not_found=False))
-    return [info for info in infos if getattr(info, "type", None) is FileType.File]
 
 
 def _empty_inventory(
@@ -1674,10 +1651,10 @@ class IcebergResource:
         )
         scan_status = "available" if inventory.complete else "unavailable"
         if inventory.complete:
-            normalized_references = {_storage_path_key(path) for path in referenced_files}
+            normalized_references = {storage_path_key(path) for path in referenced_files}
             for object_info in inventory.objects:
                 path = object_info.identity
-                if _storage_path_key(path) in normalized_references:
+                if storage_path_key(path) in normalized_references:
                     continue
                 mtime_value = object_info.modified_at
                 if mtime_value is None:

@@ -37,6 +37,7 @@ from rich.table import Table
 from rich.text import Text
 
 from phlo.logging import get_logger
+from phlo_dagster.logs_client import _get_logs
 
 console = Console()
 logger = get_logger(__name__)
@@ -51,8 +52,6 @@ def _tail_logs(
 
     Raises: KeyboardInterrupt when user stops tailing.
     """
-    from phlo_dagster.cli_logs import _get_logs
-
     logger.info(
         "dagster_logs_tail_started",
         full=full,

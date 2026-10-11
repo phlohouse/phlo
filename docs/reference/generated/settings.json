@@ -1,6 +1,6 @@
 {
   "field_count": 313,
-  "model_count": 51,
+  "model_count": 52,
   "models": [
     {
       "class": "BaseConfig",
@@ -466,17 +466,6 @@
           "required": false
         },
         {
-          "alias": "PHLO_PROJECT_PATH",
-          "annotation": "str | None",
-          "default": null,
-          "description": "Process project-root override. Otherwise use the caller's root or working directory; API deployment defaults may use /app/project.",
-          "environment_names": [
-            "PHLO_PROJECT_PATH"
-          ],
-          "name": "phlo_project_path",
-          "required": false
-        },
-        {
           "alias": "PHLO_REGISTRY_DB_URL",
           "annotation": "str | None",
           "default": null,
@@ -631,7 +620,9 @@
           "required": false
         }
       ],
-      "inherited_fields": {},
+      "inherited_fields": {
+        "phlo_project_path": "phlo.config.process_base.ProjectRootProcessSettings"
+      },
       "module": "phlo.config.process",
       "package": "phlo",
       "source": "src/phlo/config/process.py",
@@ -725,15 +716,6 @@
       "status": "introspected"
     },
     {
-      "class": "ProcessOverrides",
-      "fields": [],
-      "inherited_fields": {},
-      "module": "phlo.config.process",
-      "package": "phlo",
-      "source": "src/phlo/config/process.py",
-      "status": "introspected"
-    },
-    {
       "class": "RunEvidencePoolSettings",
       "fields": [
         {
@@ -752,6 +734,36 @@
       "module": "phlo.config.process",
       "package": "phlo",
       "source": "src/phlo/config/process.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ProcessOverrides",
+      "fields": [],
+      "inherited_fields": {},
+      "module": "phlo.config.process_base",
+      "package": "phlo",
+      "source": "src/phlo/config/process_base.py",
+      "status": "introspected"
+    },
+    {
+      "class": "ProjectRootProcessSettings",
+      "fields": [
+        {
+          "alias": "PHLO_PROJECT_PATH",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Process project-root override. Otherwise use the caller's root or working directory; API deployment defaults may use /app/project.",
+          "environment_names": [
+            "PHLO_PROJECT_PATH"
+          ],
+          "name": "phlo_project_path",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo.config.process_base",
+      "package": "phlo",
+      "source": "src/phlo/config/process_base.py",
       "status": "introspected"
     },
     {

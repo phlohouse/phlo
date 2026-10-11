@@ -10,8 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from phlo.capabilities import resolve_capability
 from phlo.capabilities.interfaces import QueryEngine
+from phlo.capabilities.resolver import resolve_capability
 from phlo.exceptions import PhloConfigError
 from phlo.helpers.partitions import PartitionScope
 from phlo.helpers.sql import (

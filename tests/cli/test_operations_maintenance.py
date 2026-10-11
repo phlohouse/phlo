@@ -60,7 +60,7 @@ def provider(monkeypatch):
             return SimpleNamespace(name="iceberg", provider=store)
         return None
 
-    monkeypatch.setattr("phlo.capabilities.resolve_capability", _resolve)
+    monkeypatch.setattr("phlo.capabilities.resolver.resolve_capability", _resolve)
     return store
 
 
@@ -80,7 +80,9 @@ def test_plan_returns_json_without_mutation(provider) -> None:
 
 
 def test_plan_fails_without_store(monkeypatch) -> None:
-    monkeypatch.setattr("phlo.capabilities.resolve_capability", lambda _kind, _name=None: None)
+    monkeypatch.setattr(
+        "phlo.capabilities.resolver.resolve_capability", lambda _kind, _name=None: None
+    )
     result = _invoke(["plan", "--operation", "compact", "--table", "x"])
     assert result.exit_code != 0
     assert "no maintenance store" in result.output

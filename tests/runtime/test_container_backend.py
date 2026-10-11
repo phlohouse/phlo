@@ -10,7 +10,6 @@ from subprocess import CompletedProcess, TimeoutExpired
 import pytest
 
 from phlo.cli.commands.services.utils import require_container_backend
-from phlo.cli.infrastructure import container_backend
 from phlo.cli.infrastructure.container_backend import (
     DockerBackend,
     PodmanBackend,
@@ -19,6 +18,7 @@ from phlo.cli.infrastructure.container_backend import (
     select_project_container_backend,
 )
 from phlo.config_schema import InfrastructureConfig
+from phlo.infrastructure import container_backend
 
 
 def test_docker_backend_does_not_probe_compose_version(
@@ -152,7 +152,7 @@ def test_docker_backend_reports_stopped_and_healthy_service_statuses(
             stderr="",
         )
 
-    monkeypatch.setattr("phlo.cli.infrastructure.container_backend.subprocess.run", _run)
+    monkeypatch.setattr("phlo.infrastructure.container_backend.subprocess.run", _run)
 
     statuses = DockerBackend().project_service_statuses("demo", deadline=time.monotonic() + 1)
 
@@ -165,7 +165,7 @@ def test_docker_backend_reports_stopped_and_healthy_service_statuses(
 def test_batched_inspection_uses_captured_remaining_deadline_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from phlo.cli.infrastructure import container_backend
+    from phlo.infrastructure import container_backend
 
     time_values = iter([10.0, 11.0])
     observed_timeouts: list[float | None] = []
@@ -250,7 +250,7 @@ def test_podman_backend_lists_containers_with_podman_compose_labels(
         raise AssertionError(f"unexpected command: {cmd}")
 
     monkeypatch.setattr(
-        "phlo.cli.infrastructure.container_backend.subprocess.run",
+        "phlo.infrastructure.container_backend.subprocess.run",
         _run,
     )
 
@@ -289,7 +289,7 @@ def test_podman_backend_reports_healthcheck_and_completion_exit_status(
             stderr="",
         )
 
-    monkeypatch.setattr("phlo.cli.infrastructure.container_backend.subprocess.run", _run)
+    monkeypatch.setattr("phlo.infrastructure.container_backend.subprocess.run", _run)
 
     statuses = PodmanBackend().project_service_statuses("demo", deadline=time.monotonic() + 1)
 
@@ -330,7 +330,7 @@ def test_select_project_backend_uses_config(monkeypatch: pytest.MonkeyPatch) -> 
         container_backend = "podman"
 
     monkeypatch.setattr(
-        "phlo.infrastructure.config.load_infrastructure_config",
+        "phlo.config.project.load_infrastructure_config",
         lambda *_args: Config(),
     )
 
@@ -378,7 +378,7 @@ def test_require_container_backend_reports_availability_timeout(
 def test_failed_container_query_is_not_an_empty_project(backend, monkeypatch):
     """A daemon failure must not make human or agent clients infer stopped services."""
     monkeypatch.setattr(
-        "phlo.cli.infrastructure.container_backend.subprocess.run",
+        "phlo.infrastructure.container_backend.subprocess.run",
         lambda *args, **_: CompletedProcess(args[0], 1, stdout="", stderr="daemon unavailable"),
     )
     with pytest.raises(OSError, match="status is unavailable"):
@@ -392,7 +392,7 @@ def test_failed_container_query_is_not_an_empty_project(backend, monkeypatch):
 def test_shared_compose_layers_are_ordered_and_host_specific(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend, host: str, suffix: str
 ) -> None:
-    from phlo.cli.infrastructure import container_backend
+    from phlo.infrastructure import container_backend
 
     # Spaces in checkout paths must remain a single subprocess argument.
     project = tmp_path / "team lakehouse"
@@ -427,7 +427,7 @@ def test_shared_compose_layers_are_ordered_and_host_specific(
 def test_compose_layers_reject_production(tmp_path: Path, filename: str) -> None:
     import click
 
-    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
+    from phlo.infrastructure.container_backend import _compose_base_cmd
 
     state = tmp_path / ".phlo"
     state.mkdir()
@@ -439,8 +439,8 @@ def test_compose_layers_reject_production(tmp_path: Path, filename: str) -> None
 
 
 def test_compose_environment_layers_match_settings_precedence(tmp_path: Path) -> None:
-    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
     from phlo.config.layout import project_env_paths
+    from phlo.infrastructure.container_backend import _compose_base_cmd
 
     state = tmp_path / ".phlo"
     paths = project_env_paths(state)

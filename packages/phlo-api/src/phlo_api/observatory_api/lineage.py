@@ -31,12 +31,12 @@ from collections.abc import Iterable
 from typing import Any
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
-
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import list_capabilities, resolve_capability
-from phlo.capabilities.discovery import discover_capabilities
 from phlo.capabilities.interfaces import LineageSink
 from phlo.logging import get_logger
+from pydantic import BaseModel
+
 from phlo_api.settings import get_process_settings
 
 logger = get_logger(__name__)

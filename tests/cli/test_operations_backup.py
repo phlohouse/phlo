@@ -50,11 +50,11 @@ class _StubContributor:
 def stubbed_contributors(monkeypatch):
     contributors = [(provider, _StubContributor(provider)) for provider in BACKUP_PROVIDER_ORDER]
     monkeypatch.setattr(
-        "phlo.capabilities.list_capabilities",
+        "phlo.capabilities.resolver.list_capabilities",
         lambda _family: [provider for provider, _ in contributors],
     )
     monkeypatch.setattr(
-        "phlo.capabilities.resolve_capability",
+        "phlo.capabilities.resolver.resolve_capability",
         lambda _family, name: next(
             (
                 SimpleNamespace(name=provider, provider=contributor)
@@ -97,9 +97,9 @@ def test_create_and_verify_round_trip(stubbed_contributors, tmp_path) -> None:
 
 def test_create_fails_when_a_provider_is_missing(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "phlo.capabilities.list_capabilities", lambda _family: list(BACKUP_PROVIDER_ORDER)
+        "phlo.capabilities.resolver.list_capabilities", lambda _family: list(BACKUP_PROVIDER_ORDER)
     )
-    monkeypatch.setattr("phlo.capabilities.resolve_capability", lambda _family, name: None)
+    monkeypatch.setattr("phlo.capabilities.resolver.resolve_capability", lambda _family, name: None)
     result = _invoke(["create", "--target", str(tmp_path / "backup")])
     assert result.exit_code != 0
     assert "backup contributor" in result.output

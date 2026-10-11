@@ -12,14 +12,14 @@ from typing import Any
 
 def _discover_ingestion_providers() -> None:
     """Load installed ingestion providers into the plugin registry."""
-    from phlo.plugins.discovery import discover_plugins
+    from phlo.plugins.discovery._plugin_loading import discover_plugins
 
     discover_plugins(plugin_type="ingestion_provider", auto_register=True)
 
 
 def providers() -> list[str]:
     """Return installed ingestion provider names."""
-    from phlo.plugins.discovery import get_global_registry
+    from phlo.plugins.discovery.registry import get_global_registry
 
     _discover_ingestion_providers()
     return get_global_registry().list("ingestion_provider")
@@ -37,7 +37,7 @@ def _missing_provider_error(name: str) -> ModuleNotFoundError:
 
 def _provider_or_raise(name: str) -> Any:
     """Resolve a provider plugin or raise the public missing-provider error."""
-    from phlo.plugins.discovery import get_global_registry
+    from phlo.plugins.discovery.registry import get_global_registry
 
     plugin = get_global_registry().get("ingestion_provider", name)
     if plugin is None:
@@ -58,7 +58,7 @@ def assets(provider_name: str | None = None) -> list[Any]:
         plugin = _provider_or_raise(provider_name)
         return list(plugin.get_asset_retriever()())
 
-    from phlo.plugins.discovery import get_global_registry
+    from phlo.plugins.discovery.registry import get_global_registry
 
     collected: list[Any] = []
     for name in get_global_registry().list("ingestion_provider"):

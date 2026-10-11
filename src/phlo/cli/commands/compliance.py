@@ -13,7 +13,11 @@ from pathlib import Path
 
 import click
 
-from phlo.compliance.evidence import EvidenceKeyError, create_evidence_pack, verify_evidence_pack
+from phlo.compliance.evidence.pack import (
+    EvidenceKeyError,
+    create_evidence_pack,
+    verify_evidence_pack,
+)
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)

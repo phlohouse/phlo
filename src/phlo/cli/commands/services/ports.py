@@ -22,7 +22,7 @@ from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import json_envelope, missing_phlo_project_error
 from phlo.config.layout import project_env_paths
 from phlo.logging import get_logger
-from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
+from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 logger = get_logger(__name__)
 

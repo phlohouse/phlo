@@ -71,12 +71,10 @@ See Also:
 
 from __future__ import annotations
 
-import contextvars
 import logging
 import sys
 import traceback
 from collections.abc import Mapping, MutableMapping
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,10 +82,17 @@ from typing import Any
 
 import structlog
 
-from phlo.config import get_settings
 from phlo.config.process import get_process_settings
+from phlo.config.settings import get_settings
 from phlo.exceptions import redact_sensitive_text
 from phlo.hooks.events import HookCorrelation, LogEvent
+from phlo.logging_context import (
+    _ROUTER_ACTIVE,
+    _redact_sensitive_processor,
+    redact_sensitive_fields,
+)
+from phlo.logging_context import log_event as log_event
+from phlo.logging_context import suppress_log_routing as suppress_log_routing
 
 _STANDARD_LOG_RECORD_FIELDS = set(
     logging.LogRecord(
@@ -107,26 +112,6 @@ _CORRELATION_FIELDS = (
     "partition_key",
     "check_name",
 )
-_SENSITIVE_FIELD_TOKENS = (
-    "password",
-    "passwd",
-    "token",
-    "secret",
-    "authorization",
-    "api_key",
-    "apikey",
-    "credential",
-    "cookie",
-    "bearer",
-    "private_key",
-    "signing_key",
-    "encryption_key",
-    "cert",
-    "ssh",
-    "session_id",
-    "session_token",
-)
-_ROUTER_ACTIVE = contextvars.ContextVar("phlo_log_router_active", default=False)
 _LOGGING_CONFIGURED = False
 _STREAM_METADATA_FIELDS = {
     "timestamp",
@@ -284,21 +269,6 @@ def get_logger(
     return logger
 
 
-def log_event(logger: Any, level: str, event: str, **fields: Any) -> None:
-    """Log structured fields when the logger accepts kwargs, else fall back to a
-    plain message with the fields appended as ``key=value`` text.
-    """
-    log_method = getattr(logger, level)
-    try:
-        log_method(event, **fields)
-    except TypeError:
-        if fields:
-            details = " ".join(f"{key}={value}" for key, value in fields.items())
-            log_method(f"{event} {details}")
-        else:
-            log_method(event)
-
-
 def bind_context(**fields: Any) -> None:
     """Bind fields to the current contextvars scope for structured logging."""
     structlog.contextvars.bind_contextvars(**fields)
@@ -350,16 +320,6 @@ def _merge_active_otel_context(values: dict[str, Any]) -> None:
         values.setdefault("trace_flags", f"{int(context.trace_flags):02x}")
     except Exception:  # noqa: BLE001 - OTel is an optional projection
         return
-
-
-@contextmanager
-def suppress_log_routing() -> Any:
-    """Temporarily disable log routing to the hook bus."""
-    token = _ROUTER_ACTIVE.set(True)
-    try:
-        yield
-    finally:
-        _ROUTER_ACTIVE.reset(token)
 
 
 class LogRouterHandler(logging.Handler):
@@ -549,42 +509,6 @@ def _build_metadata(record: logging.LogRecord, extra: dict[str, Any]) -> dict[st
         )
     redact_sensitive_fields(metadata)
     return metadata
-
-
-def _redact_sensitive_processor(
-    _: Any, __: str, event_dict: MutableMapping[str, Any]
-) -> MutableMapping[str, Any]:
-    """Redact sensitive values from structured event dictionaries."""
-    redact_sensitive_fields(event_dict)
-    return event_dict
-
-
-def redact_sensitive_fields(data: MutableMapping[str, Any]) -> None:
-    """Redact sensitive keys and URL credentials in-place within a mapping."""
-    for key, value in list(data.items()):
-        lowered = key.lower()
-        if any(token in lowered for token in _SENSITIVE_FIELD_TOKENS):
-            data[key] = "<redacted>"
-            continue
-        if key == "exc_info" and value:
-            exc_info = value if isinstance(value, tuple) else sys.exc_info()
-            if exc_info[0] is not None:
-                data["exception"] = redact_sensitive_text(
-                    "".join(traceback.format_exception(*exc_info))
-                )
-            data[key] = None
-        elif isinstance(value, str):
-            data[key] = redact_sensitive_text(value)
-        elif isinstance(value, MutableMapping):
-            redact_sensitive_fields(value)
-        elif isinstance(value, (list, tuple)):
-            sanitized_items = list(value)
-            for index, item in enumerate(sanitized_items):
-                if isinstance(item, MutableMapping):
-                    redact_sensitive_fields(item)
-                elif isinstance(item, str):
-                    sanitized_items[index] = redact_sensitive_text(item)
-            data[key] = tuple(sanitized_items) if isinstance(value, tuple) else sanitized_items
 
 
 def _build_file_handler(

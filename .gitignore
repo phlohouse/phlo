@@ -42,6 +42,7 @@ venv/
 ENV/
 env/
 .venv
+.import_linter_cache/
 
 # Git worktrees
 .worktrees/

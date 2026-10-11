@@ -5,7 +5,7 @@ unclassified route fails startup rather than bypassing auth. GraphQL passes a
 mandatory authorization middleware and graphql-ws connections authenticate at
 connection_init; the secured class is patched into dagster_webserver.app.
 Runnable process entrypoint rather than a library import; discovers capabilities
-through phlo.capabilities.discovery and enforces phlo.rbac.models/phlo.security policy.
+through phlo.application.discovery and enforces phlo.rbac.models/phlo.security policy.
 """
 
 from __future__ import annotations
@@ -22,19 +22,19 @@ from dagster_webserver.cli import dagster_webserver
 from dagster_webserver.graphql import GraphQLWS
 from dagster_webserver.webserver import DagsterWebserver
 from graphql import GraphQLError, parse
+from phlo.application.discovery import discover_capabilities
+from phlo.config.process import get_process_settings as get_core_process_settings
+from phlo.security.mode import requires_http_authorization
+from phlo.security.service_identity import PostgresNonceStore
 from starlette.responses import JSONResponse
 from starlette.routing import Match
 
-from phlo.capabilities.discovery import discover_capabilities
 from phlo_dagster.authorization import (
     extract_dagster_run_id_from_log_path,
     get_adapter,
     validate_graphql_schema,
 )
 from phlo_dagster.authorization_middleware import DagsterGraphQLAuthorizationMiddleware
-from phlo.security.mode import requires_http_authorization
-from phlo.security.service_identity import PostgresNonceStore
-from phlo.config.process import get_process_settings as get_core_process_settings
 from phlo_dagster.settings import DagsterWebsocketSettings, get_process_settings
 
 GRAPHQL_WS_INIT_TIMEOUT_ENV = "PHLO_DAGSTER_GRAPHQL_WS_INIT_TIMEOUT_SECONDS"

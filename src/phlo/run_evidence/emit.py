@@ -14,8 +14,8 @@ import hashlib
 import json
 from typing import Any
 
-from phlo.hooks import HookCorrelation, get_hook_bus
-from phlo.hooks.events import RunEvidenceObservationEvent, normalize_attempt
+from phlo.hooks.bus import get_hook_bus
+from phlo.hooks.events import HookCorrelation, RunEvidenceObservationEvent, normalize_attempt
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)

@@ -134,7 +134,7 @@ helpers, imported constants, whole-environment copies and iteration separately.
 | Registry and lineage database-key loops | Explicit process fields preserve nonempty fallback chains; third-party Dagster and PostgreSQL keys remain outside this issue. |
 | Telemetry flag helper and supplied run mapping | Supported typed telemetry fields; supplied mappings exclude process fallback, including when a mapping is empty. |
 | Auto-discovery imported constant | Replaced by `PluginDiscoverySettings`; unknown nonempty tokens still disable discovery and warn. |
-| `capabilities/observability.py::_service_env_value(key)` | Closed callers use non-PHLO provider URL, path and port keys. Shared PHLO public host and scheme are settings fields. |
+| `application/observability.py::_service_env_value(key)` | Closed callers use non-PHLO provider URL, path and port keys. Shared PHLO public host and scheme are settings fields. |
 | `helpers/connections.py::resolve_database(env_prefix=...)` | Caller-defined connection namespace, not a finite Phlo setting family. No production caller supplies a PHLO prefix. URL precedes DSN, then capability resolution. |
 | `telemetry.py::_hidden_env(name)` | Internal transport hook; only `OBSERVE_DRAINS` is hidden and restored verbatim. |
 | MinIO, Nessie, Polaris, PostgreSQL and Trino `security_readiness.py` | Closed lists of third-party credential references, none with PHLO prefix. |

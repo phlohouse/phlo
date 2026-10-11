@@ -66,7 +66,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import Any
 
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 from phlo.plugins.base.plugin import Plugin
 
 logger = get_logger(__name__)

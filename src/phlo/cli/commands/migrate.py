@@ -22,13 +22,12 @@ from rich.table import Table
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.codemods.decorators_2026_05 import migrate_decorators_2026_05_source
-from phlo.migrations import (
+from phlo.migrations.executor import (
     MigrationExecutionError,
     MigrationExecutor,
-    MigrationSpecError,
-    load_migration_spec,
     read_migration_history,
 )
+from phlo.migrations.parser import MigrationSpecError, load_migration_spec
 
 console = Console()
 

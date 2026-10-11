@@ -123,11 +123,11 @@ def isolated_preflight(monkeypatch: pytest.MonkeyPatch, project: Path):
         monkeypatch.delenv(key, raising=False)
 
     monkeypatch.setattr(
-        "phlo.infrastructure.config.get_configured_authorization_backend_name",
+        "phlo.config.project.get_configured_authorization_backend_name",
         lambda: "canonical",
     )
     monkeypatch.setattr(
-        "phlo.capabilities.resolve_capability",
+        "phlo.capabilities.resolver.resolve_capability",
         lambda capability, backend: (
             object() if capability == "authorization_policy_backend" else None
         ),
@@ -156,7 +156,7 @@ def isolated_preflight(monkeypatch: pytest.MonkeyPatch, project: Path):
             return SimpleNamespace(name=backend, provider=provider, metadata={})
         return None
 
-    monkeypatch.setattr("phlo.capabilities.resolve_capability", _passing_readiness)
+    monkeypatch.setattr("phlo.capabilities.resolver.resolve_capability", _passing_readiness)
 
     from phlo.rbac.models import CanonicalRBAC, PoliciesConfig, RolesConfig
 
@@ -483,7 +483,9 @@ def test_backend_readiness_missing_adapter_fails(monkeypatch, tmp_path: Path) ->
     )
 
     # No backend readiness capability registered at all.
-    monkeypatch.setattr("phlo.capabilities.resolve_capability", lambda _capability, _backend: None)
+    monkeypatch.setattr(
+        "phlo.capabilities.resolver.resolve_capability", lambda _capability, _backend: None
+    )
 
     report = run_production_readiness(
         plan=_plan(tmp_path, service_names=["postgres"]),
@@ -530,7 +532,7 @@ def test_backend_readiness_unavailable_blocks(monkeypatch, tmp_path: Path) -> No
             metadata={},
         )
 
-    monkeypatch.setattr("phlo.capabilities.resolve_capability", _resolve)
+    monkeypatch.setattr("phlo.capabilities.resolver.resolve_capability", _resolve)
     report = run_production_readiness(
         plan=_plan(tmp_path, service_names=["postgres"]),
         project_root=tmp_path,

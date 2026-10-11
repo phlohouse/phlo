@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 
 from phlo.cli.commands.services.utils import get_enabled_disabled_service_names
-from phlo.plugins.discovery import ServiceDefinition
+from phlo.plugins.discovery.services import ServiceDefinition
 from phlo.utils import dedupe_preserve_order
 
 

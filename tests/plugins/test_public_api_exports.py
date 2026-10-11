@@ -121,16 +121,14 @@ def test_quality_module_populates_exports_on_discovered_provider(
                 "checksum": _DummyCheck,
             }
 
-    import phlo.plugins.discovery as discovery
-
     class _Registry:
         def get(self, plugin_type: str, name: str):
             assert plugin_type == "quality_provider"
             assert name == "pandera"
             return _Provider()
 
-    monkeypatch.setattr(discovery, "discover_plugins", lambda: None)
-    monkeypatch.setattr(discovery, "get_global_registry", lambda: _Registry())
+    monkeypatch.setattr("phlo.plugins.discovery._plugin_loading.discover_plugins", lambda: None)
+    monkeypatch.setattr("phlo.plugins.discovery.registry.get_global_registry", lambda: _Registry())
 
     quality_module = importlib.import_module("phlo.quality")
 

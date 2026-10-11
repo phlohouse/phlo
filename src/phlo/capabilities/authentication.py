@@ -4,7 +4,7 @@ Provides static, reverse-proxy, service-token, and JWT providers. Each loads
 its configuration from environment variables first, falling back to
 phlo.yaml; register_default_capability_providers activates a provider only
 when it is explicitly enabled in configuration.
-Imported by the phlo capabilities layer (phlo.capabilities.discovery) and phlo.security.
+Imported by application composition (phlo.application.discovery) and phlo.security.
 Registers default providers into the phlo.capabilities registry at activation time.
 """
 
@@ -34,10 +34,10 @@ from phlo.capabilities.registry import register_capability
 from phlo.capabilities.specs import AuthenticationProviderSpec
 from phlo.capabilities.support import CapabilitySupport
 from phlo.config.process import JwtTimingSettings, get_process_settings
-from phlo.infrastructure.config import (
+from phlo.config.project import (
     get_authentication_config,
 )
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 from phlo.security.oidc_identity import OIDCIdentityValidator
 
 logger = get_logger(__name__)
@@ -1025,7 +1025,7 @@ def register_default_capability_providers() -> None:
     Authentication providers are security-sensitive and must be explicitly
     enabled via environment variables, not auto-registered on startup.
     """
-    from phlo.infrastructure.config import get_configured_authentication_provider_name
+    from phlo.config.project import get_configured_authentication_provider_name
 
     selected_provider = get_configured_authentication_provider_name()
 

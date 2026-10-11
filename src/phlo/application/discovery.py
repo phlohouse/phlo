@@ -13,21 +13,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from phlo.application.observability import (
+    register_default_capability_providers as register_default_observability_providers,
+)
 from phlo.capabilities.authentication import (
     register_default_capability_providers as register_default_authentication_providers,
 )
 from phlo.capabilities.authorization import (
     register_default_capability_providers as register_default_authorization_providers,
 )
-from phlo.capabilities.observability import (
-    register_default_capability_providers as register_default_observability_providers,
-)
 from phlo.capabilities.registry import (
     iter_provider_capabilities,
     register_capability,
 )
-from phlo.logging import get_logger
-from phlo.plugins.discovery import discover_plugins, get_global_registry
+from phlo.logging_context import get_logger
+from phlo.plugins.discovery._plugin_loading import discover_plugins
+from phlo.plugins.discovery.registry import get_global_registry
 
 logger = get_logger(__name__)
 
@@ -36,7 +37,7 @@ def discover_capabilities() -> None:
     """Discover capability providers and register their specs."""
     logger.info("capability_discovery_started")
     register_default_authentication_providers()
-    from phlo.infrastructure.config import _default_project_root
+    from phlo.config.project import _default_project_root
     from phlo.rbac.config import RBACConfigLoader
 
     try:

@@ -73,15 +73,14 @@ See Also:
     - :mod:`phlo.capabilities.specs`: Capability specifications
     - :mod:`phlo.capabilities.interfaces`: Capability interfaces
 
-Note:
-    This module uses lazy loading for resolver functions to prevent
-    circular imports during plugin discovery.
 Aggregating package root of the capability subsystem: re-exports the interfaces,
 inventory, registry, resolver, runtime, specs, and workflow-wizard modules.
 """
 
-from typing import TYPE_CHECKING
-
+from phlo.application.observability import (
+    DefaultObservabilityBackend,
+    register_default_capability_providers,
+)
 from phlo.capabilities.continuity import (
     BACKUP_PROVIDER_ORDER,
     BACKUP_SET_SCHEMA_VERSION,
@@ -163,16 +162,19 @@ from phlo.capabilities.maintenance import (
     load_maintenance_status,
     render_maintenance_prometheus,
 )
-from phlo.capabilities.observability import (
-    DefaultObservabilityBackend,
-    register_default_capability_providers,
-)
 from phlo.capabilities.registry import (
     CapabilityRegistry,
     clear_all_capabilities,
     clear_capabilities,
     get_capability_registry,
     register_capability,
+)
+from phlo.capabilities.resolver import (
+    ResolutionResult,
+    configured_capability_name,
+    list_capabilities,
+    missing_required_capabilities,
+    resolve_capability,
 )
 from phlo.capabilities.runtime import (
     RuntimeContext,
@@ -242,9 +244,6 @@ from phlo.capabilities.workflow_wizard import (
     detect_file_conflicts,
     validate_proposal_request,
 )
-
-if TYPE_CHECKING:
-    from phlo.capabilities.resolver import ResolutionResult
 
 __all__ = [
     "AlertSink",
@@ -401,18 +400,3 @@ __all__ = [
     "sha256_file",
     "sha256_tree",
 ]
-
-
-def __getattr__(name: str):
-    """Lazily expose resolver symbols to avoid circular imports."""
-    if name in {
-        "ResolutionResult",
-        "configured_capability_name",
-        "list_capabilities",
-        "missing_required_capabilities",
-        "resolve_capability",
-    }:
-        from phlo.capabilities import resolver
-
-        return getattr(resolver, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

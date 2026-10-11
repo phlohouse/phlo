@@ -150,23 +150,25 @@ class TestCatalogOperations:
         )
         mock_logger.warning.assert_not_called()
 
-    def test_reset_catalog_cache_clears_cli_utils_cache(self):
-        """reset_catalog_cache should clear the CLI-level catalog cache too."""
+    @patch("phlo_iceberg.catalog.get_settings")
+    def test_cli_catalog_shares_the_catalog_cache(self, mock_get_settings):
+        """get_iceberg_catalog reuses get_catalog's cache, and reset clears it."""
+        mock_get_settings.return_value.get_pyiceberg_catalog_config.return_value = {}
         get_catalog.cache_clear()
-        get_iceberg_catalog.cache_clear()
 
         with patch(
-            "phlo_iceberg.catalog.get_catalog", return_value=MagicMock()
-        ) as mock_get_catalog:
-            get_iceberg_catalog("main")
-            get_iceberg_catalog("main")
-
-            assert mock_get_catalog.call_count == 1
+            "phlo_iceberg.catalog.load_catalog", side_effect=lambda **_: MagicMock()
+        ) as mock_load_catalog:
+            first = get_iceberg_catalog("main")
+            assert get_catalog(ref="main") is first
+            assert get_iceberg_catalog("main") is first
+            assert mock_load_catalog.call_count == 1
 
             reset_catalog_cache()
-            get_iceberg_catalog("main")
+            assert get_iceberg_catalog("main") is not first
+            assert mock_load_catalog.call_count == 2
 
-            assert mock_get_catalog.call_count == 2
+        get_catalog.cache_clear()
 
     def test_get_catalog_respects_explicit_s3_endpoint_override(self, monkeypatch):
         """Test environments can redirect S3 traffic away from default MinIO DNS aliases."""

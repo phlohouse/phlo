@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from phlo.config.process import get_process_settings
-from phlo.hooks import TelemetryEvent
-from phlo.logging import get_logger, redact_sensitive_fields
+from phlo.hooks.events import TelemetryEvent
+from phlo.logging_context import get_logger, redact_sensitive_fields
 
 logger = get_logger(__name__)
 
