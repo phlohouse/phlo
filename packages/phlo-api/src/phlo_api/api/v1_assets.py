@@ -24,6 +24,7 @@ from phlo_api.api.v1 import _run_on_ref, _target
 from phlo_api.api.v1_query import QuerySessionView, start_exact_asset_count
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.asset_preview_filters import preview_filters, preview_where
+from phlo_api.api.operation_controls import shared_operation_controls
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.observatory_api.v1_preview import (
@@ -1384,6 +1385,7 @@ async def v1_table_rollback(
         idempotency_key=payload.idempotency_key,
         operation="v1_table_rollback",
         target=action_target,
+        exclusion_target=f"{env}:{name}@{target.nessie_ref}",
         execute=execute,
         audit=lambda result: audit_operation(
             operation="v1_table_rollback",
@@ -1911,10 +1913,9 @@ async def _action_context(
 ) -> tuple[EnvironmentTarget, str, list[str]]:
     settings = get_deployment_settings()
     if (
-        not settings.actions_single_replica
-        or not settings.actions_single_process
-        or not settings.actions_ref_tag_contract
-    ):
+        shared_operation_controls() is None
+        and (not settings.actions_single_replica or not settings.actions_single_process)
+    ) or not settings.actions_ref_tag_contract:
         raise BackendUnavailableError("Environment-pinned actions are not enabled.")
     target = _target(request, env, allowed_query=allowed_query)
     definitions = [
@@ -2464,6 +2465,7 @@ async def v1_asset_materialize(
         idempotency_key=payload.idempotency_key,
         operation="v1_materialize_asset",
         target=action_target,
+        exclusion_target=f"{env}:{asset_id}@{target.nessie_ref}",
         execute=execute,
         audit=lambda value: audit_operation(
             operation="v1_materialize_asset",
@@ -2569,6 +2571,7 @@ async def v1_asset_backfill(
         idempotency_key=payload.idempotency_key,
         operation="v1_backfill_asset",
         target=action_target,
+        exclusion_target=f"{env}:{asset_id}@{target.nessie_ref}",
         execute=execute,
         audit=lambda value: audit_operation(
             operation="v1_backfill_asset",

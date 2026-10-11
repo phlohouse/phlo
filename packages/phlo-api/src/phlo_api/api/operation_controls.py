@@ -1,8 +1,9 @@
 """Controls for scoped operation routes: auth scopes, audit, rate limits, idempotency.
 
-Mutating operations claim an idempotency key in SQLite before touching
-the provider; a pending or unknown claim yields a stable 409 instead of
-a duplicate mutation. Audit records append under a cross-process file
+Mutating operations claim an idempotency key in PostgreSQL (shared mode) or
+SQLite (single-process development) before touching the provider. A pending
+or unknown claim yields a stable 409 instead of a duplicate mutation.
+Audit records append under a cross-process file
 lock with rotation, and a committed-but-unaudited mutation raises
 MutationSucceededAuditFailed rather than reporting failure.
 """
@@ -17,13 +18,16 @@ import logging
 import os
 import sqlite3
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException, Request
 
@@ -39,6 +43,12 @@ from phlo_api.api.authorization import get_authorization_mode
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.settings import get_process_settings
 from phlo_api.settings import get_settings as get_api_settings
+from phlo_api.settings import get_deployment_settings
+from phlo_postgres.operation_controls import (
+    RATE_BUCKET_CAP,
+    OperationExclusionConflict,
+    PostgresOperationControls,
+)
 
 _TOKEN_CONFIG_ENV = "PHLO_API_TOKENS"
 _DEFAULT_IDEMPOTENCY_RETENTION_HOURS = 24
@@ -51,8 +61,51 @@ _STATE_COMPLETED = "completed"
 _STATE_UNKNOWN = "unknown"
 _STATE_FAILED = "failed"
 _STATE_SAFE_TO_RETRY = "safe_to_retry"
-_RATE_LIMITS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+_RATE_LIMITS: OrderedDict[tuple[str, str], deque[float]] = OrderedDict()
+_RATE_LIMIT_LOCK = Lock()
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _postgres_controls(db_url: str, namespace: str) -> PostgresOperationControls:
+    return PostgresOperationControls(db_url, namespace)
+
+
+def shared_operation_controls() -> PostgresOperationControls | None:
+    """Resolve package-owned settings without tying shared identity to local paths."""
+    settings = get_api_settings()
+    if not settings.phlo_api_operation_controls_db_url:
+        return None
+    namespace = settings.phlo_api_operation_controls_namespace.strip()
+    if not namespace:
+        raise BackendUnavailableError("Shared operation controls require a stable namespace.")
+    return _postgres_controls(settings.phlo_api_operation_controls_db_url, namespace)
+
+
+def initialize_operation_controls() -> None:
+    """Validate shared storage, or warn about unsupported multi-worker local mode."""
+    store = shared_operation_controls()
+    if store is not None:
+        store.initialize()
+    elif get_deployment_settings().workers > 1:
+        logger.warning(
+            "Local operation controls require one worker and one replica; "
+            "configure shared PostgreSQL operation controls before enabling mutations."
+        )
+
+
+@contextmanager
+def operation_exclusion(operation: str, target: str):
+    """Add PostgreSQL exclusion to callers that retain their local development lock."""
+    store = shared_operation_controls()
+    try:
+        if store is None:
+            yield
+        else:
+            with store.exclusion(operation, target):
+                yield
+    except OperationExclusionConflict as exc:
+        raise IdempotencyConflict({"error": "operation_in_progress"}, retry_after=2) from exc
 
 
 class MutationSucceededAuditFailed(HTTPException):
@@ -132,15 +185,40 @@ def require_scope(request: Request, required_scope: str) -> dict[str, Any]:
 def enforce_rate_limit(subject: str, operation: str) -> None:
     """Enforce a per-subject, per-operation sliding-window limit (60 s)."""
     limit = _operation_limit(operation)
-    now = time.monotonic()
-    bucket = _RATE_LIMITS[(subject, operation)]
-    while bucket and now - bucket[0] > 60:
-        bucket.popleft()
-    if len(bucket) >= limit:
+    store = shared_operation_controls()
+    if store is not None:
+        allowed = store.rate_limit(_idempotency_hash(subject), operation, limit)
+    else:
+        allowed = _local_rate_limit(subject, operation, limit)
+    if not allowed:
         raise HTTPException(
             status_code=429, detail={"error": "rate_limited", "limit_per_minute": limit}
         )
-    bucket.append(now)
+
+
+def _local_rate_limit(subject: str, operation: str, limit: int) -> bool:
+    now = time.monotonic()
+    with _RATE_LIMIT_LOCK:
+        # Expire idle keys before enforcing the LRU cap. Never evict a live
+        # bucket: cycling subjects must not reset an existing principal's limit.
+        while _RATE_LIMITS:
+            oldest = next(iter(_RATE_LIMITS))
+            if _RATE_LIMITS[oldest][-1] >= now - 60:
+                break
+            del _RATE_LIMITS[oldest]
+        identity = (subject, operation)
+        if identity not in _RATE_LIMITS:
+            if len(_RATE_LIMITS) >= RATE_BUCKET_CAP or limit <= 0:
+                return False
+            _RATE_LIMITS[identity] = deque()
+        bucket = _RATE_LIMITS[identity]
+        while bucket and bucket[0] < now - 60:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        _RATE_LIMITS.move_to_end(identity)
+        return True
 
 
 def audit_operation(
@@ -259,6 +337,7 @@ def replay_or_execute(
     target: str,
     execute: Callable[[], dict[str, Any]],
     audit: Callable[[dict[str, Any]], None] | None = None,
+    exclusion_target: str | None = None,
 ) -> dict[str, Any]:
     """Return a previous idempotent response or execute and persist the new response.
 
@@ -266,19 +345,16 @@ def replay_or_execute(
     concurrent callers with the same identity never execute the provider more
     than once. A contender either replays a completed response or receives a
     stable ``409`` (in-progress / unknown-outcome) without invoking the provider.
-    """
-    if not idempotency_key:
-        response = execute()
-        if audit is not None:
-            try:
-                audit(response)
-            except BaseException as exc:
-                _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
-                raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
-        return response
 
-    key_hash = _idempotency_hash(idempotency_key)
-    claim = _claim_idempotency_key(key_hash=key_hash, operation=operation, target=target)
+    ``exclusion_target`` identifies the resource independently of actor/payload
+    digests and opts into atomic key binding for routes with that contract.
+    Without it, the legacy key/operation/target replay identity is preserved.
+    Unkeyed calls still claim exclusion, but cannot replay a completed response.
+    """
+    key_hash = _idempotency_hash(idempotency_key or f"unkeyed:{uuid4()}")
+    claim = _claim_idempotency_key(
+        key_hash=key_hash, operation=operation, target=target, exclusion_target=exclusion_target
+    )
     if claim.claimed:
         pass
     elif claim.state == _STATE_COMPLETED:
@@ -289,6 +365,8 @@ def replay_or_execute(
         )
     elif claim.state == _STATE_UNKNOWN:
         raise IdempotencyConflict({"error": "idempotency_outcome_unknown"})
+    elif claim.state in {"target_mismatch", "operation_pending", "operation_unknown"}:
+        raise IdempotencyConflict({"error": claim.state})
     else:
         raise IdempotencyConflict({"error": "idempotency_outcome_failed"})
 
@@ -317,26 +395,20 @@ async def replay_or_execute_async(
     target: str,
     execute: Callable[[], Awaitable[dict[str, Any]]],
     audit: Callable[[dict[str, Any]], None] | None = None,
+    exclusion_target: str | None = None,
 ) -> dict[str, Any]:
     """Async variant of replay_or_execute.
 
-    The atomic claim and completion run in a worker thread so the SQLite write
-    transaction is held outside the event loop; only the provider await runs on
-    the loop.
+    Claims, completion and durable audit writes run in worker threads for both
+    backends; only the provider await runs on the event loop.
     """
-    if not idempotency_key:
-        response = await execute()
-        if audit is not None:
-            try:
-                await asyncio.to_thread(audit, response)
-            except BaseException as exc:
-                _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
-                raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
-        return response
-
-    key_hash = _idempotency_hash(idempotency_key)
+    key_hash = _idempotency_hash(idempotency_key or f"unkeyed:{uuid4()}")
     claim = await asyncio.to_thread(
-        _claim_idempotency_key, key_hash=key_hash, operation=operation, target=target
+        _claim_idempotency_key,
+        key_hash=key_hash,
+        operation=operation,
+        target=target,
+        exclusion_target=exclusion_target,
     )
     if claim.claimed:
         pass
@@ -348,6 +420,8 @@ async def replay_or_execute_async(
         )
     elif claim.state == _STATE_UNKNOWN:
         raise IdempotencyConflict({"error": "idempotency_outcome_unknown"})
+    elif claim.state in {"target_mismatch", "operation_pending", "operation_unknown"}:
+        raise IdempotencyConflict({"error": claim.state})
     else:
         raise IdempotencyConflict({"error": "idempotency_outcome_failed"})
 
@@ -412,7 +486,7 @@ def resolve_idempotency_claim(
 
     Resolution is provider-neutral: callers supply the provider evidence and
     choose whether it proves success, failure, or that another invocation is
-    safe. Every resolution is retained in the local audit table with its actor
+    safe. Every resolution is retained in the controls store with its actor
     and evidence; only ``safe_to_retry`` permits another provider invocation.
     """
     if resolution not in {"succeeded", _STATE_FAILED, _STATE_SAFE_TO_RETRY}:
@@ -422,6 +496,12 @@ def resolve_idempotency_claim(
     state = _STATE_COMPLETED if resolution == "succeeded" else resolution
 
     key_hash = _idempotency_hash(idempotency_key)
+    store = shared_operation_controls()
+    if store is not None:
+        store.resolve_idempotency(
+            key_hash, operation, target, resolution, resolved_by, evidence, response
+        )
+        return
     conn = _idempotency_connection()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -503,13 +583,24 @@ def resolve_idempotency_claim(
         conn.close()
 
 
-def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _IdempotencyClaim:
+def _claim_idempotency_key(
+    *,
+    key_hash: str,
+    operation: str,
+    target: str,
+    exclusion_target: str | None = None,
+) -> _IdempotencyClaim:
     """Atomically claim an idempotency identity or report an existing claim's state.
 
     A ``pending`` row is inserted before provider execution. If the identity
     already exists, the existing row's state (and completed response) is
     returned so the caller can replay or surface a stable conflict.
     """
+    store = shared_operation_controls()
+    if store is not None:
+        return _IdempotencyClaim(
+            *store.claim_idempotency(key_hash, operation, target, exclusion_target)
+        )
     conn = _idempotency_connection()
     try:
         _delete_expired(conn)
@@ -519,79 +610,41 @@ def _claim_idempotency_key(*, key_hash: str, operation: str, target: str) -> _Id
         # claims serialize: exactly one INSERT succeeds and the other sees the
         # committed row rather than racing on the primary key.
         conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute(
-                """
-                INSERT INTO operations(project, key_hash, operation, target, state, response_json, created_at, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(project_root()),
-                    key_hash,
-                    operation,
-                    target,
-                    _STATE_PENDING,
-                    "",
-                    now.isoformat(),
-                    expires_at.isoformat(),
-                ),
-            )
-            conn.commit()
-            return _IdempotencyClaim(claimed=True, state=_STATE_PENDING, response_json="")
-        except sqlite3.IntegrityError:
-            conn.rollback()
-            conn.execute("BEGIN IMMEDIATE")
-            claimed = conn.execute(
-                """
-                UPDATE operations
-                SET state = ?, response_json = ?, created_at = ?, expires_at = ?
-                WHERE project = ? AND key_hash = ? AND operation = ? AND target = ? AND state = ?
-                """,
-                (
-                    _STATE_PENDING,
-                    "",
-                    now.isoformat(),
-                    expires_at.isoformat(),
-                    str(project_root()),
-                    key_hash,
-                    operation,
-                    target,
-                    _STATE_SAFE_TO_RETRY,
-                ),
-            ).rowcount
-            if claimed:
-                conn.commit()
-                return _IdempotencyClaim(claimed=True, state=_STATE_PENDING, response_json="")
-            row = conn.execute(
-                """
-                SELECT state, response_json FROM operations
-                WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
-                """,
-                (str(project_root()), key_hash, operation, target),
-            ).fetchone()
-            conn.commit()
-            if row is None:
-                # Expired and deleted between the INSERT and the read; retry once.
-                conn.execute("BEGIN IMMEDIATE")
-                conn.execute(
-                    """
-                    INSERT INTO operations(project, key_hash, operation, target, state, response_json, created_at, expires_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        str(project_root()),
-                        key_hash,
-                        operation,
-                        target,
-                        _STATE_PENDING,
-                        "",
-                        now.isoformat(),
-                        expires_at.isoformat(),
-                    ),
-                )
-                conn.commit()
-                return _IdempotencyClaim(claimed=True, state=_STATE_PENDING, response_json="")
-            return _IdempotencyClaim(claimed=False, state=str(row[0]), response_json=str(row[1]))
+        row = conn.execute(
+            "SELECT target, state, response_json FROM operations "
+            "WHERE project=? AND key_hash=? AND operation=? AND (? OR target=?)",
+            (str(project_root()), key_hash, operation, exclusion_target is not None, target),
+        ).fetchone()
+        if row is not None:
+            if row[0] != target:
+                return _IdempotencyClaim(False, "target_mismatch", "")
+            if row[1] != _STATE_SAFE_TO_RETRY:
+                return _IdempotencyClaim(False, str(row[1]), str(row[2]))
+        active = conn.execute(
+            "SELECT state FROM operations WHERE project=? AND operation=? AND exclusion_target=? "
+            "AND state IN ('pending','unknown') LIMIT 1",
+            (str(project_root()), operation, exclusion_target or target),
+        ).fetchone()
+        if active is not None:
+            return _IdempotencyClaim(False, "operation_" + str(active[0]), "")
+        conn.execute(
+            "INSERT INTO operations(project,key_hash,operation,target,state,response_json,created_at,expires_at,exclusion_target) "
+            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(project,key_hash,operation,target) "
+            "DO UPDATE SET state=excluded.state,response_json='',created_at=excluded.created_at,expires_at=excluded.expires_at",
+            (
+                str(project_root()),
+                key_hash,
+                operation,
+                target,
+                _STATE_PENDING,
+                "",
+                now.isoformat(),
+                expires_at.isoformat(),
+                exclusion_target or target,
+            ),
+        )
+        conn.commit()
+        return _IdempotencyClaim(True, _STATE_PENDING, "")
     finally:
         conn.close()
 
@@ -600,23 +653,32 @@ def _complete_idempotency_claim(
     *, key_hash: str, operation: str, target: str, response: dict[str, Any]
 ) -> None:
     """Mark a claimed identity completed and persist its response for replay."""
+    store = shared_operation_controls()
+    if store is not None:
+        store.finish_idempotency(key_hash, operation, target, _STATE_COMPLETED, response)
+        return
     conn = _idempotency_connection()
     try:
-        conn.execute(
+        changed = conn.execute(
             """
             UPDATE operations
-            SET state = ?, response_json = ?
-            WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+            SET state = ?, response_json = ?, expires_at = ?
+            WHERE project = ? AND key_hash = ? AND operation = ? AND target = ? AND state = 'pending'
             """,
             (
                 _STATE_COMPLETED,
                 json.dumps(response, sort_keys=True),
+                (
+                    datetime.now(UTC) + timedelta(hours=_DEFAULT_IDEMPOTENCY_RETENTION_HOURS)
+                ).isoformat(),
                 str(project_root()),
                 key_hash,
                 operation,
                 target,
             ),
-        )
+        ).rowcount
+        if changed != 1:
+            raise StorageUnavailableError("Operation claim changed before completion")
         conn.commit()
     finally:
         conn.close()
@@ -624,13 +686,17 @@ def _complete_idempotency_claim(
 
 def _mark_idempotency_unknown(*, key_hash: str, operation: str, target: str) -> None:
     """Record an unknown outcome for a claimed identity after a provider failure."""
+    store = shared_operation_controls()
+    if store is not None:
+        store.finish_idempotency(key_hash, operation, target, _STATE_UNKNOWN)
+        return
     conn = _idempotency_connection()
     try:
-        conn.execute(
+        changed = conn.execute(
             """
             UPDATE operations
             SET state = ?
-            WHERE project = ? AND key_hash = ? AND operation = ? AND target = ?
+            WHERE project = ? AND key_hash = ? AND operation = ? AND target = ? AND state = 'pending'
             """,
             (
                 _STATE_UNKNOWN,
@@ -639,7 +705,9 @@ def _mark_idempotency_unknown(*, key_hash: str, operation: str, target: str) -> 
                 operation,
                 target,
             ),
-        )
+        ).rowcount
+        if changed != 1:
+            raise StorageUnavailableError("Operation claim changed before completion")
         conn.commit()
     finally:
         conn.close()
@@ -652,6 +720,9 @@ def idempotency_key_target(idempotency_key: str, operation: str) -> str | None:
     different plan token) before any provider invocation, instead of silently
     claiming a second identity for the same key.
     """
+    store = shared_operation_controls()
+    if store is not None:
+        return store.idempotency_target(_idempotency_hash(idempotency_key), operation)
     conn = _idempotency_connection()
     try:
         row = conn.execute(
@@ -766,6 +837,11 @@ def _migrate_operations_schema(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "ALTER TABLE operations ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'"
             )
+        if "exclusion_target" not in columns:
+            conn.execute(
+                "ALTER TABLE operations ADD COLUMN exclusion_target TEXT NOT NULL DEFAULT ''"
+            )
+            conn.execute("UPDATE operations SET exclusion_target=target")
         conn.commit()
     except BaseException:
         conn.rollback()

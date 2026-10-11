@@ -14,6 +14,7 @@ import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -716,3 +717,103 @@ def test_post_provider_audit_partial_outcome_is_unknown_and_never_replays(
         )
     assert retry.value.detail == {"error": "idempotency_outcome_unknown"}
     assert calls == ["provider"]
+
+
+def test_local_rate_limit_capacity_preserves_live_limits_and_expires(monkeypatch) -> None:
+    """Many new subjects cannot evict a live principal and reset its allowance."""
+    from fastapi import HTTPException
+    from phlo_api.api import operation_controls as controls
+
+    monkeypatch.delenv("PHLO_API_OPERATION_CONTROLS_DB_URL", raising=False)
+    monkeypatch.setenv("PHLO_API_RATE_LIMIT_MUTATION", "1")
+    controls._RATE_LIMITS.clear()
+    clock = [100.0]
+    monkeypatch.setattr(controls, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    try:
+        for index in range(controls.RATE_BUCKET_CAP):
+            controls.enforce_rate_limit(str(index), "bounded")
+        with pytest.raises(HTTPException) as capacity:
+            controls.enforce_rate_limit("overflow", "bounded")
+        assert capacity.value.status_code == 429
+        with pytest.raises(HTTPException):
+            controls.enforce_rate_limit("0", "bounded")
+        assert len(controls._RATE_LIMITS) == controls.RATE_BUCKET_CAP
+        clock[0] += 60.001
+        controls.enforce_rate_limit("overflow", "bounded")
+        assert len(controls._RATE_LIMITS) == 1
+    finally:
+        controls._RATE_LIMITS.clear()
+
+
+def test_local_unknown_excludes_other_keys_and_payloads(monkeypatch, tmp_path) -> None:
+    """Uncertainty fences a resource, not just one actor's request digest."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    def lost_response():
+        raise TimeoutError("Provider response lost")
+
+    with pytest.raises(TimeoutError):
+        replay_or_execute(
+            idempotency_key="first",
+            operation="merge",
+            target="actor-a:payload-a",
+            exclusion_target="prod:main",
+            execute=lost_response,
+        )
+    with pytest.raises(IdempotencyConflict) as conflict:
+        replay_or_execute(
+            idempotency_key="second",
+            operation="merge",
+            target="actor-b:payload-b",
+            exclusion_target="prod:main",
+            execute=lambda: pytest.fail("Repeated uncertain effect"),
+        )
+    assert conflict.value.detail == {"error": "operation_unknown"}
+    with pytest.raises(IdempotencyConflict) as binding:
+        replay_or_execute(
+            idempotency_key="first",
+            operation="merge",
+            target="actor-a:changed-payload",
+            exclusion_target="staging:main",
+            execute=lambda: pytest.fail("Rebound key"),
+        )
+    assert binding.value.detail == {"error": "target_mismatch"}
+
+
+def test_multiworker_local_startup_warns(monkeypatch, caplog) -> None:
+    from phlo_api.api.operation_controls import initialize_operation_controls
+
+    monkeypatch.delenv("PHLO_API_OPERATION_CONTROLS_DB_URL", raising=False)
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    initialize_operation_controls()
+    assert "one worker and one replica" in caplog.text
+
+
+def test_configured_shared_store_never_falls_back_on_outage(monkeypatch, tmp_path) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+    from phlo_api.main import _storage_error_handler
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv(
+        "PHLO_API_OPERATION_CONTROLS_DB_URL", "postgresql://secret:password@127.0.0.1:1/missing"
+    )
+    monkeypatch.setenv("PHLO_API_OPERATION_CONTROLS_NAMESPACE", "outage-proof")
+    app = FastAPI()
+    app.add_exception_handler(StorageUnavailableError, _storage_error_handler)
+
+    @app.post("/mutate")
+    def mutate():
+        return replay_or_execute(
+            idempotency_key="outage",
+            operation="launch",
+            target="job",
+            execute=lambda: pytest.fail("Provider ran without shared storage"),
+        )
+
+    response = TestClient(app).post("/mutate")
+    assert response.status_code == 503
+    assert "password" not in response.text
+    assert "secret" not in response.text
+    assert not (tmp_path / ".phlo" / "state" / "operations.sqlite").exists()

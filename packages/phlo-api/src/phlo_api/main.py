@@ -39,7 +39,9 @@ from fastapi.responses import JSONResponse, Response
 from phlo.config.process import get_process_settings
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.capabilities.discovery import discover_capabilities
-from phlo_api.errors import PhloApiError, error_envelope
+from phlo.plugins.observatory_settings import StorageUnavailableError
+from phlo_api.api.operation_controls import initialize_operation_controls
+from phlo_api.errors import BackendUnavailableError, PhloApiError, error_envelope
 from phlo_api.observatory_api.http_client import lifespan_client
 from phlo_api.regulated_surface_adapter import get_adapter
 from phlo_api.security_manifest import install_manifest_enforcement
@@ -56,6 +58,7 @@ async def _lifespan(application: FastAPI):
 
     store = default_run_evidence_store()
     try:
+        initialize_operation_controls()
         store.initialize()
         application.state.run_evidence_store = store
         async with lifespan_client():
@@ -154,6 +157,14 @@ async def _phlo_api_error_handler(request: Request, exc: PhloApiError) -> JSONRe
     """Serialize typed API errors into the shared envelope and status."""
     del request
     return JSONResponse(status_code=exc.status_code, content=error_envelope(exc))
+
+
+@app.exception_handler(StorageUnavailableError)
+async def _storage_error_handler(request: Request, exc: StorageUnavailableError) -> JSONResponse:
+    """Fail closed without exposing database credentials or driver diagnostics."""
+    del request, exc
+    error = BackendUnavailableError("Durable operation storage is unavailable.")
+    return JSONResponse(status_code=error.status_code, content=error_envelope(error))
 
 
 @app.exception_handler(RequestValidationError)
