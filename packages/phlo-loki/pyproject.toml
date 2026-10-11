@@ -47,6 +47,7 @@ include-package-data = true
 phlo_loki = [
     "service.yaml",
     "loki-config.yml",
+    "loki-setup.yaml",
     "observatory_assets/*",
 ]
 

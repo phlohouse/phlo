@@ -427,35 +427,21 @@ def test_services_start_times_out_when_backend_status_call_hangs(
     assert "Containers were left running for inspection" in result.output
 
 
-def test_get_profile_service_names_returns_profile_services(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    prometheus = _service("prometheus", profile="observability")
-    grafana = _service("grafana", profile="observability")
-    loki = _service("loki", profile="observability")
-    hasura = _service("hasura", profile="api")
-    postgres = _service("postgres", default=True)
-
-    class ProfileFakeDiscovery(FakeDiscovery):
-        def get_services_by_profile(self, profile: str) -> list[ServiceDefinition]:
-            all_services = [prometheus, grafana, loki, hasura, postgres]
-            return [s for s in all_services if s.profile == profile]
-
-    monkeypatch.setattr(
-        "phlo.plugins.discovery.ServiceDiscovery",
-        ProfileFakeDiscovery,
-    )
-
+def test_get_profile_service_names_returns_profile_services() -> None:
+    """Keep the exact bundled profile inventory, including required companions."""
     result = get_profile_service_names(("observability",))
     assert sorted(result) == [
         "alloy",
+        "alloy-docker",
         "clickstack",
         "grafana",
         "loki",
+        "loki-setup",
         "phlo-observer",
         "phlo-observer-db-setup",
         "postgres-exporter",
         "prometheus",
+        "prometheus-setup",
     ]
 
     result = get_profile_service_names(("api",))
@@ -464,10 +450,12 @@ def test_get_profile_service_names_returns_profile_services(
     result = get_profile_service_names(("observability", "api"))
     assert sorted(result) == [
         "alloy",
+        "alloy-docker",
         "clickstack",
         "grafana",
         "hasura",
         "loki",
+        "loki-setup",
         "observatory",
         "phlo-api",
         "phlo-observer",
@@ -475,6 +463,7 @@ def test_get_profile_service_names_returns_profile_services(
         "postgres-exporter",
         "postgrest",
         "prometheus",
+        "prometheus-setup",
     ]
 
     result = get_profile_service_names(())
