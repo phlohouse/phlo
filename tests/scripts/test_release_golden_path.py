@@ -465,7 +465,9 @@ def test_run_report_requires_the_wap_logical_run_id(tmp_path: Path, monkeypatch)
             "Forbidden",
             {},
             Response(
-                json.dumps({"error": "forbidden", "reason": "run_report_scope_mismatch"}).encode()
+                json.dumps(
+                    {"error": {"code": "forbidden", "message": "run_report_scope_mismatch"}}
+                ).encode()
             ),
         )
 
@@ -477,6 +479,8 @@ def test_run_report_requires_the_wap_logical_run_id(tmp_path: Path, monkeypatch)
 
     assert requests[0].get_header("Authorization") == f"Bearer {config.report_token}"
     assert requests[1].get_header("Authorization") == f"Bearer {config.report_token}"
+    assert "/api/v1/projects/" in requests[0].full_url
+    assert "/api/v1/projects/" in requests[1].full_url
 
 
 def test_rejected_wap_report_waits_for_rejection_projection(tmp_path: Path, monkeypatch) -> None:

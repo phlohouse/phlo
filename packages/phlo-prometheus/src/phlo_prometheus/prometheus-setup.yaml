@@ -1,0 +1,13 @@
+name: prometheus-setup
+description: Prepare Prometheus storage for its fixed non-root identity
+category: observability
+default: false
+profile: observability
+image: prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
+compose:
+  restart: "no"
+  user: "0:0"
+  entrypoint: ["/bin/sh", "-ec"]
+  command: ["chown -R 65534:65534 /prometheus"]
+  volumes:
+    - prometheus-data:/prometheus

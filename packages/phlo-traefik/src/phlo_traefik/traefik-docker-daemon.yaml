@@ -1,0 +1,22 @@
+name: traefik-docker
+description: Read-only Docker metadata proxy for Traefik
+category: networking
+default: false
+profile: proxy
+image: haproxy:3.2-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
+networks:
+  traefik-docker:
+    internal: true
+compose:
+  restart: unless-stopped
+  user: "0:0" # Host socket ownership requires root; bounded by the registered waiver.
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [traefik-docker]
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ./traefik/docker-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+files:
+  - source: docker-proxy.cfg
+    dest: traefik/docker-proxy.cfg

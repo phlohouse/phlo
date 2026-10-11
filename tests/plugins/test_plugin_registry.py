@@ -8,7 +8,6 @@ registry. All HTTP is faked.
 """
 
 import json
-import time
 from pathlib import Path
 
 import httpx
@@ -96,8 +95,8 @@ def test_search_plugins_filters(monkeypatch):
 
     registry_client.clear_registry_cache()
     monkeypatch.setattr(registry_client, "get_settings", lambda: DummySettings())
-    registry_client._REGISTRY_CACHE["data"] = sample_registry
-    registry_client._REGISTRY_CACHE["loaded_at"] = time.time()
+    monkeypatch.setattr(registry_client, "_load_registry_from_local", lambda: sample_registry)
+    registry_client.refresh_registry()
 
     results = registry_client.search_plugins(query="alpha")
     assert len(results) == 1
@@ -223,7 +222,7 @@ def test_fetch_registry_respects_cache_ttl_and_avoids_extra_http(monkeypatch):
         payload = first_registry if len(http_calls) == 1 else second_registry
         return FakeResponse(payload)
 
-    timestamps = iter([100.0, 120.0, 200.0])
+    timestamps = iter([100.0, 120.0, 200.0, 200.0])
 
     registry_client.clear_registry_cache()
     monkeypatch.setattr(registry_client, "get_settings", lambda: DummySettings())
@@ -238,3 +237,34 @@ def test_fetch_registry_respects_cache_ttl_and_avoids_extra_http(monkeypatch):
     assert first_fetch["plugins"]["alpha"]["version"] == "1.0.0"
     assert second_fetch["plugins"]["alpha"]["version"] == "1.0.0"
     assert third_fetch["plugins"]["alpha"]["version"] == "2.0.0"
+
+
+def test_outage_fallback_is_not_cached_and_queries_never_fetch(monkeypatch):
+    class Settings:
+        plugin_registry_url = "https://example.com/registry.json"
+        plugin_registry_cache_ttl_seconds = 3600
+        plugin_registry_timeout_seconds = 1
+
+    local = {"plugins": {"local": {"type": "service", "package": "phlo-local"}}}
+    remote = {"plugins": {"remote": {"type": "service", "package": "phlo-remote"}}}
+    replies = iter([httpx.ConnectError("offline"), remote, {"plugins": {"bad": {"package": 2}}}])
+
+    def fetch(*args, **kwargs):
+        reply = next(replies)
+        if isinstance(reply, Exception):
+            raise reply
+        return httpx.Response(
+            200, json=reply, request=httpx.Request("GET", Settings.plugin_registry_url)
+        )
+
+    registry_client.clear_registry_cache()
+    monkeypatch.setattr(registry_client, "get_settings", lambda: Settings())
+    monkeypatch.setattr(registry_client, "_load_registry_from_local", lambda: local)
+    monkeypatch.setattr(registry_client.httpx, "get", fetch)
+    assert registry_client.get_registry_data() == local
+    assert registry_client.fetch_registry() == local
+    assert registry_client.fetch_registry() == remote
+    with pytest.raises(registry_client.RegistryPayloadError):
+        registry_client.refresh_registry()
+    assert registry_client.get_registry_data() == remote
+    registry_client.clear_registry_cache()

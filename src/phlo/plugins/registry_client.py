@@ -1,19 +1,8 @@
-"""Registry client for Phlo plugins.
-
-Fetches the plugin registry with a TTL cache: remote URL first, then a
-bundled local copy as fallback. A fallback result is cached like a remote
-success, so a transient network failure is not retried until the TTL
-expires. Entries are normalized into RegistryPlugin records for lookup and
-search.
-
-Imported across the system: the phlo API, the observatory package-install flow, and the plugin
-CLI commands (install/search/update) all go through it for remote plugin registry access.
-"""
+"""Explicit registry refresh commands and network-free snapshot queries."""
 
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
 from importlib import resources
@@ -25,8 +14,13 @@ import httpx
 
 from phlo.config import get_settings
 from phlo.logging import get_logger
+from phlo.plugins.registry_models import RegistryDocument, RegistryPayloadError, parse_registry
 
 logger = get_logger(__name__)
+
+
+class RegistryUnavailable(RuntimeError):
+    """The remote registry could not be refreshed; the last snapshot is unchanged."""
 
 
 @dataclass(frozen=True)
@@ -45,48 +39,37 @@ class RegistryPlugin:
     core: bool
 
 
-_REGISTRY_CACHE: dict[str, Any] = {
-    "loaded_at": 0.0,
-    "data": None,
-}
+@dataclass
+class _RegistryCache:
+    loaded_at: float = 0.0
+    data: RegistryDocument | None = None
 
 
-def _is_cache_valid(now: float, ttl_seconds: int) -> bool:
-    if not _REGISTRY_CACHE["data"]:
-        return False
-    return (now - _REGISTRY_CACHE["loaded_at"]) < ttl_seconds
+_REGISTRY_CACHE = _RegistryCache()
 
 
 def _plugin_version(package: str) -> str:
-    """Derive a plugin version from installed package metadata.
-
-    The registry carries no hand-maintained version column: package metadata
-    is the single version authority per distribution. A package that is not
-    installed reports an empty version.
-    """
-    if not package:
-        return ""
     try:
         return importlib_metadata.version(package)
     except importlib_metadata.PackageNotFoundError:
         return ""
 
 
-def _normalize_registry(registry: dict[str, Any]) -> list[RegistryPlugin]:
+def _normalize_registry(registry: RegistryDocument) -> list[RegistryPlugin]:
     return [
         RegistryPlugin(
             name=name,
-            type=info.get("type", ""),
-            package=info.get("package", ""),
-            version=_plugin_version(info.get("package", "")),
-            description=info.get("description", ""),
-            author=info.get("author", ""),
-            homepage=info.get("homepage"),
-            tags=list(info.get("tags", [])),
-            verified=bool(info.get("verified", False)),
-            core=bool(info.get("core", False)),
+            type=info.type,
+            package=info.package,
+            version=_plugin_version(info.package),
+            description=info.description,
+            author=info.author,
+            homepage=info.homepage,
+            tags=list(info.tags),
+            verified=info.verified,
+            core=info.core,
         )
-        for name, info in registry.get("plugins", {}).items()
+        for name, info in registry.plugins.items()
     ]
 
 
@@ -96,8 +79,7 @@ def _load_registry_from_package() -> dict[str, Any]:
 
 
 def _load_registry_from_repo() -> dict[str, Any] | None:
-    current = Path(__file__).resolve()
-    for parent in current.parents:
+    for parent in Path(__file__).resolve().parents:
         candidate = parent / "registry" / "plugins.json"
         if candidate.exists():
             return json.loads(candidate.read_text(encoding="utf-8"))
@@ -107,108 +89,85 @@ def _load_registry_from_repo() -> dict[str, Any] | None:
 def _load_registry_from_local() -> dict[str, Any]:
     try:
         return _load_registry_from_package()
-    except Exception as exc:
-        logger.debug("plugin_registry_package_load_failed", error=str(exc), exc_info=True)
-
-    repo_registry = _load_registry_from_repo()
-    if repo_registry:
-        return repo_registry
-
+    except json.JSONDecodeError as exc:
+        raise RegistryPayloadError("Bundled registry must contain JSON.") from exc
+    except (OSError, ModuleNotFoundError) as exc:
+        logger.debug("plugin_registry_package_load_failed", error=str(exc))
+    try:
+        registry = _load_registry_from_repo()
+    except json.JSONDecodeError as exc:
+        raise RegistryPayloadError("Local registry must contain JSON.") from exc
+    if registry is not None:
+        return registry
     raise FileNotFoundError("No bundled registry data found.")
 
 
-def _validate_registry(registry: dict[str, Any]) -> None:
-    if not isinstance(registry, dict) or "plugins" not in registry:
-        raise ValueError("Registry payload missing plugins section.")
-
-
 def clear_registry_cache() -> None:
-    """Clear registry cache (useful for tests)."""
-    _REGISTRY_CACHE["loaded_at"] = 0.0
-    _REGISTRY_CACHE["data"] = None
+    """Clear the successfully refreshed snapshot."""
+    _REGISTRY_CACHE.loaded_at = 0.0
+    _REGISTRY_CACHE.data = None
+
+
+def refresh_registry() -> RegistryDocument:
+    """Refresh the snapshot atomically. Outages never replace a successful snapshot."""
+    settings = get_settings()
+    if settings.plugin_registry_url:
+        try:
+            response = httpx.get(
+                settings.plugin_registry_url, timeout=settings.plugin_registry_timeout_seconds
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RegistryUnavailable("Remote plugin registry is unavailable.") from exc
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise RegistryPayloadError("Remote registry must contain JSON.") from exc
+    else:
+        payload = _load_registry_from_local()
+    document = parse_registry(payload)
+    _REGISTRY_CACHE.data = document
+    _REGISTRY_CACHE.loaded_at = _time()
+    return document
+
+
+def registry_snapshot() -> RegistryDocument:
+    """Query the last successful snapshot, or bundled data. Never performs network I/O."""
+    if _REGISTRY_CACHE.data is not None:
+        return _REGISTRY_CACHE.data
+    return parse_registry(_load_registry_from_local())
 
 
 def fetch_registry(force_refresh: bool = False) -> dict[str, Any]:
-    """
-    Fetch the plugin registry with caching.
-
-    Falls back to bundled registry data if network fetch fails.
-    """
+    """Legacy explicit fetch command with an uncached offline fallback on transport outage."""
     settings = get_settings()
-    ttl_seconds = settings.plugin_registry_cache_ttl_seconds
-    now = _time()
-    started = time.perf_counter()
-    registry_url = settings.plugin_registry_url
-
-    logger.debug(
-        "plugin_registry_fetch_started",
-        force_refresh=force_refresh,
-        has_registry_url=bool(registry_url),
-    )
-
-    if not force_refresh and _is_cache_valid(now, ttl_seconds):
-        logger.debug(
-            "plugin_registry_fetch_completed",
-            source="cache",
-            force_refresh=force_refresh,
-            plugin_count=len(_REGISTRY_CACHE["data"].get("plugins", {})),
-            elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
-        )
-        return _REGISTRY_CACHE["data"]
-
-    registry = None
-    source = "local"
-    if registry_url:
-        try:
-            response = httpx.get(registry_url, timeout=settings.plugin_registry_timeout_seconds)
-            response.raise_for_status()
-            registry = response.json()
-            _validate_registry(registry)
-            source = "remote"
-        except Exception as exc:
-            logger.warning(
-                "plugin_registry_fetch_fallback",
-                registry_url=registry_url,
-                error=str(exc),
-            )
-
-    if registry is None:
-        registry = _load_registry_from_local()
-        _validate_registry(registry)
-        # A local fallback is cached exactly like a remote success, so a
-        # transient network failure is not retried until the TTL expires.
-
-    _REGISTRY_CACHE["loaded_at"] = now
-    _REGISTRY_CACHE["data"] = registry
-    logger.debug(
-        "plugin_registry_fetch_completed",
-        source=source,
-        force_refresh=force_refresh,
-        plugin_count=len(registry.get("plugins", {})),
-        elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
-        cache_ttl_seconds=ttl_seconds,
-    )
-    return registry
+    if (
+        not force_refresh
+        and _REGISTRY_CACHE.data is not None
+        and _time() - _REGISTRY_CACHE.loaded_at < settings.plugin_registry_cache_ttl_seconds
+    ):
+        return _REGISTRY_CACHE.data.model_dump(exclude_unset=True)
+    try:
+        document = refresh_registry()
+    except RegistryUnavailable:
+        logger.warning("plugin_registry_fetch_fallback", source="local")
+        document = registry_snapshot()
+    return document.model_dump(exclude_unset=True)
 
 
 def list_registry_plugins() -> list[RegistryPlugin]:
-    """Return all registry plugins as normalized entries."""
-    registry = fetch_registry()
-    return _normalize_registry(registry)
+    """Query normalized entries without refreshing the registry."""
+    return _normalize_registry(registry_snapshot())
 
 
 def get_registry_data() -> dict[str, Any]:
-    """Return raw registry data payload."""
-    return fetch_registry()
+    """Query a serializable snapshot without refreshing the registry."""
+    return registry_snapshot().model_dump(exclude_unset=True)
 
 
 def get_plugin(name: str) -> RegistryPlugin | None:
-    """Return a single plugin entry by name."""
-    registry = fetch_registry()
-    info = registry.get("plugins", {}).get(name)
-    if not info:
-        return None
-    return _normalize_registry({"plugins": {name: info}})[0]
+    """Query a single entry by name without refreshing the registry."""
+    return next((plugin for plugin in list_registry_plugins() if plugin.name == name), None)
 
 
 def search_plugins(
@@ -216,18 +175,15 @@ def search_plugins(
     plugin_type: str | None = None,
     tags: list[str] | None = None,
 ) -> list[RegistryPlugin]:
-    """Search registry plugins by name, description, type, or tags."""
+    """Search the current snapshot by name, description, type, or tags."""
     plugins = list_registry_plugins()
-
     if plugin_type:
         plugins = [plugin for plugin in plugins if plugin.type == plugin_type]
-
     if tags:
         tag_set = {tag.lower() for tag in tags}
         plugins = [
             plugin for plugin in plugins if tag_set.issubset({tag.lower() for tag in plugin.tags})
         ]
-
     if query:
         query_lower = query.lower()
         plugins = [
@@ -237,5 +193,4 @@ def search_plugins(
                 query_lower in text.lower() for text in (p.name, p.description, p.package, *p.tags)
             )
         ]
-
     return plugins

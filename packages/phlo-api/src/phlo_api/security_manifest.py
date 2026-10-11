@@ -346,7 +346,12 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
-        ("v1_query_result", "v1_query_csv", "v1_saved_queries"),
+        ("v1_datasets",),
+        action=CanonicalAction.DATASET_READ.value,
+        resource_type="project",
+    ),
+    *_specs(
+        ("v1_query_result", "v1_query_csv", "v1_saved_queries", "v1_query_history"),
         action=CanonicalAction.DATASET_READ.value,
         resource_type="project",
         resource_keys=("env",),
@@ -610,7 +615,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_keys=("run_id",),
     ),
     *_specs(
-        ("get_observatory_run_report",),
+        ("get_observatory_run_report", "v1_run_report"),
         action=CanonicalAction.RUN_READ.value,
         resource_type="run",
         resource_keys=("project_id", "run_id", "attempt"),
@@ -1055,7 +1060,7 @@ def _enforce_scoped_run_report_service_identity(
 ) -> None:
     """Bind a deliberately run-scoped service token to its one report resource."""
     if (
-        spec.operation_name != "get_observatory_run_report"
+        spec.operation_name not in {"get_observatory_run_report", "v1_run_report"}
         or principal.principal_type != "service"
         or RUN_REPORT_RESOURCE_ID_ATTRIBUTE not in principal.attributes
     ):
@@ -1134,6 +1139,7 @@ def _validate_v1_principal_and_selection(
     if (
         principal.principal_type == "service"
         and RUN_REPORT_RESOURCE_ID_ATTRIBUTE in principal.attributes
+        and spec.operation_name != "v1_run_report"
     ):
         raise HTTPException(
             status_code=403, detail={"error": "forbidden", "reason": "run_report_scope_mismatch"}

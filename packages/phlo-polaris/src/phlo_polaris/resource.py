@@ -36,6 +36,10 @@ class PolarisResource:
 
     def _auth(self) -> tuple[str, str]:
         client_id, _, client_secret = self.settings.polaris_root_credentials.partition(":")
+        if not client_id or not client_secret:
+            raise ValueError(
+                "Polaris root credentials are missing or invalid; run phlo services init"
+            )
         return client_id, client_secret
 
     def _token(self) -> str:
@@ -43,10 +47,10 @@ class PolarisResource:
 
         The management API does not accept HTTP basic; principals
         authenticate against the OAuth2 token endpoint like any Iceberg REST
-        client. Polaris prints one-time root credentials to its startup log
-        (persistence is in-memory, so they rotate per boot).
+        client. The realm setup container provisions the persisted root
+        credential without rotating an existing realm.
         """
-        client_id, _, client_secret = self.settings.polaris_root_credentials.partition(":")
+        client_id, client_secret = self._auth()
         if self._cached_token:
             return self._cached_token
         response = requests.post(
