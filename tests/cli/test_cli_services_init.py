@@ -1667,6 +1667,29 @@ def test_services_init_writes_env_defaults_as_utf8_with_non_ascii_descriptions(
     env_secrets_path(phlo_dir).read_bytes().decode("utf-8")
 
 
+@pytest.mark.parametrize(
+    ("flags", "message"),
+    [
+        (["--dev", "--no-dev"], "Cannot specify both --dev and --no-dev"),
+        (["--service-dev", "--no-dev"], "Cannot specify both --service-dev and --no-dev"),
+        (["--production", "--dev"], "Production cannot be combined"),
+        (["--dev", "--phlo-source", "missing-source"], "--phlo-source must point"),
+    ],
+)
+def test_services_init_rejects_invalid_dev_modes_without_generating_files(
+    monkeypatch, tmp_path, flags, message
+) -> None:
+    from phlo.cli.commands.services.init import init_cmd
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "missing-source").mkdir()
+    result = CliRunner().invoke(init_cmd, flags)
+
+    assert result.exit_code == 1
+    assert message in result.output
+    assert not (tmp_path / ".phlo" / "docker-compose.yml").exists()
+
+
 def test_regenerate_compose_writes_env_defaults_as_utf8_with_non_ascii_descriptions(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

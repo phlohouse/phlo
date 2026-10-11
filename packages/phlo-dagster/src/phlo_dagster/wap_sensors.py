@@ -53,7 +53,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import dagster as dg
-
+from phlo._attempt import attempt_from_tags
 from phlo._correlation import ProjectIdentity, resolve_project_identity
 from phlo.capabilities.interfaces import (
     IndependentReviewRequired,
@@ -62,10 +62,9 @@ from phlo.capabilities.interfaces import (
     VersionedCatalog,
 )
 from phlo.capabilities.resolver import resolve_capability
-from phlo._attempt import attempt_from_tags
+from phlo.config import get_settings
 from phlo.hooks import HookCorrelation, QualityResultEvent, get_hook_bus
 from phlo.logging import get_logger
-from phlo.config import get_settings
 from phlo.plugins.observatory_settings import StorageUnavailableError, get_operational_settings
 from phlo.run_evidence import (
     RequiredEvidenceProfile,
@@ -73,6 +72,7 @@ from phlo.run_evidence import (
     default_run_evidence_store,
     emit_observation,
 )
+
 from phlo_dagster.run_evidence import DagsterRunEvidenceSource
 from phlo_dagster.settings import WapSensorSettings
 from phlo_dagster.wap_launch import (
@@ -1084,7 +1084,7 @@ def _finalize_wap_promotion(
     minimum_interval_seconds=DEFAULT_PROMOTION_INTERVAL_SECONDS,
     default_status=dg.DefaultSensorStatus.RUNNING,
 )
-def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):  # noqa: C901
+def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
     """Merge pipeline branches whose runs succeeded with all checks passing.
 
     Scans terminal runs tagged with a WAP branch. Failed and cancelled runs
@@ -1136,417 +1136,11 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):  # noqa: C90
     blocked = 0
 
     for run in terminal_runs:
-        run_tags = run.tags or {}
-        branch_name = run_tags.get(WAP_TAG_KEY)
-        if not branch_name:
-            continue
-
-        if not _is_owned_wap_branch(branch_name):
-            logger.warning(
-                "wap_promotion_skipped_unowned_ref",
-                run_id=run.run_id,
-                branch_name=branch_name,
-            )
-            continue
-
-        # Written only after the full promote-and-cleanup sequence succeeds,
-        # so its presence means later ticks must not reprocess this run.
-        if run_tags.get("phlo/wap_promoted"):
-            continue
-
-        manifest = _verify_wap_launch_manifest(run, branch_name)
-        if manifest is None:
-            logical_run_id = _logical_run_id(run)
-            if logical_run_id:
-                write_wap_report(
-                    logical_run_id,
-                    status="promotion_blocked",
-                    branch=branch_name,
-                    failure_reason="launch_manifest_or_immutable_tags_invalid",
-                )
-            logger.warning(
-                "wap_promotion_blocked_launch_manifest_invalid",
-                run_id=run.run_id,
-                branch_name=branch_name,
-            )
-            blocked += 1
-            continue
-
-        manifest_logical_run_id, manifest_payload = manifest
-        # Fail closed on configuration drift: a run launched under a different
-        # strategy must never be advanced with the wrong catalog contract.
-        report_strategy = manifest_payload.get("strategy", WAP_STRATEGY_BRANCH)
-        if report_strategy != configured_strategy:
-            write_wap_report(
-                manifest_logical_run_id,
-                status="promotion_blocked",
-                branch=branch_name,
-                failure_reason="wap_strategy_mismatch",
-            )
-            logger.warning(
-                "wap_promotion_blocked_strategy_mismatch",
-                run_id=run.run_id,
-                branch_name=branch_name,
-                report_strategy=report_strategy,
-                configured_strategy=configured_strategy,
-            )
-            blocked += 1
-            continue
-
-        run_status = _normalized_dagster_status(run)
-        if run_status in {"failed", "cancelled"}:
-            # Failed WAP runs are audit artifacts, like quality-rejected
-            # runs. The cleanup sensor owns their eventual removal after its
-            # retention period; promotion must never clean them up eagerly.
-            if not write_wap_report(
-                _logical_run_id(run),
-                status=run_status,
-                branch=branch_name,
-                dagster_run_id=run.run_id,
-                failure_reason=f"dagster_run_{run_status}",
-            ):
-                logger.warning("wap_terminal_run_report_write_failed", run_id=run.run_id)
-                continue
-            blocked += 1
-            logger.info(
-                "wap_promotion_skipped_terminal_failed_run_branch_retained",
-                run_id=run.run_id,
-                branch_name=branch_name,
-                run_status=run_status,
-            )
-            continue
-
-        if not _all_checks_passed(instance, run.run_id):
-            quality_decision_id, quality_metadata = _quality_evidence(
-                run.run_id,
-                instance,
-                project_id=_project_id_for_run(run),
-                attempt=_attempt_for_run(run),
-                evidence_run_id=_logical_run_id(run),
-            )
-            if quality_decision_id is None:
-                write_wap_report(
-                    _logical_run_id(run),
-                    status="promotion_blocked",
-                    branch=branch_name,
-                    target_branch="main",
-                    failure_reason="quality_evidence_unavailable",
-                )
-                _emit_wap_observation(
-                    run=run,
-                    status="incomplete",
-                    run_status="success",
-                    operation="promotion",
-                    catalog_ref="main",
-                    source_hash=_branch_hash(catalog, branch_name),
-                    target_hash=_branch_hash(catalog, "main"),
-                    merge_outcome="skipped_quality_evidence_unavailable",
-                    metadata={
-                        **quality_metadata,
-                        "changed_content_keys": {"status": "unavailable"},
-                    },
-                )
-                blocked += 1
-                continue
-            write_wap_report(
-                _logical_run_id(run),
-                status="promotion_blocked",
-                branch=branch_name,
-                source_hash=_branch_hash(catalog, branch_name),
-                target_branch="main",
-                target_hash_before=_branch_hash(catalog, "main"),
-                failure_reason="asset_checks_failed",
-            )
-            _emit_wap_observation(
-                run=run,
-                status="rejected",
-                run_status="success",
-                operation="promotion",
-                catalog_ref="main",
-                source_hash=_branch_hash(catalog, branch_name),
-                target_hash=_branch_hash(catalog, "main"),
-                merge_outcome="rejected_quality",
-                quality_decision_id=quality_decision_id,
-                metadata={
-                    **quality_metadata,
-                    "changed_content_keys": {"status": "unavailable"},
-                },
-            )
-            blocked += 1
-            logger.info(
-                "wap_promotion_blocked_quality_branch_retained",
-                run_id=run.run_id,
-                branch_name=branch_name,
-            )
-            continue
-
-        quality_decision_id, quality_metadata = _quality_evidence(
-            run.run_id,
-            instance,
-            project_id=_project_id_for_run(run),
-            attempt=_attempt_for_run(run),
-            evidence_run_id=_logical_run_id(run),
+        run_promoted, run_blocked = _promote_terminal_run(
+            run, instance, configured_strategy, catalog, query_catalog_manager
         )
-        if quality_decision_id is None:
-            write_wap_report(
-                _logical_run_id(run),
-                status="promotion_blocked",
-                branch=branch_name,
-                target_branch="main",
-                failure_reason="quality_evidence_unavailable",
-            )
-            _emit_wap_observation(
-                run=run,
-                status="incomplete",
-                run_status="success",
-                operation="promotion",
-                catalog_ref="main",
-                source_hash=_branch_hash(catalog, branch_name),
-                target_hash=_branch_hash(catalog, "main"),
-                merge_outcome="skipped_quality_evidence_unavailable",
-                metadata={**quality_metadata, "changed_content_keys": {"status": "unavailable"}},
-            )
-            blocked += 1
-            continue
-
-        logical_run_id = _logical_run_id(run)
-        prior_report = _read_wap_report(logical_run_id)
-        merge_message = None
-        if not prior_report or prior_report.get("merge_state") != "merged":
-            try:
-                governance = get_operational_settings()
-            except StorageUnavailableError:
-                write_wap_report(
-                    logical_run_id,
-                    status="promotion_blocked",
-                    branch=branch_name,
-                    failure_reason="governance_settings_unavailable",
-                )
-                blocked += 1
-                continue
-            if governance.second_gold_reviewer:
-                # Neither catalog strategy can prove non-gold classification
-                # or carry independent human review. Do not persist merge intent.
-                write_wap_report(
-                    logical_run_id,
-                    status="promotion_blocked",
-                    branch=branch_name,
-                    failure_reason="independent_gold_review_required",
-                    review_required=True,
-                    settings_revision=governance.settings_revision,
-                    review_message="Automatic promotion cannot prove non-gold content. "
-                    "Retain the branch and use an operator-reviewed promotion process.",
-                )
-                blocked += 1
-                continue
-            if governance.require_merge_reason:
-                merge_message = f"Publish validated WAP run {logical_run_id}: all required quality checks passed."
-        if report_strategy == WAP_STRATEGY_SNAPSHOT:
-            advance = _advance_snapshot_promotion(
-                catalog=catalog,
-                run=run,
-                branch_name=branch_name,
-                logical_run_id=logical_run_id,
-                prior_report=prior_report,
-                quality_decision_id=quality_decision_id,
-                quality_metadata=quality_metadata,
-            )
-            if advance is None:
-                continue
-            if _finalize_wap_promotion(
-                run,
-                instance,
-                logical_run_id=logical_run_id,
-                branch_name=branch_name,
-                source_hash=advance["source_hash"],
-                target_hash_before=advance["target_hash_before"],
-                target_hash_after=advance["target_hash_after"],
-                source_deleted=advance["source_deleted"],
-                target_catalog_ref=f"release:{logical_run_id}",
-            ):
-                promoted += 1
-                logger.info(
-                    "wap_candidate_promoted",
-                    run_id=run.run_id,
-                    branch_name=branch_name,
-                )
-            continue
-        source_hash = _branch_hash(catalog, branch_name)
-        target_hash_before = _branch_hash(catalog, "main")
-        already_merged = prior_report is not None and prior_report.get("merge_state") == "merged"
-        merge_started = (
-            prior_report is not None and prior_report.get("merge_state") == "merge_started"
-        )
-        if already_merged and prior_report is not None:
-            source_hash = prior_report.get("source_hash") or source_hash
-            target_hash_before = prior_report.get("target_hash_before") or target_hash_before
-            merged = True
-        elif merge_started:
-            # Intent alone cannot distinguish a rejected merge from a committed
-            # merge whose acknowledgement was lost. Target movement may belong
-            # to another writer; retain the source until a receipt is available.
-            write_wap_report(
-                logical_run_id,
-                status="promotion_pending",
-                failure_reason="merge_outcome_unknown",
-            )
-            logger.warning(
-                "wap_promotion_merge_recovery_required",
-                run_id=run.run_id,
-                branch_name=branch_name,
-            )
-            continue
-        else:
-            # Persist intent before crossing the catalog boundary.  This is a
-            # retry record, not a terminal promotion marker.
-            if not write_wap_report(
-                logical_run_id,
-                status="promotion_pending",
-                merge_state="merge_started",
-                branch=branch_name,
-                source_hash=source_hash,
-                target_branch="main",
-                target_hash_before=target_hash_before,
-            ):
-                logger.warning("wap_promotion_outbox_write_failed", run_id=run.run_id)
-                continue
-            try:
-                if merge_message is not None:
-                    merged = catalog.merge_branch(
-                        source=branch_name, target="main", message=merge_message
-                    )
-                else:
-                    merged = catalog.merge_branch(source=branch_name, target="main")
-            except IndependentReviewRequired as exc:
-                write_wap_report(
-                    logical_run_id,
-                    status="promotion_blocked",
-                    merge_state="review_required",
-                    branch=branch_name,
-                    failure_reason="independent_gold_review_required",
-                    review_required=True,
-                    review_message=str(exc),
-                )
-                blocked += 1
-                continue
-        if not merged:
-            write_wap_report(
-                logical_run_id,
-                status="promotion_failed",
-                merge_state="merge_failed",
-                branch=branch_name,
-                source_hash=source_hash,
-                target_branch="main",
-                target_hash_before=target_hash_before,
-                failure_reason="merge_branch_returned_false",
-            )
-            quality_decision_id, quality_metadata = _quality_evidence(
-                run.run_id,
-                instance,
-                project_id=_project_id_for_run(run),
-                attempt=_attempt_for_run(run),
-                evidence_run_id=_logical_run_id(run),
-            )
-            _emit_wap_observation(
-                run=run,
-                status="failed",
-                run_status="success",
-                operation="promotion",
-                catalog_ref="main",
-                source_hash=source_hash,
-                target_hash=target_hash_before,
-                merge_outcome="failed",
-                quality_decision_id=quality_decision_id,
-                metadata={
-                    **quality_metadata,
-                    "changed_content_keys": {"status": "unavailable"},
-                },
-            )
-            logger.error(
-                "wap_promotion_merge_failed",
-                run_id=run.run_id,
-                branch_name=branch_name,
-            )
-            continue
-
-        target_hash_after = _branch_hash(catalog, "main")
-        # This acknowledged transition is what makes a subsequent sensor
-        # evaluation replay evidence/cleanup rather than invoke merge again.
-        if not already_merged and not write_wap_report(
-            logical_run_id,
-            status="promotion_pending",
-            merge_state="merged",
-            branch=branch_name,
-            source_hash=source_hash,
-            target_branch="main",
-            target_hash_before=target_hash_before,
-            target_hash_after=target_hash_after,
-        ):
-            logger.warning("wap_promotion_merge_receipt_write_failed", run_id=run.run_id)
-            continue
-        source_deleted = bool(prior_report and prior_report.get("source_deleted"))
-        if already_merged and not source_deleted:
-            # A deleted ref is an idempotent cleanup success.  In particular,
-            # do not turn a crash after cleanup into an endless retry because
-            # providers correctly reject deletion of an absent branch.
-            source_deleted = _branch_hash(catalog, branch_name) is None
-        if not source_deleted:
-            source_deleted = _cleanup_owned_wap_branch(
-                catalog,
-                branch_name,
-                query_catalog_manager,
-            )
-        if not source_deleted:
-            write_wap_report(
-                logical_run_id,
-                status="promotion_pending",
-                merge_state="merged",
-                branch=branch_name,
-                source_hash=source_hash,
-                target_branch="main",
-                target_hash_before=target_hash_before,
-                target_hash_after=target_hash_after,
-                source_deleted=False,
-            )
-            logger.warning(
-                "wap_promotion_cleanup_pending", run_id=run.run_id, branch_name=branch_name
-            )
-            continue
-        # Checkpoint cleanup independently of the terminal report.  A retry
-        # after reconciliation or tag failure must not try to delete it again.
-        if not write_wap_report(
-            logical_run_id,
-            status="promotion_pending",
-            merge_state="merged",
-            branch=branch_name,
-            source_hash=source_hash,
-            target_branch="main",
-            target_hash_before=target_hash_before,
-            target_hash_after=target_hash_after,
-            source_deleted=True,
-        ):
-            logger.warning("wap_promotion_cleanup_receipt_write_failed", run_id=run.run_id)
-            continue
-        if not _reconcile_promoted_wap_run(run, instance):
-            logger.warning("wap_promotion_reconciliation_pending", run_id=run.run_id)
-            continue
-        if _finalize_wap_promotion(
-            run,
-            instance,
-            logical_run_id=logical_run_id,
-            branch_name=branch_name,
-            source_hash=source_hash,
-            target_hash_before=target_hash_before,
-            target_hash_after=target_hash_after,
-            source_deleted=source_deleted,
-            target_catalog_ref="main",
-        ):
-            promoted += 1
-            logger.info(
-                "wap_branch_promoted",
-                run_id=run.run_id,
-                branch_name=branch_name,
-            )
+        promoted += run_promoted
+        blocked += run_blocked
 
     if promoted or blocked:
         logger.info(
@@ -1953,3 +1547,511 @@ def get_wap_definitions() -> dg.Definitions:
             cleanup_sensor,
         ],
     )
+
+
+def _promote_terminal_run(run, instance, configured_strategy, catalog, query_catalog_manager):
+    promoted = blocked = 0
+    run_tags = run.tags or {}
+    branch_name = run_tags.get(WAP_TAG_KEY)
+    if not branch_name:
+        return (promoted, blocked)
+
+    if not _is_owned_wap_branch(branch_name):
+        logger.warning(
+            "wap_promotion_skipped_unowned_ref",
+            run_id=run.run_id,
+            branch_name=branch_name,
+        )
+        return (promoted, blocked)
+
+    # Written only after the full promote-and-cleanup sequence succeeds,
+    # so its presence means later ticks must not reprocess this run.
+    if run_tags.get("phlo/wap_promoted"):
+        return (promoted, blocked)
+
+    manifest = _verify_wap_launch_manifest(run, branch_name)
+    if manifest is None:
+        logical_run_id = _logical_run_id(run)
+        if logical_run_id:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_blocked",
+                branch=branch_name,
+                failure_reason="launch_manifest_or_immutable_tags_invalid",
+            )
+        logger.warning(
+            "wap_promotion_blocked_launch_manifest_invalid",
+            run_id=run.run_id,
+            branch_name=branch_name,
+        )
+        blocked += 1
+        return (promoted, blocked)
+
+    manifest_logical_run_id, manifest_payload = manifest
+    # Fail closed on configuration drift: a run launched under a different
+    # strategy must never be advanced with the wrong catalog contract.
+    report_strategy = manifest_payload.get("strategy", WAP_STRATEGY_BRANCH)
+    if report_strategy != configured_strategy:
+        write_wap_report(
+            manifest_logical_run_id,
+            status="promotion_blocked",
+            branch=branch_name,
+            failure_reason="wap_strategy_mismatch",
+        )
+        logger.warning(
+            "wap_promotion_blocked_strategy_mismatch",
+            run_id=run.run_id,
+            branch_name=branch_name,
+            report_strategy=report_strategy,
+            configured_strategy=configured_strategy,
+        )
+        blocked += 1
+        return (promoted, blocked)
+
+    run_status = _normalized_dagster_status(run)
+    if run_status in {"failed", "cancelled"}:
+        # Failed WAP runs are audit artifacts, like quality-rejected
+        # runs. The cleanup sensor owns their eventual removal after its
+        # retention period; promotion must never clean them up eagerly.
+        if not write_wap_report(
+            _logical_run_id(run),
+            status=run_status,
+            branch=branch_name,
+            dagster_run_id=run.run_id,
+            failure_reason=f"dagster_run_{run_status}",
+        ):
+            logger.warning("wap_terminal_run_report_write_failed", run_id=run.run_id)
+            return (promoted, blocked)
+        blocked += 1
+        logger.info(
+            "wap_promotion_skipped_terminal_failed_run_branch_retained",
+            run_id=run.run_id,
+            branch_name=branch_name,
+            run_status=run_status,
+        )
+        return (promoted, blocked)
+
+    if not _all_checks_passed(instance, run.run_id):
+        quality_decision_id, quality_metadata = _quality_evidence(
+            run.run_id,
+            instance,
+            project_id=_project_id_for_run(run),
+            attempt=_attempt_for_run(run),
+            evidence_run_id=_logical_run_id(run),
+        )
+        if quality_decision_id is None:
+            write_wap_report(
+                _logical_run_id(run),
+                status="promotion_blocked",
+                branch=branch_name,
+                target_branch="main",
+                failure_reason="quality_evidence_unavailable",
+            )
+            _emit_wap_observation(
+                run=run,
+                status="incomplete",
+                run_status="success",
+                operation="promotion",
+                catalog_ref="main",
+                source_hash=_branch_hash(catalog, branch_name),
+                target_hash=_branch_hash(catalog, "main"),
+                merge_outcome="skipped_quality_evidence_unavailable",
+                metadata={
+                    **quality_metadata,
+                    "changed_content_keys": {"status": "unavailable"},
+                },
+            )
+            blocked += 1
+            return (promoted, blocked)
+        write_wap_report(
+            _logical_run_id(run),
+            status="promotion_blocked",
+            branch=branch_name,
+            source_hash=_branch_hash(catalog, branch_name),
+            target_branch="main",
+            target_hash_before=_branch_hash(catalog, "main"),
+            failure_reason="asset_checks_failed",
+        )
+        _emit_wap_observation(
+            run=run,
+            status="rejected",
+            run_status="success",
+            operation="promotion",
+            catalog_ref="main",
+            source_hash=_branch_hash(catalog, branch_name),
+            target_hash=_branch_hash(catalog, "main"),
+            merge_outcome="rejected_quality",
+            quality_decision_id=quality_decision_id,
+            metadata={
+                **quality_metadata,
+                "changed_content_keys": {"status": "unavailable"},
+            },
+        )
+        blocked += 1
+        logger.info(
+            "wap_promotion_blocked_quality_branch_retained",
+            run_id=run.run_id,
+            branch_name=branch_name,
+        )
+        return (promoted, blocked)
+
+    quality_decision_id, quality_metadata = _quality_evidence(
+        run.run_id,
+        instance,
+        project_id=_project_id_for_run(run),
+        attempt=_attempt_for_run(run),
+        evidence_run_id=_logical_run_id(run),
+    )
+    if quality_decision_id is None:
+        write_wap_report(
+            _logical_run_id(run),
+            status="promotion_blocked",
+            branch=branch_name,
+            target_branch="main",
+            failure_reason="quality_evidence_unavailable",
+        )
+        _emit_wap_observation(
+            run=run,
+            status="incomplete",
+            run_status="success",
+            operation="promotion",
+            catalog_ref="main",
+            source_hash=_branch_hash(catalog, branch_name),
+            target_hash=_branch_hash(catalog, "main"),
+            merge_outcome="skipped_quality_evidence_unavailable",
+            metadata={**quality_metadata, "changed_content_keys": {"status": "unavailable"}},
+        )
+        blocked += 1
+        return (promoted, blocked)
+    return _promote_validated_run(
+        run,
+        instance,
+        configured_strategy,
+        catalog,
+        query_catalog_manager,
+        branch_name,
+        report_strategy,
+        quality_decision_id,
+        quality_metadata,
+    )
+
+
+def _promotion_review_policy(
+    *, second_gold_reviewer: bool, require_merge_reason: bool, logical_run_id: str | None
+) -> tuple[bool, str | None]:
+    """Require independent review before constructing an automatic merge reason."""
+    if second_gold_reviewer:
+        return True, None
+    if require_merge_reason:
+        return (
+            False,
+            f"Publish validated WAP run {logical_run_id}: all required quality checks passed.",
+        )
+    return False, None
+
+
+def _promote_validated_run(
+    run,
+    instance,
+    configured_strategy,
+    catalog,
+    query_catalog_manager,
+    branch_name,
+    report_strategy,
+    quality_decision_id,
+    quality_metadata,
+):
+    promoted = blocked = 0
+
+    logical_run_id = _logical_run_id(run)
+    prior_report = _read_wap_report(logical_run_id)
+    merge_message = None
+    if not prior_report or prior_report.get("merge_state") != "merged":
+        try:
+            governance = get_operational_settings()
+        except StorageUnavailableError:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_blocked",
+                branch=branch_name,
+                failure_reason="governance_settings_unavailable",
+            )
+            blocked += 1
+            return (promoted, blocked)
+        review_required, merge_message = _promotion_review_policy(
+            second_gold_reviewer=governance.second_gold_reviewer,
+            require_merge_reason=governance.require_merge_reason,
+            logical_run_id=logical_run_id,
+        )
+        if review_required:
+            # Neither catalog strategy can prove non-gold classification
+            # or carry independent human review. Do not persist merge intent.
+            write_wap_report(
+                logical_run_id,
+                status="promotion_blocked",
+                branch=branch_name,
+                failure_reason="independent_gold_review_required",
+                review_required=True,
+                settings_revision=governance.settings_revision,
+                review_message="Automatic promotion cannot prove non-gold content. "
+                "Retain the branch and use an operator-reviewed promotion process.",
+            )
+            blocked += 1
+            return (promoted, blocked)
+    if report_strategy == WAP_STRATEGY_SNAPSHOT:
+        advance = _advance_snapshot_promotion(
+            catalog=catalog,
+            run=run,
+            branch_name=branch_name,
+            logical_run_id=logical_run_id,
+            prior_report=prior_report,
+            quality_decision_id=quality_decision_id,
+            quality_metadata=quality_metadata,
+        )
+        if advance is None:
+            return (promoted, blocked)
+        if _finalize_wap_promotion(
+            run,
+            instance,
+            logical_run_id=logical_run_id,
+            branch_name=branch_name,
+            source_hash=advance["source_hash"],
+            target_hash_before=advance["target_hash_before"],
+            target_hash_after=advance["target_hash_after"],
+            source_deleted=advance["source_deleted"],
+            target_catalog_ref=f"release:{logical_run_id}",
+        ):
+            promoted += 1
+            logger.info(
+                "wap_candidate_promoted",
+                run_id=run.run_id,
+                branch_name=branch_name,
+            )
+        return (promoted, blocked)
+    return _promote_branch(
+        run,
+        instance,
+        catalog,
+        query_catalog_manager,
+        branch_name,
+        logical_run_id,
+        prior_report,
+        quality_decision_id,
+        quality_metadata,
+        merge_message,
+    )
+
+
+def _promote_branch(
+    run,
+    instance,
+    catalog,
+    query_catalog_manager,
+    branch_name,
+    logical_run_id,
+    prior_report,
+    quality_decision_id,
+    quality_metadata,
+    merge_message,
+):
+    promoted = blocked = 0
+    source_hash = _branch_hash(catalog, branch_name)
+    target_hash_before = _branch_hash(catalog, "main")
+    already_merged = prior_report is not None and prior_report.get("merge_state") == "merged"
+    merge_started = prior_report is not None and prior_report.get("merge_state") == "merge_started"
+    if already_merged and prior_report is not None:
+        source_hash = prior_report.get("source_hash") or source_hash
+        target_hash_before = prior_report.get("target_hash_before") or target_hash_before
+        merged = True
+    elif merge_started:
+        # Intent alone cannot distinguish a rejected merge from a committed
+        # merge whose acknowledgement was lost. Target movement may belong
+        # to another writer; retain the source until a receipt is available.
+        write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            failure_reason="merge_outcome_unknown",
+        )
+        logger.warning(
+            "wap_promotion_merge_recovery_required",
+            run_id=run.run_id,
+            branch_name=branch_name,
+        )
+        return (promoted, blocked)
+    else:
+        # Persist intent before crossing the catalog boundary.  This is a
+        # retry record, not a terminal promotion marker.
+        if not write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            merge_state="merge_started",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+        ):
+            logger.warning("wap_promotion_outbox_write_failed", run_id=run.run_id)
+            return (promoted, blocked)
+        try:
+            if merge_message is not None:
+                merged = catalog.merge_branch(
+                    source=branch_name, target="main", message=merge_message
+                )
+            else:
+                merged = catalog.merge_branch(source=branch_name, target="main")
+        except IndependentReviewRequired as exc:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_blocked",
+                merge_state="review_required",
+                branch=branch_name,
+                failure_reason="independent_gold_review_required",
+                review_required=True,
+                review_message=str(exc),
+            )
+            blocked += 1
+            return (promoted, blocked)
+    if not merged:
+        write_wap_report(
+            logical_run_id,
+            status="promotion_failed",
+            merge_state="merge_failed",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+            failure_reason="merge_branch_returned_false",
+        )
+        quality_decision_id, quality_metadata = _quality_evidence(
+            run.run_id,
+            instance,
+            project_id=_project_id_for_run(run),
+            attempt=_attempt_for_run(run),
+            evidence_run_id=_logical_run_id(run),
+        )
+        _emit_wap_observation(
+            run=run,
+            status="failed",
+            run_status="success",
+            operation="promotion",
+            catalog_ref="main",
+            source_hash=source_hash,
+            target_hash=target_hash_before,
+            merge_outcome="failed",
+            quality_decision_id=quality_decision_id,
+            metadata={
+                **quality_metadata,
+                "changed_content_keys": {"status": "unavailable"},
+            },
+        )
+        logger.error(
+            "wap_promotion_merge_failed",
+            run_id=run.run_id,
+            branch_name=branch_name,
+        )
+        return (promoted, blocked)
+    return _finish_branch_promotion(
+        run,
+        instance,
+        catalog,
+        query_catalog_manager,
+        branch_name,
+        logical_run_id,
+        prior_report,
+        source_hash,
+        target_hash_before,
+        already_merged,
+    )
+
+
+def _finish_branch_promotion(
+    run,
+    instance,
+    catalog,
+    query_catalog_manager,
+    branch_name,
+    logical_run_id,
+    prior_report,
+    source_hash,
+    target_hash_before,
+    already_merged,
+):
+    promoted = blocked = 0
+
+    target_hash_after = _branch_hash(catalog, "main")
+    # This acknowledged transition is what makes a subsequent sensor
+    # evaluation replay evidence/cleanup rather than invoke merge again.
+    if not already_merged and not write_wap_report(
+        logical_run_id,
+        status="promotion_pending",
+        merge_state="merged",
+        branch=branch_name,
+        source_hash=source_hash,
+        target_branch="main",
+        target_hash_before=target_hash_before,
+        target_hash_after=target_hash_after,
+    ):
+        logger.warning("wap_promotion_merge_receipt_write_failed", run_id=run.run_id)
+        return (promoted, blocked)
+    source_deleted = bool(prior_report and prior_report.get("source_deleted"))
+    if already_merged and not source_deleted:
+        # A deleted ref is an idempotent cleanup success.  In particular,
+        # do not turn a crash after cleanup into an endless retry because
+        # providers correctly reject deletion of an absent branch.
+        source_deleted = _branch_hash(catalog, branch_name) is None
+    if not source_deleted:
+        source_deleted = _cleanup_owned_wap_branch(
+            catalog,
+            branch_name,
+            query_catalog_manager,
+        )
+    if not source_deleted:
+        write_wap_report(
+            logical_run_id,
+            status="promotion_pending",
+            merge_state="merged",
+            branch=branch_name,
+            source_hash=source_hash,
+            target_branch="main",
+            target_hash_before=target_hash_before,
+            target_hash_after=target_hash_after,
+            source_deleted=False,
+        )
+        logger.warning("wap_promotion_cleanup_pending", run_id=run.run_id, branch_name=branch_name)
+        return (promoted, blocked)
+    # Checkpoint cleanup independently of the terminal report.  A retry
+    # after reconciliation or tag failure must not try to delete it again.
+    if not write_wap_report(
+        logical_run_id,
+        status="promotion_pending",
+        merge_state="merged",
+        branch=branch_name,
+        source_hash=source_hash,
+        target_branch="main",
+        target_hash_before=target_hash_before,
+        target_hash_after=target_hash_after,
+        source_deleted=True,
+    ):
+        logger.warning("wap_promotion_cleanup_receipt_write_failed", run_id=run.run_id)
+        return (promoted, blocked)
+    if not _reconcile_promoted_wap_run(run, instance):
+        logger.warning("wap_promotion_reconciliation_pending", run_id=run.run_id)
+        return (promoted, blocked)
+    if _finalize_wap_promotion(
+        run,
+        instance,
+        logical_run_id=logical_run_id,
+        branch_name=branch_name,
+        source_hash=source_hash,
+        target_hash_before=target_hash_before,
+        target_hash_after=target_hash_after,
+        source_deleted=source_deleted,
+        target_catalog_ref="main",
+    ):
+        promoted += 1
+        logger.info(
+            "wap_branch_promoted",
+            run_id=run.run_id,
+            branch_name=branch_name,
+        )
+    return promoted, blocked

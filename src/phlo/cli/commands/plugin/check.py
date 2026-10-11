@@ -632,34 +632,9 @@ def check_generated_containers(  # noqa: C901
             relative: owners[relative] for relative in relative_dockerfiles if relative in owners
         }
 
-        failures: list[dict[str, str]] = []
-        if dockerfiles:
-            for dockerfile in dockerfiles:
-                relative = str(dockerfile.relative_to(generated_root))
-                failure = _run_command(
-                    [
-                        docker,
-                        "run",
-                        "--rm",
-                        "-v",
-                        f"{project.resolve()}:/workspace:ro",
-                        HADOLINT_IMAGE,
-                        "/bin/hadolint",
-                        f"/workspace/.phlo/{relative}",
-                    ],
-                    cwd=project,
-                    runner=command_runner,
-                    label=f"hadolint {relative}",
-                )
-                if failure:
-                    failures.append(
-                        {
-                            "tool": "hadolint",
-                            "package": dockerfile_owners[relative],
-                            "target": relative,
-                            "detail": failure,
-                        }
-                    )
+        failures = _lint_generated_dockerfiles(
+            dockerfiles, generated_root, docker, project, command_runner, dockerfile_owners
+        )
 
         compose_file = generated_root / "docker-compose.yml"
         compose_command = [
@@ -696,334 +671,20 @@ def check_generated_containers(  # noqa: C901
             for name, package in owners.items()
             if name.startswith("@service:")
         }
-        service_results: list[dict[str, Any]] = []
-        resolved_image_ids: dict[str, str] = {}
-        previous_image_ids: dict[str, str | None] = {}
-        image_scan_results: dict[str, tuple[str | None, dict[str, Any] | None, bool]] = {}
-        builder_name = f"phlo-check-{project.name.rsplit('-', 1)[-1]}"
-        uses_local_builds = not remote_images and any(
-            service.get("build") for service in compose_services.values()
+        service_results = _scan_generated_service_images(
+            compose_services,
+            compose_project,
+            service_owners,
+            docker,
+            project,
+            command_runner,
+            remote_images,
+            compose_file,
+            generated_root,
+            trivy_cache,
+            vulnerability_waivers,
+            failures,
         )
-        builder_created = False
-        if uses_local_builds:
-            _run_checked_command(
-                [
-                    docker,
-                    "buildx",
-                    "create",
-                    "--driver",
-                    "docker-container",
-                    "--name",
-                    builder_name,
-                ],
-                cwd=project,
-                runner=command_runner,
-                label="docker buildx create",
-            )
-            builder_created = True
-
-        builder_cleanup_failure: str | None = None
-        builder_cache_owner: tuple[str, str] | None = None
-
-        def prune_builder_cache() -> None:
-            """Prune the buildx cache and record any cleanup failure for this service."""
-            nonlocal builder_cache_owner
-            if builder_cache_owner is None:
-                return
-            package, image = builder_cache_owner
-            cache_cleanup_failure = _run_command(
-                [
-                    docker,
-                    "buildx",
-                    "prune",
-                    "--builder",
-                    builder_name,
-                    "--force",
-                ],
-                cwd=project,
-                runner=command_runner,
-                label="docker buildx prune",
-            )
-            if cache_cleanup_failure:
-                failures.append(
-                    {
-                        "tool": "docker cleanup",
-                        "package": package,
-                        "target": image,
-                        "detail": cache_cleanup_failure,
-                    }
-                )
-            builder_cache_owner = None
-
-        if remote_images:
-            service_results = _check_remote_service_images(
-                compose_services=compose_services,
-                service_owners=service_owners,
-                docker=docker,
-                project=project,
-                trivy_cache=trivy_cache,
-                vulnerability_waivers=vulnerability_waivers,
-                runner=command_runner,
-            )
-        try:
-            services_to_build = () if remote_images else compose_services.items()
-            for service_name, service in services_to_build:
-                prune_builder_cache()
-                package = service_owners.get(service_name)
-                if not package:
-                    raise ContainerCheckError(
-                        f"generated Compose service '{service_name}' has no package owner"
-                    )
-                image = service.get("image")
-                locally_built = bool(service.get("build"))
-                build_failure: str | None = None
-                if locally_built and not image:
-                    image = f"{compose_project}-{service_name}"
-                if not image:
-                    service_results.append(
-                        {
-                            "service": service_name,
-                            "package": package,
-                            "image": "",
-                            "status": "failed",
-                            "image_scan": "unavailable",
-                            "detail": "generated service has neither image nor build",
-                        }
-                    )
-                    continue
-
-                image_id = resolved_image_ids.get(image)
-                first_resolution = image_id is None
-                if first_resolution:
-                    try:
-                        previous_image_ids[image] = _existing_image_id(
-                            docker,
-                            image,
-                            cwd=project,
-                            runner=command_runner,
-                        )
-                    except ContainerCheckError as exc:
-                        service_results.append(
-                            {
-                                "service": service_name,
-                                "package": package,
-                                "image": image,
-                                "status": "failed",
-                                "image_scan": "unavailable",
-                                "detail": str(exc),
-                            }
-                        )
-                        continue
-                if locally_built and first_resolution:
-                    build_failure = _run_command(
-                        [
-                            docker,
-                            "compose",
-                            "--profile",
-                            "*",
-                            "-f",
-                            str(compose_file),
-                            "--project-directory",
-                            str(generated_root),
-                            "build",
-                            "--builder",
-                            builder_name,
-                            "--quiet",
-                            service_name,
-                        ],
-                        cwd=project,
-                        runner=command_runner,
-                        label=f"docker compose build {service_name}",
-                    )
-                    builder_cache_owner = (package, image)
-                if first_resolution:
-                    pull_failure = None
-                    if not locally_built or build_failure:
-                        pull_failure = _run_command(
-                            [docker, "pull", image],
-                            cwd=project,
-                            runner=command_runner,
-                            label=f"docker pull {service_name}",
-                        )
-                    if pull_failure:
-                        service_results.append(
-                            {
-                                "service": service_name,
-                                "package": package,
-                                "image": image,
-                                "status": "failed",
-                                "image_scan": "unavailable",
-                                "detail": _join_failure_details(build_failure, pull_failure),
-                            }
-                        )
-                        continue
-                    try:
-                        inspect_stdout, _ = _run_output_command(
-                            [docker, "image", "inspect", "--format", "{{.Id}}", image],
-                            cwd=project,
-                            runner=command_runner,
-                            label=f"docker image inspect {service_name}",
-                        )
-                    except ContainerCheckError as exc:
-                        service_results.append(
-                            {
-                                "service": service_name,
-                                "package": package,
-                                "image": image,
-                                "status": "failed",
-                                "image_scan": "unavailable",
-                                "detail": _join_failure_details(build_failure, str(exc)),
-                            }
-                        )
-                        continue
-                    image_id = inspect_stdout.strip()
-                if not image_id:
-                    service_results.append(
-                        {
-                            "service": service_name,
-                            "package": package,
-                            "image": image,
-                            "status": "failed",
-                            "image_scan": "unavailable",
-                            "detail": _join_failure_details(
-                                build_failure, "docker image inspect returned no image ID"
-                            ),
-                        }
-                    )
-                    continue
-
-                resolved_image_ids[image] = image_id
-                result: dict[str, Any] = {
-                    "service": service_name,
-                    "package": package,
-                    "image": image,
-                    "image_id": image_id,
-                    "status": "failed" if build_failure else "pending",
-                    "image_scan": "pending",
-                    **({"detail": build_failure} if build_failure else {}),
-                }
-                service_results.append(result)
-                if image_id not in image_scan_results:
-                    image_scan_results[image_id] = _run_trivy_image_scan(
-                        [
-                            docker,
-                            "run",
-                            "--rm",
-                            "-v",
-                            "/var/run/docker.sock:/var/run/docker.sock",
-                            "-v",
-                            f"{trivy_cache.resolve()}:/root/.cache/trivy",
-                            TRIVY_IMAGE,
-                            "image",
-                            "--quiet",
-                            "--timeout",
-                            "15m",
-                            "--exit-code",
-                            "1",
-                            "--scanners",
-                            "vuln",
-                            "--severity",
-                            "HIGH,CRITICAL",
-                            "--format",
-                            "json",
-                            image_id,
-                        ],
-                        cwd=project,
-                        runner=command_runner,
-                        label=f"trivy image {image_id}",
-                    )
-                trivy_image_failure, vulnerability_evidence, waiver_eligible = image_scan_results[
-                    image_id
-                ]
-                if vulnerability_evidence is not None:
-                    result.update(vulnerability_evidence)
-                    if vulnerability_evidence["vulnerable_components"]:
-                        result["vulnerability_evidence_sha256"] = _vulnerability_evidence_sha256(
-                            vulnerability_evidence
-                        )
-                waiver = vulnerability_waivers.get((service_name, image))
-                build_failed = result["status"] == "failed"
-                waiver_matches = bool(
-                    waiver and result.get("vulnerability_evidence_sha256") == waiver.evidence_sha256
-                )
-                if trivy_image_failure and waiver and waiver_eligible and waiver_matches:
-                    result["image_scan"] = "waived"
-                    result["vulnerability_waiver"] = waiver.reason
-                    result["detail"] = _join_failure_details(
-                        result.get("detail"), trivy_image_failure
-                    )
-                    result["status"] = "failed" if build_failed else "waived"
-                else:
-                    result["status"] = "failed" if trivy_image_failure or build_failed else "passed"
-                    result["image_scan"] = "failed" if trivy_image_failure else "passed"
-                    if trivy_image_failure:
-                        result["detail"] = _join_failure_details(
-                            result.get("detail"), trivy_image_failure
-                        )
-                        if waiver and waiver_eligible and not waiver_matches:
-                            result["detail"] = _join_failure_details(
-                                result.get("detail"),
-                                "vulnerability waiver evidence does not match: "
-                                f"expected {waiver.evidence_sha256}, observed "
-                                f"{result.get('vulnerability_evidence_sha256', '<none>')}",
-                            )
-
-                if first_resolution:
-                    previous_image_id = previous_image_ids[image]
-                    cleanup_commands: list[tuple[list[str], str]] = []
-                    if previous_image_id and previous_image_id != image_id:
-                        cleanup_commands.extend(
-                            [
-                                (
-                                    [docker, "image", "tag", previous_image_id, image],
-                                    f"docker image restore {service_name}",
-                                ),
-                                (
-                                    [docker, "image", "rm", image_id],
-                                    f"docker image rm {service_name}",
-                                ),
-                            ]
-                        )
-                    elif previous_image_id is None:
-                        cleanup_commands.append(
-                            ([docker, "image", "rm", image], f"docker image rm {service_name}")
-                        )
-                    for cleanup_command, cleanup_label in cleanup_commands:
-                        image_cleanup_failure = _run_command(
-                            cleanup_command,
-                            cwd=project,
-                            runner=command_runner,
-                            label=cleanup_label,
-                        )
-                        if not image_cleanup_failure:
-                            continue
-                        failures.append(
-                            {
-                                "tool": "docker cleanup",
-                                "package": package,
-                                "target": image,
-                                "detail": image_cleanup_failure,
-                            }
-                        )
-                        break
-            prune_builder_cache()
-        finally:
-            if builder_created:
-                builder_cleanup_failure = _run_command(
-                    [docker, "buildx", "rm", "--force", builder_name],
-                    cwd=project,
-                    runner=command_runner,
-                    label="docker buildx rm",
-                )
-        if builder_cleanup_failure:
-            failures.append(
-                {
-                    "tool": "docker cleanup",
-                    "package": "project",
-                    "target": builder_name,
-                    "detail": builder_cleanup_failure,
-                }
-            )
 
         trivy_failure = _run_command(
             [
@@ -1055,50 +716,7 @@ def check_generated_containers(  # noqa: C901
                     "detail": trivy_failure,
                 }
             )
-        reported_image_failures: set[str] = set()
-        for result in service_results:
-            if result["status"] in {"passed", "waived"}:
-                continue
-            failure_key = result.get("image_id", result["service"])
-            if failure_key in reported_image_failures:
-                continue
-            reported_image_failures.add(failure_key)
-            failures.append(
-                {
-                    "tool": "trivy image",
-                    "package": result["package"],
-                    "target": result["service"],
-                    "detail": result.get("detail", "image scan failed"),
-                }
-            )
-        missing_results = [
-            result["service"]
-            for result in service_results
-            if result.get("image_scan") not in {"passed", "failed", "unavailable", "waived"}
-        ]
-        if missing_results:
-            failures.append(
-                {
-                    "tool": "trivy image",
-                    "package": "unknown",
-                    "target": ", ".join(missing_results),
-                    "detail": "generated service has no image-scan result",
-                }
-            )
-        if failures:
-            lines = ["Generated container checks failed:"]
-            lines.extend(
-                f"- service [{result['package']}] {result['service']}: "
-                f"{result['image'] or '<no image>'} -> {result['status']} "
-                f"(image scan: {result.get('image_scan', 'missing')})"
-                for result in service_results
-            )
-            lines.extend(
-                f"- {failure['tool']} [{failure['package']}] {failure['target']}: "
-                f"{failure['detail']}"
-                for failure in failures
-            )
-            raise ContainerCheckError("\n".join(lines))
+        _report_container_failures(service_results, failures)
 
     return {
         "dockerfiles": relative_dockerfiles,
@@ -1111,6 +729,149 @@ def check_generated_containers(  # noqa: C901
         ),
         "services": service_results,
     }
+
+
+def _report_container_failures(service_results, failures):
+    reported_image_failures: set[str] = set()
+    for result in service_results:
+        if result["status"] in {"passed", "waived"}:
+            continue
+        failure_key = result.get("image_id", result["service"])
+        if failure_key in reported_image_failures:
+            continue
+        reported_image_failures.add(failure_key)
+        failures.append(
+            {
+                "tool": "trivy image",
+                "package": result["package"],
+                "target": result["service"],
+                "detail": result.get("detail", "image scan failed"),
+            }
+        )
+    missing_results = [
+        result["service"]
+        for result in service_results
+        if result.get("image_scan") not in {"passed", "failed", "unavailable", "waived"}
+    ]
+    if missing_results:
+        failures.append(
+            {
+                "tool": "trivy image",
+                "package": "unknown",
+                "target": ", ".join(missing_results),
+                "detail": "generated service has no image-scan result",
+            }
+        )
+    if failures:
+        lines = ["Generated container checks failed:"]
+        lines.extend(
+            f"- service [{result['package']}] {result['service']}: "
+            f"{result['image'] or '<no image>'} -> {result['status']} "
+            f"(image scan: {result.get('image_scan', 'missing')})"
+            for result in service_results
+        )
+        lines.extend(
+            f"- {failure['tool']} [{failure['package']}] {failure['target']}: {failure['detail']}"
+            for failure in failures
+        )
+        raise ContainerCheckError("\n".join(lines))
+
+
+def _image_cleanup_commands(previous_image_id, image_id, docker, image, service_name):
+    """Plan restoration of a pre-existing image, or removal of a newly pulled tag."""
+    cleanup_commands: list[tuple[list[str], str]] = []
+    if previous_image_id and previous_image_id != image_id:
+        cleanup_commands.extend(
+            [
+                (
+                    [docker, "image", "tag", previous_image_id, image],
+                    f"docker image restore {service_name}",
+                ),
+                (
+                    [docker, "image", "rm", image_id],
+                    f"docker image rm {service_name}",
+                ),
+            ]
+        )
+    elif previous_image_id is None:
+        cleanup_commands.append(([docker, "image", "rm", image], f"docker image rm {service_name}"))
+    return cleanup_commands
+
+
+def _image_scan_result(
+    vulnerability_evidence: dict[str, Any] | None,
+    vulnerability_waivers: dict[tuple[str, str], VulnerabilityWaiver],
+    service_name: str,
+    image: str,
+    trivy_image_failure: str | None,
+    waiver_eligible: bool,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Fold scan evidence and matching waivers without changing the input result."""
+    result = dict(result)
+    if vulnerability_evidence is not None:
+        result.update(vulnerability_evidence)
+        if vulnerability_evidence["vulnerable_components"]:
+            result["vulnerability_evidence_sha256"] = _vulnerability_evidence_sha256(
+                vulnerability_evidence
+            )
+    waiver = vulnerability_waivers.get((service_name, image))
+    build_failed = result["status"] == "failed"
+    waiver_matches = bool(
+        waiver and result.get("vulnerability_evidence_sha256") == waiver.evidence_sha256
+    )
+    if trivy_image_failure and waiver and waiver_eligible and waiver_matches:
+        result["image_scan"] = "waived"
+        result["vulnerability_waiver"] = waiver.reason
+        result["detail"] = _join_failure_details(result.get("detail"), trivy_image_failure)
+        result["status"] = "failed" if build_failed else "waived"
+    else:
+        result["status"] = "failed" if trivy_image_failure or build_failed else "passed"
+        result["image_scan"] = "failed" if trivy_image_failure else "passed"
+        if trivy_image_failure:
+            result["detail"] = _join_failure_details(result.get("detail"), trivy_image_failure)
+            if waiver and waiver_eligible and not waiver_matches:
+                result["detail"] = _join_failure_details(
+                    result.get("detail"),
+                    "vulnerability waiver evidence does not match: "
+                    f"expected {waiver.evidence_sha256}, observed "
+                    f"{result.get('vulnerability_evidence_sha256', '<none>')}",
+                )
+    return result
+
+
+def _lint_generated_dockerfiles(
+    dockerfiles, generated_root, docker, project, command_runner, dockerfile_owners
+):
+    failures: list[dict[str, str]] = []
+    if dockerfiles:
+        for dockerfile in dockerfiles:
+            relative = str(dockerfile.relative_to(generated_root))
+            failure = _run_command(
+                [
+                    docker,
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{project.resolve()}:/workspace:ro",
+                    HADOLINT_IMAGE,
+                    "/bin/hadolint",
+                    f"/workspace/.phlo/{relative}",
+                ],
+                cwd=project,
+                runner=command_runner,
+                label=f"hadolint {relative}",
+            )
+            if failure:
+                failures.append(
+                    {
+                        "tool": "hadolint",
+                        "package": dockerfile_owners[relative],
+                        "target": relative,
+                        "detail": failure,
+                    }
+                )
+    return failures
 
 
 def _render_plugin_check_results(validation_results: dict[str, Any], containers: bool) -> None:
@@ -1249,3 +1010,376 @@ def check_cmd(
             details=[str(e)],
             run="phlo plugin check --help",
         ) from e
+
+
+def _scan_generated_service_images(
+    compose_services,
+    compose_project,
+    service_owners,
+    docker,
+    project,
+    command_runner,
+    remote_images,
+    compose_file,
+    generated_root,
+    trivy_cache,
+    vulnerability_waivers,
+    failures,
+):
+    service_results: list[dict[str, Any]] = []
+    resolved_image_ids: dict[str, str] = {}
+    previous_image_ids: dict[str, str | None] = {}
+    image_scan_results: dict[str, tuple[str | None, dict[str, Any] | None, bool]] = {}
+    builder_name = f"phlo-check-{project.name.rsplit('-', 1)[-1]}"
+    uses_local_builds = not remote_images and any(
+        service.get("build") for service in compose_services.values()
+    )
+    builder_created = False
+    if uses_local_builds:
+        _run_checked_command(
+            [
+                docker,
+                "buildx",
+                "create",
+                "--driver",
+                "docker-container",
+                "--name",
+                builder_name,
+            ],
+            cwd=project,
+            runner=command_runner,
+            label="docker buildx create",
+        )
+        builder_created = True
+
+    builder_cleanup_failure: str | None = None
+    builder_cache_owner: list[tuple[str, str]] = []
+
+    def prune_builder_cache() -> None:
+        """Prune the buildx cache and record any cleanup failure for this service."""
+        if not builder_cache_owner:
+            return
+        package, image = builder_cache_owner[0]
+        cache_cleanup_failure = _run_command(
+            [
+                docker,
+                "buildx",
+                "prune",
+                "--builder",
+                builder_name,
+                "--force",
+            ],
+            cwd=project,
+            runner=command_runner,
+            label="docker buildx prune",
+        )
+        if cache_cleanup_failure:
+            failures.append(
+                {
+                    "tool": "docker cleanup",
+                    "package": package,
+                    "target": image,
+                    "detail": cache_cleanup_failure,
+                }
+            )
+        builder_cache_owner.clear()
+
+    if remote_images:
+        service_results = _check_remote_service_images(
+            compose_services=compose_services,
+            service_owners=service_owners,
+            docker=docker,
+            project=project,
+            trivy_cache=trivy_cache,
+            vulnerability_waivers=vulnerability_waivers,
+            runner=command_runner,
+        )
+    try:
+        services_to_build = () if remote_images else compose_services.items()
+        for service_name, service in services_to_build:
+            prune_builder_cache()
+            package = service_owners.get(service_name)
+            if not package:
+                raise ContainerCheckError(
+                    f"generated Compose service '{service_name}' has no package owner"
+                )
+            image = service.get("image")
+            locally_built = bool(service.get("build"))
+            build_failure: str | None = None
+            if locally_built and not image:
+                image = f"{compose_project}-{service_name}"
+            if not image:
+                service_results.append(
+                    {
+                        "service": service_name,
+                        "package": package,
+                        "image": "",
+                        "status": "failed",
+                        "image_scan": "unavailable",
+                        "detail": "generated service has neither image nor build",
+                    }
+                )
+                continue
+            resolution = _resolve_generated_image(
+                image,
+                service_name,
+                package,
+                locally_built,
+                resolved_image_ids,
+                previous_image_ids,
+                service_results,
+                docker,
+                project,
+                command_runner,
+                compose_file,
+                generated_root,
+                builder_name,
+                builder_cache_owner,
+            )
+            if resolution is None:
+                continue
+            image_id, first_resolution, build_failure = resolution
+
+            resolved_image_ids[image] = image_id
+            result: dict[str, Any] = {
+                "service": service_name,
+                "package": package,
+                "image": image,
+                "image_id": image_id,
+                "status": "failed" if build_failure else "pending",
+                "image_scan": "pending",
+                **({"detail": build_failure} if build_failure else {}),
+            }
+            service_results.append(result)
+            if image_id not in image_scan_results:
+                image_scan_results[image_id] = _run_trivy_image_scan(
+                    [
+                        docker,
+                        "run",
+                        "--rm",
+                        "-v",
+                        "/var/run/docker.sock:/var/run/docker.sock",
+                        "-v",
+                        f"{trivy_cache.resolve()}:/root/.cache/trivy",
+                        TRIVY_IMAGE,
+                        "image",
+                        "--quiet",
+                        "--timeout",
+                        "15m",
+                        "--exit-code",
+                        "1",
+                        "--scanners",
+                        "vuln",
+                        "--severity",
+                        "HIGH,CRITICAL",
+                        "--format",
+                        "json",
+                        image_id,
+                    ],
+                    cwd=project,
+                    runner=command_runner,
+                    label=f"trivy image {image_id}",
+                )
+            trivy_image_failure, vulnerability_evidence, waiver_eligible = image_scan_results[
+                image_id
+            ]
+            result.update(
+                _image_scan_result(
+                    vulnerability_evidence,
+                    vulnerability_waivers,
+                    service_name,
+                    image,
+                    trivy_image_failure,
+                    waiver_eligible,
+                    result,
+                )
+            )
+
+            _restore_checked_image(
+                first_resolution,
+                previous_image_ids,
+                image,
+                image_id,
+                docker,
+                service_name,
+                project,
+                command_runner,
+                failures,
+                package,
+            )
+        prune_builder_cache()
+    finally:
+        if builder_created:
+            builder_cleanup_failure = _run_command(
+                [docker, "buildx", "rm", "--force", builder_name],
+                cwd=project,
+                runner=command_runner,
+                label="docker buildx rm",
+            )
+    if builder_cleanup_failure:
+        failures.append(
+            {
+                "tool": "docker cleanup",
+                "package": "project",
+                "target": builder_name,
+                "detail": builder_cleanup_failure,
+            }
+        )
+    return service_results
+
+
+def _restore_checked_image(
+    first_resolution,
+    previous_image_ids,
+    image,
+    image_id,
+    docker,
+    service_name,
+    project,
+    command_runner,
+    failures,
+    package,
+):
+    if first_resolution:
+        previous_image_id = previous_image_ids[image]
+        cleanup_commands = _image_cleanup_commands(
+            previous_image_id, image_id, docker, image, service_name
+        )
+        for cleanup_command, cleanup_label in cleanup_commands:
+            image_cleanup_failure = _run_command(
+                cleanup_command,
+                cwd=project,
+                runner=command_runner,
+                label=cleanup_label,
+            )
+            if not image_cleanup_failure:
+                continue
+            failures.append(
+                {
+                    "tool": "docker cleanup",
+                    "package": package,
+                    "target": image,
+                    "detail": image_cleanup_failure,
+                }
+            )
+            break
+
+
+def _resolve_generated_image(
+    image,
+    service_name,
+    package,
+    locally_built,
+    resolved_image_ids,
+    previous_image_ids,
+    service_results,
+    docker,
+    project,
+    command_runner,
+    compose_file,
+    generated_root,
+    builder_name,
+    builder_cache_owner,
+):
+    build_failure = None
+
+    image_id = resolved_image_ids.get(image)
+    first_resolution = image_id is None
+    if first_resolution:
+        try:
+            previous_image_ids[image] = _existing_image_id(
+                docker,
+                image,
+                cwd=project,
+                runner=command_runner,
+            )
+        except ContainerCheckError as exc:
+            service_results.append(
+                {
+                    "service": service_name,
+                    "package": package,
+                    "image": image,
+                    "status": "failed",
+                    "image_scan": "unavailable",
+                    "detail": str(exc),
+                }
+            )
+            return None
+    if locally_built and first_resolution:
+        build_failure = _run_command(
+            [
+                docker,
+                "compose",
+                "--profile",
+                "*",
+                "-f",
+                str(compose_file),
+                "--project-directory",
+                str(generated_root),
+                "build",
+                "--builder",
+                builder_name,
+                "--quiet",
+                service_name,
+            ],
+            cwd=project,
+            runner=command_runner,
+            label=f"docker compose build {service_name}",
+        )
+        builder_cache_owner.append((package, image))
+    if first_resolution:
+        pull_failure = None
+        if not locally_built or build_failure:
+            pull_failure = _run_command(
+                [docker, "pull", image],
+                cwd=project,
+                runner=command_runner,
+                label=f"docker pull {service_name}",
+            )
+        if pull_failure:
+            service_results.append(
+                {
+                    "service": service_name,
+                    "package": package,
+                    "image": image,
+                    "status": "failed",
+                    "image_scan": "unavailable",
+                    "detail": _join_failure_details(build_failure, pull_failure),
+                }
+            )
+            return None
+        try:
+            inspect_stdout, _ = _run_output_command(
+                [docker, "image", "inspect", "--format", "{{.Id}}", image],
+                cwd=project,
+                runner=command_runner,
+                label=f"docker image inspect {service_name}",
+            )
+        except ContainerCheckError as exc:
+            service_results.append(
+                {
+                    "service": service_name,
+                    "package": package,
+                    "image": image,
+                    "status": "failed",
+                    "image_scan": "unavailable",
+                    "detail": _join_failure_details(build_failure, str(exc)),
+                }
+            )
+            return None
+        image_id = inspect_stdout.strip()
+    if not image_id:
+        service_results.append(
+            {
+                "service": service_name,
+                "package": package,
+                "image": image,
+                "status": "failed",
+                "image_scan": "unavailable",
+                "detail": _join_failure_details(
+                    build_failure, "docker image inspect returned no image ID"
+                ),
+            }
+        )
+        return None
+    return image_id, first_resolution, build_failure

@@ -1035,3 +1035,110 @@ def test_workflow_wizard_escapes_caller_values_in_generated_python(tmp_path: Pat
     )
     compile(generated, "generated_sling.py", "exec")
     assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("contribution", "values", "path", "snippets", "models"),
+    [
+        (
+            "dbt.initialize-project",
+            {"project_name": "reporting"},
+            "dbt_project.yml",
+            ["name: reporting"],
+            [],
+        ),
+        (
+            "dbt.basic-model",
+            {"source_relation": "raw.invoices"},
+            "models/result.sql",
+            ["from raw.invoices"],
+            ["result"],
+        ),
+        (
+            "dbt.source-yml",
+            {"source_name": "finance", "table_name": "invoices"},
+            "models/sources/finance.yml",
+            ["name: finance", "name: invoices", "name: amount"],
+            [],
+        ),
+        (
+            "dbt.schema-tests",
+            {"unique_key": "invoice_id"},
+            "models/result.yml",
+            ["name: result", "name: invoice_id", "unique"],
+            [],
+        ),
+        (
+            "dbt.rename-columns",
+            {"renames": ["amount:total"]},
+            "models/result.sql",
+            ["amount as total", "from ref('stg_orders')"],
+            ["result"],
+        ),
+        (
+            "dbt.cast-columns",
+            {"casts": ["amount:decimal(12,2)"]},
+            "models/result.sql",
+            ["cast(amount as decimal(12,2)) as amount"],
+            ["result"],
+        ),
+        (
+            "dbt.filter-rows",
+            {"where": "amount > 37"},
+            "models/result.sql",
+            ["where amount > 37"],
+            ["result"],
+        ),
+        (
+            "dbt.deduplicate",
+            {"partition_by": "invoice_id", "order_by": "updated_at"},
+            "models/result.sql",
+            ["partition by invoice_id", "order by updated_at desc"],
+            ["result"],
+        ),
+        (
+            "dbt.aggregate",
+            {"group_by": "region", "metrics": ["revenue:sum(amount)"]},
+            "models/result.sql",
+            ["sum(amount) as revenue", "group by region"],
+            ["result"],
+        ),
+    ],
+)
+def test_workflow_wizard_preserves_individual_transform_proposals(
+    tmp_path, monkeypatch, contribution, values, path, snippets, models
+) -> None:
+    """Legacy individual contributions remain supported by the proposal API."""
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    response = client.post(
+        "/api/observatory/workflow-wizard/proposals",
+        json={
+            "workflow_name": "sales_report",
+            "domain": "sales",
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "source",
+                        "stage": "source",
+                        "contribution_id": "dlt.rest-api-source",
+                        "values": {"table_name": "orders", "fields": ["amount:float"]},
+                    },
+                    {
+                        "id": "transform",
+                        "stage": "transform",
+                        "contribution_id": contribution,
+                        "values": {"model_name": "result", **values},
+                    },
+                ],
+                "edges": [{"id": "link", "source": "source", "target": "transform"}],
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    proposal = response.json()
+    assert proposal["planned_models"] == models
+    assert proposal["selected_contributions"] == ["dlt.rest-api-source", contribution]
+    files = {item["path"]: item["content"] for item in proposal["files"]}
+    content = files[f"workflows/transforms/dbt/{path}"]
+    for snippet in snippets:
+        assert snippet in content

@@ -242,7 +242,7 @@ def _latest_heartbeat(observation: RunObservation, events: list[StoredEvent]) ->
     return observation.heartbeat_at
 
 
-def evaluate_reconciliation(  # noqa: C901
+def evaluate_reconciliation(
     *,
     observation: RunObservation,
     profile: RequiredEvidenceProfile,
@@ -292,125 +292,17 @@ def evaluate_reconciliation(  # noqa: C901
     missing: list[str] = []
     if status is RunStatus.SUCCESS and no_data:
         status = RunStatus.NO_DATA
-    for row in attempt_events:
-        if row.observed_at > now + clock_skew:
-            missing.append(f"event:{row.event_id}:timestamp_in_future")
-    for row in attempt_stages:
-        stage_id = row.stage_id
-        started = row.started_at
-        finished = row.finished_at
-        if started is not None and started > now + clock_skew:
-            missing.append(f"stage:{stage_id}:started_at_in_future")
-        if finished is not None and finished > now + clock_skew:
-            missing.append(f"stage:{stage_id}:finished_at_in_future")
-        if started is not None and finished is not None and finished < started:
-            missing.append(f"stage:{stage_id}:finished_before_started")
-    terminal_events = [
-        row for row in attempt_events if row.event_type in profile.run_terminal_event_types
-    ]
-    if status in TERMINAL_STATUSES:
-        if not terminal_events and not (status is RunStatus.NO_DATA and no_data):
-            missing.extend(f"event:{event_type}" for event_type in profile.run_terminal_event_types)
-        if any(
-            event_status is not None and event_status != status
-            for event_status in (_event_status(row) for row in terminal_events)
-        ):
-            missing.append("event:contradictory_run_terminal_status")
-        for field_name in profile.required_run_fields:
-            value = {
-                "status": observation.status,
-                "started_at": observation.started_at,
-                "finished_at": observation.finished_at,
-                "provider_run_id": observation.provider_run_id,
-                "pipeline_name": observation.pipeline_name,
-                "provider": observation.provider,
-            }.get(field_name)
-            if value is None or value == "":
-                missing.append(f"run:{field_name}")
-    for requirement in profile.stages:
-        matching_stages = (
-            stages_by_type.get(requirement.stage_type, [])
-            if requirement.provider is None
-            else stages_by_provider.get((requirement.stage_type, requirement.provider), [])
-        )
-        waived = no_data and requirement.allow_no_data
-        if not matching_stages and not waived:
-            missing.append(f"stage:{requirement.stage_type}")
-            continue
-        expected_statuses = requirement.allowed_statuses or (
-            (requirement.required_status,) if requirement.required_status else ()
-        )
-        normalized_expected = {normalize_status(value) for value in expected_statuses}
-        if (
-            expected_statuses
-            and matching_stages
-            and not any(row.status in normalized_expected for row in matching_stages)
-        ):
-            missing.append(f"stage_status:{requirement.stage_type}={'|'.join(expected_statuses)}")
-        matching_stage_ids = {row.stage_id for row in matching_stages}
-        # An event satisfies a requirement when its type matches and it is
-        # attributed to one of the matching stages. An unattributed event is
-        # accepted only when exactly one stage matches, so it can never be
-        # claimed by the wrong stage. An event without a status inherits the
-        # single matching stage's status when that status alone satisfies the
-        # requirement.
-        for event_type in requirement.required_event_types:
-            statuses = set().union(
-                *(
-                    event_statuses.get((event_type, stage_id), set())
-                    for stage_id in matching_stage_ids
-                )
-            )
-            if len(matching_stages) == 1:
-                statuses.update(event_statuses.get((event_type, None), set()))
-            if (
-                not (
-                    statuses
-                    and (
-                        not normalized_expected
-                        or statuses & normalized_expected
-                        or (
-                            None in statuses
-                            and len(matching_stages) == 1
-                            and matching_stages[0].status in normalized_expected
-                        )
-                    )
-                )
-                and not waived
-            ):
-                missing.append(f"event:{event_type}")
+    missing.extend(_collect_event_timing_gaps(attempt_events, now, clock_skew, attempt_stages))
+    missing.extend(
+        _collect_run_terminal_gaps(attempt_events, profile, status, no_data, observation)
+    )
+    missing.extend(
+        _collect_stage_gaps(profile, stages_by_type, stages_by_provider, no_data, event_statuses)
+    )
 
     record_rows = record_rows or {}
-    record_states: list[EvidenceCompleteness] = []
-    for requirement in profile.required_records:
-        rows = record_rows.get(requirement.family, [])
-        if len(rows) < requirement.minimum:
-            missing.append(f"{requirement.family}:minimum:{requirement.minimum}")
-        if requirement.required_status and not any(
-            row.evidence_status == requirement.required_status.strip().lower() for row in rows
-        ):
-            missing.append(f"{requirement.family}:status:{requirement.required_status}")
-        states = {row.evidence_status for row in rows}
-        for row in rows:
-            if row.metadata.evidence_completeness is EvidenceCompleteness.INCOMPLETE:
-                missing.append(f"{requirement.family}:incomplete")
-        if "redacted" in states:
-            record_states.append(EvidenceCompleteness.REDACTED)
-        elif "expired" in states:
-            record_states.append(EvidenceCompleteness.EXPIRED)
-        elif "missing" in states:
-            record_states.append(EvidenceCompleteness.MISSING)
-        if requirement.family == "artifact":
-            for row in rows:
-                if not isinstance(row, StoredArtifact) or row.expires_at is None:
-                    continue
-                if (
-                    row.expires_at <= now
-                    and row.status is not EvidenceCompleteness.REDACTED
-                    and not row.legal_hold
-                ):
-                    record_states.append(EvidenceCompleteness.EXPIRED)
-                    missing.append("artifact:expired")
+    record_states, record_gaps = _collect_record_gaps(profile, record_rows, now)
+    missing.extend(record_gaps)
 
     record_state = _strongest_evidence_state(*record_states)
     explicit_state = _strongest_evidence_state(observation.evidence_state, record_state)
@@ -425,80 +317,17 @@ def evaluate_reconciliation(  # noqa: C901
             EvidenceCompleteness.COMPLETE if not missing else EvidenceCompleteness.INCOMPLETE
         )
 
-    reason = (
-        "complete" if completeness is EvidenceCompleteness.COMPLETE else "missing_required_evidence"
+    status, finished_at, heartbeat, reason, completeness, stale_seconds = _resolve_run_outcome(
+        completeness,
+        observation,
+        attempt_events,
+        now,
+        clock_skew,
+        missing,
+        explicit_state,
+        stale_after,
+        status,
     )
-    finished_at = observation.finished_at
-    heartbeat = _latest_heartbeat(observation, attempt_events)
-    future_cutoff = now + clock_skew
-    invalid_timing = (
-        observation.started_at
-        and observation.finished_at
-        and observation.finished_at < observation.started_at
-    )
-    future_started = bool(observation.started_at and observation.started_at > future_cutoff)
-    future_finished = bool(observation.finished_at and observation.finished_at > future_cutoff)
-    invalid_heartbeat = bool(
-        heartbeat
-        and (
-            heartbeat > future_cutoff
-            or (observation.started_at is not None and heartbeat < observation.started_at)
-        )
-    )
-    if invalid_timing:
-        missing.append("run:finished_before_started")
-    if future_started:
-        missing.append("run:started_at_in_future")
-    if future_finished:
-        missing.append("run:finished_at_in_future")
-    if invalid_heartbeat:
-        missing.append("run:invalid_heartbeat")
-    if (
-        invalid_timing or future_started or future_finished or invalid_heartbeat
-    ) and explicit_state not in {
-        EvidenceCompleteness.MISSING,
-        EvidenceCompleteness.EXPIRED,
-        EvidenceCompleteness.REDACTED,
-    }:
-        completeness = EvidenceCompleteness.INCOMPLETE
-    stale_seconds = int(stale_after.total_seconds()) if stale_after is not None else None
-    known_status = status in TERMINAL_STATUSES or status in NONTERMINAL_STATUSES or status is None
-    if not known_status:
-        status = RunStatus.UNSUPPORTED
-        reason = "unsupported_provider_status"
-        completeness = EvidenceCompleteness.INCOMPLETE
-    elif status is None:
-        status = RunStatus.UNKNOWN
-        reason = "missing_provider_status"
-        if explicit_state not in {
-            EvidenceCompleteness.MISSING,
-            EvidenceCompleteness.EXPIRED,
-            EvidenceCompleteness.REDACTED,
-        }:
-            completeness = EvidenceCompleteness.INCOMPLETE
-    elif status not in TERMINAL_STATUSES:
-        status = status or RunStatus.UNKNOWN
-        if invalid_heartbeat:
-            reason = "invalid_heartbeat"
-        elif future_started or future_finished:
-            reason = "invalid_timing"
-        elif stale_after is not None and heartbeat is not None and now - heartbeat >= stale_after:
-            status = RunStatus.ABANDONED
-            reason = "heartbeat_expired"
-        else:
-            reason = "awaiting_terminal_evidence" if heartbeat else "missing_heartbeat"
-        if explicit_state not in {
-            EvidenceCompleteness.MISSING,
-            EvidenceCompleteness.EXPIRED,
-            EvidenceCompleteness.REDACTED,
-        }:
-            completeness = EvidenceCompleteness.INCOMPLETE
-    elif completeness is not EvidenceCompleteness.COMPLETE:
-        reason = (
-            ",".join(("source_evidence_" + completeness.value, *missing))
-            if explicit_state
-            else ",".join(("missing_required_evidence", *missing))
-        )
 
     evidence_checksum = payload_checksum(
         {
@@ -602,6 +431,269 @@ def evaluate_reconciliation(  # noqa: C901
         decided_at=now,
         finished_at=finished_at,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _RunTiming:
+    missing: tuple[str, ...]
+    invalid_heartbeat: bool
+    future_endpoint: bool
+
+
+def _resolve_run_outcome(
+    completeness: EvidenceCompleteness,
+    observation: RunObservation,
+    attempt_events: list[StoredEvent],
+    now: datetime,
+    clock_skew: timedelta,
+    missing: list[str],
+    explicit_state: EvidenceCompleteness | None,
+    stale_after: timedelta | None,
+    status: RunStatus | None,
+) -> tuple[RunStatus, datetime | None, datetime | None, str, EvidenceCompleteness, int | None]:
+    reason = (
+        "complete" if completeness is EvidenceCompleteness.COMPLETE else "missing_required_evidence"
+    )
+    finished_at = observation.finished_at
+    heartbeat = _latest_heartbeat(observation, attempt_events)
+    timing = _run_timing_gaps(now, clock_skew, observation, heartbeat)
+    missing.extend(timing.missing)
+    if timing.missing and explicit_state not in {
+        EvidenceCompleteness.MISSING,
+        EvidenceCompleteness.EXPIRED,
+        EvidenceCompleteness.REDACTED,
+    }:
+        completeness = EvidenceCompleteness.INCOMPLETE
+    stale_seconds = int(stale_after.total_seconds()) if stale_after is not None else None
+    known_status = status in TERMINAL_STATUSES or status in NONTERMINAL_STATUSES or status is None
+    if not known_status:
+        status = RunStatus.UNSUPPORTED
+        reason = "unsupported_provider_status"
+        completeness = EvidenceCompleteness.INCOMPLETE
+    elif status is None:
+        status = RunStatus.UNKNOWN
+        reason = "missing_provider_status"
+        if explicit_state not in {
+            EvidenceCompleteness.MISSING,
+            EvidenceCompleteness.EXPIRED,
+            EvidenceCompleteness.REDACTED,
+        }:
+            completeness = EvidenceCompleteness.INCOMPLETE
+    elif status not in TERMINAL_STATUSES:
+        status = status or RunStatus.UNKNOWN
+        if timing.invalid_heartbeat:
+            reason = "invalid_heartbeat"
+        elif timing.future_endpoint:
+            reason = "invalid_timing"
+        elif stale_after is not None and heartbeat is not None and now - heartbeat >= stale_after:
+            status = RunStatus.ABANDONED
+            reason = "heartbeat_expired"
+        else:
+            reason = "awaiting_terminal_evidence" if heartbeat else "missing_heartbeat"
+        if explicit_state not in {
+            EvidenceCompleteness.MISSING,
+            EvidenceCompleteness.EXPIRED,
+            EvidenceCompleteness.REDACTED,
+        }:
+            completeness = EvidenceCompleteness.INCOMPLETE
+    elif completeness is not EvidenceCompleteness.COMPLETE:
+        reason = (
+            ",".join(("source_evidence_" + completeness.value, *missing))
+            if explicit_state
+            else ",".join(("missing_required_evidence", *missing))
+        )
+    return status, finished_at, heartbeat, reason, completeness, stale_seconds
+
+
+def _run_timing_gaps(
+    now: datetime,
+    clock_skew: timedelta,
+    observation: RunObservation,
+    heartbeat: datetime | None,
+) -> _RunTiming:
+    missing: list[str] = []
+    future_cutoff = now + clock_skew
+    invalid_timing = (
+        observation.started_at
+        and observation.finished_at
+        and observation.finished_at < observation.started_at
+    )
+    future_started = bool(observation.started_at and observation.started_at > future_cutoff)
+    future_finished = bool(observation.finished_at and observation.finished_at > future_cutoff)
+    invalid_heartbeat = bool(
+        heartbeat
+        and (
+            heartbeat > future_cutoff
+            or (observation.started_at is not None and heartbeat < observation.started_at)
+        )
+    )
+    if invalid_timing:
+        missing.append("run:finished_before_started")
+    if future_started:
+        missing.append("run:started_at_in_future")
+    if future_finished:
+        missing.append("run:finished_at_in_future")
+    if invalid_heartbeat:
+        missing.append("run:invalid_heartbeat")
+    return _RunTiming(tuple(missing), invalid_heartbeat, future_started or future_finished)
+
+
+def _collect_record_gaps(
+    profile: RequiredEvidenceProfile,
+    record_rows: dict[str, list[EvidenceRecord]],
+    now: datetime,
+) -> tuple[list[EvidenceCompleteness], list[str]]:
+    missing: list[str] = []
+    record_states: list[EvidenceCompleteness] = []
+    for requirement in profile.required_records:
+        rows = record_rows.get(requirement.family, [])
+        if len(rows) < requirement.minimum:
+            missing.append(f"{requirement.family}:minimum:{requirement.minimum}")
+        if requirement.required_status and not any(
+            row.evidence_status == requirement.required_status.strip().lower() for row in rows
+        ):
+            missing.append(f"{requirement.family}:status:{requirement.required_status}")
+        states = {row.evidence_status for row in rows}
+        for row in rows:
+            if row.metadata.evidence_completeness is EvidenceCompleteness.INCOMPLETE:
+                missing.append(f"{requirement.family}:incomplete")
+        if "redacted" in states:
+            record_states.append(EvidenceCompleteness.REDACTED)
+        elif "expired" in states:
+            record_states.append(EvidenceCompleteness.EXPIRED)
+        elif "missing" in states:
+            record_states.append(EvidenceCompleteness.MISSING)
+        if requirement.family == "artifact":
+            for row in rows:
+                if not isinstance(row, StoredArtifact) or row.expires_at is None:
+                    continue
+                if (
+                    row.expires_at <= now
+                    and row.status is not EvidenceCompleteness.REDACTED
+                    and not row.legal_hold
+                ):
+                    record_states.append(EvidenceCompleteness.EXPIRED)
+                    missing.append("artifact:expired")
+    return record_states, missing
+
+
+def _collect_stage_gaps(
+    profile: RequiredEvidenceProfile,
+    stages_by_type: dict[str, list[StoredStage]],
+    stages_by_provider: dict[tuple[str, str | None], list[StoredStage]],
+    no_data: bool,
+    event_statuses: dict[tuple[str, str | None], set[RunStatus | None]],
+) -> list[str]:
+    missing: list[str] = []
+    for requirement in profile.stages:
+        matching_stages = (
+            stages_by_type.get(requirement.stage_type, [])
+            if requirement.provider is None
+            else stages_by_provider.get((requirement.stage_type, requirement.provider), [])
+        )
+        waived = no_data and requirement.allow_no_data
+        if not matching_stages and not waived:
+            missing.append(f"stage:{requirement.stage_type}")
+            continue
+        expected_statuses = requirement.allowed_statuses or (
+            (requirement.required_status,) if requirement.required_status else ()
+        )
+        normalized_expected = {normalize_status(value) for value in expected_statuses}
+        if (
+            expected_statuses
+            and matching_stages
+            and not any(row.status in normalized_expected for row in matching_stages)
+        ):
+            missing.append(f"stage_status:{requirement.stage_type}={'|'.join(expected_statuses)}")
+        matching_stage_ids = {row.stage_id for row in matching_stages}
+        # An event satisfies a requirement when its type matches and it is
+        # attributed to one of the matching stages. An unattributed event is
+        # accepted only when exactly one stage matches, so it can never be
+        # claimed by the wrong stage. An event without a status inherits the
+        # single matching stage's status when that status alone satisfies the
+        # requirement.
+        for event_type in requirement.required_event_types:
+            statuses = set().union(
+                *(
+                    event_statuses.get((event_type, stage_id), set())
+                    for stage_id in matching_stage_ids
+                )
+            )
+            if len(matching_stages) == 1:
+                statuses.update(event_statuses.get((event_type, None), set()))
+            if (
+                not (
+                    statuses
+                    and (
+                        not normalized_expected
+                        or statuses & normalized_expected
+                        or (
+                            None in statuses
+                            and len(matching_stages) == 1
+                            and matching_stages[0].status in normalized_expected
+                        )
+                    )
+                )
+                and not waived
+            ):
+                missing.append(f"event:{event_type}")
+    return missing
+
+
+def _collect_run_terminal_gaps(
+    attempt_events: list[StoredEvent],
+    profile: RequiredEvidenceProfile,
+    status: RunStatus | None,
+    no_data: bool,
+    observation: RunObservation,
+) -> list[str]:
+    missing: list[str] = []
+    terminal_events = [
+        row for row in attempt_events if row.event_type in profile.run_terminal_event_types
+    ]
+    if status in TERMINAL_STATUSES:
+        if not terminal_events and not (status is RunStatus.NO_DATA and no_data):
+            missing.extend(f"event:{event_type}" for event_type in profile.run_terminal_event_types)
+        if any(
+            event_status is not None and event_status != status
+            for event_status in (_event_status(row) for row in terminal_events)
+        ):
+            missing.append("event:contradictory_run_terminal_status")
+        for field_name in profile.required_run_fields:
+            value = {
+                "status": observation.status,
+                "started_at": observation.started_at,
+                "finished_at": observation.finished_at,
+                "provider_run_id": observation.provider_run_id,
+                "pipeline_name": observation.pipeline_name,
+                "provider": observation.provider,
+            }.get(field_name)
+            if value is None or value == "":
+                missing.append(f"run:{field_name}")
+    return missing
+
+
+def _collect_event_timing_gaps(
+    attempt_events: list[StoredEvent],
+    now: datetime,
+    clock_skew: timedelta,
+    attempt_stages: list[StoredStage],
+) -> list[str]:
+    missing: list[str] = []
+    for row in attempt_events:
+        if row.observed_at > now + clock_skew:
+            missing.append(f"event:{row.event_id}:timestamp_in_future")
+    for row in attempt_stages:
+        stage_id = row.stage_id
+        started = row.started_at
+        finished = row.finished_at
+        if started is not None and started > now + clock_skew:
+            missing.append(f"stage:{stage_id}:started_at_in_future")
+        if finished is not None and finished > now + clock_skew:
+            missing.append(f"stage:{stage_id}:finished_at_in_future")
+        if started is not None and finished is not None and finished < started:
+            missing.append(f"stage:{stage_id}:finished_before_started")
+    return missing
 
 
 class RunReconciler:

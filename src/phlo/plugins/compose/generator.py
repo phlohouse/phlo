@@ -244,7 +244,7 @@ class ComposeGenerator:
 
         return source
 
-    def _build_service_config(  # noqa: C901
+    def _build_service_config(
         self,
         service: ServiceDefinition,
         output_dir: Path,
@@ -258,8 +258,24 @@ class ComposeGenerator:
         optional user overrides from phlo.yaml and conditional settings from
         effective environment values.
         """
+        config = self._service_image_config(service, output_dir)
+        self._apply_compose_config(config, service)
+        self._apply_source_mount(config, service, dev_mode, phlo_src_path)
+        if service_dev_mode and service.dev:
+            self._apply_dev_overrides(config, service, output_dir)
+        if service.phlo_dev:
+            self._apply_project_env_files(config, output_dir)
+        self._apply_compose_extras(config, service)
+        self._apply_host_identity(config, service)
+        self._apply_dependencies(config, service)
+        self._apply_conditional_environment(config, service.compose, env_values or {})
+        self._remove_windows_quoted_empty_environment_values(config, env_values or {})
+        # User overrides remain last so they take precedence over every phase.
+        self._apply_user_overrides(config, user_override or {})
+        return config
+
+    def _service_image_config(self, service: ServiceDefinition, output_dir: Path) -> dict[str, Any]:
         config: dict[str, Any] = {}
-        user_override = user_override or {}
 
         # Image or build
         if service.image:
@@ -280,7 +296,9 @@ class ComposeGenerator:
             if service.build.get("args"):
                 build_config["args"] = service.build["args"]
             config["build"] = build_config
+        return config
 
+    def _apply_compose_config(self, config: dict[str, Any], service: ServiceDefinition) -> None:
         # Profile (if not default)
         if service.profile:
             config["profiles"] = [service.profile]
@@ -290,6 +308,21 @@ class ComposeGenerator:
 
         config["restart"] = compose.get("restart", "unless-stopped")
 
+        for key in ("user", "container_name", "labels", "environment", "ports"):
+            if compose.get(key):
+                value = compose[key]
+                if key == "environment" and isinstance(value, (dict, list)):
+                    config[key] = value.copy()
+                else:
+                    config[key] = value
+
+        if compose.get("volumes"):
+            config["volumes"] = list(compose["volumes"])  # Copy to avoid mutation
+        else:
+            config["volumes"] = []
+
+    def _apply_compose_extras(self, config: dict[str, Any], service: ServiceDefinition) -> None:
+        compose = service.compose
         handled_compose_keys = {
             "restart",
             "volumes",
@@ -302,21 +335,27 @@ class ComposeGenerator:
             "depends_on",
             "conditional_environment",
         }
-
-        for key in ("user", "container_name", "labels", "environment", "ports"):
+        handled_compose_keys.update(
+            key
+            for key in ("user", "container_name", "labels", "environment", "ports")
+            if compose.get(key)
+        )
+        for key in ("command", "entrypoint", "healthcheck"):
             if compose.get(key):
-                value = compose[key]
-                if key == "environment" and isinstance(value, (dict, list)):
-                    config[key] = value.copy()
-                else:
-                    config[key] = value
-                handled_compose_keys.add(key)
+                config[key] = compose[key]
 
-        if compose.get("volumes"):
-            config["volumes"] = list(compose["volumes"])  # Copy to avoid mutation
-        else:
-            config["volumes"] = []
+        # Keep valid Compose options that have no special generator handling.
+        for key, value in compose.items():
+            if key not in handled_compose_keys and value is not None:
+                config[key] = value
 
+    def _apply_source_mount(
+        self,
+        config: dict[str, Any],
+        service: ServiceDefinition,
+        dev_mode: bool,
+        phlo_src_path: str | None,
+    ) -> None:
         # Dev mode: inject phlo source mount and project directory for dependency sync
         if dev_mode and service.phlo_dev and phlo_src_path:
             # Mount the phlo monorepo root for editable installs inside the container.
@@ -340,53 +379,33 @@ class ComposeGenerator:
         if not config["volumes"]:
             del config["volumes"]
 
-        if service_dev_mode and service.dev:
-            self._apply_dev_overrides(config, service, output_dir)
-
+    def _apply_project_env_files(self, config: dict[str, Any], output_dir: Path) -> None:
         # Add env_file for phlo_dev services to pick up project secrets (e.g., GITHUB_TOKEN)
         # Path is relative to .phlo/ directory where docker-compose.yml lives
-        if service.phlo_dev:
-            env_paths = (env_defaults_path(output_dir), env_secrets_path(output_dir))
-            legacy_env_files = [
-                path.relative_to(output_dir).as_posix()
-                for name in (".env", ".env.local")
-                if (path := output_dir / name).is_file() and path not in env_paths
-            ]
-            config["env_file"] = [
-                *legacy_env_files,
-                *(path.relative_to(output_dir).as_posix() for path in env_paths),
-            ]
-            for name in config["env_file"]:
-                if name not in {".env", ".env.local"} or not (output_dir / name).is_file():
-                    continue
-                metric("phlo.legacy.dagster_env_file.uses", 1, unit="uses", tags={"file": name})
-                logger.warning(
-                    "deprecated_dagster_env_file",
-                    file=name,
-                    removal_version="0.19.0",
-                    message="Legacy Dagster env files will be removed in 0.19.0; "
-                    "run phlo services migrate to move defaults to .phlo/overrides/.env "
-                    "and secrets to .phlo/secrets/.env.",
-                )
-
-        if compose.get("command"):
-            config["command"] = compose["command"]
-
-        if compose.get("entrypoint"):
-            config["entrypoint"] = compose["entrypoint"]
-
-        if compose.get("healthcheck"):
-            config["healthcheck"] = compose["healthcheck"]
-
-        # Pass through remaining compose keys such as mem_limit/cpus/ulimits.
-        # This keeps generator behavior future-proof for valid docker-compose options.
-        for key, value in compose.items():
-            if key in handled_compose_keys:
+        env_paths = (env_defaults_path(output_dir), env_secrets_path(output_dir))
+        legacy_env_files = [
+            path.relative_to(output_dir).as_posix()
+            for name in (".env", ".env.local")
+            if (path := output_dir / name).is_file() and path not in env_paths
+        ]
+        config["env_file"] = [
+            *legacy_env_files,
+            *(path.relative_to(output_dir).as_posix() for path in env_paths),
+        ]
+        for name in config["env_file"]:
+            if name not in {".env", ".env.local"} or not (output_dir / name).is_file():
                 continue
-            if value is None:
-                continue
-            config[key] = value
+            metric("phlo.legacy.dagster_env_file.uses", 1, unit="uses", tags={"file": name})
+            logger.warning(
+                "deprecated_dagster_env_file",
+                file=name,
+                removal_version="0.19.0",
+                message="Legacy Dagster env files will be removed in 0.19.0; "
+                "run phlo services migrate to move defaults to .phlo/overrides/.env "
+                "and secrets to .phlo/secrets/.env.",
+            )
 
+    def _apply_host_identity(self, config: dict[str, Any], service: ServiceDefinition) -> None:
         if service.name in {"dagster", "dagster-daemon"}:
             if platform.system() == "Linux":
                 # Start as root so the entrypoint can install the mounted project's
@@ -413,6 +432,7 @@ class ComposeGenerator:
             # container must run as the generating host user to read them.
             config["user"] = f"{os.getuid()}:{os.getgid()}"
 
+    def _apply_dependencies(self, config: dict[str, Any], service: ServiceDefinition) -> None:
         # Dependencies
         if service.depends_on:
             depends_config: dict[str, dict[str, str]] = {}
@@ -427,14 +447,6 @@ class ComposeGenerator:
                         depends_config[dep] = {"condition": "service_started"}
             if depends_config:
                 config["depends_on"] = depends_config
-
-        self._apply_conditional_environment(config, compose, env_values or {})
-        self._remove_windows_quoted_empty_environment_values(config, env_values or {})
-
-        # Apply user overrides from phlo.yaml last, so they take precedence.
-        self._apply_user_overrides(config, user_override)
-
-        return config
 
     def _apply_conditional_environment(
         self,
