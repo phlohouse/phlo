@@ -20,7 +20,7 @@ from phlo.cli.commands.plugin.utils import (
 from phlo.cli.contract import PhloCommand
 from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
-from phlo.plugins.registry_client import search_plugins
+from phlo.plugins.registry_client import fetch_registry, search_plugins
 
 logger = get_logger(__name__)
 
@@ -96,6 +96,7 @@ def search_cmd(
             )
         ]
 
+        fetch_registry()
         results = search_plugins(
             query=query,
             plugin_type=plugin_type,
