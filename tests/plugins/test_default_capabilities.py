@@ -8,9 +8,13 @@ configuration.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import (
@@ -21,6 +25,27 @@ from phlo.capabilities import (
 )
 from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
 from phlo.capabilities.interfaces import Principal, ResourceRef
+
+
+@pytest.mark.parametrize("module", ["phlo.application.discovery", "phlo.application.observability"])
+def test_application_first_import_preserves_public_provider_exports(module: str) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """import importlib, sys
+importlib.import_module(sys.argv[1])
+from phlo import capabilities
+from phlo.application import observability
+assert capabilities.DefaultObservabilityBackend is observability.DefaultObservabilityBackend
+assert capabilities.register_default_capability_providers is observability.register_default_capability_providers
+""",
+            module,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 class _Operation:

@@ -77,10 +77,8 @@ Aggregating package root of the capability subsystem: re-exports the interfaces,
 inventory, registry, resolver, runtime, specs, and workflow-wizard modules.
 """
 
-from phlo.application.observability import (
-    DefaultObservabilityBackend,
-    register_default_capability_providers,
-)
+from typing import TYPE_CHECKING, Any
+
 from phlo.capabilities.continuity import (
     BACKUP_PROVIDER_ORDER,
     BACKUP_SET_SCHEMA_VERSION,
@@ -244,6 +242,29 @@ from phlo.capabilities.workflow_wizard import (
     detect_file_conflicts,
     validate_proposal_request,
 )
+
+if TYPE_CHECKING:
+    from phlo.application.observability import (
+        DefaultObservabilityBackend,
+        register_default_capability_providers,
+    )
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve outward application exports after foundational capabilities load."""
+    if name in {"DefaultObservabilityBackend", "register_default_capability_providers"}:
+        from phlo.application.observability import (
+            DefaultObservabilityBackend,
+            register_default_capability_providers,
+        )
+
+        globals().update(
+            DefaultObservabilityBackend=DefaultObservabilityBackend,
+            register_default_capability_providers=register_default_capability_providers,
+        )
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AlertSink",
