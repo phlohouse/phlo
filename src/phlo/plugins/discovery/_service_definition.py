@@ -61,6 +61,7 @@ class ServiceDefinition:
     file_validator: Callable[[str, str], None] | None = field(
         default=None, repr=False, compare=False
     )
+    networks: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def from_yaml(cls, path: Path) -> ServiceDefinition:
@@ -87,6 +88,7 @@ class ServiceDefinition:
             image=data.get("image"),
             build=data.get("build"),
             compose=data.get("compose", {}),
+            networks=data.get("networks", {}),
             env_vars=data.get("env_vars", {}),
             files=data.get("files", []),
             gitignore=data.get("gitignore", []),
@@ -113,6 +115,7 @@ class ServiceDefinition:
             image=data.get("image"),
             build=data.get("build"),
             compose=data.get("compose", {}),
+            networks=data.get("networks", {}),
             env_vars=data.get("env_vars", {}),
             files=data.get("files", []),
             gitignore=data.get("gitignore", []),

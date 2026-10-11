@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from phlo_polaris.hooks import bootstrap, ensure_catalog, ensure_principal, wait_for_polaris
 
 
@@ -67,7 +69,8 @@ def test_ensure_principal_creates_once(monkeypatch) -> None:
     assert client_created == ["phlo_writer"]
 
 
-def test_bootstrap_is_idempotent(monkeypatch) -> None:
+def test_bootstrap_is_idempotent(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     client = FakeClient(catalogs=[{"name": "phlo"}])
     monkeypatch.setattr(
         "phlo_polaris.settings.get_settings",
@@ -81,3 +84,13 @@ def test_bootstrap_is_idempotent(monkeypatch) -> None:
     assert client.created_catalogs == []
     assert sorted(client.created_principals) == ["phlo_reader", "phlo_writer"]
     assert getattr(client, "grants_requested", False)
+    path = tmp_path / ".phlo" / "polaris-principals.json"
+    saved = path.read_bytes()
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert bootstrap(client=client) == 0
+    assert path.read_bytes() == saved
+    client.created_principals.clear()
+    with pytest.raises(ValueError, match="restore the persistent realm"):
+        bootstrap(client=client)
+    assert path.read_bytes() == saved
+    assert client.created_principals == []

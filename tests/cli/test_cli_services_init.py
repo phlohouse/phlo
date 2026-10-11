@@ -1123,6 +1123,53 @@ def test_generate_env_local_preserves_existing_secret_values() -> None:
     assert "POSTGRES_PASSWORD=existing-secret" in env_local
 
 
+@pytest.mark.parametrize(
+    ("service_name", "required_secrets"),
+    (
+        ("superset", {"SUPERSET_SECRET_KEY", "SUPERSET_ADMIN_PASSWORD", "POSTGRES_PASSWORD"}),
+        ("hasura", {"HASURA_ADMIN_SECRET", "POSTGRES_PASSWORD"}),
+        ("polaris", {"POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD"}),
+    ),
+)
+def test_service_credentials_have_no_manifest_defaults_and_survive_regeneration(
+    tmp_path, service_name, required_secrets
+) -> None:
+    discovery = ServiceDiscovery()
+    service = discovery.get_service(service_name)
+    assert service is not None
+    services = [service, discovery.get_service("postgres"), discovery.get_service("minio")]
+    assert all(item is not None for item in services)
+    secret_names = {name for name, config in service.env_vars.items() if config.get("secret")}
+    for name in secret_names:
+        assert "default" not in service.env_vars[name]
+
+    compose = ComposeGenerator(discovery).generate_compose([service], output_dir=tmp_path)
+    environment = yaml.safe_load(compose)["services"][service_name]["environment"]
+    expressions = "\n".join(str(value) for value in environment.values())
+    for name in required_secrets:
+        assert f"${{{name}:?" in expressions
+        assert f"${{{name}:-" not in expressions
+
+    secrets_path = tmp_path / ".env.local"
+    secrets_path.write_text(generate_env_local(services))
+    generated = parse_project_env_file(secrets_path)
+    for name in secret_names | required_secrets:
+        assert generated[name]
+        assert name not in generate_env(services)
+    if service_name == "polaris":
+        assert re.fullmatch(r"root:[A-Za-z0-9_-]{32,}", generated["POLARIS_ROOT_CREDENTIALS"])
+
+    # Explicit project overrides must not replace credentials already saved locally.
+    secrets_path.write_text(
+        generate_env_local(
+            services,
+            env_overrides=dict.fromkeys(secret_names, "replacement"),
+            existing_values=generated,
+        )
+    )
+    assert parse_project_env_file(secrets_path) == generated
+
+
 def test_compose_generator_resolves_source_path_dev_volumes(tmp_path) -> None:
     class MinimalFakeDiscovery(FakeDiscovery):
         def resolve_dependencies(

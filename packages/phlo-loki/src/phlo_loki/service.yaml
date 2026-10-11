@@ -6,9 +6,11 @@ profile: observability
 
 image: grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc
 
+depends_on:
+  - loki-setup
 compose:
   restart: unless-stopped
-  user: "0"
+  user: "10001:10001"
   labels:
     phlo.metrics.enabled: "true"
     phlo.metrics.port: "loki:3100"

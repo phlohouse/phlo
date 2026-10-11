@@ -30,11 +30,30 @@ phlo plugin install polaris
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `POLARIS_PORT` | `10018` | Polaris API host port |
-| `POLARIS_ROOT_CREDENTIALS` | `root:s3cr3t` | Bootstrap principal (`client_id:client_secret`), secret |
+| `POLARIS_ROOT_CREDENTIALS` | auto-generated | Bootstrap principal (`client_id:client_secret`), secret |
 | `POLARIS_WRITER_CLIENT_ID` | `phlo_writer` | Writer principal client id |
-| `POLARIS_WRITER_CLIENT_SECRET` | `phlo-writer-secret` | Writer principal secret, secret |
+| `POLARIS_WRITER_CLIENT_SECRET` | auto-generated | Writer principal secret, secret |
 | `POLARIS_READER_CLIENT_ID` | `phlo_reader` | Reader principal client id |
-| `POLARIS_READER_CLIENT_SECRET` | `phlo-reader-secret` | Reader principal secret, secret |
+| `POLARIS_READER_CLIENT_SECRET` | auto-generated | Reader principal secret, secret |
+
+`phlo services init` preserves existing project secrets and generates missing
+ones. The one-shot Polaris admin bootstrap converts `POLARIS_ROOT_CREDENTIALS`
+to the pinned server's realm/client/secret format and initialises a persistent
+PostgreSQL realm. Restarting services preserves that realm and its credentials.
+The API bootstrap creates writer and reader principals and atomically saves
+their issued credentials in `.phlo/polaris-principals.json` with mode `0600`.
+Both PyIceberg and the Trino adapter prefer these issued credentials over
+configured client secrets. Bootstrap refuses to replace saved credentials;
+restore the matching realm if its persistent database is lost.
+
+Existing in-memory projects require an operator-managed realm and credential
+migration before adopting PostgreSQL persistence. Phlo does not discard their
+saved principal file or silently recreate those principals during the upgrade.
+
+The Trino adapter generates the catalog configuration explicitly; install that
+configuration in Trino's catalog directory before starting the query engine.
+Treat the generated properties as a secret: it contains the writer credential.
+Do not commit it or make it readable to other users.
 
 Snapshot WAP additionally requires `wap.strategy: snapshot` in `phlo.yaml`
 alongside `wap.enabled: true`.

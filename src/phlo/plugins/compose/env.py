@@ -42,6 +42,8 @@ def normalize_env_overrides(env_overrides: dict[str, Any]) -> dict[str, str]:
 
 def generate_local_secret(var_name: str | None = None) -> str:
     """Generate local secret material for newly rendered `.env.local` files."""
+    if var_name and var_name.upper() == "POLARIS_ROOT_CREDENTIALS":
+        return f"root:{secrets.token_urlsafe(32)}"
     if var_name and var_name.upper() in {
         "MINIO_ROOT_PASSWORD",
         "AWS_SECRET_ACCESS_KEY",

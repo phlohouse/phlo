@@ -14,8 +14,8 @@ Example:
     >>> client.create_select_permission("api", "orders", "anon")
 
 Environment Variables:
-    HASURA_ADMIN_SECRET: Hasura admin secret. Defaults to the generated
-        development Compose secret when not provided.
+    HASURA_ADMIN_SECRET: Required Hasura admin secret from the environment
+        or project configuration.
     HASURA_PORT: Port override for Hasura URL resolution.
 
 """
@@ -39,7 +39,7 @@ class HasuraClientSettings(BaseConfig):
     """Configuration for Hasura client connectivity and authentication."""
 
     hasura_admin_secret: str | None = Field(
-        default="phlo-hasura-admin-secret",
+        default=None,
         description="Hasura admin secret used for Metadata API requests",
     )
 
@@ -77,8 +77,8 @@ class HasuraClient:
         >>> metadata = client.export_metadata()
 
     Environment Variables:
-        HASURA_ADMIN_SECRET: Hasura admin secret. Defaults to the generated
-            development Compose secret when not provided.
+        HASURA_ADMIN_SECRET: Required Hasura admin secret from the environment
+            or project configuration.
         HASURA_PORT: Override the port in the URL.
 
     """
@@ -90,7 +90,7 @@ class HasuraClient:
     def __init__(self, hasura_url: str | None = None, admin_secret: str | None = None) -> None:
         """Initialize the client, resolving hasura_url for Docker hostnames and
         taking the admin secret from the argument, HASURA_ADMIN_SECRET, or
-        project config; the generated development default logs a warning.
+        project config. Missing credentials raise ValueError.
 
         Example:
             >>> client = HasuraClient()
@@ -111,14 +111,6 @@ class HasuraClient:
                 "or the HASURA_ADMIN_SECRET environment/.phlo config."
             )
         self.admin_secret = resolved_admin_secret
-        if self.admin_secret == "phlo-hasura-admin-secret":
-            logger.warning(
-                "hasura_using_generated_default_admin_secret",
-                message=(
-                    "Using the generated default Hasura admin secret. "
-                    "Set HASURA_ADMIN_SECRET for non-local deployments."
-                ),
-            )
         self.metadata_url = f"{self.hasura_url}/v1/metadata"
 
     def _request(

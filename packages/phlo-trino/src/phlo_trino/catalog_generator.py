@@ -147,6 +147,9 @@ def generate_catalog_files(output_dir: str | Path | None = None) -> dict[str, Pa
             filepath = output_dir / filename
             content = _to_properties_file(catalog.get_properties())
 
+            # Catalog properties may contain issued OAuth or database secrets.
+            filepath.touch(mode=0o600, exist_ok=True)
+            filepath.chmod(0o600)
             filepath.write_text(content)
             generated[catalog.catalog_name] = filepath
             logger.info(

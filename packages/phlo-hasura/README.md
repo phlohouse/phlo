@@ -24,7 +24,7 @@ Part of the `api` profile.
 | --------------------- | -------------------------- | ----------------------- |
 | `HASURA_PORT`         | `8082`                     | Hasura console/API port |
 | `HASURA_IMAGE`        | `hasura/graphql-engine:v2.49.5@sha256:...` | Complete immutable Hasura image reference |
-| `HASURA_ADMIN_SECRET` | `phlo-hasura-admin-secret` | Admin secret            |
+| `HASURA_ADMIN_SECRET` | auto-generated | Admin secret            |
 
 ## Auto-Configuration
 
