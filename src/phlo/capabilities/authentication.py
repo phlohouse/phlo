@@ -23,6 +23,7 @@ from typing import Any
 
 from phlo.capabilities.interfaces import (
     AuthenticatedSession,
+    AuthenticationProvider,
     AuthPrincipal,
     AuthResult,
     BrowserLoginStart,
@@ -139,7 +140,7 @@ def _log_auth_event(
     log_fn(event_name, **log_args)
 
 
-class StaticAuthenticationProvider:
+class StaticAuthenticationProvider(AuthenticationProvider):
     """Static/local development authentication provider.
 
     This provider is intended for development and testing only.
@@ -295,7 +296,7 @@ class StaticAuthenticationProvider:
         return datetime.now(UTC) < session.expires_at
 
 
-class ProxyAuthenticationProvider:
+class ProxyAuthenticationProvider(AuthenticationProvider):
     """Reverse-proxy asserted identity authentication provider.
 
     This provider validates requests from trusted reverse proxies that
@@ -496,7 +497,7 @@ class ProxyAuthenticationProvider:
         return self.authenticate(request_context)
 
 
-class ServiceTokenAuthenticationProvider:
+class ServiceTokenAuthenticationProvider(AuthenticationProvider):
     """Service principal/token authentication provider.
 
     This provider validates service accounts used for automation
@@ -573,7 +574,7 @@ class ServiceTokenAuthenticationProvider:
         return None
 
 
-class JWTAuthenticationProvider:
+class JWTAuthenticationProvider(AuthenticationProvider):
     """JWT Bearer token authentication provider.
 
     Uses issuer-pinned RS256/JWKS validation when ``jwks_url`` is configured;

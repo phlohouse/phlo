@@ -15,7 +15,7 @@ import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from phlo.run_evidence.reconciliation import (
     RequiredEvidenceProfile,
@@ -53,6 +53,13 @@ class EvidenceProfileContribution:
             raise ValueError("a contribution must not repeat a stage")
         if not all(dep.strip() for dep in self.requires_contributions):
             raise ValueError("requires_contributions must contain non-empty ids")
+
+
+class EvidenceProfileContributionProvider(Protocol):
+    """Read-only provider wrapper for declarative contribution data."""
+
+    @property
+    def contribution(self) -> EvidenceProfileContribution: ...
 
 
 @dataclass(frozen=True, slots=True)

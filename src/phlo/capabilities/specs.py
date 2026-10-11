@@ -16,10 +16,51 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from phlo.capabilities.interfaces import (
+    AlertSink,
+    ApiBackend,
+    AuthenticationProvider,
+    AuthorizationPolicyBackend,
+    CatalogScanner,
+    GovernanceBackend,
+    LineageSink,
+    MaintenanceExecutor,
+    MaintenanceReadModel,
+    MetadataCatalog,
+    NamespaceResolver,
+    ObjectStore,
+    ObservabilityBackend,
+    OrchestratorOperationsProvider,
+    PublishTarget,
+    QualityBackend,
+    QueryEngine,
+    SchemaDiscoveryProvider,
+    SchemaMigrator,
+    SecretBackend,
+    SlingConnection,
+    SnapshotPromotionCatalog,
+    TableStore,
+    VersionedCatalog,
+    WorkflowAuthoringProvider,
+    WorkflowValidator,
+)
 from phlo.capabilities.runtime import RuntimeContext
 from phlo.capabilities.support import CapabilitySupport
+
+if TYPE_CHECKING:
+    from phlo.capabilities.continuity import BackupContributor
+    from phlo.dataset.evidence import DatasetEvidenceSource
+    from phlo.dataset.store import DatasetStateStore, DatasetStateStoreProvider
+    from phlo.migrations.adapters import SourceAdapter
+    from phlo.plugins.observatory_settings import SettingsStore
+    from phlo.run_evidence.profiles import (
+        EvidenceProfileContribution,
+        EvidenceProfileContributionProvider,
+    )
+    from phlo.security.adapters import RegulatedSurfaceAdapter
+    from phlo.security.backend_readiness import BackendReadinessProvider
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +68,7 @@ class AuthenticationProviderSpec:
     """Authentication provider capability."""
 
     name: str
-    provider: Any
+    provider: AuthenticationProvider
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -37,7 +78,7 @@ class ObservabilityBackendSpec:
     """Observability backend capability (metrics, logs, dashboards, alerts)."""
 
     name: str
-    provider: Any
+    provider: ObservabilityBackend
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -107,7 +148,7 @@ class TableStoreSpec:
     """Table store capability (for example Iceberg, Delta, Hudi)."""
 
     name: str
-    provider: Any
+    provider: TableStore
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -117,7 +158,7 @@ class CatalogSpec:
     """Catalog capability (for example Nessie, Hive Metastore, Glue)."""
 
     name: str
-    provider: Any
+    provider: VersionedCatalog | SnapshotPromotionCatalog
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -127,7 +168,7 @@ class CatalogScannerSpec:
     """Catalog scanner capability for metadata sync and table discovery."""
 
     name: str
-    provider: Any
+    provider: CatalogScanner
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -137,7 +178,7 @@ class QueryEngineSpec:
     """Query engine capability (for example Trino, Spark SQL, DuckDB)."""
 
     name: str
-    provider: Any
+    provider: QueryEngine
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -147,7 +188,7 @@ class MaintenanceExecutorSpec:
     """Provider for ref-aware table maintenance execution."""
 
     name: str
-    provider: Any
+    provider: MaintenanceExecutor
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -157,7 +198,7 @@ class ObjectStoreSpec:
     """Object storage capability (for example MinIO, RustFS, S3)."""
 
     name: str
-    provider: Any
+    provider: ObjectStore
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -172,7 +213,7 @@ class SlingConnectionSpec:
     """
 
     name: str
-    provider: Any
+    provider: SlingConnection
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -187,7 +228,7 @@ class EvidenceProfileContributionSpec:
     """
 
     name: str
-    provider: Any
+    provider: EvidenceProfileContribution | EvidenceProfileContributionProvider
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -201,7 +242,7 @@ class BackendReadinessSpec:
     """
 
     name: str
-    provider: Any
+    provider: BackendReadinessProvider
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -216,7 +257,7 @@ class BackupContributorSpec:
     """
 
     name: str
-    provider: Any
+    provider: BackupContributor
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -226,7 +267,7 @@ class QualityBackendSpec:
     """Quality backend capability used by quality checks."""
 
     name: str
-    provider: Any
+    provider: QualityBackend
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -236,7 +277,7 @@ class MaintenanceReadModelSpec:
     """Maintenance and observability read-model capability."""
 
     name: str
-    provider: Any
+    provider: MaintenanceReadModel
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -246,7 +287,7 @@ class MetadataCatalogSpec:
     """Metadata catalog capability (for example OpenMetadata)."""
 
     name: str
-    provider: Any
+    provider: MetadataCatalog
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -256,7 +297,7 @@ class LineageSinkSpec:
     """Lineage sink capability (for example OpenLineage, graph store)."""
 
     name: str
-    provider: Any
+    provider: LineageSink
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -266,7 +307,7 @@ class GovernanceBackendSpec:
     """Governance backend capability (for example Trino RBAC, Ranger, OPA)."""
 
     name: str
-    provider: Any
+    provider: GovernanceBackend
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -276,7 +317,7 @@ class AuthorizationPolicyBackendSpec:
     """Authorization policy backend capability (PDP for access control)."""
 
     name: str
-    provider: Any
+    provider: AuthorizationPolicyBackend
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -286,7 +327,7 @@ class PublishTargetSpec:
     """Publish target capability (for example Postgres marts, warehouse export sink)."""
 
     name: str
-    provider: Any
+    provider: PublishTarget
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -296,7 +337,7 @@ class ApiBackendSpec:
     """API/backend capability (for example Hasura, PostgREST, custom graph API)."""
 
     name: str
-    provider: Any
+    provider: ApiBackend
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -306,7 +347,7 @@ class AlertSinkSpec:
     """Alert sink capability (for example PagerDuty/Slack manager)."""
 
     name: str
-    provider: Any
+    provider: AlertSink
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -316,7 +357,7 @@ class SecretBackendSpec:
     """Secret backend capability (for example Vault, AWS Secrets Manager, env)."""
 
     name: str
-    provider: Any
+    provider: SecretBackend
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -371,7 +412,7 @@ class SchemaMigrationSpec:
     """Schema migration capability (registered provider)."""
 
     name: str
-    provider: Any
+    provider: SchemaMigrator
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -381,7 +422,7 @@ class WorkflowValidationSpec:
     """Workflow and schema validation capability (registered provider)."""
 
     name: str
-    provider: Any
+    provider: WorkflowValidator
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -391,7 +432,7 @@ class SchemaDiscoverySpec:
     """Schema discovery and normalization capability (registered provider)."""
 
     name: str
-    provider: Any
+    provider: SchemaDiscoveryProvider
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -401,7 +442,7 @@ class NamespaceResolverSpec:
     """Default namespace resolution capability (registered provider)."""
 
     name: str
-    provider: Any
+    provider: NamespaceResolver
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -411,7 +452,7 @@ class WorkflowAuthoringSpec:
     """Workflow authoring capability (registered provider)."""
 
     name: str
-    provider: Any
+    provider: WorkflowAuthoringProvider
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -421,7 +462,7 @@ class OrchestratorOperationsSpec:
     """Orchestrator operation capability (registered provider)."""
 
     name: str
-    provider: Any
+    provider: OrchestratorOperationsProvider
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -431,7 +472,7 @@ class DataMigrationSourceSpec:
     """Data migration source adapter capability (registered provider)."""
 
     name: str
-    provider: Any
+    provider: SourceAdapter
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -495,7 +536,7 @@ class RegulatedSurfaceSpec:
     """Regulated surface capability — marks a framework surface as regulated."""
 
     name: str
-    provider: Any
+    provider: RegulatedSurfaceAdapter
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -504,7 +545,7 @@ class SettingsStoreSpec:
     """Settings store capability for durable Observatory settings storage."""
 
     name: str
-    provider: Any
+    provider: SettingsStore
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -514,7 +555,7 @@ class DatasetEvidenceSourceSpec:
     """Dataset evidence source capability with neutral evidence inputs."""
 
     name: str
-    provider: Any
+    provider: DatasetEvidenceSource
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 
@@ -524,7 +565,7 @@ class DatasetStateStoreSpec:
     """Dataset state store capability with durable compare-and-set semantics."""
 
     name: str
-    provider: Any
+    provider: DatasetStateStore | DatasetStateStoreProvider
     metadata: dict[str, Any] = field(default_factory=dict)
     support: CapabilitySupport = field(default_factory=CapabilitySupport)
 

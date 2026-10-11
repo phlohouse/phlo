@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 import pyarrow as pa
@@ -223,7 +224,7 @@ class DeltaResource:
     def append_parquet(
         self,
         table_name: str,
-        data_path: str,
+        data_path: str | Path,
         override_ref: str | None = None,
     ) -> dict[str, int]:
         """Append parquet data from data_path into the table and return write
@@ -244,7 +245,7 @@ class DeltaResource:
             source=data_path,
         )
         try:
-            result = append_to_table(table_name=table_name, data_path=data_path)
+            result = append_to_table(table_name=table_name, data_path=str(data_path))
         except Exception as exc:
             logger.error(
                 "delta_resource_append_failed",
@@ -266,7 +267,7 @@ class DeltaResource:
     def merge_parquet(
         self,
         table_name: str,
-        data_path: str,
+        data_path: str | Path,
         unique_key: str,
         override_ref: str | None = None,
         *,
@@ -327,7 +328,7 @@ class DeltaResource:
         self,
         *,
         table_name: str,
-        data_path: str,
+        data_path: str | Path,
         override_ref: str | None = None,
     ) -> dict[str, int]:
         """Replace all table data with parquet from data_path and return write
@@ -350,7 +351,7 @@ class DeltaResource:
             source=data_path,
         )
         try:
-            result = overwrite_table(table_name=table_name, data_path=data_path)
+            result = overwrite_table(table_name=table_name, data_path=str(data_path))
         except Exception as exc:
             logger.error(
                 "delta_resource_overwrite_failed",
@@ -413,7 +414,7 @@ class DeltaResource:
         )
         return result
 
-    def compact(self, *, table_name: str) -> dict[str, object]:
+    def compact(self, *, table_name: str, override_ref: str | None = None) -> dict[str, object]:
         """Coalesce small files into larger ones via Delta OPTIMIZE.
 
         Example:
@@ -423,6 +424,7 @@ class DeltaResource:
         """
         from phlo_delta.tables import _resolve_table_uri
 
+        _resolve_delta_ref(override_ref)
         table_uri = _resolve_table_uri(table_name)
         opts = get_settings().get_storage_options()
         delta_table_cls = _load_delta_table()

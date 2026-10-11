@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from phlo.capabilities import resolve_capability
+from phlo.capabilities.interfaces import QueryEngine
 from phlo.exceptions import PhloConfigError
 from phlo.helpers.partitions import PartitionScope
 from phlo.helpers.sql import (
@@ -22,13 +23,22 @@ from phlo.helpers.sql import (
 from phlo.references import LogicalRelation, quote_identifier
 
 
-def resolve_query_engine(name: str | None = None, *, runtime: Any = None) -> Any:
+def resolve_query_engine(name: str | None = None, *, runtime: Any = None) -> QueryEngine:
     """Resolve the active query engine provider or raise a guided error."""
     resolution = resolve_capability("query_engine", name, runtime=runtime)
     if resolution is None:
         raise PhloConfigError(
             message="No query_engine capability could be resolved",
             suggestions=["Install/configure a query engine such as phlo-trino or phlo-clickhouse."],
+        )
+    if not (
+        isinstance(resolution.provider, QueryEngine)
+        and callable(resolution.provider.execute)
+        and callable(resolution.provider.preview)
+    ):
+        raise PhloConfigError(
+            message="Query engine provider must implement execute and preview",
+            suggestions=["Register a provider implementing the QueryEngine protocol."],
         )
     return resolution.provider
 
@@ -58,7 +68,8 @@ def read_dataframe(
 ) -> Any:
     """Read a query or logical relation as a DataFrame through the active query engine."""
     engine = query_engine or resolve_query_engine(runtime=runtime)
-    if not hasattr(engine, "read_dataframe"):
+    reader = getattr(engine, "read_dataframe", None)
+    if not callable(reader):
         raise PhloConfigError(
             message=f"Query engine {type(engine).__name__} does not support DataFrame reads",
             suggestions=[
@@ -66,7 +77,7 @@ def read_dataframe(
                 "Use phlo.helpers.safe_query for row-oriented query results.",
             ],
         )
-    return engine.read_dataframe(
+    return reader(
         query,
         params=params,
         schema=schema,
@@ -107,8 +118,9 @@ def read_table(
     engine = query_engine
     if scope is None:
         engine = query_engine or resolve_query_engine(runtime=runtime)
-    if scope is None and hasattr(engine, "read_table"):
-        return engine.read_table(
+    reader = getattr(engine, "read_table", None)
+    if scope is None and callable(reader):
+        return reader(
             table_name,
             columns=columns,
             limit=limit,

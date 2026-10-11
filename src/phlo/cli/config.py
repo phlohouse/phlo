@@ -18,8 +18,9 @@ from rich.table import Table
 
 from phlo.cli.contract import PhloCommand, PhloGroup
 from phlo.cli.output import json_envelope, user_error
-from phlo.config_schema import ApiConfig, InfrastructureConfig, ServiceOverride
+from phlo.config_schema import InfrastructureConfig, ProjectConfig
 from phlo.infrastructure import clear_config_cache, load_infrastructure_config
+from phlo.infrastructure.config import ProjectConfigError
 from phlo.logging import get_logger
 
 console = Console()
@@ -59,7 +60,7 @@ def show(format: str, output_json: bool = False):
     """
     try:
         infra_config = load_infrastructure_config()
-    except yaml.YAMLError as exc:
+    except ProjectConfigError as exc:
         config_path = Path.cwd() / "phlo.yaml"
         logger.warning("config_show_yaml_invalid", path=str(config_path), error=str(exc))
         raise user_error("invalid phlo.yaml", details={"File": config_path, "Error": exc}) from exc
@@ -109,24 +110,7 @@ def validate(output_json: bool = False):
         raise user_error("phlo.yaml is empty", run="phlo config validate")
 
     try:
-        if "infrastructure" in project_config:
-            infra_data = project_config["infrastructure"]
-            infra_config = InfrastructureConfig(**infra_data)
-        else:
-            infra_config = InfrastructureConfig()
-
-        api_data = project_config.get("api")
-        if api_data is not None:
-            ApiConfig(**api_data)
-
-        services_data = project_config.get("services", {})
-        if isinstance(services_data, dict):
-            for service_name, service_config in services_data.items():
-                if not isinstance(service_config, dict):
-                    continue
-                if service_name in {"enabled", "disabled"}:
-                    continue
-                ServiceOverride(**service_config)
+        infra_config = ProjectConfig.model_validate(project_config).infrastructure
     except ValidationError as e:
         logger.warning(
             "config_validate_failed",

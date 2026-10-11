@@ -19,11 +19,11 @@ from phlo.security.gating import (
 
 @pytest.fixture(autouse=True)
 def _reset_config_cache():
-    from phlo.infrastructure.config import load_project_config
+    from phlo.infrastructure.config import clear_config_cache
 
-    load_project_config.cache_clear()
+    clear_config_cache()
     yield
-    load_project_config.cache_clear()
+    clear_config_cache()
 
 
 def test_write_restricted_services_contains_hasura_postgrest():

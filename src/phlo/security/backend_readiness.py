@@ -8,7 +8,7 @@ or ``unavailable`` blocks production readiness.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -73,7 +73,7 @@ class BackendReadinessProvider(Protocol):
         """Return the authoritative readiness result for this backend."""
         ...
 
-    def plan(self) -> list[Mapping[str, Any]] | None:
+    def plan(self) -> Sequence[Mapping[str, Any]] | None:
         """Optionally describe planned provider-native changes (never applied)."""
         return None
 

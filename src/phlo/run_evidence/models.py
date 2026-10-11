@@ -20,6 +20,41 @@ from phlo.capabilities.interfaces import ResourceRef
 RUN_EVIDENCE_SCHEMA_VERSION = 5
 
 
+class RunStatus(StrEnum):
+    """Canonical lifecycle vocabulary shared by runs, stages and observations."""
+
+    UNKNOWN = "unknown"
+    OBSERVED = "observed"
+    UNSUPPORTED = "unsupported"
+    INCOMPLETE = "incomplete"
+    QUEUED = "queued"
+    NOT_STARTED = "not_started"
+    STARTING = "starting"
+    STARTED = "started"
+    START = "start"
+    RUNNING = "running"
+    CANCELING = "canceling"
+    SUCCESS = "success"
+    FAILED = "failed"
+    ERROR = "error"
+    CANCELLED = "cancelled"
+    SKIPPED = "skipped"
+    NO_DATA = "no_data"
+    ABANDONED = "abandoned"
+
+    @classmethod
+    def parse(cls, value: str) -> RunStatus:
+        """Normalize documented provider aliases, rejecting other stored statuses."""
+        if not isinstance(value, str):
+            raise ValueError("run status must be a string")
+        normalized = value.strip().lower()
+        return cls(
+            {"canceled": "cancelled", "failure": "failed", "succeeded": "success"}.get(
+                normalized, normalized
+            )
+        )
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -65,7 +100,7 @@ class PipelineRun:
     config_version: str | None = None
     attempt: int = 1
     trace_id: str | None = None
-    status: str = "running"
+    status: RunStatus | str = RunStatus.RUNNING
     started_at: datetime | None = field(default_factory=_now)
     finished_at: datetime | None = None
     failure_summary: str | None = None
@@ -73,6 +108,7 @@ class PipelineRun:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "attempt", _positive_attempt(self.attempt))
+        object.__setattr__(self, "status", RunStatus.parse(self.status))
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +145,7 @@ class RunStage:
     tool: str | None = None
     asset: str | None = None
     attempt: int = 1
-    status: str = "unknown"
+    status: RunStatus | str = RunStatus.UNKNOWN
     started_at: datetime | None = None
     finished_at: datetime | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
@@ -118,6 +154,7 @@ class RunStage:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "attempt", _positive_attempt(self.attempt))
+        object.__setattr__(self, "status", RunStatus.parse(self.status))
         _validate_resource_ref(self.resource_ref, self.project_id)
 
 

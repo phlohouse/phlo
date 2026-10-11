@@ -13,10 +13,10 @@ from typing import Any
 import pytest
 
 from phlo.migrations.adapters import CsvSourceAdapter, resolve_source_adapter
-from phlo.migrations.specs import MigrationSource
+from phlo.migrations.specs import MigrationSource, MigrationSourceError, MigrationSourceValue
 
 
-def _csv_source(path: str | None = None, **kwargs: Any) -> MigrationSource:
+def _csv_source(path: str | None = None, **kwargs: Any) -> MigrationSourceValue:
     return MigrationSource(type="csv", path=path, **kwargs)
 
 
@@ -30,8 +30,8 @@ class TestCsvSourceAdapter:
         assert CsvSourceAdapter().source_type == "csv"
 
     def test_validate_missing_path(self) -> None:
-        errors = CsvSourceAdapter().validate_config(_csv_source(path=None))
-        assert any("path" in e for e in errors)
+        with pytest.raises(MigrationSourceError, match="path"):
+            _csv_source(path=None)
 
     def test_validate_nonexistent_file(self, tmp_path: Path) -> None:
         errors = CsvSourceAdapter().validate_config(_csv_source(path=str(tmp_path / "nope.csv")))
@@ -39,15 +39,13 @@ class TestCsvSourceAdapter:
 
     def test_validate_with_query_unsupported(self, tmp_path: Path) -> None:
         csv_file = _write_csv(tmp_path / "data.csv", ["a,b", "1,2"])
-        errors = CsvSourceAdapter().validate_config(
+        with pytest.raises(MigrationSourceError, match="exactly one"):
             _csv_source(path=str(csv_file), query="SELECT 1")
-        )
-        assert any("query" in e for e in errors)
 
     def test_validate_with_table_unsupported(self, tmp_path: Path) -> None:
         csv_file = _write_csv(tmp_path / "data.csv", ["a,b", "1,2"])
-        errors = CsvSourceAdapter().validate_config(_csv_source(path=str(csv_file), table="t"))
-        assert any("table" in e for e in errors)
+        with pytest.raises(MigrationSourceError, match="exactly one"):
+            _csv_source(path=str(csv_file), table="t")
 
     def test_validate_valid_csv(self, tmp_path: Path) -> None:
         csv_file = _write_csv(tmp_path / "data.csv", ["a,b", "1,2"])
@@ -79,7 +77,8 @@ class TestCsvSourceAdapter:
         assert CsvSourceAdapter().estimate_row_count(_csv_source(path=str(csv_file))) == 3
 
     def test_estimate_row_count_missing_path(self) -> None:
-        assert CsvSourceAdapter().estimate_row_count(_csv_source(path=None)) is None
+        with pytest.raises(MigrationSourceError, match="path"):
+            _csv_source(path=None)
 
 
 class _FakeRegistry:
