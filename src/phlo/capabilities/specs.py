@@ -51,16 +51,16 @@ from phlo.capabilities.support import CapabilitySupport
 
 if TYPE_CHECKING:
     from phlo.capabilities.continuity import BackupContributor
+    from phlo.capabilities.settings import SettingsStore
     from phlo.dataset.evidence import DatasetEvidenceSource
     from phlo.dataset.store import DatasetStateStore, DatasetStateStoreProvider
-    from phlo.migrations.adapters import SourceAdapter
-    from phlo.plugins.observatory_settings import SettingsStore
-    from phlo.run_evidence.profiles import (
+    from phlo.migrations.specs import SourceAdapter
+    from phlo.run_evidence.contracts import (
         EvidenceProfileContribution,
         EvidenceProfileContributionProvider,
     )
     from phlo.security.adapters import RegulatedSurfaceAdapter
-    from phlo.security.backend_readiness import BackendReadinessProvider
+    from phlo.security.readiness import BackendReadinessProvider
 
 
 @dataclass(frozen=True, slots=True)

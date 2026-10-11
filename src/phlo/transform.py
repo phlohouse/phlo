@@ -25,8 +25,9 @@ from phlo._flow_authoring import (
     contract_metadata,
     normalize_asset_deps,
 )
-from phlo.capabilities import AssetSpec
+from phlo.capabilities.specs import AssetSpec
 from phlo.contracts import SLA, Consumer
+from phlo.plugins.discovery._plugin_loading import discover_plugins
 
 _TRANSFORM_ASSETS: list[AssetSpec] = []
 
@@ -48,8 +49,8 @@ def sql(
     ``phlo-transform`` or use dbt/provider-specific asset declarations instead.
     """
 
-    from phlo.plugins.discovery import discover_plugins, get_global_registry
     from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
+    from phlo.plugins.discovery.registry import get_global_registry
 
     registry = get_global_registry()
     for family in ("transformation_provider", "asset_provider"):

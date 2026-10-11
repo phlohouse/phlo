@@ -11,16 +11,15 @@ import json
 
 from click.testing import CliRunner
 
-from phlo_dagster.cli_logs import (
+from phlo_dagster.cli_logs import _parse_since, logs
+from phlo_dagster.cli_logs_display import _is_json
+from phlo_dagster.logs_client import (
     _build_logs_query,
     _event_log_row_to_entry,
     _get_log_level,
     _get_logs,
     _get_logs_from_postgres,
-    _parse_since,
-    logs,
 )
-from phlo_dagster.cli_logs_display import _is_json
 
 
 def test_logs_help_is_user_facing() -> None:
@@ -227,7 +226,7 @@ class TestLogsCLI:
 
 def test_get_logs_uses_project_dagster_port_override(monkeypatch) -> None:
     """GraphQL log lookups should honor project Dagster port overrides."""
-    from phlo_dagster import cli_logs as logs_module
+    from phlo_dagster import logs_client as logs_module
 
     captured: dict[str, str] = {}
 
@@ -277,7 +276,7 @@ def test_build_logs_query_expands_event_window_for_level_filters() -> None:
 
 def test_get_logs_parses_current_dagster_graphql_shape(monkeypatch) -> None:
     """GraphQL parser should read runsOrError.results[].eventConnection.events."""
-    from phlo_dagster import cli_logs as logs_module
+    from phlo_dagster import logs_client as logs_module
 
     class FakeResponse:
         def raise_for_status(self) -> None:
@@ -325,7 +324,7 @@ def test_get_logs_parses_current_dagster_graphql_shape(monkeypatch) -> None:
 
 
 def test_get_logs_prefers_postgres_for_level_filters(monkeypatch) -> None:
-    from phlo_dagster import cli_logs as logs_module
+    from phlo_dagster import logs_client as logs_module
 
     monkeypatch.setattr(
         logs_module,
@@ -355,7 +354,7 @@ def test_get_logs_prefers_postgres_for_level_filters(monkeypatch) -> None:
 
 def test_get_logs_from_postgres_uses_project_env(monkeypatch) -> None:
     """Postgres fallback should honor project DB env overrides."""
-    from phlo_dagster import cli_logs as logs_module
+    from phlo_dagster import logs_client as logs_module
 
     captured: dict[str, object] = {}
 
@@ -406,7 +405,7 @@ def test_get_logs_from_postgres_uses_project_env(monkeypatch) -> None:
 
 def test_get_logs_from_postgres_expands_level_filter_window(monkeypatch) -> None:
     """ERROR lookups should not miss failures just outside the latest display limit."""
-    from phlo_dagster import cli_logs as logs_module
+    from phlo_dagster import logs_client as logs_module
 
     captured: dict[str, object] = {}
 

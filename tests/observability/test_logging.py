@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 
 from phlo.logging import (
     LoggingSettings,
@@ -143,6 +144,23 @@ def test_setup_logging_redacts_sensitive_fields(tmp_path: Path) -> None:
     assert "<redacted>" in contents
     assert "abc123" not in contents
     assert "p@ss" not in contents
+
+
+def test_domain_logging_redacts_before_application_setup(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from phlo.logging_context import get_logger as get_domain_logger
+
+    configuration = structlog.get_config()
+    try:
+        structlog.reset_defaults()
+        get_domain_logger("early.discovery").warning("early_event", password="early-value")
+        output = capsys.readouterr().out
+        assert "early_event" in output
+        assert "<redacted>" in output
+        assert "early-value" not in output
+    finally:
+        structlog.configure(**configuration)
 
 
 def test_auto_format_keeps_stderr_quiet_by_default(

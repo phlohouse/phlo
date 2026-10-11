@@ -16,8 +16,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from phlo.capabilities import resolve_capability
 from phlo.capabilities.interfaces import SnapshotPromotionCatalog
+from phlo.capabilities.resolver import resolve_capability
 from phlo.exceptions import PhloConfigError
 
 

@@ -53,7 +53,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from phlo.config.telemetry import TelemetryProcessSettings
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 

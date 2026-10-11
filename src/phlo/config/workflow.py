@@ -14,6 +14,7 @@ from typing import Any, overload
 from pydantic import BaseModel, ValidationError
 
 from phlo.config.env import load_project_env
+from phlo.config.project import load_project_config
 
 
 class WorkflowSettingsError(ValueError):
@@ -149,11 +150,6 @@ def workflow_settings[SchemaT: BaseModel](
     Local values from ``.phlo/.env``, ``.phlo/.env.local``, and OS environment
     variables override committed defaults.
     """
-    # Imported inside the function on purpose: phlo.infrastructure.config
-    # imports phlo.config.cache, whose package __init__ imports this module,
-    # so an eager import here is circular.
-    from phlo.infrastructure.config import load_project_config
-
     root = project_root or Path.cwd()
     project_config = load_project_config(root)
     values = _settings_defaults(project_config, namespace)

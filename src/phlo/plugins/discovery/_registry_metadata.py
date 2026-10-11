@@ -7,7 +7,7 @@ Imported by the phlo.plugins.discovery registry to serialize plugin metadata for
 
 from __future__ import annotations
 
-from phlo.plugins.base import Plugin
+from phlo.plugins.base.plugin import Plugin
 
 
 def plugin_metadata_to_dict(plugin: Plugin) -> dict:

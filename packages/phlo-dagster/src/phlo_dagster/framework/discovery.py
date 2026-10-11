@@ -45,7 +45,7 @@ Example:
 
         path = get_workflows_path_from_config()
 
-Sits in the phlo-dagster framework layer, building on phlo.capabilities.discovery and
+Sits in the phlo-dagster framework layer, building on phlo.application.discovery and
 phlo.plugins.discovery to turn user workflow modules into Dagster definitions.
 """
 
@@ -60,13 +60,14 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities.external_refs import validate_external_asset_references
 from phlo.capabilities.registry import clear_all_capabilities, get_capability_registry
 from phlo.exceptions import PhloConfigError, PhloDiscoveryError
 from phlo.logging import get_logger
 from phlo.orchestrators import get_active_orchestrator
-from phlo_dagster.framework.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
+
+from phlo_dagster.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
 
 logger = get_logger(__name__)
 

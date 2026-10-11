@@ -64,6 +64,7 @@ from phlo_iceberg.schema_alignment import (
     validate_declared_schema,
     validate_schema_policy,
 )
+from phlo_iceberg.storage import list_storage_files, storage_path_key
 
 logger = get_logger(__name__)
 
@@ -938,16 +939,14 @@ def _is_older_than(file_info: Any, cutoff: datetime) -> bool:
 
 def _unreferenced_data_files(table: Table, older_than: datetime) -> list[str]:
     """List unreferenced data files older than the cutoff; return [] when listing fails."""
-    from phlo_iceberg.resource import _list_storage_files, _storage_path_key
-
     referenced_files = _referenced_files(table)
     table_location = table.location()
     try:
-        normalized_references = {_storage_path_key(path) for path in referenced_files}
+        normalized_references = {storage_path_key(path) for path in referenced_files}
         return [
             file_info.path
-            for file_info in _list_storage_files(table.io, f"{table_location}/data")
-            if _storage_path_key(str(file_info.path)) not in normalized_references
+            for file_info in list_storage_files(table.io, f"{table_location}/data")
+            if storage_path_key(str(file_info.path)) not in normalized_references
             and _is_older_than(file_info, older_than)
         ]
     except Exception as e:

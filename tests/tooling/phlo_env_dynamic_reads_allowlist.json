@@ -1,5 +1,5 @@
 {
-  "src/phlo/capabilities/observability.py": [
+  "src/phlo/application/observability.py": [
     "key"
   ],
   "src/phlo/helpers/connections.py": [

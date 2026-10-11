@@ -34,7 +34,7 @@ jobs:
             'phlo.security.mode.x_is_regulated__mutmut_*' \
             'phlo.security.mode.x_requires_http_authorization__mutmut_*' \
             'phlo.quality_rules.x_range_between__mutmut_*' \
-            'phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names__mutmut_*'
+            'phlo.config.project.x_get_enabled_disabled_service_names__mutmut_*'
 
       - name: Mutate Trino identifier quoting
         working-directory: packages/phlo-api
@@ -48,7 +48,7 @@ jobs:
           mkdir -p mutation-reports
           if [ -d mutants ]; then
             uv run --locked --with mutmut==3.8.0 mutmut results --all true | \
-              grep -E 'phlo.security.mode.x_(is_regulated__|requires_http_authorization__)|phlo.quality_rules.x_range_between__|phlo.cli.commands.services.utils.x_get_enabled_disabled_service_names__' \
+              grep -E 'phlo.security.mode.x_(is_regulated__|requires_http_authorization__)|phlo.quality_rules.x_range_between__|phlo.config.project.x_get_enabled_disabled_service_names__' \
               > mutation-reports/policy.txt
           fi
           if [ -d packages/phlo-api/mutants ]; then
