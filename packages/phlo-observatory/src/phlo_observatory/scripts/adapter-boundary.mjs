@@ -19,7 +19,7 @@ export function checkSource(source, filename) {
       if (
         name &&
         (name.startsWith('node:') ||
-          /^(pg|postgres|mysql|better-sqlite3|sqlite3|@aws-sdk|@dagster|trino|nessie|minio)(\/|$)/.test(
+          /^(fs|http|https|net|tls|child_process|pg|postgres|mysql|better-sqlite3|sqlite3|@aws-sdk|@dagster|trino|nessie|minio)(\/|$)/.test(
             name,
           ))
       ) {
@@ -37,12 +37,16 @@ export function checkSource(source, filename) {
       ) {
         errors.push(`Backend dependency outside API adapters: ${name}`)
       }
+      if (adapter && name?.startsWith('../'))
+        errors.push(
+          'Adapters must not import a parallel backend implementation',
+        )
     }
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       const name = node.expression.getText(tree)
       if (
-        /\b(fetch|XMLHttpRequest|WebSocket|require|import)$/.test(name) &&
-        !transport
+        /\b(require|import)$/.test(name) ||
+        (/\b(fetch|XMLHttpRequest|WebSocket)$/.test(name) && !transport)
       )
         errors.push(
           `Only the authenticated API transport may perform I/O: ${name}`,
@@ -53,14 +57,15 @@ export function checkSource(source, filename) {
         )
       if (name === 'phloApi' && node.arguments?.[0]) {
         const path = node.arguments[0].getText(tree)
-        // Dynamic pagination uses a locally declared API base, checked below.
+        // Dynamic pagination's API base is independently resolved by the drift gate.
         if (!path.includes('api/v1/') && !path.includes('${base}'))
           errors.push(`Noncanonical backend endpoint: ${path}`)
       }
     }
     if (
-      ts.isPropertyAccessExpression(node) &&
-      node.getText(tree).startsWith('process.env')
+      (ts.isPropertyAccessExpression(node) ||
+        ts.isElementAccessExpression(node)) &&
+      /^process\.env(?:\.|\[)/.test(node.getText(tree))
     ) {
       if (!transport || node.getText(tree) !== 'process.env.PHLO_API_URL')
         errors.push(

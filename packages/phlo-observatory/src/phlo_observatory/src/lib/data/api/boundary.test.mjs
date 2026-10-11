@@ -1,6 +1,5 @@
 /** Negative regressions for provider I/O and duplicate backend responsibilities. */
 import { describe, expect, it } from 'vitest'
-// @ts-expect-error Shared executable Node guard.
 import {
   checkSource,
   checkTree,
@@ -17,8 +16,13 @@ describe('the retained Node API adapter boundary', () => {
       "phloApi('http://nessie/api/v2/trees', schema)",
       "const sql = 'INSERT INTO query_sessions VALUES ($1)'",
       "const pg = await import('postgres')",
+      "const token = process.env['PHLO_SERVICE_TOKEN']",
+      "import backend from '../provider'",
     ])
       expect(checkSource(source, file), source).not.toEqual([])
+    expect(
+      checkSource("require('pg')", '/src/lib/data/api/client.ts'),
+    ).not.toEqual([])
     expect(
       checkSource(
         'createServerFn({method: "POST"}).handler(() => ({}))',

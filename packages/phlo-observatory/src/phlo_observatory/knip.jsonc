@@ -6,10 +6,13 @@
   "entry": [
     // Manual smoke check documented in README.md, run with `node` against a live app.
     "scripts/verify-api-client.mjs",
+    "scripts/browser-smoke.mjs",
   ],
   "ignoreBinaries": [
     // Optional local browser driver the manual smoke check shells out to.
     "agent-browser",
+    // The contract gate evaluates the authoritative Python API, not a snapshot.
+    "uv",
   ],
   "ignoreDependencies": [
     // Pins the axe rule set that vitest-axe runs in the accessibility tests.

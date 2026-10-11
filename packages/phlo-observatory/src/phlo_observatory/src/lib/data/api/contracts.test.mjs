@@ -1,7 +1,6 @@
 /** Checks actual client methods/parsers against freshly generated FastAPI OpenAPI. */
 import { execFileSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
-// @ts-expect-error The executable Node script is also used outside Vitest.
 import {
   checkContract,
   discoverContracts,
@@ -37,9 +36,7 @@ describe('API/client method and response drift', () => {
   })
 
   it('rejects an incompatible method and a renamed required API field', () => {
-    const overview = contracts.find(
-      (c: { path: string }) => c.path === '/api/v1/overview',
-    )
+    const overview = contracts.find((c) => c.path === '/api/v1/overview')
     expect(overview).toBeDefined()
     const wrongMethod = structuredClone(document)
     wrongMethod.paths['/api/v1/overview'].post =
@@ -52,7 +49,7 @@ describe('API/client method and response drift', () => {
     const model = wrongField.components.schemas.OverviewResponse
     model.properties.assets_total = model.properties.asset_count
     delete model.properties.asset_count
-    model.required = model.required.map((key: string) =>
+    model.required = model.required.map((key) =>
       key === 'asset_count' ? 'assets_total' : key,
     )
     expect(() => checkContract(wrongField, overview)).toThrow(
