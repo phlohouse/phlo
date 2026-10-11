@@ -1187,3 +1187,58 @@ class AuthenticationProvider(Protocol):
     def authenticate_proxy_identity(self, request_context: RequestContext) -> AuthResult:
         """Authenticate reverse-proxy asserted identity (optional)."""
         raise NotImplementedError
+
+
+@runtime_checkable
+class ObservabilityBackend(Protocol):
+    """Read-only platform health, metrics, links and trace queries."""
+
+    def health_summary(self) -> PlatformHealthSummary: ...
+    def service_status(self) -> list[ServiceStatus]: ...
+    def platform_metrics(self, period: str) -> PlatformMetricsSummary: ...
+    def recent_alerts(self, limit: int) -> list[AlertSummary]: ...
+    def dashboard_links(self) -> list[DashboardLink]: ...
+    def logs_query_link(self, service: str | None = None) -> str | None: ...
+    def metrics_query_link(self, metric: str | None = None) -> str | None: ...
+    def run_trace_spans(self, run_id: str, limit: int = 500) -> list[TraceSpan]: ...
+    def trace_spans(self, filters: TraceSpanFilter) -> list[TraceSpan]: ...
+
+
+@runtime_checkable
+class SlingConnection(Protocol):
+    """Provider-owned Sling connection settings."""
+
+    def to_sling_connection(self) -> dict[str, Any]: ...
+
+
+@runtime_checkable
+class ObjectStore(SlingConnection, Protocol):
+    """Object storage connection contract; layout provisioning is optional."""
+
+
+@runtime_checkable
+class PublishTarget(Protocol):
+    """Serving target identity and its opaque provider-native database handle."""
+
+    @property
+    def resource(self) -> Any: ...
+    @property
+    def target_system(self) -> str: ...
+    @property
+    def default_schema(self) -> str: ...
+
+
+@runtime_checkable
+class ApiBackend(Protocol):
+    """API backend discovery and health."""
+
+    def describe(self) -> dict[str, Any]: ...
+    def health_check(self) -> bool: ...
+
+
+class QualityBackend(Protocol):
+    """Reserved capability with no registered implementations or consumer operations."""
+
+
+class SecretBackend(Protocol):
+    """Reserved capability with no registered implementations or consumer operations."""

@@ -16,6 +16,7 @@ from phlo.migrations.specs import (
     MigrationDestination,
     MigrationOptions,
     MigrationSource,
+    MigrationSourceError,
     MigrationSpec,
 )
 
@@ -42,20 +43,23 @@ def load_migration_spec(path: Path) -> MigrationSpec:
     description = str(raw.get("description", ""))
 
     source_raw = _require_mapping(raw, "source")
-    source = MigrationSource(
-        type=_require_str(source_raw, "type"),
-        connection=_optional_str(source_raw.get("connection")),
-        query=_optional_str(source_raw.get("query")),
-        table=_optional_str(source_raw.get("table")),
-        path=_optional_str(source_raw.get("path")),
-        # Keys not consumed above are adapter-specific; they pass through to
-        # source.options verbatim for the resolved source adapter to interpret.
-        options={
-            key: value
-            for key, value in source_raw.items()
-            if key not in {"type", "connection", "query", "table", "path"}
-        },
-    )
+    try:
+        source = MigrationSource(
+            type=_require_str(source_raw, "type"),
+            connection=_optional_str(source_raw.get("connection")),
+            query=_optional_str(source_raw.get("query")),
+            table=_optional_str(source_raw.get("table")),
+            path=_optional_str(source_raw.get("path")),
+            # Keys not consumed above are adapter-specific; they pass through to
+            # source.options verbatim for the resolved source adapter to interpret.
+            options={
+                key: value
+                for key, value in source_raw.items()
+                if key not in {"type", "connection", "query", "table", "path"}
+            },
+        )
+    except MigrationSourceError as exc:
+        raise MigrationSpecError(str(exc)) from exc
 
     destination_raw = _require_mapping(raw, "destination")
     destination = MigrationDestination(

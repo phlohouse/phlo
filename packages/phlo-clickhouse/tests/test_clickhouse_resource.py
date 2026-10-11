@@ -173,3 +173,17 @@ def test_append_parquet_targets_resolved_namespace(monkeypatch):
     insert_target = client.insert_df.call_args.args[0]
     assert insert_target == "`raw`.`access_logs`"
     assert result["rows_inserted"] == 1
+
+
+def test_query_preview_preserves_columns_and_lookahead():
+    resource, client = _recording_resource()
+    client.query.return_value = SimpleNamespace(
+        column_names=["id", "name"],
+        column_types=["Int64", "String"],
+        result_rows=[(7, "first"), (11, "second"), (18, "third")],
+    )
+    page = resource.preview("events", schema="raw", limit=2, offset=4)
+    assert page.columns == ["id", "name"]
+    assert page.column_types == ["Int64", "String"]
+    assert page.rows == [{"id": 7, "name": "first"}, {"id": 11, "name": "second"}]
+    assert page.has_more is True

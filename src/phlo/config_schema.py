@@ -6,10 +6,10 @@ Pydantic models for phlo.yaml infrastructure section.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 
 class ApiAuthorizationConfig(BaseModel):
@@ -166,6 +166,8 @@ class ServiceOverride(BaseModel):
             enabled: false
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(
         default=True,
         description="Whether to include this service. Set to false to disable.",
@@ -203,24 +205,6 @@ class ServiceOverride(BaseModel):
         description="Service-scoped authorization settings for phlo-api.",
     )
 
-    # For inline custom services (type: inline)
-    type: str | None = Field(
-        default=None,
-        description="Service type. Set to 'inline' for custom services defined in phlo.yaml.",
-    )
-    image: str | None = Field(
-        default=None,
-        description="Docker image for inline services.",
-    )
-    build: dict[str, Any] | None = Field(
-        default=None,
-        description="Build configuration for inline services.",
-    )
-    healthcheck: dict[str, Any] | None = Field(
-        default=None,
-        description="Healthcheck configuration for inline services.",
-    )
-
     @field_validator("extra_hosts")
     @classmethod
     def validate_extra_hosts(cls, value: list[str] | None) -> list[str] | None:
@@ -236,6 +220,37 @@ class ServiceOverride(BaseModel):
             if not separator or not host.strip() or not address.strip():
                 raise ValueError("extra_hosts entries must be Compose host mappings")
         return [mapping.strip() for mapping in value]
+
+
+class InstalledServiceOverride(ServiceOverride):
+    """An installed-package override cannot carry inline-only fields."""
+
+    type: Literal["installed"] = "installed"
+
+
+class InlineServiceOverride(ServiceOverride):
+    """A project-defined container, never an installed-package override."""
+
+    type: Literal["inline"] = "inline"
+    image: str | None = Field(default=None, min_length=1)
+    build: dict[str, Any] | None = None
+    healthcheck: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def require_container_source(self) -> InlineServiceOverride:
+        if self.image is None and not self.build:
+            raise ValueError("inline service requires image or build")
+        return self
+
+
+type ServiceOverrideValue = Annotated[
+    InstalledServiceOverride | InlineServiceOverride, Field(discriminator="type")
+]
+
+
+def parse_service_override(payload: dict[str, Any]) -> ServiceOverrideValue:
+    """Adapt legacy installed overrides with an omitted type discriminator."""
+    return TypeAdapter(ServiceOverrideValue).validate_python({"type": "installed", **payload})
 
 
 class ServiceConfig(ServiceOverride):
@@ -373,3 +388,74 @@ class InfrastructureConfig(BaseModel):
         if not service:
             return None
         return service.get_container_name(project_name, self.container_naming_pattern)
+
+
+class CapabilityDefaultsConfig(BaseModel):
+    """Provider selections are non-empty strings, not silently dropped values."""
+
+    model_config = ConfigDict(extra="allow")
+    defaults: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("defaults")
+    @classmethod
+    def require_nonblank(cls, value: dict[str, str]) -> dict[str, str]:
+        if any(not key.strip() or not name.strip() for key, name in value.items()):
+            raise ValueError("capability defaults require non-empty names")
+        return value
+
+
+class AuthenticationConfig(BaseModel):
+    """Selection plus opaque provider-owned authentication configuration."""
+
+    model_config = ConfigDict(extra="allow")
+    provider: str | None = Field(default=None, min_length=1)
+
+    @field_validator("provider")
+    @classmethod
+    def normalize_provider(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("authentication.provider cannot be empty")
+        return value.strip() if value is not None else None
+
+
+class ProjectServices(BaseModel):
+    """Installed/inline overrides and legacy service-selection lists."""
+
+    enabled: list[str] | None = None
+    disabled: list[str] | None = None
+    overrides: dict[str, ServiceOverrideValue] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_service_mapping(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        if "overrides" in value:
+            return value
+        result = {key: value[key] for key in ("enabled", "disabled") if key in value}
+        result["overrides"] = {
+            name: {"type": "installed", **config} if isinstance(config, dict) else config
+            for name, config in value.items()
+            if name not in {"enabled", "disabled"}
+        }
+        return result
+
+
+class ProjectConfig(BaseModel):
+    """One parse of core-owned phlo.yaml fields; extension blocks remain opaque."""
+
+    model_config = ConfigDict(extra="allow")
+    name: str | None = None
+    infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
+    services: ProjectServices = Field(default_factory=ProjectServices)
+    capabilities: CapabilityDefaultsConfig = Field(default_factory=CapabilityDefaultsConfig)
+    authentication: AuthenticationConfig | None = None
+    api: ApiConfig | None = None
+    wap: WapConfig = Field(default_factory=WapConfig)
+    regulated: bool | None = Field(default=None, strict=True)
+    regulated_mode: bool | None = Field(default=None, strict=True)
+
+    @field_validator("wap", mode="before")
+    @classmethod
+    def empty_wap(cls, value: Any) -> Any:
+        return {} if value is None else value
