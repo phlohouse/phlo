@@ -3,6 +3,7 @@
   "pages": [
     "engineering-map",
     "verification-matrix",
+    "quality-performance",
     "ci"
   ]
 }
