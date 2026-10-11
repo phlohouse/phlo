@@ -174,4 +174,10 @@ After #1108 also landed, the focused package, evidence, API settings, and operat
 947 tests, two existing skips, and 12 integration tests deselected.
 The required disposable-provider suite passes all eight lanes, and the real Trino aggregate regression passes again.
 
+After #1110's dependency qualification landed, the branch retains Arrow 26 and TypeScript 6 locks.
+The three affected packages and run-evidence tests pass with 884 tests and two existing skips.
+All five million-row scenarios pass their result and module-provenance assertions on Arrow 26.
+This compatibility rerun is not a new before/after comparison; the historical measurements above retain their original dependency versions.
+Arrow 26 writes different Parquet bytes, so its fixture file checksum differs despite identical generated row values.
+
 This record does not claim issue closure. The full-mode compatibility limits above remain acceptance gaps.
