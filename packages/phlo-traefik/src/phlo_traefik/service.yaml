@@ -6,17 +6,24 @@ profile: proxy
 
 image: traefik:v3.7.9@sha256:652929a140a32d7cafafb13c6cdfab5376cfeff800f51397b87b524501ed02a8
 
+depends_on:
+  - traefik-docker
+networks:
+  default: {}
+  traefik-docker:
+    internal: true
 compose:
   restart: unless-stopped
+  user: "65532:65532"
+  networks: [default, traefik-docker]
   command:
     - "--providers.docker=true"
+    - "--providers.docker.endpoint=tcp://traefik-docker:2375"
     - "--providers.docker.exposedbydefault=false"
     - "--entrypoints.web.address=:80"
     - "--api.dashboard=true"
   ports:
     - "${TRAEFIK_HTTP_PORT:-80}:80"
-  volumes:
-    - "/var/run/docker.sock:/var/run/docker.sock:ro"
   labels:
     traefik.enable: "true"
     traefik.http.routers.traefik.rule: "Host(`traefik.${TRAEFIK_DOMAIN:-phlo.localhost}`)"

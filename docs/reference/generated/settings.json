@@ -2625,7 +2625,7 @@
         {
           "alias": "hasura_admin_secret",
           "annotation": "str | None",
-          "default": "phlo-hasura-admin-secret",
+          "default": null,
           "description": "Hasura admin secret used for Metadata API requests",
           "environment_names": [
             "HASURA_ADMIN_SECRET"
@@ -3479,7 +3479,7 @@
         {
           "alias": "polaris_reader_client_secret",
           "annotation": "<class 'str'>",
-          "default": "phlo-reader-secret",
+          "default": "",
           "description": "Reader principal client secret",
           "environment_names": [
             "POLARIS_READER_CLIENT_SECRET"
@@ -3490,7 +3490,7 @@
         {
           "alias": "polaris_root_credentials",
           "annotation": "<class 'str'>",
-          "default": "root:s3cr3t",
+          "default": "",
           "description": "Bootstrap principal credentials as client_id:client_secret",
           "environment_names": [
             "POLARIS_ROOT_CREDENTIALS"
@@ -3512,7 +3512,7 @@
         {
           "alias": "polaris_writer_client_secret",
           "annotation": "<class 'str'>",
-          "default": "phlo-writer-secret",
+          "default": "",
           "description": "Writer principal client secret",
           "environment_names": [
             "POLARIS_WRITER_CLIENT_SECRET"
@@ -3869,7 +3869,7 @@
         {
           "alias": "superset_admin_password",
           "annotation": "<class 'str'>",
-          "default": "admin",
+          "default": "",
           "description": "Superset admin password",
           "environment_names": [
             "SUPERSET_ADMIN_PASSWORD"

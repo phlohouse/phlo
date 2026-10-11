@@ -8,10 +8,12 @@ objects are reused, never recreated or deleted.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
+from pathlib import Path
 
-from phlo.config.process import get_process_settings
+from phlo.config.env import resolve_project_root
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -56,6 +58,11 @@ def ensure_principal(client, *, name: str, credentials: dict[str, str] | None = 
     if name in principals:
         logger.info("polaris_bootstrap_principal_exists", principal=name)
         return False
+    if credentials is not None and name in credentials:
+        raise ValueError(
+            f"Saved Polaris credential for {name} has no matching principal; "
+            "restore the persistent realm or migrate explicitly"
+        )
     created = client.create_principal(name=name)
     payload = created.get("principal", {}) if isinstance(created, dict) else {}
     creds = payload.get("credentials") or created.get("credentials") or {}
@@ -66,28 +73,29 @@ def ensure_principal(client, *, name: str, credentials: dict[str, str] | None = 
 
 
 def bootstrap(client=None) -> int:
-    """Bootstrap the Phlo realm objects in Polaris. Always exit 0 (best effort)."""
+    """Bootstrap the persistent realm; fail when it cannot be authenticated."""
     if client is None:
         from phlo_polaris.resource import PolarisResource
 
         client = PolarisResource()
     if not wait_for_polaris(client):
         logger.warning("polaris_bootstrap_unavailable")
-        return 0
+        return 1
     from phlo_polaris.settings import get_settings
 
     settings = get_settings()
     warehouse = f"s3://lake/warehouse/{settings.polaris_catalog}"
     ensure_catalog(client, name=settings.polaris_catalog, warehouse=warehouse)
-    credentials: dict[str, str] = {}
+    path = resolve_project_root() / ".phlo" / "polaris-principals.json"
+    credentials: dict[str, str] = json.loads(path.read_text()) if path.exists() else {}
     for principal in (
         settings.polaris_writer_client_id,
         settings.polaris_reader_client_id,
     ):
         ensure_principal(client, name=principal, credentials=credentials)
+        _persist_credentials(credentials)
     grants = client.bootstrap_grants()
     logger.info("polaris_bootstrap_grants_applied", grants=grants)
-    _persist_credentials(credentials)
     return 0
 
 
@@ -97,21 +105,34 @@ def _persist_credentials(credentials: dict[str, str]) -> None:
     Polaris returns each principal's secret exactly once at creation; the
     file lets REST catalog clients authenticate without pre-shared secrets.
     """
-    import json
-    from pathlib import Path
+    import os
+    import tempfile
 
     if not credentials:
         return
-    root = Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
+    root = resolve_project_root()
     path = root / ".phlo" / "polaris-principals.json"
     existing: dict[str, str] = {}
-    try:
+    if path.exists():
         existing = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        existing = {}
+    for name, credential in credentials.items():
+        if name in existing and existing[name] != credential:
+            raise ValueError(
+                f"Refusing to rotate saved Polaris credentials for {name}; "
+                "restore the matching persistent realm or migrate explicitly"
+            )
     existing.update(credentials)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(existing, indent=2, sort_keys=True), encoding="utf-8")
+    fd, name = tempfile.mkstemp(dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(existing, indent=2, sort_keys=True))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
     logger.info("polaris_bootstrap_credentials_persisted", path=str(path))
 
 

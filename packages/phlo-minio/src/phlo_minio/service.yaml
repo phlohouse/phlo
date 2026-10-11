@@ -32,7 +32,7 @@ compose:
     traefik.http.services.minio-api.loadbalancer.server.port: "9000"
   environment:
     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
-    MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Run phlo services init to generate MINIO_ROOT_PASSWORD}
     # TLS
     MINIO_SERVER_URL: ${MINIO_SERVER_URL:-}
     # LDAP
@@ -71,7 +71,6 @@ env_vars:
     description: MinIO root username
 
   MINIO_ROOT_PASSWORD:
-    default: minio123
     description: MinIO root password
     secret: true
   MINIO_API_PORT:

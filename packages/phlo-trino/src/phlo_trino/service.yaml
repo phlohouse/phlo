@@ -23,7 +23,7 @@ compose:
     traefik.http.services.trino.loadbalancer.server.port: "8080"
   environment:
     AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
-    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio123}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Run phlo services init to generate MINIO_ROOT_PASSWORD}
     AWS_REGION: us-east-1
     S3_ENDPOINT: http://minio:9000
     S3_PATH_STYLE_ACCESS: "true"

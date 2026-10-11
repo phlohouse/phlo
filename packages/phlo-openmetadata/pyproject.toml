@@ -63,6 +63,7 @@ phlo_openmetadata = [
     "openmetadata-setup.yaml",
     "openmetadata-mysql-setup.yaml",
     "openmetadata-elasticsearch-setup.yaml",
+    "mysql-script.sql",
 ]
 
 [tool.setuptools.package-dir]

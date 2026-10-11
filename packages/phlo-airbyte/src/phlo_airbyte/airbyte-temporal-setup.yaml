@@ -16,7 +16,7 @@ compose:
     DB: postgresql
     DB_PORT: "5432"
     POSTGRES_USER: ${POSTGRES_USER:-phlo}
-    POSTGRES_PWD: ${POSTGRES_PASSWORD:-phlo}
+    POSTGRES_PWD: ${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}
     POSTGRES_SEEDS: postgres
   ports:
     - "${AIRBYTE_TEMPORAL_PORT:-7233}:7233"

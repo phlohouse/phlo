@@ -16,11 +16,11 @@ compose:
     phlo.metrics.port: "hasura:8080"
     phlo.metrics.path: "/v1/metrics"
   environment:
-    HASURA_GRAPHQL_DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:-phlo}@postgres:5432/${POSTGRES_DB:-phlo}
-    HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
-    HASURA_GRAPHQL_DEV_MODE: "true"
+    HASURA_GRAPHQL_DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-phlo}
+    HASURA_GRAPHQL_ENABLE_CONSOLE: "false"
+    HASURA_GRAPHQL_DEV_MODE: "false"
     HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
-    HASURA_GRAPHQL_ADMIN_SECRET: ${HASURA_ADMIN_SECRET:-phlo-hasura-admin-secret}
+    HASURA_GRAPHQL_ADMIN_SECRET: ${HASURA_ADMIN_SECRET:?Run phlo services init to generate HASURA_ADMIN_SECRET}
     HASURA_GRAPHQL_UNAUTHORIZED_ROLE: anonymous
   ports:
     - "${HASURA_PORT:-8082}:8080"
@@ -30,6 +30,11 @@ compose:
     timeout: 5s
     retries: 5
 
+dev:
+  environment:
+    HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+    HASURA_GRAPHQL_DEV_MODE: "true"
+
 env_vars:
   HASURA_IMAGE:
     default: hasura/graphql-engine:v2.49.5@sha256:a9f427a9078b75c5f43ea40abd4ba4e426f45777f862eff7265f411a5ac96086
@@ -38,7 +43,6 @@ env_vars:
     default: 8082
     description: Hasura console and API port
   HASURA_ADMIN_SECRET:
-    default: phlo-hasura-admin-secret
     description: Hasura admin secret for console access
     secret: true
 

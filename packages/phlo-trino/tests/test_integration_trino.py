@@ -435,6 +435,15 @@ class TestCatalogGenerator:
             content = result["mock_catalog"].read_text()
             assert "connector.name=mock" in content
             assert "key=value" in content
+            if os.name != "nt":
+                assert result["mock_catalog"].stat().st_mode & 0o777 == 0o600
+                result["mock_catalog"].chmod(0o644)
+                with patch(
+                    "phlo_trino.catalog_generator.discover_trino_catalogs",
+                    return_value=[MockCatalog()],
+                ):
+                    generate_catalog_files(output_dir)
+                assert result["mock_catalog"].stat().st_mode & 0o777 == 0o600
 
 
 # =============================================================================

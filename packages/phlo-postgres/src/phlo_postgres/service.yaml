@@ -19,7 +19,7 @@ compose:
     phlo.grafana.datasource.database: "${POSTGRES_DB:-phlo}"
   environment:
     POSTGRES_USER: ${POSTGRES_USER:-phlo}
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-phlo}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}
     POSTGRES_DB: ${POSTGRES_DB:-phlo}
     # SSL/TLS
     POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-prefer}
@@ -41,7 +41,6 @@ env_vars:
     default: phlo
     description: PostgreSQL username
   POSTGRES_PASSWORD:
-    default: phlo
     description: PostgreSQL password
     secret: true
   POSTGRES_DB:

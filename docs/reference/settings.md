@@ -433,7 +433,7 @@ Source: `packages/phlo-hasura/src/phlo_hasura/client.py`
 
 | Field | Environment names | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `hasura_admin_secret` | `["HASURA_ADMIN_SECRET"]` | `str \| None` | false | `phlo-hasura-admin-secret` | Hasura admin secret used for Metadata API requests |
+| `hasura_admin_secret` | `["HASURA_ADMIN_SECRET"]` | `str \| None` | false | `none` | Hasura admin secret used for Metadata API requests |
 
 ## `phlo-hasura`: `HasuraPostgresSettings`
 
@@ -598,10 +598,10 @@ Source: `packages/phlo-polaris/src/phlo_polaris/settings.py`
 | `polaris_port` | `["POLARIS_PORT"]` | `<class 'int'>` | false | `8181` | Polaris API port |
 | `polaris_query_engine` | `["POLARIS_QUERY_ENGINE"]` | `str \| None` | false | `none` | Optional query-engine capability used by catalog scanners |
 | `polaris_reader_client_id` | `["POLARIS_READER_CLIENT_ID"]` | `<class 'str'>` | false | `phlo_reader` | Reader principal client id |
-| `polaris_reader_client_secret` | `["POLARIS_READER_CLIENT_SECRET"]` | `<class 'str'>` | false | `phlo-reader-secret` | Reader principal client secret |
-| `polaris_root_credentials` | `["POLARIS_ROOT_CREDENTIALS"]` | `<class 'str'>` | false | `root:s3cr3t` | Bootstrap principal credentials as client_id:client_secret |
+| `polaris_reader_client_secret` | `["POLARIS_READER_CLIENT_SECRET"]` | `<class 'str'>` | false | `""` | Reader principal client secret |
+| `polaris_root_credentials` | `["POLARIS_ROOT_CREDENTIALS"]` | `<class 'str'>` | false | `""` | Bootstrap principal credentials as client_id:client_secret |
 | `polaris_writer_client_id` | `["POLARIS_WRITER_CLIENT_ID"]` | `<class 'str'>` | false | `phlo_writer` | Writer principal client id |
-| `polaris_writer_client_secret` | `["POLARIS_WRITER_CLIENT_SECRET"]` | `<class 'str'>` | false | `phlo-writer-secret` | Writer principal client secret |
+| `polaris_writer_client_secret` | `["POLARIS_WRITER_CLIENT_SECRET"]` | `<class 'str'>` | false | `""` | Writer principal client secret |
 
 ## `phlo-postgres`: `PostgresSettings`
 
@@ -670,7 +670,7 @@ Source: `packages/phlo-superset/src/phlo_superset/settings.py`
 | Field | Environment names | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- | --- |
 | `superset_admin_email` | `["SUPERSET_ADMIN_EMAIL"]` | `<class 'str'>` | false | `admin@example.com` | Superset admin email |
-| `superset_admin_password` | `["SUPERSET_ADMIN_PASSWORD"]` | `<class 'str'>` | false | `admin` | Superset admin password |
+| `superset_admin_password` | `["SUPERSET_ADMIN_PASSWORD"]` | `<class 'str'>` | false | `""` | Superset admin password |
 | `superset_admin_user` | `["SUPERSET_ADMIN_USER"]` | `<class 'str'>` | false | `admin` | Superset admin username |
 | `superset_port` | `["SUPERSET_PORT"]` | `<class 'int'>` | false | `10007` | Superset web port |
 

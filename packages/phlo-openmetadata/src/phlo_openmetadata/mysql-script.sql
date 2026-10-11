@@ -1,0 +1,3 @@
+-- The inherited MySQL entrypoint creates MYSQL_DATABASE and MYSQL_USER using
+-- the generated MYSQL_PASSWORD. Hide the upstream script that creates known
+-- OpenMetadata/Airflow passwords. The bundled pipeline client is disabled.

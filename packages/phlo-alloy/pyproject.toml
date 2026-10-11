@@ -43,6 +43,8 @@ include-package-data = true
 phlo_alloy = [
     "service.yaml",
     "config.alloy",
+    "alloy-docker-daemon.yaml",
+    "docker-proxy.cfg",
 ]
 
 [tool.setuptools.package-dir]
