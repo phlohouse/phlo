@@ -6,10 +6,93 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from testcontainers.postgres import PostgresContainer
 
 from phlo_api import incidents
+
+
+@pytest.mark.integration
+def test_incident_mutation_openapi_matches_nullable_and_replayed_http_results(monkeypatch):
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
+        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
+        monkeypatch.setattr(
+            incidents, "get_request_principal", lambda _request: SimpleNamespace(subject="operator")
+        )
+        incidents.initialize_incidents()
+        app = FastAPI()
+        app.include_router(incidents.router, prefix="/api/v1")
+        client = TestClient(app)
+        created = client.post(
+            "/api/v1/incidents?env=prod",
+            headers={"Idempotency-Key": "incident"},
+            json={
+                "asset_id": "orders",
+                "kind": "schema_drift",
+                "title": "Schema changed",
+                "evidence": {"column": "order_id"},
+                "evidence_id": "schema:orders:order_id",
+            },
+        )
+        assert created.status_code == 201, created.text
+        incident_id = created.json()["id"]
+        paths = app.openapi()["paths"]
+        models = app.openapi()["components"]["schemas"]
+
+        def mutation(method, path, declared_path, payload, key, status):
+            response = client.request(
+                method, f"{path}?env=prod", json=payload, headers={"Idempotency-Key": key}
+            )
+            assert response.status_code == status, response.text
+            schema = paths[declared_path][method.lower()]["responses"][str(status)]["content"][
+                "application/json"
+            ]["schema"]
+            contract = models[schema["$ref"].rsplit("/", 1)[-1]] if "$ref" in schema else schema
+            assert set(contract.get("required", [])) == set(response.json())
+            replay = client.request(
+                method, f"{path}?env=prod", json=payload, headers={"Idempotency-Key": key}
+            )
+            assert replay.status_code == status
+            assert replay.json() == response.json()
+            return response.json()
+
+        base = f"/api/v1/incidents/{incident_id}"
+        subscription = mutation(
+            "PUT",
+            f"{base}/subscriptions",
+            "/api/v1/incidents/{incident_id}/subscriptions",
+            None,
+            "subscription",
+            200,
+        )
+        assert subscription == {"incident_id": incident_id, "subscribed": True}
+        unsubscribed = client.put(
+            f"{base}/subscriptions?env=prod&subscribed=false",
+            headers={"Idempotency-Key": "unsubscribe"},
+        )
+        assert unsubscribed.status_code == 200
+        assert unsubscribed.json() == {"incident_id": incident_id, "subscribed": False}
+        follow_up = mutation(
+            "POST",
+            f"{base}/follow-ups",
+            "/api/v1/incidents/{incident_id}/follow-ups",
+            {"description": "Review contract", "due_at": None},
+            "follow-up",
+            201,
+        )
+        assert follow_up["incident_id"] == incident_id
+        assert follow_up["due_at"] is None and follow_up["completed_at"] is None
+        completed = mutation(
+            "PATCH",
+            f"{base}/follow-ups/{follow_up['id']}",
+            "/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}",
+            {"completed": True},
+            "complete",
+            200,
+        )
+        assert completed["id"] == follow_up["id"]
+        assert completed["due_at"] is None and completed["completed_at"] is not None
 
 
 @pytest.mark.integration

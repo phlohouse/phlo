@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
 
 from phlo.capabilities.interfaces import AuthPrincipal
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 

@@ -17,7 +17,6 @@ Example:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import os
 from typing import Any
 
 from phlo.hooks import LineageEvent, PublishEvent, QualityResultEvent
@@ -27,6 +26,7 @@ from phlo.plugins.hooks import HookFilter, HookPlugin, HookRegistration
 
 from phlo_openmetadata.openmetadata import OpenMetadataClient, OpenMetadataTable
 from phlo_openmetadata.quality_sync import QualityCheckMapper
+from phlo_openmetadata.settings import OpenMetadataProcessSettings
 from phlo_openmetadata.settings import get_settings as get_openmetadata_settings
 
 logger = get_logger(__name__)
@@ -258,7 +258,7 @@ class OpenMetadataHookPlugin(HookPlugin):
         for target_table, target_fqn in event.tables.items():
             schema_name, table_name = _split_table_fqn(
                 target_fqn,
-                default_schema=os.getenv("PHLO_POSTGRES_MART_SCHEMA", "marts"),
+                default_schema=OpenMetadataProcessSettings().postgres_mart_schema,
             )
             try:
                 table = OpenMetadataTable(name=table_name)

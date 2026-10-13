@@ -7,7 +7,6 @@ import base64
 import binascii
 import hashlib
 import json
-import os
 import re
 import struct
 from contextlib import contextmanager
@@ -19,9 +18,11 @@ import psycopg2
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import AwareDatetime
 
+from phlo.config.process import get_process_settings as get_core_process_settings
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.v1 import _targets
 from phlo_api.errors import BackendUnavailableError
+from phlo_api.settings import get_process_settings
 from phlo_api.v1_contract import Environment, WireModel
 
 router = APIRouter(tags=["v1 usage"])
@@ -75,7 +76,7 @@ def catalog_version(catalog: str, properties: dict[str, str]) -> str:
 def _sources() -> dict[str, tuple[str, dict[tuple[str, str], tuple[Environment, str]]]]:
     """Build only bindings proven by a query-selected hash of direct Nessie properties."""
     try:
-        config = json.loads(os.environ["PHLO_V1_USAGE_TRINO_SOURCES"])
+        config = json.loads(get_process_settings()["PHLO_V1_USAGE_TRINO_SOURCES"])
         targets = _targets()
         if not isinstance(config, dict) or not 1 <= len(config) <= 8:
             raise ValueError
@@ -151,7 +152,7 @@ def _sources() -> dict[str, tuple[str, dict[tuple[str, str], tuple[Environment, 
 
 @contextmanager
 def _transaction() -> Iterator[Any]:
-    dsn = os.environ.get("PHLO_RUN_EVIDENCE_DB_URL")
+    dsn = get_core_process_settings().phlo_run_evidence_db_url
     if not dsn:
         raise BackendUnavailableError("Query usage storage is unavailable.")
     try:

@@ -14,6 +14,7 @@ CHECK_CMD := scripts/run-parallel \
 	"reference docs" "uv run --locked python scripts/generate_reference_docs.py --check" \
 	"py lint" "uv run --locked ruff check ." \
 	"py complexity" "uv run --locked ruff check --config pyproject.toml --select C901 ." \
+	"py imports" "uv run --locked python scripts/check_imports.py" \
 	"py format" "uv run --locked ruff format --check ." \
 	"py typecheck" "uv run --locked ty check --error-on-warning $(TY_CHECK_SCOPE)" \
 	"py test" "uv run --locked pytest -m 'not integration'" \
@@ -28,8 +29,9 @@ LANE ?= all
 BASE ?= origin/main
 PYMDX_DOCS_DIR ?= docs-site
 PYMDX_DOCS_PORT ?= 3000
+COVERAGE_DIR ?= test-results/coverage
 
-.PHONY: setup setup-js install test \
+.PHONY: setup setup-js install test test-coverage \
 	dagster superset hub minio pgweb trino nessie grafana prometheus api hasura openmetadata catalog docs-open \
 	check lint lint-sql lint-python format-python typecheck-python \
 	dependency-refresh dependency-refresh-check \
@@ -54,6 +56,21 @@ install:
 
 test:
 	uv run --locked pytest
+
+test-coverage:
+	@mkdir -p $(COVERAGE_DIR)
+	@args=(--cov=src/phlo --cov=scripts); \
+	for source in packages/*/src; do args+=("--cov=$$source"); done; \
+	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked pytest -m 'not integration' \
+		"$${args[@]}" --cov-branch --cov-report=json:$(COVERAGE_DIR)/coverage.json \
+		--cov-report= --junitxml=$(COVERAGE_DIR)/results.xml --tb=short -ra || exit $$?; \
+	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked python -m pytest \
+		-p scripts.ci_required -o addopts= -m integration \
+		packages/phlo-api/tests/test_operation_controls_postgres.py \
+		"$${args[@]}" --cov-append --cov-branch \
+		--cov-report=json:$(COVERAGE_DIR)/coverage.json --cov-report= \
+		--junitxml=$(COVERAGE_DIR)/postgres.xml --tb=short -ra
+	python3 scripts/coverage_report.py $(COVERAGE_DIR)/coverage.json --output $(COVERAGE_DIR)/totals.json
 
 test-core-regression:
 	uv run --locked pytest $(CORE_REGRESSION_TEST_PATHS) -m core_regression $(CORE_REGRESSION_PYTEST_ARGS)
@@ -130,6 +147,7 @@ lint: lint-python lint-sql
 lint-python:
 	uv run --locked ruff check .
 	uv run --locked ruff check --config pyproject.toml --select C901 .
+	uv run --locked python scripts/check_imports.py
 
 format-python:
 	uv run --locked ruff format --check .

@@ -72,6 +72,7 @@
     {
       "default": false,
       "depends_on": [
+        "alloy-docker",
         "loki"
       ],
       "name": "alloy",
@@ -87,6 +88,15 @@
       ],
       "profile": "observability",
       "source": "packages/phlo-alloy/src/phlo_alloy/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "alloy-docker",
+      "package": "phlo-alloy",
+      "ports": [],
+      "profile": "observability",
+      "source": "packages/phlo-alloy/src/phlo_alloy/alloy-docker-daemon.yaml"
     },
     {
       "default": false,
@@ -252,7 +262,9 @@
     },
     {
       "default": false,
-      "depends_on": [],
+      "depends_on": [
+        "loki-setup"
+      ],
       "name": "loki",
       "package": "phlo-loki",
       "ports": [
@@ -266,6 +278,15 @@
       ],
       "profile": "observability",
       "source": "packages/phlo-loki/src/phlo_loki/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "loki-setup",
+      "package": "phlo-loki",
+      "ports": [],
+      "profile": "observability",
+      "source": "packages/phlo-loki/src/phlo_loki/loki-setup.yaml"
     },
     {
       "default": true,
@@ -485,7 +506,7 @@
       "default": false,
       "depends_on": [
         "minio",
-        "postgres"
+        "polaris-bootstrap"
       ],
       "name": "polaris",
       "package": "phlo-polaris",
@@ -500,6 +521,17 @@
       ],
       "profile": null,
       "source": "packages/phlo-polaris/src/phlo_polaris/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "postgres"
+      ],
+      "name": "polaris-bootstrap",
+      "package": "phlo-polaris",
+      "ports": [],
+      "profile": null,
+      "source": "packages/phlo-polaris/src/phlo_polaris/polaris-bootstrap-daemon.yaml"
     },
     {
       "default": true,
@@ -569,7 +601,9 @@
     },
     {
       "default": false,
-      "depends_on": [],
+      "depends_on": [
+        "prometheus-setup"
+      ],
       "name": "prometheus",
       "package": "phlo-prometheus",
       "ports": [
@@ -583,6 +617,15 @@
       ],
       "profile": "observability",
       "source": "packages/phlo-prometheus/src/phlo_prometheus/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "prometheus-setup",
+      "package": "phlo-prometheus",
+      "ports": [],
+      "profile": "observability",
+      "source": "packages/phlo-prometheus/src/phlo_prometheus/prometheus-setup.yaml"
     },
     {
       "default": false,
@@ -652,7 +695,9 @@
     },
     {
       "default": false,
-      "depends_on": [],
+      "depends_on": [
+        "traefik-docker"
+      ],
       "name": "traefik",
       "package": "phlo-traefik",
       "ports": [
@@ -666,6 +711,15 @@
       ],
       "profile": "proxy",
       "source": "packages/phlo-traefik/src/phlo_traefik/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "traefik-docker",
+      "package": "phlo-traefik",
+      "ports": [],
+      "profile": "proxy",
+      "source": "packages/phlo-traefik/src/phlo_traefik/traefik-docker-daemon.yaml"
     },
     {
       "default": true,

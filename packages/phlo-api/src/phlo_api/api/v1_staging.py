@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from anyio import to_thread
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
 from phlo_api.api import v1, v1_jobs
@@ -30,7 +30,7 @@ from phlo_api.api.operation_controls import (
 from phlo_api.api.v1_branch_workflows import BranchReference, _nessie, _reference, _run_check_job
 from phlo_api.errors import BackendUnavailableError, BadGatewayError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
-from phlo_api.settings import get_deployment_settings
+from phlo_api.settings import get_deployment_settings, get_process_settings
 from phlo_api.v1_contract import WireModel
 
 router = APIRouter(tags=["v1 staging"])
@@ -66,6 +66,46 @@ class PromotionCheckReadiness(WireModel):
     message: str
 
 
+class EnvironmentInventory(WireModel):
+    prod: list[str]
+    staging: list[str]
+
+
+class PromotionHistoryEntry(WireModel):
+    model_config = ConfigDict(extra="allow")
+    timestamp: str
+    operation: str
+    target: str
+    subject: str
+    dry_run: bool
+    result: dict[str, Any]
+
+
+class PromotionHistory(WireModel):
+    env: Literal["staging"]
+    items: list[PromotionHistoryEntry]
+
+
+class StagingActionResult(WireModel):
+    env: Literal["staging"]
+    operation: str
+    status: Literal["succeeded"]
+    resulting_hash: str
+
+
+class ResyncResult(StagingActionResult):
+    staging_ref: str
+
+
+class PromotionResult(StagingActionResult):
+    candidate_id: str
+    resulting_code_version: str
+    resulting_ref: str
+    checks: list[dict[str, Any]]
+    release_tag: str | None
+    settings_revision: int
+
+
 class PromotionCandidate(WireModel):
     env: Literal["staging"]
     candidate_id: str
@@ -79,10 +119,10 @@ class PromotionCandidate(WireModel):
     staging_location: str
     code_paths: list[str]
     code_changes: list[str]
-    jobs: dict[str, list[str]]
+    jobs: EnvironmentInventory
     check_readiness: list[PromotionCheckReadiness]
     check_configuration_ready: bool
-    copy_inventory: dict[str, list[str]]
+    copy_inventory: EnvironmentInventory
     observed_at: str
 
 
@@ -126,7 +166,7 @@ def _configured() -> tuple[Path, Path, str, str, str]:
             503, "Staging promotion requires an asserted single API replica/process."
         )
     values = [
-        os.environ.get(name, "")
+        get_process_settings().get(name, "")
         for name in (
             "PHLO_PROMOTION_PROD_WORKTREE",
             "PHLO_PROMOTION_STAGING_WORKTREE",
@@ -324,7 +364,7 @@ async def _state() -> dict[str, Any]:
     return state
 
 
-@router.get("/staging/promotions", name="v1_staging_promotions")
+@router.get("/staging/promotions", name="v1_staging_promotions", response_model=PromotionHistory)
 async def promotions(request: Request, env: StagingEnvironment) -> dict[str, Any]:
     v1._target(request, env)
     require_scope(request, "lakehouse:read")
@@ -356,9 +396,7 @@ _CHECK_KINDS: tuple[Literal["tests", "contracts", "audits"], ...] = (
 
 
 def _configured_check_names() -> list[str | None]:
-    names = [
-        item.strip() for item in os.environ.get("PHLO_PROMOTION_DAGSTER_CHECK_JOBS", "").split(",")
-    ]
+    names = get_process_settings().phlo_promotion_dagster_check_jobs
     valid = (
         len(names) == len(_CHECK_KINDS)
         and len(set(names)) == len(names)
@@ -372,11 +410,7 @@ def _configured_check_names() -> list[str | None]:
 
 
 def _check_names() -> list[str]:
-    names = [
-        item.strip()
-        for item in os.environ.get("PHLO_PROMOTION_DAGSTER_CHECK_JOBS", "").split(",")
-        if item.strip()
-    ]
+    names = [item for item in get_process_settings().phlo_promotion_dagster_check_jobs if item]
     if (
         len(names) != 3
         or len(set(names)) != 3
@@ -639,7 +673,7 @@ async def checks(
     )
 
 
-@router.post("/staging/resync", name="v1_staging_resync")
+@router.post("/staging/resync", name="v1_staging_resync", response_model=ResyncResult)
 async def resync(
     payload: ResyncRequest,
     request: Request,
@@ -696,7 +730,7 @@ async def resync(
     )
 
 
-@router.post("/staging/promotions", name="v1_staging_promote")
+@router.post("/staging/promotions", name="v1_staging_promote", response_model=PromotionResult)
 async def promote(
     payload: PromotionRequest,
     request: Request,

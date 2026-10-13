@@ -23,6 +23,12 @@ from phlo.cli.infrastructure.container_backend import select_project_container_b
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.output import missing_compose_file_error, missing_phlo_project_error, user_error
 from phlo.config.layout import env_defaults_path, env_secrets_path
+from phlo.config.process import get_process_settings
+from phlo.config.project import (
+    get_enabled_disabled_service_names as get_enabled_disabled_service_names,
+)
+from phlo.hooks.emitters import ServiceLifecycleEventContext
+from phlo.hooks.events import HookCorrelation
 from phlo.infrastructure.containers import resolve_container_name as _resolve_container_name
 from phlo.logging import get_logger
 from phlo.plugins.compose.generator import UV_LOCK_METADATA_FILES
@@ -260,7 +266,7 @@ def detect_phlo_source_path() -> str | None:
     3. Returns None if not found
     """
     # Strategy 1: Environment variable
-    env_path = os.environ.get("PHLO_DEV_SOURCE")
+    env_path = get_process_settings().phlo_dev_source
     if env_path and (resolved := resolve_phlo_package_dir(Path(env_path))):
         return relpath_from_phlo_dir(resolved)
 
@@ -291,51 +297,6 @@ def _get_env_overrides(config: dict) -> dict[str, object]:
     """Return the service environment override mapping from loaded configuration."""
     env_overrides = config.get("env", {})
     return env_overrides if isinstance(env_overrides, dict) else {}
-
-
-def _clean_service_name(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized or None
-
-
-def _service_names_from_list(value: object) -> set[str]:
-    if not isinstance(value, list):
-        return set()
-    return {normalized for name in value if (normalized := _clean_service_name(name)) is not None}
-
-
-def get_enabled_disabled_service_names(config: dict | None) -> tuple[set[str], set[str]]:
-    """Return enabled/disabled service names from top-level service config.
-
-    Supports both state formats:
-    - list form: ``services.enabled`` / ``services.disabled``
-    - mapping form: ``services.<name>.enabled: true|false``
-    """
-    if not isinstance(config, dict):
-        return set(), set()
-
-    services_config = config.get("services", {})
-    if not isinstance(services_config, dict):
-        return set(), set()
-
-    enabled_names = _service_names_from_list(services_config.get("enabled"))
-    disabled_names = _service_names_from_list(services_config.get("disabled"))
-
-    for name, service_config in services_config.items():
-        if not isinstance(service_config, dict):
-            continue
-        normalized_name = _clean_service_name(name)
-        if not normalized_name:
-            continue
-        if service_config.get("enabled") is False:
-            disabled_names.add(normalized_name)
-        elif service_config.get("enabled") is True:
-            enabled_names.add(normalized_name)
-
-    disabled_names.difference_update(enabled_names)
-    return enabled_names, disabled_names
 
 
 def _normalize_service_name_list(names: object) -> list[str]:
@@ -579,9 +540,7 @@ def _emit_service_lifecycle_events(
     """
     if not service_names:
         return
-    from phlo.hooks import (
-        HookCorrelation,
-        ServiceLifecycleEventContext,
+    from phlo.hooks.emitters import (
         ServiceLifecycleEventEmitter,
     )
 
@@ -803,7 +762,7 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     """Regenerate docker-compose.yml based on current config."""
     from phlo.cli.infrastructure.selection import select_services_to_install
     from phlo.cli.infrastructure.utils import parse_env_file
-    from phlo.plugins.compose import ComposeGenerator
+    from phlo.plugins.compose.generator import ComposeGenerator
 
     all_services = discovery.discover()
 

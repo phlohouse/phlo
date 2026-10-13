@@ -4,7 +4,7 @@ Provides static, reverse-proxy, service-token, and JWT providers. Each loads
 its configuration from environment variables first, falling back to
 phlo.yaml; register_default_capability_providers activates a provider only
 when it is explicitly enabled in configuration.
-Imported by the phlo capabilities layer (phlo.capabilities.discovery) and phlo.security.
+Imported by application composition (phlo.application.discovery) and phlo.security.
 Registers default providers into the phlo.capabilities registry at activation time.
 """
 
@@ -15,7 +15,6 @@ import hashlib
 import hmac
 import ipaddress
 import json
-import os
 import secrets
 import time
 from contextlib import suppress
@@ -24,6 +23,7 @@ from typing import Any
 
 from phlo.capabilities.interfaces import (
     AuthenticatedSession,
+    AuthenticationProvider,
     AuthPrincipal,
     AuthResult,
     BrowserLoginStart,
@@ -33,10 +33,11 @@ from phlo.capabilities.interfaces import (
 from phlo.capabilities.registry import register_capability
 from phlo.capabilities.specs import AuthenticationProviderSpec
 from phlo.capabilities.support import CapabilitySupport
-from phlo.infrastructure.config import (
+from phlo.config.process import JwtTimingSettings, get_process_settings
+from phlo.config.project import (
     get_authentication_config,
 )
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 from phlo.security.oidc_identity import OIDCIdentityValidator
 
 logger = get_logger(__name__)
@@ -139,7 +140,7 @@ def _log_auth_event(
     log_fn(event_name, **log_args)
 
 
-class StaticAuthenticationProvider:
+class StaticAuthenticationProvider(AuthenticationProvider):
     """Static/local development authentication provider.
 
     This provider is intended for development and testing only.
@@ -295,7 +296,7 @@ class StaticAuthenticationProvider:
         return datetime.now(UTC) < session.expires_at
 
 
-class ProxyAuthenticationProvider:
+class ProxyAuthenticationProvider(AuthenticationProvider):
     """Reverse-proxy asserted identity authentication provider.
 
     This provider validates requests from trusted reverse proxies that
@@ -496,7 +497,7 @@ class ProxyAuthenticationProvider:
         return self.authenticate(request_context)
 
 
-class ServiceTokenAuthenticationProvider:
+class ServiceTokenAuthenticationProvider(AuthenticationProvider):
     """Service principal/token authentication provider.
 
     This provider validates service accounts used for automation
@@ -573,7 +574,7 @@ class ServiceTokenAuthenticationProvider:
         return None
 
 
-class JWTAuthenticationProvider:
+class JWTAuthenticationProvider(AuthenticationProvider):
     """JWT Bearer token authentication provider.
 
     Uses issuer-pinned RS256/JWKS validation when ``jwks_url`` is configured;
@@ -814,9 +815,9 @@ def _load_static_config() -> tuple[dict[str, dict[str, Any]], bool]:
         static_config.get("users"), path="phlo.yaml authentication.static.users"
     )
 
-    dev_mode_env = os.environ.get("PHLO_AUTH_DEV_MODE", "").lower()
-    if dev_mode_env:
-        dev_mode = dev_mode_env in ("1", "true", "yes")
+    dev_mode_env = get_process_settings().phlo_auth_dev_mode
+    if dev_mode_env is not None:
+        dev_mode = dev_mode_env
     else:
         dev_mode = (
             _optional_bool(
@@ -830,7 +831,7 @@ def _load_static_config() -> tuple[dict[str, dict[str, Any]], bool]:
 
     regulated = is_regulated()
     if dev_mode:
-        environment = os.environ.get("PHLO_ENVIRONMENT", "dev").lower()
+        environment = get_process_settings().get("PHLO_ENVIRONMENT", "dev").lower()
         if regulated or environment in ("production", "prod"):
             logger.error(
                 "auth_dev_mode_blocked",
@@ -847,7 +848,7 @@ def _load_static_config() -> tuple[dict[str, dict[str, Any]], bool]:
                 reason="All requests authenticate as dev_user with admin privileges",
             )
 
-    users_json = os.environ.get("PHLO_AUTH_STATIC_USERS")
+    users_json = get_process_settings().phlo_auth_static_users
     if users_json:
         with suppress(json.JSONDecodeError):
             static_users = json.loads(users_json)
@@ -860,9 +861,9 @@ def _load_proxy_config() -> dict[str, Any]:
     config = {}
     proxy_config = _authentication_subconfig("proxy")
 
-    trusted = os.environ.get("PHLO_AUTH_PROXY_TRUSTED_PROXIES")
+    trusted = get_process_settings().phlo_auth_proxy_trusted_proxies
     if trusted:
-        config["trusted_proxies"] = [p.strip() for p in trusted.split(",")]
+        config["trusted_proxies"] = trusted
     else:
         configured = _string_list(
             proxy_config.get("trusted_proxies"),
@@ -871,7 +872,7 @@ def _load_proxy_config() -> dict[str, Any]:
         if configured:
             config["trusted_proxies"] = configured
 
-    header_subject = os.environ.get("PHLO_AUTH_PROXY_HEADER_SUBJECT")
+    header_subject = get_process_settings().phlo_auth_proxy_header_subject
     if header_subject:
         config["header_subject"] = header_subject
     else:
@@ -882,7 +883,7 @@ def _load_proxy_config() -> dict[str, Any]:
         if configured:
             config["header_subject"] = configured
 
-    header_email = os.environ.get("PHLO_AUTH_PROXY_HEADER_EMAIL")
+    header_email = get_process_settings().phlo_auth_proxy_header_email
     if header_email:
         config["header_email"] = header_email
     else:
@@ -893,7 +894,7 @@ def _load_proxy_config() -> dict[str, Any]:
         if configured:
             config["header_email"] = configured
 
-    header_groups = os.environ.get("PHLO_AUTH_PROXY_HEADER_GROUPS")
+    header_groups = get_process_settings().phlo_auth_proxy_header_groups
     if header_groups:
         config["header_groups"] = header_groups
     else:
@@ -904,7 +905,7 @@ def _load_proxy_config() -> dict[str, Any]:
         if configured:
             config["header_groups"] = configured
 
-    shared_secret = os.environ.get("PHLO_AUTH_PROXY_SHARED_SECRET")
+    shared_secret = get_process_settings().phlo_auth_proxy_shared_secret
     if shared_secret:
         config["shared_secret"] = shared_secret
     else:
@@ -926,7 +927,7 @@ def _load_service_token_config() -> dict[str, dict[str, Any]]:
         path="phlo.yaml authentication.service_token.tokens",
     )
 
-    tokens_json = os.environ.get("PHLO_AUTH_SERVICE_TOKENS")
+    tokens_json = get_process_settings().phlo_auth_service_tokens
     if tokens_json:
         try:
             service_tokens = json.loads(tokens_json)
@@ -949,10 +950,14 @@ def _load_service_token_config() -> dict[str, dict[str, Any]]:
 def _load_jwt_config() -> dict[str, Any]:
     """Load JWT authentication configuration from env first, then phlo.yaml."""
     jwt_config = _authentication_subconfig("jwt")
+    overrides = get_process_settings()
+    timing = JwtTimingSettings()
 
     def value(name: str, config_key: str, default: Any = None) -> Any:
-        if name in os.environ:
-            return os.environ[name]
+        owner = timing if name.lower() in JwtTimingSettings.model_fields else overrides
+        override = getattr(owner, name.lower())
+        if override is not None:
+            return override
         return jwt_config.get(config_key, default)
 
     def integer(name: str, config_key: str, default: int) -> int:
@@ -992,7 +997,7 @@ def _load_jwt_config() -> dict[str, Any]:
 def _provider_enabled(
     provider_name: str,
     *,
-    env_enabled: str | None,
+    env_enabled: bool,
     config_block: dict[str, Any],
     selected_provider: str | None,
     configured_payload: Any,
@@ -1020,7 +1025,7 @@ def register_default_capability_providers() -> None:
     Authentication providers are security-sensitive and must be explicitly
     enabled via environment variables, not auto-registered on startup.
     """
-    from phlo.infrastructure.config import get_configured_authentication_provider_name
+    from phlo.config.project import get_configured_authentication_provider_name
 
     selected_provider = get_configured_authentication_provider_name()
 
@@ -1028,7 +1033,7 @@ def register_default_capability_providers() -> None:
     static_users, dev_mode = _load_static_config()
     if _provider_enabled(
         "static",
-        env_enabled=os.environ.get("PHLO_AUTH_STATIC_ENABLED"),
+        env_enabled=get_process_settings().phlo_auth_static_enabled,
         config_block=static_block,
         selected_provider=selected_provider,
         configured_payload=static_users or dev_mode,
@@ -1059,7 +1064,7 @@ def register_default_capability_providers() -> None:
     proxy_config = _load_proxy_config()
     if _provider_enabled(
         "proxy",
-        env_enabled=os.environ.get("PHLO_AUTH_PROXY_ENABLED"),
+        env_enabled=get_process_settings().phlo_auth_proxy_enabled,
         config_block=proxy_block,
         selected_provider=selected_provider,
         configured_payload=proxy_config,
@@ -1086,7 +1091,7 @@ def register_default_capability_providers() -> None:
     service_tokens = _load_service_token_config()
     if _provider_enabled(
         "service_token",
-        env_enabled=os.environ.get("PHLO_AUTH_SERVICE_ENABLED"),
+        env_enabled=get_process_settings().phlo_auth_service_enabled,
         config_block=service_token_block,
         selected_provider=selected_provider,
         configured_payload=service_tokens,
@@ -1115,7 +1120,7 @@ def register_default_capability_providers() -> None:
     jwt_config = _load_jwt_config()
     if _provider_enabled(
         "jwt",
-        env_enabled=os.environ.get("PHLO_AUTH_JWT_ENABLED"),
+        env_enabled=get_process_settings().phlo_auth_jwt_enabled,
         config_block=jwt_block,
         selected_provider=selected_provider,
         configured_payload=jwt_config.get("secret") or jwt_config.get("jwks_url"),

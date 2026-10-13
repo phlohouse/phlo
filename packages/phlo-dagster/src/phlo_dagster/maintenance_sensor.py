@@ -6,7 +6,6 @@ Trino OPTIMIZE compaction, or statistics collection. Non-dry-run compaction
 runs through the plan/token/journal contract.
 """
 
-import os
 import re
 import time
 from dataclasses import replace
@@ -25,6 +24,8 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.logging import get_logger
+from phlo.config.process import get_process_settings as get_core_process_settings
+from phlo_dagster.settings import get_process_settings
 from phlo.plugins.observatory_settings import (
     get_operational_settings,
     operational_environment_target,
@@ -387,7 +388,9 @@ if orphan_cleanup_job is not None:
 def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
     """Evaluate tables against maintenance policies and yield RunRequests as needed."""
     cursor_key = context.cursor or datetime.now(timezone.utc).isoformat()
-    policy_path = os.environ.get("PHLO_MAINTENANCE_POLICY_PATH", _DEFAULT_POLICY_PATH)
+    policy_path = get_core_process_settings().get(
+        "PHLO_MAINTENANCE_POLICY_PATH", _DEFAULT_POLICY_PATH
+    )
 
     try:
         policies = load_policies(policy_path)
@@ -396,7 +399,7 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
         return
 
     get_table_stats = _load_iceberg_stats()
-    env = os.environ.get("PHLO_OBSERVATORY_ENVIRONMENT")
+    env = get_core_process_settings().phlo_observatory_environment
     settings = get_operational_settings() if env else None
     scoped_ref = operational_environment_target(env)[1] if env else None
     now = datetime.now(timezone.utc)
@@ -518,10 +521,7 @@ def maintenance_policy_sensor(context: dg.SensorEvaluationContext):
                                 "ref": policy.ref,
                                 **(
                                     {
-                                        "dry_run": os.environ.get(
-                                            "PHLO_OBSERVATORY_MAINTENANCE_EXECUTE"
-                                        )
-                                        != "1",
+                                        "dry_run": not get_process_settings().phlo_observatory_maintenance_execute,
                                         "settings_revision": settings.settings_revision,
                                     }
                                     if settings

@@ -1,7 +1,7 @@
 """Tests for Hasura metadata, table tracking, and permissions.
 
 Covers admin-secret resolution from .phlo env files with a service
-default fallback, track/untrack and permission payloads, Postgres-backed
+credential requirement, track/untrack and permission payloads, Postgres-backed
 table discovery with exclusions, permission sync/export, role hierarchy
 expansion, and metadata import/export diffing.
 """
@@ -93,19 +93,21 @@ class TestHasuraClient:
 
         assert client.admin_secret == "file-secret"
 
-    def test_init_uses_service_default_admin_secret(self, tmp_path, monkeypatch):
-        """Client default should match the generated Hasura service default."""
+    @pytest.mark.parametrize("secret", [None, ""])
+    def test_init_requires_admin_secret(self, tmp_path, monkeypatch, secret):
+        """Client must reject missing or empty secrets instead of using a known default."""
         phlo_dir = tmp_path / ".phlo"
         phlo_dir.mkdir()
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("HASURA_ADMIN_SECRET", raising=False)
+        if secret is not None:
+            monkeypatch.setenv("HASURA_ADMIN_SECRET", secret)
         from phlo_hasura import client as client_module
 
         client_module.get_settings.cache_clear()
 
-        client = HasuraClient()
-
-        assert client.admin_secret == "phlo-hasura-admin-secret"
+        with pytest.raises(ValueError, match="Hasura admin secret must be provided"):
+            HasuraClient()
 
     @patch("phlo_hasura.client.requests.request")
     def test_track_table(self, mock_request):
@@ -242,6 +244,27 @@ class TestHasuraClient:
 
         assert "api" in tracked
         assert "glucose_readings" in tracked["api"]
+
+    @patch("phlo_hasura.client.requests.request")
+    def test_get_tables_filters_source_and_schema(self, mock_request):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "sources": [
+                {"name": "other", "tables": [{"table": {"schema": "api", "name": "hidden"}}]},
+                {
+                    "name": "default",
+                    "tables": [
+                        {"table": {"schema": "public", "name": "unrelated"}},
+                        {"table": {"schema": "api", "name": "orders"}},
+                    ],
+                },
+            ]
+        }
+        mock_request.return_value = mock_response
+        client = HasuraClient(admin_secret="test-secret")
+        assert client.get_tables("api") == ["orders"]
+        assert client.get_tables("missing") == []
 
     @patch("phlo_hasura.client.requests.request")
     def test_request_error_handling(self, mock_request):

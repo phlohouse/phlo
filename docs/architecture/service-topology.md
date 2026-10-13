@@ -98,9 +98,18 @@ publishes them.
 
 ## Credentials and network exposure
 
-Development manifests provide fallback credentials so a local stack can start. PostgreSQL defaults to user/database/password `phlo`; MinIO defaults to user `minio` and its manifest-defined development password. Nessie, Trino, Dagster, Hasura, PostgREST, and the API consume those shared values unless service-specific credentials override them. OAuth2 proxy requires issuer, client, and cookie secrets.
+Bundled manifests require secrets rather than known password fallbacks.
+`phlo services init` generates fresh local secrets and preserves existing
+values on regeneration. PostgreSQL still defaults to user and database `phlo`,
+but its password is required. Dependent services consume the configured
+credentials unless service-specific credentials override them. OAuth2 proxy
+requires issuer, client, and cookie secrets.
 
-Do not use fallback or shared credentials in production. The production compose renderer removes core host ports and routes and rejects default/shared credentials. Put secrets in the supported credential source, use service-specific principals, enable TLS and backend-native authentication, and expose browser services through the approved ingress. See the [production renderer](../../src/phlo/plugins/compose/generator.py) and [regulated surface inventory](regulated-surface-inventory.md).
+Alloy and Traefik access Docker through package-owned read-only socket proxies
+on authored private networks. Alloy depends on both Loki and `alloy-docker`.
+Loki's setup dependency must complete successfully before Loki starts.
+
+Do not use shared credentials in production. The production compose renderer removes core host ports and routes and rejects default/shared credentials. Put secrets in the supported credential source, use service-specific principals, enable TLS and backend-native authentication, and expose browser services through the approved ingress. See the [production renderer](../../src/phlo/plugins/compose/generator.py) and [regulated surface inventory](regulated-surface-inventory.md).
 
 ## Backup ownership
 

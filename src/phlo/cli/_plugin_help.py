@@ -5,7 +5,7 @@ without a bundled description remain available by name and through ``commands``.
 The command-contract test checks these descriptions against their Click owners.
 """
 
-from phlo.config import get_settings
+from phlo.config.settings import get_settings
 from phlo.plugins.discovery._entry_points import entry_points_for_group
 from phlo.plugins.discovery._plugin_loading import is_plugin_allowed
 

@@ -149,7 +149,7 @@ def test_all_container_operations_use_installed_compose_layers(tmp_path, monkeyp
 
     import yaml
 
-    from phlo.cli.infrastructure.container_backend import _compose_base_cmd
+    from phlo.infrastructure.container_backend import _compose_base_cmd
 
     consumer = tmp_path / "external consumer"
     state = consumer / ".phlo"

@@ -9,20 +9,19 @@ never imports a provider package and contains no database driver or SQL code.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import StrEnum
 from threading import RLock
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal
 
 from jsonschema import ValidationError, validate
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 from pydantic import ValidationError as ModelValidationError
 
+from phlo.capabilities.settings import SettingsRecord, SettingsScope, SettingsStore
 from phlo.config.base import BaseConfig
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -40,7 +39,17 @@ class StorageCorruptionError(StorageUnavailableError):
     """Sanitised error raised when durable Observatory state is malformed."""
 
 
-class ObservatorySettingsStorageConfig(BaseConfig):
+class ObservatoryDatabaseSettings(BaseConfig):
+    """Declare the shared UI and durable-storage DSN without backend validation."""
+
+    observatory_settings_db_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PHLO_OBSERVATORY_SETTINGS_DB_URL"),
+        description="PostgreSQL DSN override shared by Observatory UI and settings storage. Default absent; storage resolves its database fallback at use.",
+    )
+
+
+class ObservatorySettingsStorageConfig(ObservatoryDatabaseSettings, BaseConfig):
     """Configuration for Observatory settings storage.
 
     The default backend is ``postgres`` (durable).  ``memory`` is permitted
@@ -53,61 +62,6 @@ class ObservatorySettingsStorageConfig(BaseConfig):
         validation_alias=AliasChoices("PHLO_OBSERVATORY_SETTINGS_BACKEND"),
         description="Settings storage backend: 'postgres' (durable, default) or 'memory' (dev/test only)",
     )
-
-    observatory_settings_db_url: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("PHLO_OBSERVATORY_SETTINGS_DB_URL"),
-        description="PostgreSQL DSN override for Observatory settings storage",
-    )
-
-
-class SettingsScope(StrEnum):
-    """Supported settings scopes."""
-
-    GLOBAL = "global"
-    EXTENSION = "extension"
-
-
-@dataclass(frozen=True)
-class SettingsRecord:
-    """Stored settings payload and metadata."""
-
-    scope: SettingsScope
-    namespace: str
-    settings: dict[str, Any]
-    updated_at: str | None
-
-
-@runtime_checkable
-class SettingsStore(Protocol):
-    """Neutral capability contract for durable settings storage.
-
-    Both global and extension settings endpoints resolve the same
-    ``settings_store`` capability; there is no separate per-scope backend.
-    """
-
-    def get(self, scope: SettingsScope, namespace: str) -> SettingsRecord | None:
-        """Return the stored record for a scope and namespace, or None."""
-        ...
-
-    def put(
-        self,
-        scope: SettingsScope,
-        namespace: str,
-        settings: dict[str, Any],
-        schema: dict[str, Any] | None = None,
-    ) -> SettingsRecord:
-        """Validate settings against the schema when given, then store and return them."""
-        ...
-
-    def mutate(
-        self,
-        scope: SettingsScope,
-        namespace: str,
-        mutation: Callable[[dict[str, Any] | None], dict[str, Any]],
-    ) -> SettingsRecord:
-        """Atomically replace one JSON record using its latest stored value."""
-        ...
 
 
 class InMemorySettingsService:
@@ -201,7 +155,7 @@ def get_settings_service() -> SettingsStore:
     # postgres mode (default) — resolve the durable settings store through
     # the neutral capability registry.  Core never imports a provider
     # package directly.  The DSN override is read by the provider.
-    from phlo.capabilities import resolve_capability
+    from phlo.capabilities.resolver import resolve_capability
 
     result = resolve_capability("settings_store")
     if result is None:
@@ -360,7 +314,7 @@ def operational_schedule_slot(schedule: str, at: datetime) -> datetime | None:
 def operational_environment_target(env: str) -> tuple[str, str]:
     """Resolve an operator-bound consumer location/ref, never a default branch."""
     try:
-        targets = json.loads(os.environ["PHLO_V1_ENVIRONMENTS"])
+        targets = json.loads(get_process_settings()["PHLO_V1_ENVIRONMENTS"])
         if env not in {"prod", "staging"} or set(targets) != {"prod", "staging"}:
             raise ValueError
         if (

@@ -9,35 +9,57 @@ writes are lock-serialized, and log tails read only a bounded file suffix.
 
 from __future__ import annotations
 
-from collections import Counter, deque
-from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import asdict, is_dataclass
 import heapq
 import importlib
 import importlib.util
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
+from collections import Counter, deque
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import asdict, is_dataclass
+from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query, Request
-from fastapi import HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from phlo.config.process import get_process_settings as get_core_process_settings
+from phlo.dataset.evidence import EvidenceRecord
+from phlo.dataset.models import (
+    CandidateRecord,
+    TransitionRequest,
+    candidate_dataset_id,
+)
+from phlo.dataset_projection import (
+    CapabilityEvidenceSource,
+    CompositeEvidenceSource,
+    DatasetAuthority,
+    GovernanceSurfaceEvidenceSource,
+    build_dataset_authority,
+)
+from phlo.governance import build_governance_surface
+from phlo.telemetry import metric
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
-from phlo.telemetry import metric
-
+from phlo_api.api.operation_controls import (
+    audit_operation,
+    enforce_rate_limit,
+    replay_or_execute_async,
+    require_scope,
+)
 from phlo_api.observatory_api.observatory_actions import execute_observatory_action
 from phlo_api.observatory_api.observatory_cache import ReadModelCache
 from phlo_api.observatory_api.observatory_capabilities import build_capability_inventory
+from phlo_api.observatory_api.observatory_metadata import safe_metadata as _safe_metadata
 from phlo_api.observatory_api.observatory_models import (
     ControlStatus,
     HealthState,
+    ObservatoryAccessActivity,
     ObservatoryAction,
     ObservatoryActionRequest,
     ObservatoryActionResult,
@@ -54,13 +76,12 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryCapabilityInventory,
     ObservatoryCapabilityPage,
     ObservatoryCapabilityProvider,
+    ObservatoryConsumerAdoption,
     ObservatoryContributingRowsPageRequest,
     ObservatoryContributingRowsPageResponse,
     ObservatoryContributingRowsQueryRequest,
     ObservatoryContributingRowsQueryResponse,
     ObservatoryControlEvidence,
-    ObservatoryAccessActivity,
-    ObservatoryConsumerAdoption,
     ObservatoryDataset,
     ObservatoryDatasetControl,
     ObservatoryDatasetFacets,
@@ -69,15 +90,14 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryDatasetProductionList,
     ObservatoryDatasetProfile,
     ObservatoryDatasetUsage,
-    ObservatoryPublishingReadinessItem,
-    ObservatoryPublishingReadinessList,
     ObservatoryDependencyActivity,
     ObservatoryExtension,
     ObservatoryExtensionDetail,
     ObservatoryExtensionList,
-    ObservatoryHealth,
     ObservatoryGovernanceMatrix,
     ObservatoryGovernanceRow,
+    ObservatoryHealth,
+    ObservatoryImpactedAsset,
     ObservatoryLogEvent,
     ObservatoryLogFacets,
     ObservatoryLogList,
@@ -89,13 +109,13 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryProductionStage,
     ObservatoryPublishingAction,
     ObservatoryPublishingReadiness,
+    ObservatoryPublishingReadinessItem,
+    ObservatoryPublishingReadinessList,
     ObservatoryQualityCheck,
     ObservatoryQualityDetail,
     ObservatoryQualityList,
     ObservatoryQueryRequest,
     ObservatoryQueryResult,
-    PublicationState,
-    ObservatoryImpactedAsset,
     ObservatoryResourceRef,
     ObservatoryRouteRequirement,
     ObservatoryRowJourney,
@@ -111,15 +131,15 @@ from phlo_api.observatory_api.observatory_models import (
     ObservatoryServiceList,
     ObservatorySettings,
     ObservatoryStageDiff,
-    ObservatorySurfaceList,
     ObservatorySurfaceItem,
+    ObservatorySurfaceList,
     ObservatoryTable,
     ObservatoryTableList,
     ObservatoryTablePreview,
     ObservatoryTelemetryPrivacyPolicy,
     ObservatoryUpstreamTableRef,
+    PublicationState,
 )
-from phlo_api.observatory_api.observatory_metadata import safe_metadata as _safe_metadata
 from phlo_api.observatory_api.observatory_operation_journal import (
     append_operation,
     build_operation_observability_context,
@@ -128,22 +148,20 @@ from phlo_api.observatory_api.observatory_operation_journal import (
     record_action_result,
     sort_operations,
 )
-from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
 from phlo_api.observatory_api.observatory_runs import load_durable_runs, load_runs
-from phlo_api.observatory_api.run_action_contract import (
-    CANCEL_RUN_ACTION,
-    RETRY_RUN_ACTION,
-    RunActionResult,
-    normalize_run_action_result,
-    observatory_action,
-    require_idempotency_key,
-    resolve_run_action_reconciliation,
-)
 from phlo_api.observatory_api.observatory_saved_queries import (
     dedupe_saved_queries as _dedupe_saved_queries_impl,
+)
+from phlo_api.observatory_api.observatory_saved_queries import (
     load_saved_queries as _load_saved_queries_impl,
+)
+from phlo_api.observatory_api.observatory_saved_queries import (
     save_query as _save_query_impl,
+)
+from phlo_api.observatory_api.observatory_saved_queries import (
     validate_saved_query_sql as _validate_saved_query_sql_impl,
+)
+from phlo_api.observatory_api.observatory_saved_queries import (
     write_saved_queries as _write_saved_queries_impl,
 )
 from phlo_api.observatory_api.observatory_search import search_results as _search_results_impl
@@ -163,29 +181,19 @@ from phlo_api.observatory_api.observatory_workflow_wizard import (
     build_workflow_proposal,
     build_workflow_wizard_payload,
 )
-from phlo_api.api.operation_controls import (
-    audit_operation,
-    enforce_rate_limit,
-    replay_or_execute_async,
-    require_scope,
+from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
+from phlo_api.observatory_api.run_action_contract import (
+    CANCEL_RUN_ACTION,
+    RETRY_RUN_ACTION,
+    RunActionResult,
+    normalize_run_action_result,
+    observatory_action,
+    require_idempotency_key,
+    resolve_run_action_reconciliation,
 )
-from phlo.dataset.evidence import EvidenceRecord
-from phlo.dataset.models import (
-    CandidateRecord,
-    TransitionRequest,
-    candidate_dataset_id,
-)
-from phlo.dataset_projection import (
-    CapabilityEvidenceSource,
-    CompositeEvidenceSource,
-    DatasetAuthority,
-    GovernanceSurfaceEvidenceSource,
-    build_dataset_authority,
-)
-from phlo.governance import build_governance_surface
 from phlo_api.pagination import paginate_items
 from phlo_api.run_evidence import RunEvidenceStore, get_run_evidence_store
-from types import ModuleType
+from phlo_api.settings import get_process_settings
 
 fcntl: ModuleType | None
 try:
@@ -327,7 +335,7 @@ def _dataclass_dict(value: Any) -> dict[str, Any]:
 
 
 def _project_root() -> Path:
-    return Path(os.environ.get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
+    return Path(get_core_process_settings().get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
 
 
 def _observatory_state_dir() -> Path:
@@ -529,9 +537,8 @@ def _import_project_workflows(project_root: Path) -> None:
 def _load_capability_registry_uncached() -> Any | None:
     """Load the core capability registry if available."""
     try:
-        from phlo.capabilities import clear_all_capabilities
-        from phlo.capabilities import get_capability_registry
-        from phlo.capabilities.discovery import discover_capabilities
+        from phlo.application.discovery import discover_capabilities
+        from phlo.capabilities import clear_all_capabilities, get_capability_registry
 
         clear_all_capabilities()
         _import_project_workflows(_project_root())
@@ -2624,8 +2631,8 @@ def _preview_from_query_engine(
     relation = relation or _query_relation_for_table(table)
     if relation is None:
         return None
+    from phlo.application.discovery import discover_capabilities
     from phlo.capabilities import QueryPreviewResult, resolve_capability
-    from phlo.capabilities.discovery import discover_capabilities
 
     discover_capabilities()
     resolution = resolve_capability("query_engine")
@@ -3869,7 +3876,7 @@ def _load_settings() -> ObservatorySettings:
 
     capabilities = _load_capabilities()
     project_root = _project_root()
-    compose_project = os.environ.get("PHLO_COMPOSE_PROJECT") or os.environ.get(
+    compose_project = get_process_settings().phlo_compose_project or os.environ.get(
         "COMPOSE_PROJECT_NAME"
     )
     return ObservatorySettings(

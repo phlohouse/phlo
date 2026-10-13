@@ -1,0 +1,22 @@
+name: alloy-docker
+description: Read-only Docker discovery and log proxy for Alloy
+category: observability
+default: false
+profile: observability
+image: haproxy:3.2-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
+networks:
+  alloy-docker:
+    internal: true
+compose:
+  restart: unless-stopped
+  user: "0:0" # Host socket ownership requires root; bounded by the registered waiver.
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [alloy-docker]
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ./alloy/docker-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+files:
+  - source: docker-proxy.cfg
+    dest: alloy/docker-proxy.cfg

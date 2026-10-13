@@ -57,6 +57,9 @@ jobs:
       - name: Run named behavioral contracts
         if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
         run: uv run --locked python scripts/run_integration.py
+      - name: Publish designated suite execution and skip reasons
+        if: always()
+        run: python3 scripts/test_summary.py test-results/integration >> "$GITHUB_STEP_SUMMARY"
       - name: Upload required suite results
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f

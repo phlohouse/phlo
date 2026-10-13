@@ -21,20 +21,31 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWLIST = Path(__file__).with_name("phlo_env_reads_allowlist.json")
+DYNAMIC_ALLOWLIST = Path(__file__).with_name("phlo_env_dynamic_reads_allowlist.json")
 
 
 def _source_roots() -> list[Path]:
     return [ROOT / "src", *sorted((ROOT / "packages").glob("*/src"))]
 
 
-def _is_environ(node: ast.expr) -> bool:
-    return (isinstance(node, ast.Name) and node.id == "environ") or (
-        isinstance(node, ast.Attribute) and node.attr == "environ"
-    )
+def _environment_imports(tree: ast.AST) -> dict[str, str]:
+    return {
+        alias.asname or alias.name: alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "os"
+        for alias in node.names
+        if alias.name in {"environ", "getenv"}
+    }
+
+
+def _is_environ(node: ast.expr, imports: dict[str, str]) -> bool:
+    return (
+        isinstance(node, ast.Name) and (node.id == "environ" or imports.get(node.id) == "environ")
+    ) or (isinstance(node, ast.Attribute) and node.attr == "environ")
 
 
 def _module_constants(tree: ast.AST) -> dict[str, str]:
-    """Map module-level names bound once to a PHLO_* string literal."""
+    """Map module-level string constants, including known non-PHLO keys."""
     constants: dict[str, str] = {}
     for node in getattr(tree, "body", []):
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
@@ -47,7 +58,6 @@ def _module_constants(tree: ast.AST) -> dict[str, str]:
             isinstance(target, ast.Name)
             and isinstance(value, ast.Constant)
             and isinstance(value.value, str)
-            and value.value.startswith("PHLO_")
         ):
             constants[target.id] = value.value
     return constants
@@ -61,30 +71,43 @@ def _phlo_name(node: ast.expr | None, constants: dict[str, str]) -> str | None:
     ):
         return node.value
     if isinstance(node, ast.Name):
-        return constants.get(node.id)
+        name = constants.get(node.id)
+        return name if name and name.startswith("PHLO_") else None
+    if isinstance(node, ast.JoinedStr) and node.values:
+        prefix = node.values[0]
+        if isinstance(prefix, ast.Constant) and str(prefix.value).startswith("PHLO_"):
+            return ast.unparse(node)
     return None
 
 
-def _read_key(node: ast.AST) -> ast.expr | None:
+def _read_key(node: ast.AST, imports: dict[str, str]) -> ast.expr | None:
     """Return the key expression when node reads (or pops) os.environ or os.getenv."""
-    if isinstance(node, ast.Call) and node.args:
+    if isinstance(node, ast.Call):
         func = node.func
         is_get = (
             isinstance(func, ast.Attribute)
             and func.attr in {"get", "pop"}
-            and _is_environ(func.value)
+            and _is_environ(func.value, imports)
         )
         is_getenv = (isinstance(func, ast.Attribute) and func.attr == "getenv") or (
-            isinstance(func, ast.Name) and func.id == "getenv"
+            isinstance(func, ast.Name) and (func.id == "getenv" or imports.get(func.id) == "getenv")
         )
-        return node.args[0] if is_get or is_getenv else None
+        if is_get or is_getenv:
+            return (
+                node.args[0]
+                if node.args
+                else next(
+                    (keyword.value for keyword in node.keywords if keyword.arg == "key"), None
+                )
+            )
+        return None
     if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
-        return node.slice if _is_environ(node.value) else None
+        return node.slice if _is_environ(node.value, imports) else None
     if (
         isinstance(node, ast.Compare)
         and len(node.ops) == 1
         and isinstance(node.ops[0], ast.In | ast.NotIn)  # codespell:ignore notin
-        and _is_environ(node.comparators[0])
+        and _is_environ(node.comparators[0], imports)
     ):
         return node.left
     return None
@@ -96,8 +119,9 @@ def _reads(tree: ast.AST) -> Iterator[str]:
     Keys are string literals or module-level constants bound to one.
     """
     constants = _module_constants(tree)
+    imports = _environment_imports(tree)
     for node in ast.walk(tree):
-        if name := _phlo_name(_read_key(node), constants):
+        if name := _phlo_name(_read_key(node, imports), constants):
             yield name
 
 
@@ -109,6 +133,35 @@ def find_direct_reads() -> dict[str, list[str]]:
             names = sorted(set(_reads(ast.parse(path.read_text(encoding="utf-8")))))
             if names:
                 found[path.relative_to(ROOT).as_posix()] = names
+    return found
+
+
+def _dynamic_reads(tree: ast.AST) -> Iterator[str]:
+    """Yield unresolved read keys for a separate, reviewed dynamic inventory.
+
+    This is deliberately conservative: a generic reader may receive PHLO keys
+    even if its current callers do not. Whole-environment forwarding and
+    iteration remain a manual inventory, documented in the settings guide.
+    """
+    constants = _module_constants(tree)
+    imports = _environment_imports(tree)
+    for node in ast.walk(tree):
+        key = _read_key(node, imports)
+        if key is None or isinstance(key, ast.Constant) or _phlo_name(key, constants):
+            continue
+        if isinstance(key, ast.Name) and key.id in constants:
+            continue
+        yield ast.unparse(key)
+
+
+def find_dynamic_reads() -> dict[str, list[str]]:
+    """Pin unresolved expressions, not line numbers or runtime secret values."""
+    found = {}
+    for root in _source_roots():
+        for path in sorted(root.rglob("*.py")):
+            keys = sorted(set(_dynamic_reads(ast.parse(path.read_text(encoding="utf-8")))))
+            if keys:
+                found[path.relative_to(ROOT).as_posix()] = keys
     return found
 
 
@@ -138,6 +191,22 @@ def test_allowlist_has_no_stale_entries() -> None:
     )
 
 
+def test_dynamic_read_inventory_is_current() -> None:
+    approved = json.loads(DYNAMIC_ALLOWLIST.read_text(encoding="utf-8"))
+    assert find_dynamic_reads() == approved, (
+        "Review and classify changed dynamic environment readers in "
+        "docs/contributing/process-settings.md before updating the dynamic inventory."
+    )
+
+
+def test_scanner_detects_dynamic_phlo_and_unresolved_keys() -> None:
+    tree = ast.parse(
+        "os.getenv(f'PHLO_NEW_{target}')\nos.environ.get(key)\nKNOWN = 'OTHER'\nos.getenv(KNOWN)"
+    )
+    assert list(_reads(tree)) == ["f'PHLO_NEW_{target}'"]
+    assert list(_dynamic_reads(tree)) == ["key"]
+
+
 def test_scanner_detects_each_read_form() -> None:
     source = (
         "import os\nfrom os import environ, getenv\n"
@@ -150,7 +219,25 @@ def test_scanner_detects_each_read_form() -> None:
     assert sorted(_reads(ast.parse(source))) == [f"PHLO_{c}" for c in "ABCDEFGHI"]
 
 
+def test_scanner_detects_import_aliases_and_keyword_keys() -> None:
+    source = """
+from os import environ as env, getenv as read_env
+os.getenv(key="PHLO_A")
+env.get("PHLO_B")
+env["PHLO_C"]
+"PHLO_D" in env
+read_env(key="PHLO_E")
+env.get(dynamic_key)
+"""
+    tree = ast.parse(source)
+    assert sorted(_reads(tree)) == [f"PHLO_{c}" for c in "ABCDE"]
+    assert list(_dynamic_reads(tree)) == ["dynamic_key"]
+
+
 if __name__ == "__main__":
     if sys.argv[1:] != ["--write"]:
         sys.exit("usage: test_phlo_env_reads.py --write")
     ALLOWLIST.write_text(json.dumps(find_direct_reads(), indent=2) + "\n", encoding="utf-8")
+    DYNAMIC_ALLOWLIST.write_text(
+        json.dumps(find_dynamic_reads(), indent=2) + "\n", encoding="utf-8"
+    )

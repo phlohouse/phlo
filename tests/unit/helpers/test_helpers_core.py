@@ -51,6 +51,7 @@ from phlo.helpers import (
     watermark_where_clause,
     where_and,
 )
+from phlo.helpers.io import resolve_query_engine
 from phlo.helpers.tables import load_table_schema, merge_batch
 from phlo.schema_migration.planning import plan_schema_migration
 
@@ -127,6 +128,17 @@ def test_read_dataframe_reports_query_engines_without_dataframe_support() -> Non
 
     with pytest.raises(PhloConfigError, match="does not support DataFrame reads"):
         read_dataframe("SELECT 1", query_engine=RowOnlyQueryEngine())
+
+
+def test_query_engine_rejects_missing_operations_at_resolution(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "phlo.helpers.io.resolve_capability",
+        lambda *args, **kwargs: SimpleNamespace(provider=object()),
+    )
+    with pytest.raises(PhloConfigError, match="execute and preview"):
+        resolve_query_engine()
 
 
 def test_read_dataframe_is_exported_from_top_level_phlo() -> None:

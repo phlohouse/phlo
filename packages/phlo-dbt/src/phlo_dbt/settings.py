@@ -19,14 +19,15 @@ Package-local settings module built on the shared phlo.config base and caching m
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from phlo.config.base import BaseConfig
 from phlo.config.cache import project_root_cached
 from phlo.config.network import resolve_host
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 from phlo_dbt.discovery import find_dbt_projects
@@ -34,8 +35,54 @@ from phlo_dbt.discovery import find_dbt_projects
 logger = get_logger(__name__)
 
 
+class DbtDescriptionSettings(BaseSettings):
+    """Read the description opt-in without parsing a disabled SQL byte limit."""
+
+    model_config = SettingsConfigDict(case_sensitive=True, extra="ignore", env_file=None)
+    include_compiled_sql_in_description: bool = Field(
+        False,
+        validation_alias="PHLO_DBT_INCLUDE_COMPILED_SQL_IN_DESCRIPTION",
+        description="Include compiled SQL in descriptions; stripped lowercase 1/true/yes/y/on enable.",
+    )
+
+    @field_validator("include_compiled_sql_in_description", mode="before")
+    @classmethod
+    def _include(cls, value: object) -> bool:
+        return (
+            value is True
+            or isinstance(value, str)
+            and value.strip().lower() in {"1", "true", "yes", "y", "on"}
+        )
+
+
+class DbtTranslatorSettings(DbtDescriptionSettings, BaseSettings):
+    """Parse the SQL byte limit only when SQL presentation is requested."""
+
+    compiled_sql_max_bytes: int = Field(
+        64000,
+        validation_alias="PHLO_DBT_COMPILED_SQL_MAX_BYTES",
+        description="Compiled SQL UTF-8 byte limit. Integer syntax; invalid values warn once and fall back to 64000. Read only for enabled descriptions or metadata; no new range restriction.",
+    )
+
+    @field_validator("compiled_sql_max_bytes", mode="before")
+    @classmethod
+    def _limit(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        try:
+            return int(value)
+        except ValueError:
+            logger.warning(
+                "dbt_translator_env_int_invalid",
+                env_var="PHLO_DBT_COMPILED_SQL_MAX_BYTES",
+                env_value=value,
+                fallback_default=64000,
+            )
+            return 64000
+
+
 def _project_root() -> Path:
-    return Path(os.environ.get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
+    return Path(get_process_settings().get("PHLO_PROJECT_PATH", Path.cwd())).resolve()
 
 
 def _resolve_project_path(value: str) -> Path:

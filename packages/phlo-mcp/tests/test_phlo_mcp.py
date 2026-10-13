@@ -21,6 +21,8 @@ from phlo_mcp.cli import main, parse_args
 from phlo_mcp.config import McpConfig, config_from_env
 from phlo_mcp.run_analysis import (
     render_run_trace_tree as render_run_trace_tree_text,
+)
+from phlo_mcp.run_analysis import (
     summarize_run_logs,
 )
 from phlo_mcp.server import create_server
@@ -762,6 +764,50 @@ def test_render_trace_tree_formats_tree(tmp_path: Path) -> None:
     assert "Trace aaaaaaaa" in rendered
     assert "mcp.request 4.0ms" in rendered
     assert "mcp.tool.execute 2.0ms [tool=get_platform_health]" in rendered
+
+
+@pytest.mark.parametrize(
+    "tool_name,method_name",
+    [("list_plugins", "get_plugins"), ("get_platform_health", "get_platform_health")],
+)
+@pytest.mark.parametrize("fail", [False, True])
+def test_registered_tools_trace_success_and_failure_without_changing_results(
+    tmp_path: Path, monkeypatch, tool_name: str, method_name: str, fail: bool
+) -> None:
+    monkeypatch.setattr("phlo_mcp.tracing._CONFIGURED_PATH", None)
+    trace_file = tmp_path / "tools.jsonl"
+    with pytest.warns(DeprecationWarning, match="OBSERVE_DRAINS"):
+        configure_tracing(trace_file=str(trace_file))
+
+    def response(_self):
+        if fail:
+            raise RuntimeError("backend unavailable")
+        return {"healthy": True}
+
+    monkeypatch.setattr(PhloApiClient, method_name, response)
+    server = create_server(McpConfig())
+    tool = next(tool for tool in server._tool_manager.list_tools() if tool.name == tool_name)
+    assert tool.parameters["properties"] == {}
+    if fail:
+        with pytest.raises(RuntimeError, match="backend unavailable"):
+            tool.fn()
+    else:
+        assert tool.fn()["payload"] == {"healthy": True}
+
+    spans = load_spans(trace_file)
+    by_name = {span["name"]: span for span in spans}
+    request = by_name["mcp.request"]
+    execution = by_name["mcp.tool.execute"]
+    assert sum(span["name"] == "mcp.request" for span in spans) == 1
+    assert sum(span["name"] == "mcp.tool.execute" for span in spans) == 1
+    assert execution["context"]["parent_id"] == request["context"]["span_id"]
+    assert execution["attributes"]["mcp.tool.name"] == tool_name
+    assert all(span["status"]["code"] == ("ERROR" if fail else "UNSET") for span in spans)
+    if tool_name == "get_platform_health":
+        assert (
+            by_name["phlo.observability.health"]["context"]["parent_id"]
+            == execution["context"]["span_id"]
+        )
 
 
 def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path, monkeypatch) -> None:

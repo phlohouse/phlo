@@ -8,12 +8,13 @@ from __future__ import annotations
 import hashlib
 import hmac as _hmac
 import json
-import os
 from dataclasses import dataclass, field
 from dataclasses import replace as _dataclass_replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import uuid4
+
+from phlo.config.process import get_process_settings
 
 PHLO_SIGNATURE_HMAC_KEY_ENV = "PHLO_SIGNATURE_HMAC_KEY"
 PHLO_AUDIT_HMAC_KEY_ENV = "PHLO_AUDIT_HMAC_KEY"
@@ -21,7 +22,8 @@ PHLO_AUDIT_HMAC_KEY_ENV = "PHLO_AUDIT_HMAC_KEY"
 
 def _get_signature_hmac_key() -> bytes:
     """Return the HMAC key for signatures, or a dev default."""
-    key = os.environ.get(PHLO_SIGNATURE_HMAC_KEY_ENV) or os.environ.get(PHLO_AUDIT_HMAC_KEY_ENV)
+    settings = get_process_settings()
+    key = settings.phlo_signature_hmac_key or settings.phlo_audit_hmac_key
     if key:
         return key.encode()
     from phlo.security.mode import is_regulated

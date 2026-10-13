@@ -7,7 +7,7 @@ explain_decision returns the full reasoning so callers can audit
 verdicts; register_default_capability_providers wires the backend from
 the authoritative project policy file.
 
-Imported by phlo.capabilities.discovery and exercised by the phlo-api security
+Imported by phlo.application.discovery and exercised by the phlo-api security
 and authorization test suites.
 """
 
@@ -27,7 +27,7 @@ from phlo.capabilities.interfaces import (
 from phlo.capabilities.registry import register_capability
 from phlo.capabilities.specs import AuthorizationPolicyBackendSpec
 from phlo.capabilities.support import CapabilitySupport
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 
@@ -244,7 +244,7 @@ class DefaultAuthorizationPolicyBackend:
 
 def register_default_capability_providers(*, rbac: Any = None) -> None:
     """Register the default backend from the authoritative project policy file."""
-    from phlo.infrastructure.config import _default_project_root
+    from phlo.config.project import _default_project_root
     from phlo.rbac.config import RBACConfigLoader
     from phlo.security.mode import is_regulated
 

@@ -286,6 +286,10 @@ const actionSchema = z.object({
   env: environmentSchema,
   status: z.enum(['accepted', 'skipped', 'rejected']),
 })
+const skippedActionSchema = z.object({
+  status: z.literal('skipped'),
+  message: z.string(),
+})
 
 export const launchJob = createServerFn({ method: 'POST' })
   .inputValidator(
@@ -299,10 +303,10 @@ export const launchJob = createServerFn({ method: 'POST' })
       const response = await phloApi(
         `api/v1/jobs/${encodeURIComponent(job_id)}/launch?env=${env}`,
         actionSchema.extend({
-          result: z.object({
-            run_id: z.string(),
-            status: z.literal('accepted'),
-          }),
+          result: z.union([
+            z.object({ run_id: z.string(), status: z.literal('accepted') }),
+            skippedActionSchema,
+          ]),
         }),
         {
           env,
@@ -314,7 +318,7 @@ export const launchJob = createServerFn({ method: 'POST' })
           },
         },
       )
-      if (response.status !== 'accepted')
+      if (response.status !== 'accepted' || !('run_id' in response.result))
         throw new Error('Dagster did not accept the job launch.')
       return { run_id: response.result.run_id }
     },
@@ -354,7 +358,10 @@ export const cancelRun = createServerFn({ method: 'POST' })
     const response = await phloApi(
       `api/v1/runs/${encodeURIComponent(run_id)}/cancel?env=${env}`,
       actionSchema.extend({
-        result: z.object({ accepted: z.boolean() }).passthrough(),
+        result: z.union([
+          z.object({ accepted: z.boolean() }),
+          skippedActionSchema,
+        ]),
       }),
       {
         env,
@@ -367,7 +374,11 @@ export const cancelRun = createServerFn({ method: 'POST' })
         },
       },
     )
-    if (response.status !== 'accepted' || !response.result.accepted)
+    if (
+      response.status !== 'accepted' ||
+      !('accepted' in response.result) ||
+      !response.result.accepted
+    )
       throw new Error('Dagster did not accept the cancellation.')
     return { accepted: true }
   })
@@ -387,10 +398,10 @@ export const retryRun = createServerFn({ method: 'POST' })
       z.object({
         env: environmentSchema,
         status: z.enum(['accepted', 'skipped', 'rejected']),
-        result: z.object({
-          accepted: z.boolean(),
-          run_id: z.string().nullable(),
-        }),
+        result: z.union([
+          z.object({ accepted: z.boolean(), run_id: z.string().nullable() }),
+          skippedActionSchema,
+        ]),
       }),
       {
         env,
@@ -404,6 +415,7 @@ export const retryRun = createServerFn({ method: 'POST' })
     )
     if (
       response.status !== 'accepted' ||
+      !('accepted' in response.result) ||
       !response.result.accepted ||
       !response.result.run_id
     )

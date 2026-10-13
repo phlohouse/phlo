@@ -6,15 +6,18 @@ import json
 import os
 import warnings
 from collections import defaultdict
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from contextvars import ContextVar
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import phlo.telemetry as phlo_observe
 
-_TRACE_FILE_ENV = "PHLO_MCP_TRACE_FILE"
+from phlo_mcp.config import McpTraceSettings
+
 _CONFIGURED_PATH: str | None = None
 _ACTIVE_SPANS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "phlo_mcp_active_spans", default=()
@@ -26,7 +29,7 @@ def configure_tracing(
 ) -> str | None:
     """Configure local tracing if a trace file is configured."""
     global _CONFIGURED_PATH
-    resolved_trace_file = trace_file or os.environ.get(_TRACE_FILE_ENV)
+    resolved_trace_file = trace_file or McpTraceSettings().trace_file
     # The debug drain is configured at most once per process. A later call with
     # a different path keeps the first destination rather than splitting one
     # operation tree across files.
@@ -110,6 +113,20 @@ class CanonicalTracer:
 def get_tracer() -> CanonicalTracer:
     """Return the MCP operation façade; no OTel provider is installed here."""
     return CanonicalTracer()
+
+
+def trace_tool[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
+    """Trace every tool dispatch without changing its MCP signature."""
+
+    @wraps(fn)
+    def traced(*args: P.args, **kwargs: P.kwargs) -> R:
+        tracer = get_tracer()
+        attributes = {"mcp.tool.name": traced.__name__}
+        with tracer.start_as_current_span("mcp.request", attributes=attributes):
+            with tracer.start_as_current_span("mcp.tool.execute", attributes=attributes):
+                return fn(*args, **kwargs)
+
+    return traced
 
 
 def _write_debug_span(span: dict[str, Any]) -> None:

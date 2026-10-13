@@ -62,6 +62,7 @@ def _invoke_services_start_with_statuses(
     compose: str,
     snapshots: list[list[ServiceStatus]],
     backend: object | None = None,
+    args: list[str] | None = None,
 ):
     """Invoke the public CLI with deterministic compose and status seams."""
     from phlo.cli.commands.services import start as start_module
@@ -86,7 +87,39 @@ def _invoke_services_start_with_statuses(
         start_module, "_emit_service_lifecycle_events", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_args, **_kwargs: None)
-    return CliRunner().invoke(start_module.start_cmd, [])
+    return CliRunner().invoke(start_module.start_cmd, args or [])
+
+
+@pytest.mark.parametrize(
+    ("port", "message"),
+    [
+        ("not-a-port:5432", "invalid host port value"),
+        ("${POSTGRES_PORT:-5432}:5432", "invalid host port value"),
+        ("{target: 5432, published: not-a-port}", "invalid host port value"),
+        ("{target: 5432, published: '${POSTGRES_PORT:-5432}'}", "invalid host port value"),
+    ],
+)
+def test_services_start_reports_invalid_ports_through_cli(
+    monkeypatch, tmp_path, port, message
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    monkeypatch.setenv("POSTGRES_PORT", "not-a-port")
+    postgres = _service("postgres")
+    monkeypatch.setattr(
+        start_module, "ServiceDiscovery", lambda: FakeDiscovery({"postgres": postgres})
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=f"services:\n  postgres:\n    ports:\n      - {port}\n",
+        snapshots=[],
+        args=["--service", "postgres"],
+    )
+    assert result.exit_code == 1
+    assert message in result.output
+    assert "not-a-port" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_services_start_waits_for_declared_healthcheck(
@@ -427,35 +460,21 @@ def test_services_start_times_out_when_backend_status_call_hangs(
     assert "Containers were left running for inspection" in result.output
 
 
-def test_get_profile_service_names_returns_profile_services(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    prometheus = _service("prometheus", profile="observability")
-    grafana = _service("grafana", profile="observability")
-    loki = _service("loki", profile="observability")
-    hasura = _service("hasura", profile="api")
-    postgres = _service("postgres", default=True)
-
-    class ProfileFakeDiscovery(FakeDiscovery):
-        def get_services_by_profile(self, profile: str) -> list[ServiceDefinition]:
-            all_services = [prometheus, grafana, loki, hasura, postgres]
-            return [s for s in all_services if s.profile == profile]
-
-    monkeypatch.setattr(
-        "phlo.plugins.discovery.ServiceDiscovery",
-        ProfileFakeDiscovery,
-    )
-
+def test_get_profile_service_names_returns_profile_services() -> None:
+    """Keep the exact bundled profile inventory, including required companions."""
     result = get_profile_service_names(("observability",))
     assert sorted(result) == [
         "alloy",
+        "alloy-docker",
         "clickstack",
         "grafana",
         "loki",
+        "loki-setup",
         "phlo-observer",
         "phlo-observer-db-setup",
         "postgres-exporter",
         "prometheus",
+        "prometheus-setup",
     ]
 
     result = get_profile_service_names(("api",))
@@ -464,10 +483,12 @@ def test_get_profile_service_names_returns_profile_services(
     result = get_profile_service_names(("observability", "api"))
     assert sorted(result) == [
         "alloy",
+        "alloy-docker",
         "clickstack",
         "grafana",
         "hasura",
         "loki",
+        "loki-setup",
         "observatory",
         "phlo-api",
         "phlo-observer",
@@ -475,6 +496,7 @@ def test_get_profile_service_names_returns_profile_services(
         "postgres-exporter",
         "postgrest",
         "prometheus",
+        "prometheus-setup",
     ]
 
     result = get_profile_service_names(())
@@ -776,17 +798,22 @@ def test_services_start_preflights_env_local_port_collisions(
     assert "dagster -> 3300 (DAGSTER_PORT)" in str(exc_info.value)
 
 
+@pytest.mark.parametrize(
+    "port",
+    [
+        "127.0.0.1:${POSTGRES_PORT:-10000}:5432",
+        "{host_ip: 127.0.0.1, target: 5432, published: '${POSTGRES_PORT:-10000}'}",
+    ],
+)
 def test_services_start_preflights_loopback_env_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path, port: str
 ) -> None:
     from phlo.cli.commands.services import start as start_module
 
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     compose_file = phlo_dir / "docker-compose.yml"
-    compose_file.write_text(
-        "services:\n  postgres:\n    ports:\n      - 127.0.0.1:${POSTGRES_PORT:-10000}:5432\n"
-    )
+    compose_file.write_text(f"services:\n  postgres:\n    ports:\n      - {port}\n")
 
     class FakeBackend:
         def list_project_containers(self, project_name: str):

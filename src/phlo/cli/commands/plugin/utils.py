@@ -18,14 +18,14 @@ from packaging.version import parse
 from rich.console import Console
 from rich.table import Table
 
-from phlo.capabilities import missing_required_capabilities
+from phlo.capabilities.resolver import missing_required_capabilities
 from phlo.capabilities.support import coerce_capability_support
 from phlo.cli.commands.plugin.scaffold import create_plugin_package  # noqa: F401
 from phlo.logging import get_logger
-from phlo.plugins import get_plugin_info
-from phlo.plugins.base import PluginMetadata
+from phlo.plugins.base.plugin import PluginMetadata
 from phlo.plugins.base.service import ServicePlugin
-from phlo.plugins.discovery import get_global_registry
+from phlo.plugins.discovery._plugin_queries import get_plugin_info
+from phlo.plugins.discovery.registry import get_global_registry
 
 console = Console()
 logger = get_logger(__name__)
@@ -280,8 +280,9 @@ def collect_installed_plugins(plugin_type: str) -> list[dict]:
 
 def collect_registry_plugins(plugin_type: str) -> list[dict]:
     """Collect registry plugins of given type."""
-    from phlo.plugins.registry_client import list_registry_plugins
+    from phlo.plugins.registry_client import fetch_registry, list_registry_plugins
 
+    fetch_registry()
     registry_plugins = list_registry_plugins()
     plugin_type = normalize_plugin_type(plugin_type)
     if plugin_type != "all":

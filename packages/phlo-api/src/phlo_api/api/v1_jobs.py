@@ -7,22 +7,22 @@ import base64
 import binascii
 import hashlib
 import json
-import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from statistics import median
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 import httpx
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
+from phlo_api.api.operation_controls import shared_operation_controls
 from phlo_api.api.v1 import _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, ConflictError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
-from phlo_api.settings import get_deployment_settings
-from phlo_api.v1_contract import Environment, RunStatus, WireModel
+from phlo_api.settings import get_deployment_settings, get_process_settings
+from phlo_api.v1_contract import Environment, ProviderActionResult, RunStatus, WireModel
 
 router = APIRouter(tags=["v1 jobs and runs"])
 Limit = Annotated[int, Query(ge=1, le=100)]
@@ -298,12 +298,32 @@ class RunActionRequest(WireModel):
     reason: str | None = Field(default=None, max_length=1000)
 
 
-class ActionResult(WireModel):
+class SkippedActionResult(WireModel):
+    status: Literal["skipped"]
+    message: str
+
+
+class JobLaunchResult(WireModel):
+    status: Literal["accepted"]
+    run_id: str
+    run_status: RunStatus | None
+
+
+class ScheduleActionResult(WireModel):
+    status: Literal["accepted"]
+    schedule_status: Literal["RUNNING", "STOPPED"]
+    changed: bool
+
+
+Outcome = TypeVar("Outcome")
+
+
+class ActionResult(WireModel, Generic[Outcome]):
     env: Environment
     action: str
     target_id: str
     status: Literal["accepted", "skipped", "rejected"]
-    result: dict[str, Any]
+    result: Outcome
 
 
 async def _graphql(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1051,7 +1071,7 @@ async def v1_maintenance_windows(
     from phlo_api.observatory_api.settings import get_operational_maintenance_windows
 
     _target(request, env, allowed_query=frozenset({"env"}))
-    raw = os.environ.get("PHLO_V1_MAINTENANCE_WINDOWS")
+    raw = get_process_settings().phlo_v1_maintenance_windows
     windows = []
     try:
         if raw:
@@ -1084,10 +1104,9 @@ async def v1_maintenance_windows(
 def _require_single_replica_actions() -> None:
     settings = get_deployment_settings()
     if (
-        not settings.actions_single_replica
-        or not settings.actions_single_process
-        or not settings.actions_ref_tag_contract
-    ):
+        shared_operation_controls() is None
+        and (not settings.actions_single_replica or not settings.actions_single_process)
+    ) or not settings.actions_ref_tag_contract:
         raise BackendUnavailableError("Environment-pinned job actions are not enabled.")
 
 
@@ -1131,7 +1150,10 @@ def _repository(repositories: list[dict[str, Any]], repository_name: str) -> dic
     return matches[0]
 
 
-@router.post("/jobs/{job_id}/launch", response_model=ActionResult)
+@router.post(
+    "/jobs/{job_id}/launch",
+    response_model=ActionResult[JobLaunchResult | SkippedActionResult],
+)
 async def v1_job_launch(
     request: Request,
     job_id: str,
@@ -1202,6 +1224,7 @@ async def v1_job_launch(
         idempotency_key=payload.idempotency_key,
         operation="v1_job_launch",
         target=action_target,
+        exclusion_target=f"{env}:{target.dagster_location}:{job_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
         audit=lambda value: audit(
             operation="v1_job_launch",
@@ -1221,7 +1244,7 @@ async def v1_job_launch(
     )
 
 
-@router.post("/schedules/{schedule_id}/{action}", response_model=ActionResult)
+@router.post("/schedules/{schedule_id}/{action}", response_model=ActionResult[ScheduleActionResult])
 async def v1_schedule_action(
     request: Request,
     schedule_id: str,
@@ -1295,6 +1318,7 @@ async def v1_schedule_action(
         idempotency_key=payload.idempotency_key,
         operation="v1_schedule_action",
         target=action_target,
+        exclusion_target=f"{env}:{target.dagster_location}:{schedule_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
         audit=lambda value: audit(
             operation="v1_schedule_action",
@@ -1369,6 +1393,7 @@ async def _run_action(
         idempotency_key=payload.idempotency_key,
         operation=f"v1_run_{action}",
         target=action_target,
+        exclusion_target=f"{env}:{target.dagster_location}:{run_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
         audit=lambda value: audit(
             operation=f"v1_run_{action}",
@@ -1395,14 +1420,20 @@ async def _run_action(
     )
 
 
-@router.post("/runs/{run_id}/cancel", response_model=ActionResult)
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=ActionResult[ProviderActionResult | SkippedActionResult],
+)
 async def v1_run_cancel(
     request: Request, run_id: str, payload: RunActionRequest, env: Environment = Query()
 ) -> ActionResult:
     return await _run_action(request, run_id, payload, env, "cancel")
 
 
-@router.post("/runs/{run_id}/retry", response_model=ActionResult)
+@router.post(
+    "/runs/{run_id}/retry",
+    response_model=ActionResult[ProviderActionResult | SkippedActionResult],
+)
 async def v1_run_retry(
     request: Request, run_id: str, payload: RunActionRequest, env: Environment = Query()
 ) -> ActionResult:

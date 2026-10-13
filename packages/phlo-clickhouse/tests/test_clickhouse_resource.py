@@ -4,10 +4,12 @@ Pins resource defaults and override handling plus the query-engine support
 flags, including that snapshots are not supported for ClickHouse.
 """
 
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pyarrow as pa
+import pytest
 
 from phlo_clickhouse.resource import CLICKHOUSE_QUERY_ENGINE_SUPPORT, ClickHouseResource
 
@@ -173,3 +175,24 @@ def test_append_parquet_targets_resolved_namespace(monkeypatch):
     insert_target = client.insert_df.call_args.args[0]
     assert insert_target == "`raw`.`access_logs`"
     assert result["rows_inserted"] == 1
+
+
+@pytest.mark.parametrize("relation,first_id", [("events", 7), ("analytics.events", 41)])
+def test_query_preview_preserves_columns_and_lookahead(relation, first_id):
+    resource, client = _recording_resource()
+
+    def query(sql):
+        database = re.search(r"FROM `([^`]+)`", sql).group(1)
+        start = {"raw": 7, "analytics": 41}[database]
+        return SimpleNamespace(
+            column_names=["id", "name"],
+            column_types=["Int64", "String"],
+            result_rows=[(start, "first"), (start + 4, "second"), (start + 11, "third")],
+        )
+
+    client.query.side_effect = query
+    page = resource.preview(relation, schema="raw", limit=2, offset=4)
+    assert page.columns == ["id", "name"]
+    assert page.column_types == ["Int64", "String"]
+    assert page.rows == [{"id": first_id, "name": "first"}, {"id": first_id + 4, "name": "second"}]
+    assert page.has_more is True

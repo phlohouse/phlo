@@ -107,7 +107,8 @@
         "service:hasura",
         "service:postgrest",
         "service:oauth2-proxy",
-        "service:traefik"
+        "service:traefik",
+        "service:traefik-docker"
       ],
       "reason": "These optional packages have current code and focused tests, but identity, ingress, or production gates still apply."
     },
@@ -129,16 +130,20 @@
         "package:phlo-rustfs",
         "package:phlo-superset",
         "service:polaris",
+        "service:polaris-bootstrap",
         "service:airbyte",
         "service:kafka",
         "service:postgres-exporter",
         "service:alloy",
+        "service:alloy-docker",
         "service:airbyte-temporal",
         "service:airbyte-manifest",
         "service:airbyte-bootloader",
         "service:grafana",
         "service:loki",
+        "service:loki-setup",
         "service:prometheus",
+        "service:prometheus-setup",
         "service:clickhouse",
         "service:clickhouse-setup",
         "service:rustfs",
@@ -187,7 +192,8 @@
       "reason": "API and Observatory integration are implemented and tested, but mandatory authorization remains a release gate.",
       "evidence": [
         "packages/phlo-api/pyproject.toml",
-        "packages/phlo-api/tests"
+        "packages/phlo-api/tests",
+        "registry/support/dependency-qualification.md#fastapi-and-pyiceberg-deferrals"
       ]
     },
     {
@@ -231,7 +237,8 @@
       "reason": "dlt ingestion is part of the current core path and has focused tests; run-evidence correlation is not included in this manifest version.",
       "evidence": [
         "packages/phlo-dlt/pyproject.toml",
-        "packages/phlo-dlt/tests"
+        "packages/phlo-dlt/tests",
+        "registry/support/dependency-qualification.md#arrow-26-with-pyiceberg-dlt-and-pandas"
       ]
     },
     {
@@ -242,7 +249,9 @@
       "reason": "Current package code and focused tests substantiate the v1-target capability; the shared release gates still control readiness.",
       "evidence": [
         "packages/phlo-iceberg/pyproject.toml",
-        "packages/phlo-iceberg/tests"
+        "packages/phlo-iceberg/tests",
+        "registry/support/dependency-qualification.md#arrow-26-with-pyiceberg-dlt-and-pandas",
+        "registry/support/dependency-qualification.md#fastapi-and-pyiceberg-deferrals"
       ]
     },
     {
@@ -277,7 +286,8 @@
         "packages/phlo-observatory/pyproject.toml",
         "packages/phlo-observatory/tests",
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/pipelines.ts"
+        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/pipelines.ts",
+        "registry/support/dependency-qualification.md#typescript-6-not-an-unsupported-typescript-7-override"
       ]
     },
     {
@@ -759,6 +769,16 @@
       ]
     },
     {
+      "name": "alloy-docker",
+      "package": "phlo-alloy",
+      "source": "packages/phlo-alloy/src/phlo_alloy/alloy-docker-daemon.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Internal filtered Docker access companion for the preview Alloy service.",
+      "evidence": ["packages/phlo-alloy/src/phlo_alloy/alloy-docker-daemon.yaml"]
+    },
+    {
       "name": "grafana",
       "package": "phlo-grafana",
       "source": "packages/phlo-grafana/src/phlo_grafana/service.yaml",
@@ -783,6 +803,16 @@
       ]
     },
     {
+      "name": "loki-setup",
+      "package": "phlo-loki",
+      "source": "packages/phlo-loki/src/phlo_loki/loki-setup.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "One-shot volume ownership companion for the preview Loki service.",
+      "evidence": ["packages/phlo-loki/src/phlo_loki/loki-setup.yaml"]
+    },
+    {
       "name": "prometheus",
       "package": "phlo-prometheus",
       "source": "packages/phlo-prometheus/src/phlo_prometheus/service.yaml",
@@ -793,6 +823,16 @@
       "evidence": [
         "packages/phlo-prometheus/src/phlo_prometheus/service.yaml"
       ]
+    },
+    {
+      "name": "prometheus-setup",
+      "package": "phlo-prometheus",
+      "source": "packages/phlo-prometheus/src/phlo_prometheus/prometheus-setup.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "One-shot volume ownership companion for the preview Prometheus service.",
+      "evidence": ["packages/phlo-prometheus/src/phlo_prometheus/prometheus-setup.yaml"]
     },
     {
       "name": "clickhouse",
@@ -927,6 +967,16 @@
       ]
     },
     {
+      "name": "polaris-bootstrap",
+      "package": "phlo-polaris",
+      "source": "packages/phlo-polaris/src/phlo_polaris/polaris-bootstrap-daemon.yaml",
+      "scope": "outside_v1",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Idempotent persistent realm bootstrap companion for the preview Polaris service.",
+      "evidence": ["packages/phlo-polaris/src/phlo_polaris/polaris-bootstrap-daemon.yaml"]
+    },
+    {
       "name": "airbyte",
       "package": "phlo-airbyte",
       "source": "packages/phlo-airbyte/src/phlo_airbyte/service.yaml",
@@ -1045,6 +1095,16 @@
       "evidence": [
         "packages/phlo-traefik/src/phlo_traefik/service.yaml"
       ]
+    },
+    {
+      "name": "traefik-docker",
+      "package": "phlo-traefik",
+      "source": "packages/phlo-traefik/src/phlo_traefik/traefik-docker-daemon.yaml",
+      "scope": "optional",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Internal filtered Docker access companion; inherits Traefik release and identity gates.",
+      "evidence": ["packages/phlo-traefik/src/phlo_traefik/traefik-docker-daemon.yaml"]
     },
     {
       "name": "clickstack",

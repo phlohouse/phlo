@@ -26,7 +26,7 @@ from phlo.capabilities.interfaces import (
     ResourceRef,
 )
 from phlo.capabilities.support import CapabilitySupport
-from phlo.logging import get_logger
+from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 

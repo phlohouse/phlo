@@ -32,6 +32,7 @@ from phlo.run_evidence import (
     RunStage,
     SQLiteRunEvidenceStore,
 )
+from phlo.run_evidence.stored import InvalidRunEvidence
 
 NOW = datetime(2026, 7, 13, 12, 0, tzinfo=UTC)
 
@@ -132,6 +133,33 @@ def test_stage_success_or_table_readiness_cannot_invent_pipeline_success() -> No
 
     assert decision.evidence_completeness is EvidenceCompleteness.INCOMPLETE
     assert "event:run.terminal" in decision.missing_evidence
+
+
+@pytest.mark.parametrize("stage_count", [1, 2])
+def test_empty_event_stage_identity_is_unattributed(stage_count: int) -> None:
+    store = SQLiteRunEvidenceStore(":memory:")
+    stages = tuple(
+        RunStage(
+            project_id="project",
+            run_id="run",
+            stage_id=f"transform-{index}",
+            stage_type="transform",
+            status="success",
+        )
+        for index in range(stage_count)
+    )
+    event = replace(_event("stage.end", payload={"stage_id": ""}), stage_id="")
+    source = _Source(_observation(_event("run.terminal"), event, stages=stages))
+    profile = _profile(
+        RequiredEvidenceStage(
+            "transform", required_event_types=("stage.end",), required_status="success"
+        )
+    )
+    decision = RunReconciler(store, source).reconcile("project", "run", profile, now=NOW)
+    assert ("event:stage.end" in decision.missing_evidence) == (stage_count == 2)
+    assert decision.evidence_completeness is (
+        EvidenceCompleteness.COMPLETE if stage_count == 1 else EvidenceCompleteness.INCOMPLETE
+    )
 
 
 def test_failed_and_cancelled_profiles_can_be_complete_without_claiming_success() -> None:
@@ -656,7 +684,21 @@ def test_event_and_stage_timestamp_violations_are_incomplete_and_change_identity
     assert corrected.decision_id != decision.decision_id
 
 
-def test_malformed_durable_event_and_stage_timestamps_are_incomplete() -> None:
+@pytest.mark.parametrize(
+    ("table", "field", "value"),
+    [
+        ("run_event", "observed_at", "not-a-timestamp"),
+        ("run_stage", "started_at", "not-a-timestamp"),
+        ("run_event", "payload", "not-json"),
+        ("run_event", "payload", '{"no_data": "false"}'),
+        ("run_event", "payload", '{"status": "typo"}'),
+        ("run_event", "payload", '{"status": 3}'),
+        ("run_stage", "status", "typo"),
+    ],
+)
+def test_malformed_durable_evidence_fails_at_store_boundary(
+    table: str, field: str, value: str
+) -> None:
     store = SQLiteRunEvidenceStore(":memory:")
     stage = RunStage(
         project_id="project",
@@ -670,23 +712,18 @@ def test_malformed_durable_event_and_stage_timestamps_are_incomplete() -> None:
     source = _Source(_observation(_event("run.terminal"), stages=(stage,)))
     profile = _profile(RequiredEvidenceStage("transform"))
     RunReconciler(store, source).reconcile("project", "run", profile, now=NOW)
+    previous_decisions = store.list_reconciliation_decisions("project", "run")
     with store._transaction() as (_, cursor):
         cursor.execute(
-            "UPDATE run_event SET observed_at = ? WHERE project_id = ? AND run_id = ?",
-            ("not-a-timestamp", "project", "run"),
-        )
-        cursor.execute(
-            "UPDATE run_stage SET started_at = ? WHERE project_id = ? AND run_id = ?",
-            ("not-a-timestamp", "project", "run"),
+            f"UPDATE {table} SET {field} = ? WHERE project_id = ? AND run_id = ?",
+            (value, "project", "run"),
         )
 
-    decision = RunReconciler(store, source).reconcile(
-        "project", "run", profile, now=NOW + timedelta(minutes=1)
-    )
-
-    assert decision.evidence_completeness is EvidenceCompleteness.INCOMPLETE
-    assert "event:run.terminal:invalid_timestamp" in decision.missing_evidence
-    assert "stage:transform:invalid_started_at" in decision.missing_evidence
+    with pytest.raises(InvalidRunEvidence):
+        RunReconciler(store, _Source(replace(source.observation, stages=()))).reconcile(
+            "project", "run", profile, now=NOW + timedelta(minutes=1)
+        )
+    assert store.list_reconciliation_decisions("project", "run") == previous_decisions
 
 
 def test_required_record_families_are_evaluated_from_durable_rows() -> None:

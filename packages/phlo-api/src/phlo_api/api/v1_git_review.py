@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import os
 import re
 from urllib.parse import quote
 from typing import Literal, cast
@@ -13,6 +12,7 @@ import httpx
 from pydantic import Field
 
 from phlo_api.api.v1_audit_proposals import AssetAuditProposal
+from phlo_api.settings import get_process_settings
 from phlo_api.v1_contract import WireModel
 
 
@@ -54,9 +54,10 @@ class GitReviewConfig(WireModel):
 def project_git_review_config() -> GitReviewConfig:
     """Resolve only a fixed deployment target; callers cannot select a repository."""
     try:
-        repository = os.environ["PHLO_V1_GIT_REVIEW_REPOSITORY"]
-        base_branch = os.environ["PHLO_V1_GIT_REVIEW_BASE_BRANCH"]
-        token = os.environ["PHLO_V1_GIT_REVIEW_TOKEN"]
+        settings = get_process_settings()
+        repository = settings["PHLO_V1_GIT_REVIEW_REPOSITORY"]
+        base_branch = settings["PHLO_V1_GIT_REVIEW_BASE_BRANCH"]
+        token = settings["PHLO_V1_GIT_REVIEW_TOKEN"]
         return GitReviewConfig(
             repository=repository,
             base_branch=base_branch,

@@ -11,14 +11,13 @@ from collections.abc import Mapping
 from typing import Any
 
 from fastapi import HTTPException
-
+from phlo.application.discovery import discover_capabilities
 from phlo.capabilities import (
     OrchestratorOperationsSpec,
     list_capabilities,
     register_capability,
     resolve_capability,
 )
-from phlo.capabilities.discovery import discover_capabilities
 
 
 class LegacyDagsterOrchestratorOperationsProvider:

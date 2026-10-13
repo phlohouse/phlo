@@ -7,16 +7,16 @@ import csv
 import hashlib
 import io
 import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import Field
 
+from phlo.config.process import get_process_settings
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.operation_controls import audit_operation, project_root, replay_or_execute
 from phlo_api.api.v1 import _target
@@ -89,6 +89,17 @@ class QueryRequest(WireModel):
     engine: Literal["trino"] = "trino"
 
 
+class QueryColumn(WireModel):
+    name: str
+    type: str | None
+
+
+class QueryResult(WireModel):
+    columns: list[QueryColumn]
+    rows: list[dict[str, Any]]
+    has_more: bool
+
+
 class QuerySessionView(WireModel):
     id: str
     env: Environment
@@ -99,8 +110,25 @@ class QuerySessionView(WireModel):
     sql_hash: str
     created_at: datetime
     updated_at: datetime
-    result: dict[str, Any] | None
+    result: QueryResult | None
     error: str | None
+
+
+class QueryHistoryItem(WireModel):
+    id: str
+    env: Environment
+    nessie_ref: str
+    engine: Literal["trino"] = "trino"
+    sql_hash: str
+    completed_at: datetime
+
+
+class QueryHistoryPage(WireModel):
+    env: Environment
+    status: Literal["partial", "unavailable"]
+    reason: str | None
+    items: list[QueryHistoryItem]
+    truncated: bool
 
 
 class SavedQuery(WireModel):
@@ -224,7 +252,7 @@ def _query_view(session: QuerySession) -> QuerySessionView:
         sql_hash=hashlib.sha256(session.sql.encode()).hexdigest(),
         created_at=session.created_at,
         updated_at=session.updated_at,
-        result=session.result,
+        result=QueryResult.model_validate(session.result) if session.result is not None else None,
         error=session.error,
     )
 
@@ -335,7 +363,7 @@ async def _execute_session(session: QuerySession) -> None:
             on_progress=progress,
             should_cancel=lambda: session.cancel_requested,
         )
-        if os.environ.get("PHLO_RUN_EVIDENCE_DB_URL"):
+        if get_process_settings().phlo_run_evidence_db_url:
             from phlo_api.incidents import persist_query_execution
 
             await asyncio.to_thread(
@@ -507,6 +535,34 @@ async def v1_query_engines(request: Request, env: Environment) -> QueryEngines:
     return QueryEngines(env=env, items=[QueryEngine(id="trino", status="configured")])
 
 
+@router.get("/queries/history", response_model=QueryHistoryPage)
+async def v1_query_history(
+    request: Request,
+    env: Environment,
+    limit: int = Query(default=50, ge=1, le=100),
+) -> QueryHistoryPage:
+    """Shared completed-execution metadata, never another actor's SQL or results."""
+    target = _target(request, env, allowed_query=frozenset({"env", "limit"}))
+    if not get_process_settings().phlo_run_evidence_db_url:
+        return QueryHistoryPage(
+            env=env,
+            status="unavailable",
+            reason="durable_query_evidence_not_configured",
+            items=[],
+            truncated=False,
+        )
+    from phlo_api.incidents import list_query_executions
+
+    records = await asyncio.to_thread(list_query_executions, env, target.nessie_ref, limit + 1)
+    return QueryHistoryPage(
+        env=env,
+        status="partial",
+        reason="completed_workspace_executions_only",
+        items=[QueryHistoryItem.model_validate(record) for record in records[:limit]],
+        truncated=len(records) > limit,
+    )
+
+
 @router.post("/queries", response_model=QuerySessionView, status_code=202)
 async def v1_query_submit(
     request: Request, env: Environment, payload: QueryRequest
@@ -578,7 +634,7 @@ async def v1_query_explain(
 
 def _session_for_actor(query_id: str, request: Request, env: Environment) -> QuerySession:
     session = _QUERY_SESSIONS.get(query_id)
-    if session is None and os.environ.get("PHLO_RUN_EVIDENCE_DB_URL"):
+    if session is None and get_process_settings().phlo_run_evidence_db_url:
         from phlo_api.incidents import load_query_execution
 
         record = load_query_execution(query_id, env, _actor(request))

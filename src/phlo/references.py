@@ -129,6 +129,6 @@ def _first_metadata_value(metadata: Mapping[str, Any], *keys: str) -> str | None
 
 
 def _discover_capabilities() -> None:
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
 
     discover_capabilities()

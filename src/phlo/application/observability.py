@@ -1,11 +1,11 @@
-"""Default observability capability provider owned by core.
+"""Default observability provider composed with installed service manifests.
 
 Resolves public URLs for dashboards, logs, metrics, and query endpoints from
 environment overrides with service-discovery fallbacks, and registers these
 default providers when no plugin supplies its own.
 
-Imported by the phlo.capabilities package (init and discovery); part of the core capabilities layer.
-Registers default observability URL providers built on the capabilities registry and specs.
+The capability package root preserves the public provider exports; defining
+domain modules do not depend on this application composition.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from phlo.capabilities.registry import (
 )
 from phlo.capabilities.specs import MaintenanceReadModelSpec, ObservabilityBackendSpec
 from phlo.capabilities.support import CapabilitySupport
+from phlo.config.process import get_process_settings
 
 _PUBLIC_HOST_ENV = "PHLO_OBSERVABILITY_PUBLIC_HOST"
 _PUBLIC_SCHEME_ENV = "PHLO_OBSERVABILITY_PUBLIC_SCHEME"
@@ -282,8 +283,8 @@ def _resolve_service_base_url(
     if port is None:
         return None
 
-    host = os.environ.get(_PUBLIC_HOST_ENV, "localhost")
-    scheme = os.environ.get(_PUBLIC_SCHEME_ENV, "http")
+    host = get_process_settings().get(_PUBLIC_HOST_ENV, "localhost")
+    scheme = get_process_settings().get(_PUBLIC_SCHEME_ENV, "http")
     return f"{scheme}://{host}:{port}"
 
 
@@ -305,7 +306,7 @@ def _service_env_value(service_name: str, key: str) -> str | None:
 
 def _discover_service(service_name: str):
     try:
-        from phlo.plugins.discovery import ServiceDiscovery
+        from phlo.plugins.discovery.services import ServiceDiscovery
 
         return ServiceDiscovery().get_service(service_name)
     except Exception:

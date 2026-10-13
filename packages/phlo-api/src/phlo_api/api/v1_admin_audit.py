@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -12,11 +11,12 @@ from typing import Annotated, Any
 import psycopg2
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import AwareDatetime, Field, StringConstraints
+from pydantic import AwareDatetime, ConfigDict, Field, StringConstraints
 
 from phlo.compliance.audit.sealed import GENESIS_HASH, compute_record_hash
 from phlo.compliance.audit.sealed import AuditStore
 from phlo.compliance.audit.store import PostgresAuditStore
+from phlo.config.process import get_process_settings
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.v1_contract import WireModel
 
@@ -36,12 +36,20 @@ _QUERY_BATCH_SIZE = 1000
 _SEARCH_SCAN_LIMIT = 5000
 
 
+class AuditEventView(WireModel):
+    model_config = ConfigDict(extra="allow")
+    event_type: str
+    surface: str
+    actor_subject: str
+    action: str
+
+
 class AuditRecord(WireModel):
     sequence_number: int = Field(ge=1)
     sealed_at: str
     previous_hash: str
     record_hash: str
-    event: dict[str, Any]
+    event: AuditEventView
 
 
 class AuditRecordPage(WireModel):
@@ -61,7 +69,7 @@ class AuditChainVerification(WireModel):
 
 @contextmanager
 def _audit_store() -> Iterator[AuditStore]:
-    dsn = os.environ.get("PHLO_RUN_EVIDENCE_DB_URL")
+    dsn = get_process_settings().phlo_run_evidence_db_url
     if not dsn:
         raise BackendUnavailableError("Durable audit storage is unavailable.")
     connection = None

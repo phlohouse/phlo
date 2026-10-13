@@ -32,7 +32,6 @@ Example:
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -47,6 +46,7 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.infrastructure.config import get_configured_authentication_provider_name
+from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.security.oidc_identity import OIDCVerificationUnavailable
 
@@ -200,7 +200,7 @@ def get_request_principal(request: Request) -> AuthPrincipal | None:
 
 def _authenticate_managed_service_account(request: Request) -> AuthResult | None:
     """Authenticate a Phlo-issued service secret against its stored hash."""
-    if os.environ.get("PHLO_IDENTITY_AUTHORITY_ENABLED") != "1":
+    if not get_process_settings().phlo_identity_authority_enabled:
         return None
     authorization = request.headers.get("authorization", "")
     if not authorization.startswith("Bearer "):
@@ -303,7 +303,7 @@ def optional_authenticate(request: Request) -> AuthPrincipal | None:
 def get_capabilities_metadata() -> dict[str, Any]:
     """Get metadata about available authentication capabilities."""
     available_providers = list_capabilities("authentication_provider")
-    current_provider = os.environ.get(_AUTHENTICATION_PROVIDER_ENV)
+    current_provider = get_process_settings().phlo_authentication_provider
 
     return {
         "available_providers": available_providers,

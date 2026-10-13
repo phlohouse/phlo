@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from phlo.capabilities import resolve_capability, resolve_runtime_ref
+from phlo.capabilities.resolver import resolve_capability
+from phlo.capabilities.runtime import resolve_runtime_ref
 from phlo.exceptions import PhloConfigError
 from phlo.helpers._common import OperationSummary, coerce_int
 

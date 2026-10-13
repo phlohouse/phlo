@@ -34,8 +34,8 @@ Example:
 
 """
 
-import json
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -49,25 +49,26 @@ from time import sleep as _sleep
 from typing import Any
 
 import click
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
-
+from phlo.application.discovery import discover_capabilities
+from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
-from phlo.cli.output import service_unavailable_error, json_envelope
-from phlo.cli.contract import PhloCommand
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.cli.output import json_envelope, service_unavailable_error
 from phlo.config.env import load_project_env
 from phlo.config_schema import WapConfig
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
+
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.operations import get_run_status, launch_materialize, wait_for_dagster_http
+from phlo_dagster.settings import WapBackfillSettings, get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import prepare_wap_launch, read_wap_report
 
@@ -198,7 +199,7 @@ def backfill(
 
     if wap_config.enabled:
         dagster_url = resolve_wap_dagster_url(wap_config)
-        access_token = os.environ.get("PHLO_DAGSTER_ACCESS_TOKEN")
+        access_token = get_process_settings().phlo_dagster_access_token
         if getattr(wap_config, "requires_access_token", False) and not access_token:
             raise click.ClickException(
                 "PHLO_DAGSTER_ACCESS_TOKEN is required for a non-local WAP Dagster endpoint."
@@ -522,8 +523,9 @@ def _wait_for_wap_lifecycle(
     *, logical_run_id: str, dagster_run_id: str, dagster_url: str, access_token: str | None
 ) -> None:
     """Wait for both Dagster completion and the WAP promotion receipt."""
-    timeout_seconds = float(os.environ.get("PHLO_WAP_BACKFILL_TIMEOUT_SECONDS", "3600"))
-    poll_seconds = float(os.environ.get("PHLO_WAP_BACKFILL_POLL_SECONDS", "2"))
+    settings = WapBackfillSettings()
+    timeout_seconds = settings.timeout_seconds
+    poll_seconds = settings.poll_seconds
     deadline = time.monotonic() + timeout_seconds
     max_poll_failures = 5
     poll_failures = 0

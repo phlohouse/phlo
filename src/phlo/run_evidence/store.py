@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sqlite3
 import threading
 from base64 import urlsafe_b64decode, urlsafe_b64encode
@@ -24,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from phlo.config.process import RunEvidencePoolSettings, get_process_settings
 from phlo.run_evidence.models import (
     RUN_EVIDENCE_SCHEMA_VERSION,
     EvidenceCompleteness,
@@ -35,6 +35,7 @@ from phlo.run_evidence.models import (
     RunQualityResult,
     RunResource,
     RunStage,
+    RunStatus,
     _positive_attempt,
 )
 from phlo.run_evidence.reconciliation import (
@@ -49,6 +50,18 @@ from phlo.run_evidence.reconciliation import (
     normalize_status,
 )
 from phlo.run_evidence.redaction import canonical_json, payload_checksum, redact_payload
+from phlo.run_evidence.stored import (
+    EvidenceRecord,
+    InvalidRunEvidence,
+    StoredArtifact,
+    StoredCatalogChange,
+    StoredEvent,
+    StoredQualityResult,
+    StoredResource,
+    StoredRun,
+    StoredStage,
+    parse_stored_row,
+)
 
 _RUN_EVIDENCE_MIGRATIONS = (
     (1, "002_create_run_evidence.sql", "002_create_run_evidence_sqlite.sql"),
@@ -226,12 +239,10 @@ def _coerce_required_json_fields(result: dict[str, Any], table: str) -> None:
         if isinstance(value, str):
             try:
                 value = json.loads(value)
-            except json.JSONDecodeError:
-                value = None
-        if value is None:
-            value = [] if expected_type is list else {}
+            except json.JSONDecodeError as exc:
+                raise InvalidRunEvidence(f"{table}.{field} must be JSON") from exc
         if not isinstance(value, expected_type):
-            raise ValueError(f"{table}.{field} must be a {expected_type.__name__}")
+            raise InvalidRunEvidence(f"{table}.{field} must be a {expected_type.__name__}")
         result[field] = value
 
 
@@ -252,8 +263,10 @@ def _coerce_optional_json_fields(result: dict[str, Any], table: str) -> None:
 
 def _coerce_boolean_fields(result: dict[str, Any], table: str) -> None:
     for field in _BOOLEAN_ROW_FIELDS.get(table, set()):
-        if result.get(field) is not None:
-            result[field] = bool(result[field])
+        value = result.get(field)
+        if not isinstance(value, (bool, int)) or value not in (0, 1):
+            raise InvalidRunEvidence(f"{table}.{field} must be a boolean")
+        result[field] = bool(value)
 
 
 def _coerce_timestamp_fields(result: dict[str, Any], table: str) -> None:
@@ -652,7 +665,7 @@ class _SqlRunEvidenceStore:
                         pipeline_name=observation.pipeline_name,
                         provider_run_id=observation.provider_run_id,
                         attempt=observation.attempt,
-                        status=observation.status or "running",
+                        status=normalize_status(observation.status) or RunStatus.RUNNING,
                         started_at=observation.started_at,
                         finished_at=observation.finished_at,
                         evidence_completeness=observation.evidence_state
@@ -684,12 +697,12 @@ class _SqlRunEvidenceStore:
             stage_rows = [
                 self._row_dict(cursor, row, table="run_stage") for row in cursor.fetchall()
             ]
-            record_rows: dict[str, list[dict[str, Any]]] = {}
-            for family, table in (
-                ("resource", "run_resource"),
-                ("catalog_change", "run_catalog_change"),
-                ("quality_result", "run_quality_result"),
-                ("artifact", "run_artifact"),
+            record_rows: dict[str, list[EvidenceRecord]] = {}
+            for family, table, model in (
+                ("resource", "run_resource", StoredResource),
+                ("catalog_change", "run_catalog_change", StoredCatalogChange),
+                ("quality_result", "run_quality_result", StoredQualityResult),
+                ("artifact", "run_artifact", StoredArtifact),
             ):
                 cursor.execute(
                     f"SELECT * FROM {self._table(table)} "
@@ -698,14 +711,15 @@ class _SqlRunEvidenceStore:
                     (observation.project_id, observation.run_id, observation.attempt),
                 )
                 record_rows[family] = [
-                    self._row_dict(cursor, row, table=table) for row in cursor.fetchall()
+                    parse_stored_row(model, self._row_dict(cursor, row, table=table))
+                    for row in cursor.fetchall()
                 ]
             decision = evaluate_reconciliation(
                 observation=observation,
                 profile=profile,
-                run_row=run_row,
-                event_rows=event_rows,
-                stage_rows=stage_rows,
+                run_row=parse_stored_row(StoredRun, run_row),
+                event_rows=[parse_stored_row(StoredEvent, row) for row in event_rows],
+                stage_rows=[parse_stored_row(StoredStage, row) for row in stage_rows],
                 record_rows=record_rows,
                 now=now,
                 stale_after=stale_after,
@@ -740,7 +754,7 @@ class _SqlRunEvidenceStore:
                 return decision
 
             current_attempt = int(run_row["attempt"])
-            current_status = normalize_status(str(run_row["status"])) or "running"
+            current_status = normalize_status(str(run_row["status"])) or RunStatus.RUNNING
             aggregate_status = decision.status
             aggregate_finished_at: datetime | str | None = decision.finished_at
             # A terminal status already stored for this attempt wins over a
@@ -758,7 +772,8 @@ class _SqlRunEvidenceStore:
             if observation.attempt >= current_attempt and not (
                 current_attempt == observation.attempt
                 and current_status in TERMINAL_STATUSES
-                and decision.status in {"running", "incomplete", "abandoned"}
+                and decision.status
+                in {RunStatus.RUNNING, RunStatus.INCOMPLETE, RunStatus.ABANDONED}
             ):
                 cursor.execute(
                     f"UPDATE {self._table('pipeline_run')} SET status = {self.placeholder}, "
@@ -1285,7 +1300,7 @@ class _SqlRunEvidenceStore:
             attempt=int(row["attempt"]),
             profile_id=row["profile_id"],
             profile_version=row["profile_version"],
-            status=row["status"],
+            status=RunStatus.parse(row["status"]),
             evidence_completeness=EvidenceCompleteness(row["evidence_completeness"]),
             reason=row["reason"],
             missing_evidence=tuple(missing),
@@ -1870,8 +1885,7 @@ class PostgresRunEvidenceStore(_SqlRunEvidenceStore):
             raise RuntimeError(
                 "PostgresRunEvidenceStore requires the runtime extra: install phlo[runtime]."
             ) from exc
-        max_connections = int(os.environ.get("PHLO_RUN_EVIDENCE_POOL_MAX", "10"))
-        self._pool = ThreadedConnectionPool(1, max(1, max_connections), self.dsn)
+        self._pool = ThreadedConnectionPool(1, RunEvidencePoolSettings().max_connections, self.dsn)
         return self._pool.getconn()
 
     def _close_connection(self, connection: Any) -> None:
@@ -1956,14 +1970,14 @@ class PostgresRunEvidenceStore(_SqlRunEvidenceStore):
 
 def default_run_evidence_store() -> SQLiteRunEvidenceStore | PostgresRunEvidenceStore:
     """Resolve the production DSN or durable local path from environment."""
-    dsn = os.environ.get("PHLO_RUN_EVIDENCE_DB_URL")
+    dsn = get_process_settings().phlo_run_evidence_db_url
     if dsn:
         return PostgresRunEvidenceStore(dsn)
-    environment = os.environ.get("PHLO_ENVIRONMENT", "dev").lower()
+    environment = get_process_settings().get("PHLO_ENVIRONMENT", "dev").lower()
     if environment in {"prod", "production", "staging", "regulated"}:
         raise RuntimeError(
             "Run evidence requires PHLO_RUN_EVIDENCE_DB_URL in production, staging, "
             "and regulated environments; SQLite is local-only."
         )
-    path = os.environ.get("PHLO_RUN_EVIDENCE_SQLITE_PATH", ".phlo/run-evidence.sqlite")
+    path = get_process_settings().get("PHLO_RUN_EVIDENCE_SQLITE_PATH", ".phlo/run-evidence.sqlite")
     return SQLiteRunEvidenceStore(path)

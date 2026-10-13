@@ -11,13 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
-
 from phlo.config.base import BaseConfig
 from phlo.config.cache import project_root_cached
+from phlo.plugins.observatory_settings import ObservatoryDatabaseSettings
 
 
-class ObservatorySettings(BaseConfig):
+class ObservatorySettings(ObservatoryDatabaseSettings, BaseConfig):
     """Configuration settings for the Observatory UI.
 
     Example:
@@ -26,12 +25,6 @@ class ObservatorySettings(BaseConfig):
         'postgresql://user:pass@localhost/observatory'
 
     """
-
-    observatory_settings_db_url: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("PHLO_OBSERVATORY_SETTINGS_DB_URL"),
-        description="PostgreSQL DSN for Observatory settings storage",
-    )
 
 
 @project_root_cached

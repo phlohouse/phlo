@@ -29,6 +29,7 @@ import click
 import yaml
 
 from phlo.config.layout import env_defaults_path, env_secrets_path
+from phlo.config.process import get_process_settings
 
 if TYPE_CHECKING:
     from phlo.cli.commands.services.ports import PortMapping
@@ -39,7 +40,7 @@ ServiceDiscovery: Any | None = None
 def _get_service_discovery_class() -> Any:
     global ServiceDiscovery
     if ServiceDiscovery is None:
-        from phlo.plugins.discovery import ServiceDiscovery as discovered_service_discovery
+        from phlo.plugins.discovery.services import ServiceDiscovery as discovered_service_discovery
 
         ServiceDiscovery = discovered_service_discovery
     return ServiceDiscovery
@@ -131,7 +132,7 @@ def _probe_failure_details(exc: BaseException, *, verbose: bool) -> dict[str, An
 
 
 def _configured_container_backend() -> str:
-    configured = os.environ.get("PHLO_CONTAINER_BACKEND")
+    configured = get_process_settings().phlo_container_backend
     if configured and configured.strip():
         return configured.strip().lower()
 
@@ -478,7 +479,7 @@ def check_project(*, verbose: bool = False) -> list[DiagnosticResult]:
 
 
 def _collect_service_plugin_failures() -> list[dict[str, str]]:
-    from phlo.plugins.discovery import discover_plugins
+    from phlo.plugins.discovery._plugin_loading import discover_plugins
 
     failures: list[dict[str, str]] = []
     discover_plugins(

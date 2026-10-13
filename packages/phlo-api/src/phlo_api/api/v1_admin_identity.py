@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 from collections.abc import Callable
 from typing import Annotated, Literal, TypeVar
 
@@ -18,6 +17,7 @@ from phlo.compliance.audit.sealed import TamperEvidentAuditSink
 from phlo.compliance.signatures.service import SignatureService, SignatureServiceConfig
 from phlo.compliance.signatures.step_up import RecentMfaClaimsChallenge
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
+from phlo.config.process import get_process_settings
 from phlo.identity.authority import (
     IdentityAuthority,
     IdentityConflictError,
@@ -59,7 +59,7 @@ class MemberView(WireModel):
     subject: str
     email: str | None
     principal_type: str
-    roles: list[str]
+    roles: list[Role]
     active: bool
     version: int
     created_at: str
@@ -82,7 +82,7 @@ class MemberRolesUpdate(WireModel):
 class InvitationView(WireModel):
     invitation_id: str
     email: str
-    roles: list[str]
+    roles: list[Role]
     status: str
     invited_by: str
     expires_at: str
@@ -110,7 +110,7 @@ class InvitationAccept(WireModel):
 class ServiceAccountView(WireModel):
     subject: str
     name: str
-    roles: list[str]
+    roles: list[Role]
     active: bool
     version: int
     created_at: str
@@ -191,7 +191,7 @@ class AdminSettingsUpdate(WireModel):
 
 
 def _authority() -> IdentityAuthority:
-    if os.environ.get("PHLO_IDENTITY_AUTHORITY_ENABLED") != "1":
+    if not get_process_settings().phlo_identity_authority_enabled:
         raise BackendUnavailableError("Phlo identity authority is disabled.")
     try:
         return IdentityAuthority()
@@ -219,38 +219,44 @@ def _audit(event: CanonicalAuditEvent) -> None:
 
 
 def _view_member(member: IdentityMember) -> MemberView:
-    return MemberView(
-        subject=member.subject,
-        email=member.email,
-        principal_type=member.principal_type,
-        roles=list(member.roles),
-        active=member.active,
-        version=member.version,
-        created_at=member.created_at,
-        updated_at=member.updated_at,
+    return MemberView.model_validate(
+        {
+            "subject": member.subject,
+            "email": member.email,
+            "principal_type": member.principal_type,
+            "roles": list(member.roles),
+            "active": member.active,
+            "version": member.version,
+            "created_at": member.created_at,
+            "updated_at": member.updated_at,
+        }
     )
 
 
 def _view_invitation(invitation: IdentityInvitation) -> InvitationView:
-    return InvitationView(
-        invitation_id=invitation.invitation_id,
-        email=invitation.email,
-        roles=list(invitation.roles),
-        status=invitation.status,
-        invited_by=invitation.invited_by,
-        expires_at=invitation.expires_at,
-        created_at=invitation.created_at,
+    return InvitationView.model_validate(
+        {
+            "invitation_id": invitation.invitation_id,
+            "email": invitation.email,
+            "roles": list(invitation.roles),
+            "status": invitation.status,
+            "invited_by": invitation.invited_by,
+            "expires_at": invitation.expires_at,
+            "created_at": invitation.created_at,
+        }
     )
 
 
 def _view_service_account(account: IdentityServiceAccount) -> ServiceAccountView:
-    return ServiceAccountView(
-        subject=account.subject,
-        name=account.name,
-        roles=list(account.roles),
-        active=account.active,
-        version=account.version,
-        created_at=account.created_at,
+    return ServiceAccountView.model_validate(
+        {
+            "subject": account.subject,
+            "name": account.name,
+            "roles": list(account.roles),
+            "active": account.active,
+            "version": account.version,
+            "created_at": account.created_at,
+        }
     )
 
 

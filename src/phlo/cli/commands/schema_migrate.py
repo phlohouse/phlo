@@ -4,7 +4,7 @@ Provides commands to diff, plan, apply, and inspect schema migrations
 between quality provider schemas and storage tables.
 
 Imported by phlo.cli.main and by phlo_dagster's schema-contract framework.
-Builds migrations on phlo.schema_migration planning and phlo.capabilities.discovery.
+Builds migrations on phlo.schema_migration planning and phlo.application.discovery.
 """
 
 from __future__ import annotations
@@ -20,16 +20,14 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from phlo.capabilities import (
-    FieldSpec,
-    NormalizedSchema,
-    SchemaMigrationPlan,
+from phlo.application.discovery import discover_capabilities
+from phlo.capabilities.registry import get_capability_registry
+from phlo.capabilities.resolver import (
     configured_capability_name,
-    get_capability_registry,
     list_capabilities,
     resolve_capability,
 )
-from phlo.capabilities.discovery import discover_capabilities
+from phlo.capabilities.specs import FieldSpec, NormalizedSchema, SchemaMigrationPlan
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands import schema_migrate_contracts
 from phlo.cli.contract import PhloCommand, PhloGroup
@@ -49,7 +47,7 @@ logger = get_logger(__name__)
 
 def _resolve_migrator() -> Any:
     """Resolve the registered SchemaMigrator from the capability registry."""
-    from phlo.capabilities.discovery import discover_capabilities
+    from phlo.application.discovery import discover_capabilities
 
     discover_capabilities()
 

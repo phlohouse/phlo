@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import os
 import re
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -16,7 +15,7 @@ import httpx
 
 from phlo_api.observatory_api.http_client import backend_client
 from phlo_api.observatory_api.trino import resolve_trino_url
-from phlo_api.settings import get_deployment_settings
+from phlo_api.settings import get_deployment_settings, get_process_settings
 
 _MAX_ROWS = 100
 _MAX_RESPONSE_BYTES = 1_048_576
@@ -45,7 +44,7 @@ def _preview_configuration() -> dict[str, dict[str, str]]:
     try:
         if not get_deployment_settings().preview_server_limits_configured:
             raise ValueError
-        mapping = json.loads(os.environ["PHLO_V1_PREVIEW_CATALOGS"])
+        mapping = json.loads(get_process_settings()["PHLO_V1_PREVIEW_CATALOGS"])
         if not isinstance(mapping, dict) or set(mapping) != {"prod", "staging"}:
             raise ValueError
         catalogs: set[str] = set()
@@ -55,7 +54,12 @@ def _preview_configuration() -> dict[str, dict[str, str]]:
                 raise ValueError
             name = target["catalog"]
             ref = target["nessie_ref"]
-            password = os.environ.get(f"PHLO_V1_PREVIEW_TRINO_PASSWORD_{env.upper()}")
+            settings = get_process_settings()
+            password = (
+                settings.phlo_v1_preview_trino_password_prod
+                if env == "prod"
+                else settings.phlo_v1_preview_trino_password_staging
+            )
             if (
                 not isinstance(name, str)
                 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", name)
@@ -185,7 +189,12 @@ def _preview_auth_headers(catalog: str) -> dict[str, str]:
     if identity is None:
         raise PreviewUnavailable("Preview catalog has no environment-scoped server identity.")
     env, user = identity
-    password = os.environ.get(f"PHLO_V1_PREVIEW_TRINO_PASSWORD_{env.upper()}")
+    settings = get_process_settings()
+    password = (
+        settings.phlo_v1_preview_trino_password_prod
+        if env == "prod"
+        else settings.phlo_v1_preview_trino_password_staging
+    )
     if not password:
         raise PreviewUnavailable("Environment-scoped preview identity is not configured.")
     credentials = f"{user}:{password}".encode("utf-8")

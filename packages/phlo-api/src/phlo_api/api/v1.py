@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from datetime import datetime, timezone
 from time import monotonic
@@ -20,6 +19,7 @@ from pydantic import ValidationError
 
 from phlo.capabilities import AuthPrincipal, Principal, ResourceRef
 from phlo.config.env import project_env_value
+from phlo.config.process import get_process_settings
 from phlo.plugins.discovery import ServiceDiscovery
 from phlo.security import enforce, is_regulated
 from phlo.security.enforcement import EnforcementContext
@@ -89,7 +89,7 @@ _SERVICE_PROBE_DEADLINE_SECONDS = 5.0
 def _targets() -> dict[str, EnvironmentTarget]:
     """Read the operator-owned allowlist, refusing partial or overlapping mappings."""
     try:
-        raw = json.loads(os.environ["PHLO_V1_ENVIRONMENTS"])
+        raw = json.loads(get_process_settings()["PHLO_V1_ENVIRONMENTS"])
         if not isinstance(raw, dict) or set(raw) != {"prod", "staging"}:
             raise ValueError("both environments must be configured")
         targets = {name: EnvironmentTarget.model_validate(value) for name, value in raw.items()}

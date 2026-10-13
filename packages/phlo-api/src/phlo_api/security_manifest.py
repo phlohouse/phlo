@@ -9,7 +9,6 @@ resource before the handler is called.
 from __future__ import annotations
 
 import json
-import os
 from hashlib import sha256
 from uuid import uuid4
 from dataclasses import dataclass, replace
@@ -20,6 +19,7 @@ from starlette.routing import Match
 from starlette.responses import JSONResponse
 
 from phlo.capabilities import DecisionContext, ResourceRef
+from phlo.config.process import get_process_settings
 from phlo.logging import bind_context, clear_context, get_logger
 from phlo.rbac.models import CanonicalAction
 from phlo.security import enforce, is_regulated
@@ -346,7 +346,12 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
-        ("v1_query_result", "v1_query_csv", "v1_saved_queries"),
+        ("v1_datasets",),
+        action=CanonicalAction.DATASET_READ.value,
+        resource_type="project",
+    ),
+    *_specs(
+        ("v1_query_result", "v1_query_csv", "v1_saved_queries", "v1_query_history"),
         action=CanonicalAction.DATASET_READ.value,
         resource_type="project",
         resource_keys=("env",),
@@ -610,7 +615,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_keys=("run_id",),
     ),
     *_specs(
-        ("get_observatory_run_report",),
+        ("get_observatory_run_report", "v1_run_report"),
         action=CanonicalAction.RUN_READ.value,
         resource_type="run",
         resource_keys=("project_id", "run_id", "attempt"),
@@ -1036,8 +1041,8 @@ async def resolve_resource(
         raise HTTPException(status_code=400, detail={"error": "missing_resource"})
     return ResourceRef(
         resource_type=spec.resource_type,
-        resource_id=resource_id or os.environ.get("PHLO_PROJECT_NAME", "project"),
-        attributes={"project": os.environ.get("PHLO_PROJECT_NAME", "project")},
+        resource_id=resource_id or get_process_settings().get("PHLO_PROJECT_NAME", "project"),
+        attributes={"project": get_process_settings().get("PHLO_PROJECT_NAME", "project")},
     )
 
 
@@ -1056,7 +1061,7 @@ def _enforce_scoped_run_report_service_identity(
 ) -> None:
     """Bind a deliberately run-scoped service token to its one report resource."""
     if (
-        spec.operation_name != "get_observatory_run_report"
+        spec.operation_name not in {"get_observatory_run_report", "v1_run_report"}
         or principal.principal_type != "service"
         or RUN_REPORT_RESOURCE_ID_ATTRIBUTE not in principal.attributes
     ):
@@ -1135,6 +1140,7 @@ def _validate_v1_principal_and_selection(
     if (
         principal.principal_type == "service"
         and RUN_REPORT_RESOURCE_ID_ATTRIBUTE in principal.attributes
+        and spec.operation_name != "v1_run_report"
     ):
         raise HTTPException(
             status_code=403, detail={"error": "forbidden", "reason": "run_report_scope_mismatch"}
@@ -1385,7 +1391,7 @@ def _reject_explicit_optional_in_production() -> None:
     an explicit ``optional`` in production is a configuration contradiction and
     must fail startup with a clear error rather than being silently overridden.
     """
-    explicit_mode = os.environ.get(_AUTHORIZATION_MODE_ENV)
+    explicit_mode = get_process_settings().phlo_authorization_mode
     if explicit_mode is None:
         config = get_api_authorization_config()
         explicit_mode = config.mode if config is not None and config.mode is not None else None
