@@ -246,8 +246,16 @@ def test_ports_cmd_json_output_is_payload_only(monkeypatch: pytest.MonkeyPatch, 
 
 
 @pytest.mark.parametrize("override", [None, "18080"])
+@pytest.mark.parametrize(
+    "port",
+    [
+        {"target": 8080, "published": "${EXTERNAL_PORT}"},
+        "18080-18082:8080-8082",
+        {"target": 8080, "published": "18080-18082"},
+    ],
+)
 def test_ports_cmd_accepts_provider_long_syntax_without_port_fallback(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, override: str | None
+    monkeypatch: pytest.MonkeyPatch, tmp_path, override: str | None, port
 ) -> None:
     (tmp_path / ".phlo").mkdir()
     (tmp_path / "phlo.yaml").write_text("name: test\n")
@@ -255,7 +263,7 @@ def test_ports_cmd_accepts_provider_long_syntax_without_port_fallback(
         name="external",
         service_definition={
             "name": "external",
-            "compose": {"ports": [{"target": 8080, "published": "${EXTERNAL_PORT}"}]},
+            "compose": {"ports": [port]},
         },
     )
     monkeypatch.setattr(
@@ -280,7 +288,7 @@ def test_ports_cmd_accepts_provider_long_syntax_without_port_fallback(
     assert result.exit_code == 0, result.exception
     expected = (
         []
-        if override is None
+        if override is None or not isinstance(port, dict) or port["published"] != "${EXTERNAL_PORT}"
         else [
             {
                 "service": "external",

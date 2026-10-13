@@ -473,7 +473,7 @@ class ObservatoryPublishingReadiness(BaseModel):
 
 
 class ObservatoryProductionStage(BaseModel):
-    """One stage in a Dataset production flow."""
+    """Describe one stage in a Dataset production flow."""
 
     id: str
     label: str
@@ -482,7 +482,7 @@ class ObservatoryProductionStage(BaseModel):
 
 
 class ObservatoryDatasetProduction(BaseModel):
-    """Production-flow read model for one Dataset."""
+    """Describe production stages for one Dataset."""
 
     dataset: ObservatoryDataset | None = None
     freshness_state: HealthState = "unknown"
@@ -514,7 +514,7 @@ class ObservatoryDatasetProduction(BaseModel):
 
 
 class ObservatoryDatasetProductionList(BaseModel):
-    """Production-flow summaries for Datasets."""
+    """List production-flow summaries for Datasets."""
 
     items: list[ObservatoryDatasetProduction] = Field(default_factory=list)
 

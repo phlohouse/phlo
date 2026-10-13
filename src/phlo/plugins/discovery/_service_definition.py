@@ -37,9 +37,13 @@ def refresh() -> None:
     refresh_yaml()
 
 
+class ServicePortRangeError(ValueError):
+    """Identify a Compose range that cannot describe a single topology port."""
+
+
 @dataclass(frozen=True, slots=True)
 class ServicePort:
-    """A published Compose port, before deployment environment overrides."""
+    """Describe a published port before deployment environment overrides."""
 
     container_port: int
     host_port: int | None = None
@@ -76,6 +80,14 @@ class ServicePort:
             if match is None:
                 raise ValueError("Service port must use ${VAR} or ${VAR:-port}")
             env_var, published = match.groups()
+        if any(re.fullmatch(r"[0-9]+-[0-9]+", part or "") for part in (target, published)):
+            for part in (target, published):
+                if part is None:
+                    continue
+                bounds = [int(bound) for bound in part.split("-")]
+                if not 1 <= bounds[0] <= bounds[-1] <= 65535:
+                    raise ValueError("Service port range must be ascending within 1..65535")
+            raise ServicePortRangeError("Declare topology ports individually, not as ranges")
         container_port = int(target)
         host_port = int(published) if published is not None else None
         if not 1 <= container_port <= 65535 or (

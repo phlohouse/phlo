@@ -22,7 +22,7 @@ from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import json_envelope, missing_phlo_project_error
 from phlo.config.layout import project_env_paths
 from phlo.logging import get_logger
-from phlo.plugins.discovery._service_definition import ServicePort
+from phlo.plugins.discovery._service_definition import ServicePort, ServicePortRangeError
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 logger = get_logger(__name__)
@@ -215,7 +215,10 @@ def _get_active_traefik_context(
         compose_ports = traefik_override["ports"]
 
     for port_str in compose_ports:
-        port_spec = _parse_compose_port_spec(port_str)
+        try:
+            port_spec = _parse_compose_port_spec(port_str)
+        except ServicePortRangeError:
+            continue
         if port_spec.container_port != "80":
             continue
         host_port, _, _ = _resolve_host_port(
@@ -338,7 +341,10 @@ def _get_service_ports(
     routes = service_routes.get(service.name, {}) if service_routes else {}
 
     for port_str in compose_ports:
-        port_spec = _parse_compose_port_spec(port_str)
+        try:
+            port_spec = _parse_compose_port_spec(port_str)
+        except ServicePortRangeError:
+            continue
         container_port = int(port_spec.container_port)
         resolved_host_port, source, resolved_env_var = _resolve_host_port(
             port_spec=port_spec,

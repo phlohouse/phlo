@@ -62,6 +62,7 @@ from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import missing_compose_file_error
 from phlo.config.layout import env_defaults_path, project_env_paths
 from phlo.logging import get_logger
+from phlo.plugins.discovery._service_definition import ServicePortRangeError
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 if TYPE_CHECKING:
@@ -453,6 +454,8 @@ def _requested_host_ports(
         for port_entry in service_config.get("ports") or []:
             try:
                 port_spec = _parse_compose_port_spec(port_entry)
+            except ServicePortRangeError:
+                continue  # Compose validates ranges; preflight probes only individual ports.
             except ValueError:
                 invalid_ports.append((service_name, str(port_entry), None, str(port_entry)))
                 continue

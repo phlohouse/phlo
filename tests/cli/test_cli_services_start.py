@@ -122,6 +122,28 @@ def test_services_start_reports_invalid_ports_through_cli(
     assert "Traceback" not in result.output
 
 
+@pytest.mark.parametrize(
+    "port", ["18080-18082:8080-8082", "{target: 8080, published: '18080-18082'}"]
+)
+def test_services_start_leaves_deployment_port_ranges_to_compose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, port: str
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    monkeypatch.setattr(
+        start_module, "ServiceDiscovery", lambda: FakeDiscovery({"app": _service("app")})
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=f"services:\n  app:\n    ports:\n      - {port}\n",
+        snapshots=[[ServiceStatus(service="app", state="running", health=None)]],
+        args=["--service", "app"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Services running: app" in result.output
+
+
 def test_services_start_waits_for_declared_healthcheck(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
