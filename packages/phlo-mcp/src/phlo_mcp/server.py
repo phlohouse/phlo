@@ -85,7 +85,7 @@ def create_server(config: McpConfig | None = None) -> FastMCP:
         if (
             tool_name.startswith("get_")
             or tool_name.startswith("search_")
-            or tool_name == "list_operations"
+            or tool_name in {"list_operations", "list_assets", "list_runs"}
         ):
             return "lakehouse:read"
         return None

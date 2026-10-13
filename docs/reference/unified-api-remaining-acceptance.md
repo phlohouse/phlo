@@ -1,6 +1,30 @@
 # Unified API remaining acceptance
 
-This record covers the remaining work in [#1035](https://github.com/phlohouse/phlo/issues/1035), against main at [0b8685e](https://github.com/phlohouse/phlo/commit/0b8685e66cb9a299fa1a3c62adf9cacfec0505be). It does not mark the tracker complete or establish production readiness. The bundled replacement and original API phases were already delivered.
+This record covers the remaining work in [#1035](https://github.com/phlohouse/phlo/issues/1035). The follow-up below starts from [ec77555](https://github.com/phlohouse/phlo/commit/ec775552df07727ad693b66e388466051f7a39ec). Earlier evidence remains below as history. This record does not mark the tracker complete or establish production readiness.
+
+## Real-service follow-up, 13 October 2026
+
+These checks use disposable services. They do not require deployed infrastructure, production credentials, or a database migration.
+
+| Contract | Executed check | Boundary |
+| --- | --- | --- |
+| Report recovery | [Both report aliases](../../packages/phlo-api/tests/test_run_report_postgres_recovery.py) retain the same result after an actual PostgreSQL stop and restart, with the same application-owned store. Reads during the outage return 503. | The pool probes a connection before a transaction and replaces a dead connection once. It never retries a submitted write. |
+| Populated query history and usage | [Real Trino acceptance](../../packages/phlo-api/tests/test_usage_trino_integration.py) executes bounded queries against distinct `main` and `candidate` Nessie data, reads durable history, and persists real listener events through the ingestion endpoint. Reopened clients recover the results. | Authentication principals are injected. The collector forwards genuine listener events; direct authenticated coordinator delivery and populated browser usage are not proved. |
+| Ingestion, quality, and Dataset publication | [Producer journey](../../tests/integration/test_issue1035_dataset_journey.py) uses dlt, MinIO, Iceberg, Pandera, DuckDB, PostgreSQL Dataset state, and a SQLite report. Source failure and failed quality block progress. Recovery publishes the Dataset once, and a fresh interpreter reads the retained state and report. | The authority receives an explicitly bound `RunReportQualityEvidenceSource`, not a test-only approval adapter. It requires every declared asset/check identity from the exact project/run/attempt. Default API wiring to a selected producer run remains open. Dataset publication is a distinct observation and does not invent a whole-run terminal outcome. |
+| Signed branch resolution | [Real branch journey](../../tests/integration/test_issue1035_signed_branch_journey.py) creates an Iceberg conflict in Nessie, launches real Dagster check jobs, records column decisions, and merges with a bound approval. Five mismatched or stale signatures fail, successful replay does not rerun jobs, and the audit chain verifies. | Dagster GraphQL transport and authentication principals are injected. The resolved Iceberg schema preserves data and the snapshot. No source-code contract is edited. |
+| Known signature rejection | Single-approval rejection before the Nessie mutation records a failed idempotency claim, so a different valid approval is not blocked by an unknown outcome. | Generic provider 409s, audit failures, and partial independent-review consumption retain unknown-outcome exclusion. |
+| Unknown quality | [Dataset readiness regression](../../packages/phlo-api/tests/test_dataset_cutover_parity.py) rejects an uncompleted blocking check. | Declaration-only `unknown` checks are missing evidence, not passing checks. |
+| MCP migration | Canonical `list_assets`, `get_asset`, `list_runs`, and `get_run` tools and environment-scoped resources require explicit `prod` or `staging`. [Compatibility tests](../../packages/phlo-mcp/tests/test_phlo_mcp.py) cover both environments, pagination, malformed input, and legacy shapes. | This is an additive migration path. Existing search, mutation, authoring, provider, continuity, and Loki callers and URLs remain. No silent production default or URL retirement occurs. |
+
+The code-contract part of the signed journey remains open. Existing incident decisions change Iceberg metadata. The existing Git proposal owner adds new quality-check files and rejects existing files; it cannot edit an existing contract declaration or validation model. A reviewed contract-edit owner is still needed before source-code changes can be claimed.
+
+Real populated browser journeys, automatic default Dataset evidence wiring, a complete orchestrator terminal journey, direct authenticated Trino listener delivery, and legacy-consumer cutover remain unproved. Browser JavaScript extension loading stays deferred. These limits are not waived by the API or integration tests.
+
+The focused acceptance command is:
+
+```bash
+uv run --locked pytest -m integration packages/phlo-api/tests/test_run_report_postgres_recovery.py packages/phlo-api/tests/test_usage_trino_integration.py tests/integration/test_issue1035_dataset_journey.py tests/integration/test_issue1035_signed_branch_journey.py
+```
 
 ## Contracts added or corrected
 
@@ -124,4 +148,4 @@ Other consumers and URL producers have these decisions:
 | `observatory_api/extensions.py` | Generates `O/extensions/{name}/assets` URLs | Keep Python extension asset contract. No current bundled browser consumer was found. |
 | Continuity CLI, recovery drill, and release operations | Direct Python operations/providers, not `/api/continuity` HTTP | Keep continuity routes and provider capabilities. No first-party HTTP caller was found; that does not establish that external clients are absent. |
 
-The remaining MCP migration needs a reviewed environment-selection and tool compatibility contract. Silently choosing prod would change the client's meaning. This record preserves that unresolved decision instead of deleting URLs or claiming cutover complete.
+MCP now offers canonical asset and run reads with explicit environment selection, alongside the compatibility methods listed above. Search and mutation callers still need separate migration contracts. No legacy URL is deleted, and additive tools do not establish completed consumer cutover.

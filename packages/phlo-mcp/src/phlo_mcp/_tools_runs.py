@@ -2,15 +2,35 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
-from phlo_mcp.api_client import PhloApiClient
+from phlo_mcp.api_client import Environment, PhloApiClient
 from phlo_mcp.tracing import CanonicalTracer, trace_tool
 
 
 def _register_run_tools(client: PhloApiClient, tracer: CanonicalTracer, mcp: FastMCP) -> None:
+    @mcp.tool()
+    @trace_tool
+    def list_runs(
+        env: Environment,
+        limit: Annotated[int, Field(ge=1, le=100)] = 100,
+        job_id: str | None = None,
+        status: str | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List canonical runs in prod or staging, optionally filtered by job ID or status."""
+        payload = client.list_runs(env, limit=limit, job_id=job_id, status=status, cursor=cursor)
+        return {"api_base_url": client.api_base_url, "payload": payload}
+
+    @mcp.tool()
+    @trace_tool
+    def get_run(run_id: str, env: Environment) -> dict[str, Any]:
+        """Read canonical run detail in prod or staging."""
+        return {"api_base_url": client.api_base_url, "payload": client.get_run(run_id, env)}
+
     @mcp.tool()
     @trace_tool
     def get_materialization_history(
