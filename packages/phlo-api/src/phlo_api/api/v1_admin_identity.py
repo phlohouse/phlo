@@ -34,6 +34,7 @@ from phlo.plugins.observatory_settings import (
     parse_operational_settings,
 )
 from phlo_api.api.authentication import authenticate_request, get_request_principal
+from phlo_api.api.operation_controls import MutationRejected
 from phlo_api.api.v1_admin_audit import _audit_store
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.v1_contract import WireModel
@@ -300,8 +301,17 @@ def _expected_signature(
 
 
 def _consume_signature(
-    authority: IdentityAuthority, signature_id: str, expected: SignatureRequest
+    authority: IdentityAuthority,
+    signature_id: str,
+    expected: SignatureRequest,
+    *,
+    mutation_not_started: bool = False,
 ) -> None:
+    """Consume approval, with a proven rejection only before any action starts.
+
+    Sequential approvals must leave this flag false after the first consumption.
+    Storage and audit errors never become proven rejections.
+    """
     if not _identity_call(lambda: authority.consume_signature(signature_id, expected)):
         _audit(
             CanonicalAuditEvent(
@@ -322,7 +332,8 @@ def _consume_signature(
                 },
             )
         )
-        raise HTTPException(
+        error_type = MutationRejected if mutation_not_started else HTTPException
+        raise error_type(
             status_code=409, detail="Signature is missing, stale, reused, or mismatched."
         )
 

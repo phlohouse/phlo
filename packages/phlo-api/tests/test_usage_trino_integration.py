@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 from datetime import UTC, datetime
@@ -33,7 +34,9 @@ def _ready(url: str, *, trino: bool = False) -> None:
 
 
 @pytest.mark.integration
-def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path: Path) -> None:
+def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list[dict] = []
 
     class Collector(BaseHTTPRequestHandler):
@@ -85,10 +88,54 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                     )
                     assert bucket.exit_code == 0
                     (tmp_path / "catalog").mkdir()
+                    certificate = tmp_path / "server.crt"
+                    key = tmp_path / "server.key"
+                    subprocess.run(
+                        [
+                            "openssl",
+                            "req",
+                            "-x509",
+                            "-newkey",
+                            "rsa:2048",
+                            "-nodes",
+                            "-keyout",
+                            str(key),
+                            "-out",
+                            str(certificate),
+                            "-days",
+                            "1",
+                            "-subj",
+                            "/CN=localhost",
+                            "-addext",
+                            "subjectAltName=DNS:localhost,IP:127.0.0.1",
+                        ],
+                        check=True,
+                        capture_output=True,
+                    )
+                    pem = tmp_path / "server.pem"
+                    pem.write_bytes(key.read_bytes() + certificate.read_bytes())
+                    passwords = tmp_path / "password.db"
+                    password_hash = "$2b$12$UpBcGoQGKhrMHlVXf1jc9eqGr50iY9hHYkGfl0FQLHEnSkkER7za2"
+                    passwords.write_text(
+                        "".join(
+                            f"phlo_api_preview_{env}:{password_hash}\n"
+                            for env in ("prod", "staging")
+                        )
+                    )
+                    authenticator = tmp_path / "password-authenticator.properties"
+                    authenticator.write_text(
+                        "password-authenticator.name=file\nfile.password-file=/etc/trino/password.db\n"
+                    )
+                    monkeypatch.setenv("SSL_CERT_FILE", str(certificate))
                     config = tmp_path / "config.properties"
                     config.write_text(
                         "coordinator=true\nnode-scheduler.include-coordinator=true\n"
                         "http-server.http.port=8080\ndiscovery.uri=http://localhost:8080\n"
+                        "http-server.https.enabled=true\nhttp-server.https.port=8443\n"
+                        "http-server.https.keystore.path=/etc/trino/server.pem\n"
+                        "http-server.authentication.type=PASSWORD,INSECURE\n"
+                        "http-server.authentication.allow-insecure-over-http=true\n"
+                        "internal-communication.shared-secret=disposable-integration-only\n"
                         "catalog.management=dynamic\n"
                         "event-listener.config-files=/etc/trino/listener.properties\n",
                         encoding="utf-8",
@@ -169,6 +216,11 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                         .with_env("AWS_SECRET_ACCESS_KEY", "localpass123")
                         .with_env("AWS_REGION", "us-east-1")
                         .with_volume_mapping(config, "/etc/trino/config.properties")
+                        .with_volume_mapping(pem, "/etc/trino/server.pem")
+                        .with_volume_mapping(passwords, "/etc/trino/password.db")
+                        .with_volume_mapping(
+                            authenticator, "/etc/trino/password-authenticator.properties"
+                        )
                         .with_volume_mapping(listener, "/etc/trino/listener.properties")
                         .with_volume_mapping(
                             access_properties, "/etc/trino/access-control.properties"
@@ -184,10 +236,14 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                             tmp_path / "catalog" / "usage_stage.properties",
                             "/etc/trino/catalog/usage_stage.properties",
                         )
-                        .with_exposed_ports(8080)
+                        .with_exposed_ports(8080, 8443)
                     ) as trino:
                         port = trino.get_exposed_port(8080)
-                        _ready(f"http://localhost:{port}/v1/info", trino=True)
+                        try:
+                            _ready(f"http://localhost:{port}/v1/info", trino=True)
+                        except AssertionError:
+                            stdout, stderr = trino.get_logs()
+                            raise AssertionError((stdout + stderr).decode()) from None
                         connection = connect(host="localhost", port=int(port), user="smoke")
                         query_ids = {}
                         for env, expected in (("prod", 3), ("stage", 7)):
@@ -265,7 +321,173 @@ def test_trino_query_selected_catalog_version_proves_direct_nessie_ref(tmp_path:
                                     "warehouse/orders",
                                 )
                             ]
+                        _workspace_acceptance(
+                            monkeypatch, tmp_path, trino.get_exposed_port(8443), descriptors, events
+                        )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def _workspace_acceptance(monkeypatch, tmp_path, port, descriptors, events):
+    """Compose the real provider with disposable durable workspace evidence."""
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+    from testcontainers.postgres import PostgresContainer
+
+    from phlo.capabilities import AuthPrincipal
+    from phlo_api import incidents, usage
+    from phlo_api.api import v1_query
+    from phlo_api.errors import PhloApiError, error_envelope
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_QUERY_ENGINE_URL", f"https://127.0.0.1:{port}")
+    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
+    for env in ("PROD", "STAGING"):
+        monkeypatch.setenv(f"PHLO_V1_PREVIEW_TRINO_PASSWORD_{env}", "disposable-test")
+    targets = {"prod": ("prod", "main"), "staging": ("stage", "candidate")}
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {env: {"dagster_location": env, "nessie_ref": ref} for env, (_, ref) in targets.items()}
+        ),
+    )
+    monkeypatch.setenv(
+        "PHLO_V1_PREVIEW_CATALOGS",
+        json.dumps(
+            {
+                env: {"catalog": f"usage_{key}", "nessie_ref": ref}
+                for env, (key, ref) in targets.items()
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "PHLO_V1_USAGE_TRINO_SOURCES",
+        json.dumps(
+            {
+                "cluster": {
+                    "service_subject": "trino_listener",
+                    "catalogs": {
+                        env: {"catalog": f"usage_{key}", "properties": descriptors[key]}
+                        for env, (key, _) in targets.items()
+                    },
+                }
+            }
+        ),
+    )
+    actor = "alice"
+    monkeypatch.setattr(
+        v1_query,
+        "get_request_principal",
+        lambda _request: AuthPrincipal(subject=actor, principal_type="user"),
+    )
+    monkeypatch.setattr(
+        usage,
+        "get_request_principal",
+        lambda _request: AuthPrincipal(subject="trino_listener", principal_type="service"),
+    )
+    app = FastAPI()
+    app.include_router(v1_query.router, prefix="/api/v1")
+    app.include_router(usage.router, prefix="/api/v1")
+
+    @app.exception_handler(PhloApiError)
+    async def api_error(_request: Request, exc: PhloApiError):
+        return JSONResponse(error_envelope(exc), status_code=exc.status_code)
+
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
+        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
+        incidents.initialize_incidents()
+        usage.initialize_usage()
+        ids = {}
+        v1_query._QUERY_SESSIONS.clear()
+        with TestClient(app) as client:
+            for env, expected in (("prod", 3), ("staging", 7)):
+                response = client.post(
+                    f"/api/v1/queries?env={env}",
+                    json={"sql": "SELECT id FROM warehouse.orders", "row_limit": 1},
+                )
+                assert response.status_code == 202, response.text
+                query_id = response.json()["id"]
+                for _ in range(300):
+                    result = client.get(f"/api/v1/queries/{query_id}?env={env}").json()
+                    if result["status"] not in {"queued", "running"}:
+                        break
+                    time.sleep(0.1)
+                assert result["status"] == "completed", json.dumps(result)
+                assert result["evidence_available"] is True
+                assert result["result"]["rows"] == [{"id": expected}]
+                provider_id = v1_query._QUERY_SESSIONS[query_id].trino_query_id
+                assert provider_id
+                ids[env] = (query_id, provider_id)
+                for _ in range(100):
+                    event = next(
+                        (e for e in events if e["metadata"]["queryId"] == provider_id), None
+                    )
+                    if event:
+                        break
+                    time.sleep(0.1)
+                assert event is not None
+                ingested = client.post(
+                    "/api/v1/trino/query-completed?source_id=cluster", json=event
+                )
+                assert ingested.status_code == 202, ingested.text
+                assert ingested.json() == {"observed_inputs": 1}
+                ref = targets[env][1]
+                page = usage.read_query_usage(
+                    env, ref, "warehouse/orders", "warehouse/orders", 100, None
+                )
+                assert [item.query_id for item in page.items] == [provider_id]
+                assert (
+                    usage.read_query_usage(
+                        env, "wrong-ref", "warehouse/orders", "warehouse/orders", 100, None
+                    ).items
+                    == []
+                )
+                print(
+                    f"workspace evidence env={env} ref={ref} id={query_id} provider={provider_id} rows={expected}"
+                )
+            for env, other in (("prod", "usage_stage"), ("staging", "usage_prod")):
+                for sql in (
+                    "INSERT INTO warehouse.orders VALUES (99)",
+                    f"SELECT id FROM {other}.warehouse.orders",
+                ):
+                    rejected = client.post(f"/api/v1/queries?env={env}", json={"sql": sql})
+                    assert rejected.status_code == 422, rejected.text
+            actor = "bob"
+            for env, (query_id, _) in ids.items():
+                assert client.get(f"/api/v1/queries/{query_id}?env={env}").status_code == 404
+                history = client.get(f"/api/v1/queries/history?env={env}").json()
+                assert [item["id"] for item in history["items"]] == [query_id]
+                assert history["items"][0]["nessie_ref"] == targets[env][1]
+                assert "rows" not in json.dumps(history) and "SELECT" not in json.dumps(history)
+        # New client and no process-local sessions: retrieval must come from PostgreSQL.
+        v1_query._QUERY_SESSIONS.clear()
+        actor = "alice"
+        with TestClient(app) as restarted:
+            for env, (query_id, provider_id) in ids.items():
+                recovered = restarted.get(f"/api/v1/queries/{query_id}?env={env}")
+                assert recovered.status_code == 200, recovered.text
+                assert recovered.json()["status"] == "completed"
+                assert recovered.json()["result"]["rows"] == [{"id": 3 if env == "prod" else 7}]
+                assert [
+                    item["id"]
+                    for item in restarted.get(f"/api/v1/queries/history?env={env}").json()["items"]
+                ] == [query_id]
+                assert (
+                    restarted.get(
+                        f"/api/v1/queries/{query_id}?env={'staging' if env == 'prod' else 'prod'}"
+                    ).status_code
+                    == 404
+                )
+                assert (
+                    usage.read_query_usage(
+                        env, targets[env][1], "warehouse/orders", "warehouse/orders", 100, None
+                    )
+                    .items[0]
+                    .query_id
+                    == provider_id
+                )
+        v1_query._QUERY_SESSIONS.clear()

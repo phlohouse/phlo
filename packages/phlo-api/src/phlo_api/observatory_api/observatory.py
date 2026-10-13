@@ -393,10 +393,9 @@ class _QualityEvidenceSource:
     """Observatory quality checks crossing the neutral evidence interface.
 
     Maps blocking quality checks for one table to the neutral
-    ``quality_checks`` evidence kind. No blocking check failing means the
-    control passes; a table with no checks yields no record, which the policy
-    evaluator reports as missing evidence and blocks readiness. The check
-    collection is loaded once per authority so one read model costs one load.
+    ``quality_checks`` evidence kind. Every blocking check must be passing;
+    uncompleted checks remain missing evidence, not an approval. A table with
+    no checks yields no record. The collection is loaded once per authority.
     """
 
     def __init__(self) -> None:
@@ -412,12 +411,14 @@ class _QualityEvidenceSource:
             return ()
         blocking = [check for check in checks if check.blocking]
         failing = [check for check in blocking if check.status == "failing"]
+        incomplete = any(check.status not in {"passing", "failing"} for check in blocking)
         return (
             EvidenceRecord(
                 kind="quality_checks",
                 subject=subject,
+                status="missing" if incomplete else "present",
                 payload={
-                    "passed": not failing,
+                    "passed": not incomplete and not failing,
                     "blocking": len(blocking),
                     "failing": len(failing),
                 },
