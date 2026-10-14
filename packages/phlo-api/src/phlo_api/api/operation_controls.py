@@ -121,6 +121,14 @@ class MutationSucceededAuditFailed(HTTPException):
         )
 
 
+class MutationRejected(HTTPException):
+    """A route proves rejection before any irreversible action starts.
+
+    Do not wrap generic provider errors or post-consumption signature errors
+    in this type. Those outcomes must retain unknown-outcome exclusion.
+    """
+
+
 class IdempotencyConflict(HTTPException):
     """Stable 409 raised when an idempotency key is pending or has an unknown outcome."""
 
@@ -372,14 +380,19 @@ def replay_or_execute(
 
     try:
         response = execute()
+    except MutationRejected:
+        _fail_idempotency_claim(
+            key_hash=key_hash, operation=operation, target=target, state=_STATE_FAILED
+        )
+        raise
     except BaseException:
-        _mark_idempotency_unknown(key_hash=key_hash, operation=operation, target=target)
+        _fail_idempotency_claim(key_hash=key_hash, operation=operation, target=target)
         raise
     if audit is not None:
         try:
             audit(response)
         except BaseException as exc:
-            _mark_idempotency_unknown(key_hash=key_hash, operation=operation, target=target)
+            _fail_idempotency_claim(key_hash=key_hash, operation=operation, target=target)
             _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
             raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
     _complete_idempotency_claim(
@@ -427,11 +440,20 @@ async def replay_or_execute_async(
 
     try:
         response = await execute()
+    except MutationRejected:
+        await asyncio.to_thread(
+            _fail_idempotency_claim,
+            key_hash=key_hash,
+            operation=operation,
+            target=target,
+            state=_STATE_FAILED,
+        )
+        raise
     except BaseException:
         # Provider raised after the claim: record an unknown outcome so later
         # callers receive a stable 409 and never re-invoke the provider.
         await asyncio.to_thread(
-            _mark_idempotency_unknown, key_hash=key_hash, operation=operation, target=target
+            _fail_idempotency_claim, key_hash=key_hash, operation=operation, target=target
         )
         raise
     if audit is not None:
@@ -439,7 +461,7 @@ async def replay_or_execute_async(
             await asyncio.to_thread(audit, response)
         except BaseException as exc:
             await asyncio.to_thread(
-                _mark_idempotency_unknown, key_hash=key_hash, operation=operation, target=target
+                _fail_idempotency_claim, key_hash=key_hash, operation=operation, target=target
             )
             _emit_audit_failure_signal(operation=operation, target=target, exc=exc)
             raise MutationSucceededAuditFailed(operation=operation, target=target) from exc
@@ -684,11 +706,13 @@ def _complete_idempotency_claim(
         conn.close()
 
 
-def _mark_idempotency_unknown(*, key_hash: str, operation: str, target: str) -> None:
-    """Record an unknown outcome for a claimed identity after a provider failure."""
+def _fail_idempotency_claim(
+    *, key_hash: str, operation: str, target: str, state: str = _STATE_UNKNOWN
+) -> None:
+    """Retain unknown outcomes, or release exclusion for proven rejections."""
     store = shared_operation_controls()
     if store is not None:
-        store.finish_idempotency(key_hash, operation, target, _STATE_UNKNOWN)
+        store.finish_idempotency(key_hash, operation, target, state)
         return
     conn = _idempotency_connection()
     try:
@@ -699,7 +723,7 @@ def _mark_idempotency_unknown(*, key_hash: str, operation: str, target: str) -> 
             WHERE project = ? AND key_hash = ? AND operation = ? AND target = ? AND state = 'pending'
             """,
             (
-                _STATE_UNKNOWN,
+                state,
                 str(project_root()),
                 key_hash,
                 operation,

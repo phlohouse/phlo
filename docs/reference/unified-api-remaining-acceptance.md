@@ -1,6 +1,32 @@
 # Unified API remaining acceptance
 
-This record covers the remaining work in [#1035](https://github.com/phlohouse/phlo/issues/1035), against main at [0b8685e](https://github.com/phlohouse/phlo/commit/0b8685e66cb9a299fa1a3c62adf9cacfec0505be). It does not mark the tracker complete or establish production readiness. The bundled replacement and original API phases were already delivered.
+This record covers the remaining work in [#1035](https://github.com/phlohouse/phlo/issues/1035). The follow-up below starts from [ec77555](https://github.com/phlohouse/phlo/commit/ec775552df07727ad693b66e388466051f7a39ec). Earlier evidence remains below as history. This record does not mark the tracker complete or establish production readiness.
+
+## Real-service follow-up, 14 October 2026
+
+These checks use disposable services. They do not require deployed infrastructure, production credentials, or a database migration.
+
+| Contract | Executed check | Boundary |
+| --- | --- | --- |
+| Report recovery | [Both report aliases](../../packages/phlo-api/tests/test_run_report_postgres_recovery.py) retain the same result after an actual PostgreSQL stop and restart, with the same application-owned store. Reads during the outage return 503. | The pool probes a connection before a transaction and replaces a dead connection once. It never retries a submitted write. |
+| Populated query history and usage | [Real Trino acceptance](../../packages/phlo-api/tests/test_usage_trino_integration.py) and the [browser driver](../../tests/integration/acceptance_1035_browser.mjs) execute bounded queries against distinct `main` and `candidate` Nessie data. The built Observatory displays prod row `3`, staging row `7`, completed history, preview access, and verified listener usage. Trino outage removes results; PostgreSQL outage returns 503. Both recover without restarting the API. | The [disposable stack](../../tests/integration/acceptance_1035.py) uses the existing static authentication provider, real bearer identities, and real Dagster locations. Genuine coordinator events pass unchanged through a collector and authenticated relay. This does not prove direct coordinator authentication, OIDC, or deployed infrastructure. |
+| Ingestion, quality, and Dataset publication | [Producer journey](../../tests/integration/test_issue1035_dataset_journey.py) runs real multiprocess Dagster jobs using dlt, MinIO, Iceberg, Pandera, DuckDB, PostgreSQL Dataset state, and SQLite report storage. Source failure and blocking quality failure prevent publication. Recovery publishes once. Actual Dagster terminal reconciliation adds exactly one terminal outcome per run, and a fresh interpreter reads identical retained reports and state. | `RunReportQualityEvidenceSource` binds every required asset/check identity to the exact project/run/attempt. Wrong identities and incomplete blocking evidence fail closed. Publication is a distinct observation, not a terminal outcome. Callers select the producer run explicitly; no latest-run heuristic or automatic inventory readiness is introduced. |
+| Signed branch resolution and code-contract change | [Real branch journey](../../tests/integration/test_issue1035_signed_branch_journey.py) creates an Iceberg conflict in Nessie, launches 24 real Dagster jobs, records column decisions, and merges with a bound approval. Five mismatched or stale signatures fail. It also replaces an existing quality declaration through the existing Git proposal owner, checking real Git objects, the resulting proposal ref, replay, and the verified signature audit chain. | Dagster GraphQL transport and authentication principals are injected in this test. The GitHub draft-PR envelope is injected; blobs, trees, commits, and refs use stock Git. The signed source replacement remains a draft for human review. Data merge does not activate source code or merge the proposal into main. |
+| Known signature rejection | Single-approval rejection before the Nessie mutation records a failed idempotency claim, so a different valid approval is not blocked by an unknown outcome. | Generic provider 409s, audit failures, and partial independent-review consumption retain unknown-outcome exclusion. |
+| Unknown quality | [Dataset readiness regression](../../packages/phlo-api/tests/test_dataset_cutover_parity.py) rejects an uncompleted blocking check. | Declaration-only `unknown` checks are missing evidence, not passing checks. |
+| MCP migration | Canonical `list_assets`, `get_asset`, `list_runs`, and `get_run` tools and environment-scoped resources require explicit `prod` or `staging`. [Compatibility tests](../../packages/phlo-mcp/tests/test_phlo_mcp.py) cover both environments, pagination, malformed input, and legacy shapes. | This is an additive migration path. Existing search, mutation, authoring, provider, continuity, and Loki callers and URLs remain. No silent production default or URL retirement occurs. |
+
+The existing Git proposal owner now accepts a replacement only for its generated quality-check path. Proposal creation checks the previous source digest against the project file. Publication verifies that digest against the immutable Git base, then consumes a signature bound to the actor, environment, asset, path, and old/new digests before the first Git write. A stale base rejects without consuming the signature. Successful replacements replay only through their original idempotency key, so another key cannot bypass approval through an existing PR. Uncertain provider outcomes remain fenced. Existing add-only proposal identities and unsigned addition behaviour are unchanged.
+
+The five current criteria have local implementation and disposable-service evidence. Hosted validation of the continuation, review, and delivery remain separate gates. The legacy inventory below records compatibility decisions, not retirement of every caller. Browser JavaScript extension loading remains deferred by the scope decision. These checks do not establish production readiness, universal replica safety, or compliance certification.
+
+Reviewed browser captures are under `.amp/in/artifacts/1035-real-browser/`. They include distinct prod/staging history, populated Usage, preview outage, query execution failure, and recovery. `postgres-execution-listener-join.txt` matches each of five retained executions to exactly one genuine observed input.
+
+The focused acceptance command is:
+
+```bash
+uv run --locked python -m pytest -p scripts.ci_required -o addopts= -m integration packages/phlo-api/tests/test_run_report_postgres_recovery.py packages/phlo-api/tests/test_usage_trino_integration.py tests/integration/test_issue1035_dataset_journey.py tests/integration/test_issue1035_signed_branch_journey.py
+```
 
 ## Contracts added or corrected
 
@@ -18,7 +44,9 @@ The additional stable prerequisite `issue-1035-text-contract-base` points to [66
 
 The new narrow prerequisite `issue-1035-effect-contract-base` points to [937694c](https://github.com/phlohouse/phlo/commit/937694cfb03f5b781d74b3896421296daeecc0d0), based exactly on frozen 6613371. Hosted integration found seven stale dictionary-style assumptions in the Python incident parity tests after effects became typed models. The tests now read model attributes and also check the actual FastAPI JSON effect fields against disposable PostgreSQL. Producer models and response gates are unchanged. All five parity tests pass with the required no-skip plugin on both this narrow prerequisite and the product tree. The frozen branches are unchanged.
 
-## Executed evidence and outstanding acceptance
+## Historical evidence and outstanding acceptance before this follow-up
+
+The rest of this section records the earlier implementation evidence. Its recovery, populated-browser, terminal-journey, and code-contract gaps are superseded by the executed checks above. It is not the current completion checklist.
 
 The browser used the built bundled Node application, real local FastAPI, a disposable PostgreSQL 18 database, and two real Dagster code locations. These are local acceptance sources, not production or staging deployments. No shared database migration, production write, or deployment was performed.
 
@@ -124,4 +152,4 @@ Other consumers and URL producers have these decisions:
 | `observatory_api/extensions.py` | Generates `O/extensions/{name}/assets` URLs | Keep Python extension asset contract. No current bundled browser consumer was found. |
 | Continuity CLI, recovery drill, and release operations | Direct Python operations/providers, not `/api/continuity` HTTP | Keep continuity routes and provider capabilities. No first-party HTTP caller was found; that does not establish that external clients are absent. |
 
-The remaining MCP migration needs a reviewed environment-selection and tool compatibility contract. Silently choosing prod would change the client's meaning. This record preserves that unresolved decision instead of deleting URLs or claiming cutover complete.
+MCP now offers canonical asset and run reads with explicit environment selection, alongside the compatibility methods listed above. Search and mutation callers still need separate migration contracts. No legacy URL is deleted, and additive tools do not establish completed consumer cutover.

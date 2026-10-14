@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 
 from phlo_api.api.operation_controls import (
     IdempotencyConflict,
@@ -252,8 +253,9 @@ def test_idempotency_replays_completed_response_without_execution(
     assert calls == ["ran"]
 
 
+@pytest.mark.parametrize("error", [RuntimeError("provider failed"), HTTPException(409, "conflict")])
 def test_idempotency_outcome_unknown_after_provider_exception_sync(
-    monkeypatch, tmp_path: Path
+    error, monkeypatch, tmp_path: Path
 ) -> None:
     """A sync provider exception leaves an unknown claim; retry does not invoke it."""
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
@@ -261,9 +263,9 @@ def test_idempotency_outcome_unknown_after_provider_exception_sync(
 
     def boom() -> dict[str, Any]:
         calls.append("boom")
-        raise RuntimeError("provider failed")
+        raise error
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(type(error)):
         replay_or_execute(
             idempotency_key="boom-key",
             operation="retry_failed_run",
@@ -443,8 +445,9 @@ def test_resolution_is_idempotent_across_processes(monkeypatch, tmp_path: Path) 
         assert connection.execute("SELECT COUNT(*) FROM idempotency_resolutions").fetchone() == (1,)
 
 
+@pytest.mark.parametrize("error", [RuntimeError("provider failed"), HTTPException(409, "conflict")])
 def test_idempotency_outcome_unknown_after_provider_exception_async(
-    monkeypatch, tmp_path: Path
+    error, monkeypatch, tmp_path: Path
 ) -> None:
     """An async provider exception leaves an unknown claim; retry does not invoke it."""
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
@@ -452,9 +455,9 @@ def test_idempotency_outcome_unknown_after_provider_exception_async(
 
     async def boom() -> dict[str, Any]:
         calls.append("boom")
-        raise RuntimeError("provider failed")
+        raise error
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(type(error)):
         asyncio.run(
             replay_or_execute_async(
                 idempotency_key="boom-async",

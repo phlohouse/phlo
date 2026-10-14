@@ -2,15 +2,35 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
-from phlo_mcp.api_client import PhloApiClient
+from phlo_mcp.api_client import Environment, PhloApiClient
 from phlo_mcp.tracing import trace_tool
 
 
 def _register_project_tools(client: PhloApiClient, mcp: FastMCP) -> None:
+    @mcp.tool()
+    @trace_tool
+    def list_assets(
+        env: Environment,
+        limit: Annotated[int, Field(ge=1, le=500)] = 100,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List canonical assets in prod or staging. No free-text search is supported."""
+        return {
+            "api_base_url": client.api_base_url,
+            "payload": client.list_assets(env, limit=limit, cursor=cursor),
+        }
+
+    @mcp.tool()
+    @trace_tool
+    def get_asset(asset_id: str, env: Environment) -> dict[str, Any]:
+        """Read canonical asset detail in prod or staging."""
+        return {"api_base_url": client.api_base_url, "payload": client.get_asset(asset_id, env)}
+
     @mcp.tool()
     @trace_tool
     def list_workflows(

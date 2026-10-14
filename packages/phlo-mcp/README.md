@@ -16,6 +16,10 @@ uv pip install -e packages/phlo-mcp
 
 ## Exposed tools
 
+- `list_assets`
+- `get_asset`
+- `list_runs`
+- `get_run`
 - `get_platform_health`
 - `list_plugins`
 - `get_service_status`
@@ -50,6 +54,10 @@ Optional guarded operational tools:
 
 Resources:
 
+- `phlo://runtime/environments/{env}/assets`
+- `phlo://runtime/environments/{env}/assets/{asset_id}`
+- `phlo://runtime/environments/{env}/runs`
+- `phlo://runtime/environments/{env}/runs/{run_id}`
 - `phlo://runtime/config`
 - `phlo://runtime/services`
 - `phlo://runtime/services/{service_name}`
@@ -65,6 +73,39 @@ Resources:
 - `phlo://docs/cli`
 - `phlo://docs/mcp/tools`
 - `phlo://docs/mcp/prompts`
+
+### Explicit-environment asset and run reads
+
+The canonical tools `list_assets`, `get_asset`, `list_runs`, and `get_run`
+require `env` to be `prod` or `staging`. The client never supplies a default
+environment. These tools call `/api/v1/assets` and `/api/v1/runs` and return
+the unchanged API object inside `payload`, alongside `api_base_url`.
+The corresponding environment resources return the API object directly.
+Asset detail accepts slash-separated IDs such as `silver/orders`.
+In resource URIs, encode the asset ID as one segment, for example
+`phlo://runtime/environments/staging/assets/silver%2Forders`.
+
+`list_assets` accepts `limit` from 1 to 500 and an optional `cursor`.
+`list_runs` accepts `limit` from 1 to 100, `job_id`, `status`, and `cursor`.
+Both default to 100 records and preserve `next_cursor`. Neither supports
+free-text search. List resources return only the first bounded page.
+Use the list tools with the returned cursor to continue in the same environment.
+The API rejects cross-environment cursors and out-of-environment run IDs.
+HTTP authentication, not-found, and unavailable responses remain structured
+`error` objects, never successful empty inventories.
+
+Direct Python callers use `PhloApiClient.list_assets`, `get_asset`, `list_runs`,
+and `get_run`, with an explicit environment. Invalid environments raise
+`ValueError` before HTTP. Requests forward the configured bearer token through
+the existing client transport. The API remains responsible for authorisation.
+
+Legacy `get_assets`, `get_asset_details`, `search_assets`, and `search_runs`
+retain their unscoped routes and original payload shapes. Existing asset and
+schema resources, materialisation history, partition and status reads, and
+unscoped writes also remain available under their existing registration rules.
+Authoring, declaration contracts, aggregate quality, lineage, provider health,
+traces, Loki queries, SSE streams, and operation context are distinct capabilities,
+not replacements for these four canonical reads. No legacy URL is retired here.
 
 Run-level and materialization tools rely on the backing `phlo-api` having access
 to Dagster asset history, Loki log queries, and ClickStack OTEL trace storage.

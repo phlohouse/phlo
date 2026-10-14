@@ -10,13 +10,23 @@ traces, and use fixed timeouts (10s GET, 30s POST).
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 
 from phlo_mcp.config import McpConfig
 from phlo_mcp.errors import map_httpx_error
 from phlo_mcp.tracing import CanonicalTracer, get_tracer
+
+
+Environment = Literal["prod", "staging"]
+
+
+def _environment_params(env: Environment) -> dict[str, Any]:
+    if env not in ("prod", "staging"):
+        raise ValueError("env must be prod or staging")
+    return {"env": env}
 
 
 class PhloApiClient:
@@ -69,6 +79,49 @@ class PhloApiClient:
     def get_assets(self) -> dict[str, Any] | list[dict[str, Any]]:
         """List assets, unwrapping the items envelope into a bare list when present."""
         return self._observatory_items("/assets")
+
+    def list_assets(
+        self, env: Environment, *, limit: int = 100, cursor: str | None = None
+    ) -> dict[str, Any]:
+        """Read a canonical asset page without unwrapping its environment or cursor."""
+        params = _environment_params(env)
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        params["limit"] = limit
+        if cursor is not None:
+            params["cursor"] = cursor
+        return self._get_object("/api/v1/assets", params=params)
+
+    def get_asset(self, asset_id: str, env: Environment) -> dict[str, Any]:
+        """Read canonical asset detail in the explicitly selected environment."""
+        return self._get_object(
+            f"/api/v1/assets/{quote(asset_id, safe='/')}", params=_environment_params(env)
+        )
+
+    def list_runs(
+        self,
+        env: Environment,
+        *,
+        limit: int = 100,
+        job_id: str | None = None,
+        status: str | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one canonical run page using only supported API filters."""
+        params = _environment_params(env)
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        params["limit"] = limit
+        for key, value in {"job_id": job_id, "status": status, "cursor": cursor}.items():
+            if value is not None:
+                params[key] = value
+        return self._get_object("/api/v1/runs", params=params)
+
+    def get_run(self, run_id: str, env: Environment) -> dict[str, Any]:
+        """Read canonical run detail in the explicitly selected environment."""
+        return self._get_object(
+            f"/api/v1/runs/{quote(run_id, safe='')}", params=_environment_params(env)
+        )
 
     def get_asset_details(self, asset_key_path: str) -> dict[str, Any] | list[dict[str, Any]]:
         """Fetch full metadata for a single asset by key path."""

@@ -8,12 +8,14 @@ All HTTP is stubbed; no server or network is involved.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 
 from phlo_mcp.api_client import PhloApiClient
@@ -278,6 +280,10 @@ def test_create_server_registers_resources() -> None:
         "phlo://docs/packages/{package_name}",
         "phlo://runtime/assets/{asset_key_path}",
         "phlo://runtime/contracts/{table_name}",
+        "phlo://runtime/environments/{env}/assets",
+        "phlo://runtime/environments/{env}/assets/{asset_id}",
+        "phlo://runtime/environments/{env}/runs",
+        "phlo://runtime/environments/{env}/runs/{run_id}",
         "phlo://runtime/operations/{operation_id}",
         "phlo://runtime/schemas/{asset_key_path}",
         "phlo://runtime/services/{service_name}",
@@ -465,6 +471,8 @@ def test_create_server_registers_expected_tools() -> None:
         "get_operation_context",
         "get_logs_query_link",
         "get_metrics_query_link",
+        "list_runs",
+        "get_run",
         "get_materialization_history",
         "get_run_logs",
         "get_run_trace_spans",
@@ -474,6 +482,8 @@ def test_create_server_registers_expected_tools() -> None:
         "get_asset_materialization_trace",
         "render_materialization_trace_tree",
         "render_run_trace_tree",
+        "list_assets",
+        "get_asset",
         "list_workflows",
         "list_templates",
         "lint_project",
@@ -887,3 +897,147 @@ flush()
             "mcp.request",
             "mcp.tool.execute",
         }
+
+
+@pytest.mark.parametrize("env", ["prod", "staging"])
+def test_canonical_reads_preserve_pages_filters_and_bearer(monkeypatch, env) -> None:
+    seen = []
+    payload = {"env": env, "items": [{"id": "orders"}], "next_cursor": "next"}
+
+    def fake_get(url, *, params, headers, timeout):
+        seen.append((url, params))
+        assert headers == {"Authorization": "Bearer user-token"}
+        return _FakeResponse(payload)
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
+    client = PhloApiClient(McpConfig(api_base_url="http://example.test", api_token="user-token"))
+    assert client.list_assets(env, limit=2, cursor="asset-cursor") == payload
+    assert client.get_asset("silver/orders", env) == payload
+    assert (
+        client.list_runs(env, limit=3, job_id="daily", status="FAILURE", cursor="run-cursor")
+        == payload
+    )
+    assert client.get_run("run-1", env) == payload
+    assert seen == [
+        ("http://example.test/api/v1/assets", {"env": env, "limit": 2, "cursor": "asset-cursor"}),
+        ("http://example.test/api/v1/assets/silver/orders", {"env": env}),
+        (
+            "http://example.test/api/v1/runs",
+            {
+                "env": env,
+                "limit": 3,
+                "job_id": "daily",
+                "status": "FAILURE",
+                "cursor": "run-cursor",
+            },
+        ),
+        ("http://example.test/api/v1/runs/run-1", {"env": env}),
+    ]
+
+
+@pytest.mark.parametrize("env", [None, "", "dev", "PROD"])
+def test_canonical_client_rejects_invalid_environment_before_http(monkeypatch, env) -> None:
+    def unexpected_http(*args, **kwargs):
+        pytest.fail("Invalid environment reached HTTP")
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", unexpected_http)
+    client = PhloApiClient(McpConfig())
+    for method, args in [
+        (client.list_assets, ()),
+        (client.get_asset, ("orders",)),
+        (client.list_runs, ()),
+        (client.get_run, ("run-1",)),
+    ]:
+        with pytest.raises(ValueError, match="env must be prod or staging"):
+            method(*args, env=env)
+
+
+@pytest.mark.parametrize("name,maximum", [("list_assets", 500), ("list_runs", 100)])
+def test_canonical_list_bounds_before_http(monkeypatch, name, maximum) -> None:
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", lambda *a, **kw: pytest.fail("HTTP"))
+    client = PhloApiClient(McpConfig())
+    for limit in [0, maximum + 1]:
+        with pytest.raises(ValueError, match="limit must be between"):
+            getattr(client, name)("prod", limit=limit)
+
+
+def test_canonical_registered_tools_and_resources(monkeypatch) -> None:
+    calls = []
+
+    def fake_get(url, *, params, headers, timeout):
+        calls.append((url, params))
+        return _FakeResponse({"env": params["env"], "id": "silver/orders", "next_cursor": "next"})
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
+    server = create_server(McpConfig(api_base_url="http://example.test"))
+    for name in ["list_assets", "get_asset", "list_runs", "get_run"]:
+        tool = server._tool_manager.get_tool(name)
+        assert tool.parameters["properties"]["env"]["enum"] == ["prod", "staging"]
+        assert "env" in tool.parameters["required"]
+        assert "q" not in tool.parameters["properties"]
+        assert "query" not in tool.parameters["properties"]
+        for arguments in [{}, {"env": "dev"}]:
+            with pytest.raises(Exception, match="validation"):
+                asyncio.run(server.call_tool(name, arguments))
+    assert not calls
+    for name, arguments in [
+        ("list_assets", {"env": "staging", "cursor": "next"}),
+        ("get_asset", {"env": "staging", "asset_id": "silver/orders"}),
+        ("list_runs", {"env": "staging", "status": "FAILURE"}),
+        ("get_run", {"env": "staging", "run_id": "run-1"}),
+    ]:
+        asyncio.run(server.call_tool(name, arguments))
+        assert calls[-1][1]["env"] == "staging"
+    for suffix in ["assets", "assets/silver%2Forders", "runs", "runs/run-1"]:
+        result = list(
+            asyncio.run(server.read_resource(f"phlo://runtime/environments/staging/{suffix}"))
+        )
+        assert json.loads(result[0].content)["env"] == "staging"
+        assert calls[-1][0].endswith(f"/api/v1/{suffix.replace('%2F', '/')}")
+    count = len(calls)
+    with pytest.raises(Exception, match="literal_error"):
+        asyncio.run(server.read_resource("phlo://runtime/environments/dev/assets"))
+    assert len(calls) == count
+    tools_resource = next(
+        r for r in server._resource_manager._resources.values() if r.name == "mcp_tools"
+    )
+    contracts = {tool["name"]: tool for tool in tools_resource.fn()}
+    for name in ["list_assets", "get_asset", "list_runs", "get_run"]:
+        assert contracts[name]["required_scope"] == "lakehouse:read"
+
+
+@pytest.mark.parametrize(
+    "name,args",
+    [("list_assets", ()), ("get_asset", ("orders",)), ("list_runs", ()), ("get_run", ("run-1",))],
+)
+@pytest.mark.parametrize(
+    "status,code",
+    [
+        (400, "phlo.api.bad_request"),
+        (401, "phlo.auth.unauthorized"),
+        (403, "phlo.auth.forbidden"),
+        (404, "phlo.resource.not_found"),
+        (503, "phlo.api.unavailable"),
+    ],
+)
+def test_canonical_reads_preserve_http_errors(monkeypatch, name, args, status, code) -> None:
+    def fake_get(url, **kwargs):
+        return httpx.Response(
+            status, json={"detail": "Explicit API failure"}, request=httpx.Request("GET", url)
+        )
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
+    result = getattr(PhloApiClient(McpConfig()), name)(*args, env="staging")
+    assert result["error"]["code"] == code
+    assert result["error"]["message"] == "Explicit API failure"
+    assert "items" not in result
+
+
+def test_canonical_unreachable_api_is_not_empty_inventory(monkeypatch) -> None:
+    def fake_get(*args, **kwargs):
+        raise httpx.ConnectError("unreachable")
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
+    assert (
+        PhloApiClient(McpConfig()).list_assets("staging")["error"]["code"] == "phlo.api.unreachable"
+    )

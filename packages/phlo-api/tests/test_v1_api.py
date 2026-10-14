@@ -3330,7 +3330,7 @@ def test_audit_proposal_is_audited_idempotent_and_reviewable_without_git_integra
     monkeypatch.setenv("PHLO_V1_GIT_REVIEW_BASE_BRANCH", "main")
     monkeypatch.setenv("PHLO_V1_GIT_REVIEW_TOKEN", "test-only-token")
 
-    async def publish_pr(client, config, audit_proposal):
+    async def publish_pr(client, config, audit_proposal, **_kwargs):
         assert config.repository == "project-data/orders"
         assert audit_proposal.proposal_id == proposal["proposal_id"]
         return AssetAuditDraftPullRequest(
@@ -3359,6 +3359,44 @@ def test_audit_proposal_is_audited_idempotent_and_reviewable_without_git_integra
     assert published.json()["pull_request_url"] == "https://github.com/project-data/orders/pull/42"
     records = audit_path.read_text(encoding="utf-8").splitlines()
     assert len(records) == 2
+
+    contract_path = tmp_path / proposal["file_path"]
+    contract_path.parent.mkdir(parents=True)
+    contract_path.write_text(proposal["source"])
+    replacement_body = {
+        **body,
+        "rules": [{"kind": "not_null", "column": "order_id"}],
+        "previous_source_digest": proposal["source_digest"],
+        "idempotency_key": "replace-review-1",
+    }
+    replacement = http.post(url, json=replacement_body, headers=headers)
+    assert replacement.status_code == 202, replacement.text
+    edited = replacement.json()
+    assert edited["previous_source_digest"] == proposal["source_digest"]
+    assert edited["proposal_id"] != proposal["proposal_id"]
+    assert '-        UniqueCheck(columns=["order_id"]),' in edited["patch"]
+    assert '+        NullCheck(columns=["order_id"]),' in edited["patch"]
+    assert contract_path.read_text() == proposal["source"]
+    assert (
+        http.get(
+            f"/api/v1/assets/warehouse/orders/audits/{edited['proposal_id']}?env=prod",
+            headers=headers,
+        ).json()
+        == edited
+    )
+    unsigned = http.post(
+        f"/api/v1/assets/warehouse/orders/audits/{edited['proposal_id']}/pull-request?env=prod",
+        json={"idempotency_key": "unsigned-replacement"},
+        headers=headers,
+    )
+    assert unsigned.status_code == 422
+    contract_path.write_text(proposal["source"] + "\n# Concurrent edit\n")
+    stale = http.post(
+        url,
+        json={**replacement_body, "idempotency_key": "stale-replacement"},
+        headers=headers,
+    )
+    assert stale.status_code == 409
 
     changed = {**body, "check_name": "another_quality"}
     conflict = http.post(url, json=changed, headers=headers)

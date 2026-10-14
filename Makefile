@@ -67,6 +67,9 @@ test-coverage:
 	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked python -m pytest \
 		-p scripts.ci_required -o addopts= -m integration \
 		packages/phlo-api/tests/test_operation_controls_postgres.py \
+		packages/phlo-api/tests/test_run_report_postgres_recovery.py \
+		tests/integration/test_issue1035_dataset_journey.py \
+		tests/integration/test_issue1035_signed_branch_journey.py \
 		"$${args[@]}" --cov-append --cov-branch \
 		--cov-report=json:$(COVERAGE_DIR)/coverage.json --cov-report= \
 		--junitxml=$(COVERAGE_DIR)/postgres.xml --tb=short -ra

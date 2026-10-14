@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
+from collections.abc import Callable
 from urllib.parse import quote
 from typing import Literal, cast
 
@@ -21,6 +22,7 @@ class AssetAuditPublishRequest(WireModel):
 
     idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^\S(?:.*\S)?$")
     expected_source_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    signature_id: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class AssetAuditDraftPullRequest(WireModel):
@@ -110,6 +112,8 @@ async def publish_project_draft_pr(
     client: httpx.AsyncClient,
     config: GitReviewConfig,
     proposal: AssetAuditProposal,
+    *,
+    before_write: Callable[[], None] | None = None,
 ) -> AssetAuditDraftPullRequest:
     """Create or replay one deterministic review PR in the configured project repo."""
     path = _source_path(proposal)
@@ -133,6 +137,10 @@ async def publish_project_draft_pr(
         mapped_pull = _string_keyed_object(pull)
         if mapped_pull is None:
             raise GitReviewUnavailable("GitHub returned an invalid pull request.")
+        if proposal.previous_source_digest is not None:
+            raise GitReviewConflict(
+                "The replacement was already published; replay its original idempotency key."
+            )
         return _pull_request_result(mapped_pull, proposal, config, branch)
     if existing is not None and not isinstance(existing, list):
         raise GitReviewUnavailable("GitHub returned an invalid pull request listing.")
@@ -162,14 +170,25 @@ async def publish_project_draft_pr(
     existing_file = await _json_request(
         client,
         "GET",
-        f"{repository_path}/contents/{quote(path, safe='/')}?ref={quote(config.base_branch, safe='')}",
+        f"{repository_path}/contents/{quote(path, safe='/')}?ref={quote(base_sha, safe='')}",
         allow_not_found=True,
     )
-    if existing_file is not None:
+    if proposal.previous_source_digest is not None:
+        if not isinstance(existing_file, dict) or existing_file.get("encoding") != "base64":
+            raise GitReviewConflict("The contract selected for replacement is unavailable.")
+        try:
+            previous = base64.b64decode(str(existing_file["content"])).decode("utf-8")
+        except (KeyError, ValueError, UnicodeError) as exc:
+            raise GitReviewUnavailable("GitHub returned invalid contract source.") from exc
+        if hashlib.sha256(previous.encode()).hexdigest() != proposal.previous_source_digest:
+            raise GitReviewConflict("The contract source changed since the proposal was created.")
+    elif existing_file is not None:
         raise GitReviewConflict(
             "The generated check path already exists in the project repository."
         )
 
+    if before_write is not None:
+        before_write()
     blob = await _json_request(
         client,
         "POST",

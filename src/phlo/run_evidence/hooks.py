@@ -192,9 +192,11 @@ def _stage_for_event(event: HookEvent, *, project_id: str, run_id: str) -> RunSt
     if stage_type is None:
         return None
     asset = getattr(event, "asset_key", None)
+    if isinstance(event, RunEvidenceObservationEvent):
+        asset = event.correlation.asset_key
     check_name = getattr(event, "check_name", None)
     stage_key = check_name or asset or getattr(event.correlation, "job_name", None) or stage_type
-    stage_id = _stable_id(
+    stage_id = getattr(event, "stage_id", None) or _stable_id(
         project_id, run_id, str(event.correlation.attempt), stage_type, str(stage_key)
     )
     status = getattr(event, "status", None) or "observed"

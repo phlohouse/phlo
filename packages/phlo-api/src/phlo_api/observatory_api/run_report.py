@@ -7,6 +7,7 @@ project/run/attempt combination is always a 404, never a partial report.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Path
+from psycopg2 import InterfaceError, OperationalError
 
 from phlo.run_evidence.report import RunReport, RunReportNotFound, build_run_report
 from phlo_api.run_evidence import RunEvidenceStore, get_run_evidence_store
@@ -34,3 +35,5 @@ def get_observatory_run_report(
         return build_run_report(store, project_id, run_id, attempt)
     except RunReportNotFound as exc:
         raise HTTPException(status_code=404, detail={"error": "run_not_found"}) from exc
+    except (InterfaceError, OperationalError) as exc:
+        raise HTTPException(status_code=503, detail={"error": "run_evidence_unavailable"}) from exc

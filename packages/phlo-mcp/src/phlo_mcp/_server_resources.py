@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from mcp.server.fastmcp import FastMCP
 
-from phlo_mcp.api_client import PhloApiClient
+from phlo_mcp.api_client import Environment, PhloApiClient
 from phlo_mcp.models import ToolContract
 
 
@@ -50,11 +51,51 @@ def _register_introspection_resources(
         return "\n".join(lines)
 
 
+def _register_environment_resources(client: PhloApiClient, mcp: FastMCP) -> None:
+    @mcp.resource(
+        "phlo://runtime/environments/{env}/assets",
+        name="environment_assets",
+        mime_type="application/json",
+    )
+    def environment_assets(env: Environment) -> dict[str, Any]:
+        """Read the first bounded canonical asset page. Use list_assets to continue."""
+        return client.list_assets(env)
+
+    @mcp.resource(
+        "phlo://runtime/environments/{env}/assets/{asset_id}",
+        name="environment_asset",
+        mime_type="application/json",
+    )
+    def environment_asset(env: Environment, asset_id: str) -> dict[str, Any]:
+        """Read canonical asset detail in the selected environment."""
+        return client.get_asset(unquote(asset_id), env)
+
+    @mcp.resource(
+        "phlo://runtime/environments/{env}/runs",
+        name="environment_runs",
+        mime_type="application/json",
+    )
+    def environment_runs(env: Environment) -> dict[str, Any]:
+        """Read the first bounded canonical run page. Use list_runs to continue."""
+        return client.list_runs(env)
+
+    @mcp.resource(
+        "phlo://runtime/environments/{env}/runs/{run_id}",
+        name="environment_run",
+        mime_type="application/json",
+    )
+    def environment_run(env: Environment, run_id: str) -> dict[str, Any]:
+        """Read canonical run detail in the selected environment."""
+        return client.get_run(run_id, env)
+
+
 def _register_resources(
     client: PhloApiClient,
     mcp: FastMCP,
     _required_scope_for_tool: Callable[[str], str | None],
 ) -> None:
+    _register_environment_resources(client, mcp)
+
     @mcp.resource(
         "phlo://runtime/config",
         name="runtime_config",

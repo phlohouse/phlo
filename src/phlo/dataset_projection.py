@@ -17,7 +17,8 @@ compatibility mapping before it is served here.
 
 from __future__ import annotations
 
-from collections.abc import Collection
+import hashlib
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from phlo.dataset.evidence import EvidenceRecord
@@ -26,6 +27,7 @@ from phlo.dataset.models import (
     DatasetStateRecord,
     TransitionOutcome,
     TransitionRequest,
+    TransitionStatus,
     dataset_table_id,
     is_candidate_dataset_id,
 )
@@ -40,6 +42,9 @@ from phlo.dataset.service import DatasetService, StaticPolicySource
 from phlo.dataset.store import DatasetStateStore
 from phlo.dataset_state import resolve_dataset_state_store
 from phlo.governance.surface import GovernanceSurface, GovernedTable, build_governance_surface
+from phlo.logging import get_bound_correlation_context
+from phlo.run_evidence.emit import emit_observation
+from phlo.run_evidence.report import RunReportNotFound, RunReportStore, build_run_report
 
 BLESSED_EVIDENCE_PROFILE = "blessed"
 """Named first contributor for run-evidence profiles."""
@@ -203,6 +208,60 @@ class CapabilityEvidenceSource:
         return tuple(records)
 
 
+class RunReportQualityEvidenceSource:
+    """Read declared checks from exactly one durable project/run/attempt.
+
+    Callers bind each table to its required (asset, check) identities. There
+    is no latest-run fallback or inference from a materialized table. Missing
+    checks block readiness, including a run that only completed some checks.
+    This source can be injected into the authority or registered through the
+    existing ``dataset_evidence`` capability.
+    """
+
+    def __init__(
+        self,
+        store: RunReportStore,
+        *,
+        project_id: str,
+        run_id: str,
+        attempt: int,
+        checks_by_table: Mapping[str, Collection[tuple[str, str]]],
+    ) -> None:
+        self._store = store
+        self._project_id = project_id
+        self._run_id = run_id
+        self._attempt = attempt
+        self._checks_by_table = checks_by_table
+
+    def evidence(self, subject: str, kinds: Collection[str]) -> tuple[EvidenceRecord, ...]:
+        expected = set(self._checks_by_table.get(subject, ()))
+        if EVIDENCE_KIND_QUALITY not in kinds or not expected:
+            return ()
+        try:
+            report = build_run_report(self._store, self._project_id, self._run_id, self._attempt)
+        except RunReportNotFound:
+            return ()
+        results = {
+            (item.asset, item.check_id): item.passed
+            for item in report.quality
+            if (item.asset, item.check_id) in expected
+        }
+        return (
+            EvidenceRecord(
+                kind=EVIDENCE_KIND_QUALITY,
+                subject=subject,
+                status="present" if expected == results.keys() else "missing",
+                payload={
+                    "passed": expected == results.keys() and all(results.values()),
+                    "project_id": self._project_id,
+                    "run_id": self._run_id,
+                    "attempt": self._attempt,
+                },
+                source="durable run report",
+            ),
+        )
+
+
 class CompositeEvidenceSource:
     """Evidence source concatenating several sources in fixed order."""
 
@@ -262,7 +321,29 @@ class DatasetAuthority:
 
     def transition(self, request: TransitionRequest) -> TransitionOutcome:
         """Apply one authorized compare-and-set transition through core."""
-        return self._service.transition(request)
+        outcome = self._service.transition(request)
+        if request.action in {"publish", "retire"} and outcome.status is TransitionStatus.COMMITTED:
+            correlation = get_bound_correlation_context()
+            if correlation.project_id and correlation.run_id:
+                emit_observation(
+                    project_id=correlation.project_id,
+                    run_id=correlation.run_id,
+                    attempt=correlation.attempt,
+                    observation_type="dataset_publication",
+                    status="success",
+                    producer="phlo.dataset",
+                    asset_key=request.resource_id,
+                    stage_id=hashlib.sha256(
+                        f"{request.resource_id}:{request.action_id}".encode()
+                    ).hexdigest()[:32],
+                    metrics={
+                        "dataset_id": request.resource_id,
+                        "action": request.action,
+                        "publication_state": outcome.after_state,
+                    },
+                    identity_parts=(request.resource_id, request.action_id),
+                )
+        return outcome
 
     def workflow_config(self) -> dict[str, Any]:
         """Return the workflow configuration held by the durable store."""
@@ -413,6 +494,7 @@ __all__ = [
     "CompositeEvidenceSource",
     "DatasetAuthority",
     "GovernanceSurfaceEvidenceSource",
+    "RunReportQualityEvidenceSource",
     "build_dataset_authority",
     "default_project_policy",
 ]
