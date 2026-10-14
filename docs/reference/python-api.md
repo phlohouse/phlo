@@ -420,6 +420,12 @@ Dagster `IngestionEnginePlugin`, and regulated-mode aliases also have a 0.19.0
 removal deadline. `TransformationProviderPlugin` and `AssetProviderPlugin`
 remain supported provider boundaries.
 
+The [Dataset production compatibility inventory](public-name-compatibility.md)
+defines the 0.19.0 removal of Observatory production model aliases, the profile
+`pipeline` field, production `last_run`, and the Dataset `/api/observatory/pipelines`
+route. Their replacements describe production stages and operations, not jobs
+or publication transitions. Existing Jobs UI URLs remain supported.
+
 Compatibility-path usage counters are canonical observe metrics, with one
 sample of value `1` per use. Summing the `sum` field of `metric.summary` events
 over the observation window gives the usage count. Telemetry must be enabled

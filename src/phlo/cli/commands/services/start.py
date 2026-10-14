@@ -62,6 +62,7 @@ from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import missing_compose_file_error
 from phlo.config.layout import env_defaults_path, project_env_paths
 from phlo.logging import get_logger
+from phlo.plugins.discovery._service_definition import ServicePortRangeError
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 if TYPE_CHECKING:
@@ -451,35 +452,27 @@ def _requested_host_ports(
             continue
 
         for port_entry in service_config.get("ports") or []:
-            env_var: str | None = None
-            host_port: int | None = None
-
-            if isinstance(port_entry, str):
+            try:
                 port_spec = _parse_compose_port_spec(port_entry)
-                if not port_spec.container_port.isdigit():
+            except ServicePortRangeError:
+                continue  # Compose validates ranges; preflight probes only individual ports.
+            except ValueError:
+                invalid_ports.append((service_name, str(port_entry), None, str(port_entry)))
+                continue
+            if port_spec.env_var:
+                resolved_value = env.get(port_spec.env_var)
+                if resolved_value and not resolved_value.isdigit():
+                    invalid_ports.append(
+                        (service_name, str(port_entry), port_spec.env_var, resolved_value)
+                    )
                     continue
-                if port_spec.env_var:
-                    resolved_value = env.get(port_spec.env_var)
-                    if resolved_value and not resolved_value.isdigit():
-                        invalid_ports.append(
-                            (service_name, str(port_entry), port_spec.env_var, resolved_value)
-                        )
-                        continue
-                elif port_spec.host_port and not port_spec.host_port.isdigit():
-                    invalid_ports.append((service_name, str(port_entry), None, port_spec.host_port))
-                    continue
-                host_port, _, env_var = _resolve_host_port(
-                    port_str=port_entry,
-                    port_spec=port_spec,
-                    service_name=service_name,
-                    container_port=int(port_spec.container_port),
-                    env=env,
-                    running_containers={},
-                )
-            elif isinstance(port_entry, dict):
-                published = port_entry.get("published")
-                if published is not None and str(published).isdigit():
-                    host_port = int(published)
+            host_port, _, env_var = _resolve_host_port(
+                port_spec=port_spec,
+                service_name=service_name,
+                container_port=int(port_spec.container_port),
+                env=env,
+                running_containers={},
+            )
 
             if host_port is not None:
                 requested_ports.append((service_name, host_port, env_var))

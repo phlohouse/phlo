@@ -58,8 +58,13 @@ Rules for new code and docs:
 ## Consequences
 
 - Reviewers have one page to check names against.
-- Existing public names that disagree with the glossary stay for now.
-  Renaming `ObservatoryDatasetPipeline`, the `pipeline` profile field, and the
-  Pipelines route label is separate work under #1020 and must follow the
-  public-name deprecation process from #997.
-- The service-topology half of #1020 is not covered by this ADR.
+- The Jobs presentation change preserves existing route contracts. Dataset
+  production models and fields use canonical names, with old names deprecated
+  until 0.19.0 under the public-name process from #997. The
+  [compatibility inventory](../../reference/public-name-compatibility.md)
+  records each replacement and the provider or persisted contracts retained
+  deliberately. Production stages do not become jobs or publication state.
+- [Service topology ownership](../service-topology.md#typed-authority-and-projections)
+  records the other half of #1020. Existing package manifests feed the typed
+  `ServiceDefinition` authority and checked generated projections, not a
+  competing central manifest.
