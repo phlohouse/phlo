@@ -95,6 +95,8 @@ def _invoke_services_start_with_statuses(
     [
         ("not-a-port:5432", "invalid host port value"),
         ("${POSTGRES_PORT:-5432}:5432", "invalid host port value"),
+        ("{target: 5432, published: not-a-port}", "invalid host port value"),
+        ("{target: 5432, published: '${POSTGRES_PORT:-5432}'}", "invalid host port value"),
     ],
 )
 def test_services_start_reports_invalid_ports_through_cli(
@@ -110,7 +112,7 @@ def test_services_start_reports_invalid_ports_through_cli(
     result = _invoke_services_start_with_statuses(
         monkeypatch,
         tmp_path,
-        compose=f"services:\n  postgres:\n    ports:\n      - '{port}'\n",
+        compose=f"services:\n  postgres:\n    ports:\n      - {port}\n",
         snapshots=[],
         args=["--service", "postgres"],
     )
@@ -118,6 +120,28 @@ def test_services_start_reports_invalid_ports_through_cli(
     assert message in result.output
     assert "not-a-port" in result.output
     assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize(
+    "port", ["18080-18082:8080-8082", "{target: 8080, published: '18080-18082'}"]
+)
+def test_services_start_leaves_deployment_port_ranges_to_compose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, port: str
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    monkeypatch.setattr(
+        start_module, "ServiceDiscovery", lambda: FakeDiscovery({"app": _service("app")})
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=f"services:\n  app:\n    ports:\n      - {port}\n",
+        snapshots=[[ServiceStatus(service="app", state="running", health=None)]],
+        args=["--service", "app"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Services running: app" in result.output
 
 
 def test_services_start_waits_for_declared_healthcheck(
@@ -796,17 +820,22 @@ def test_services_start_preflights_env_local_port_collisions(
     assert "dagster -> 3300 (DAGSTER_PORT)" in str(exc_info.value)
 
 
+@pytest.mark.parametrize(
+    "port",
+    [
+        "127.0.0.1:${POSTGRES_PORT:-10000}:5432",
+        "{host_ip: 127.0.0.1, target: 5432, published: '${POSTGRES_PORT:-10000}'}",
+    ],
+)
 def test_services_start_preflights_loopback_env_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path, port: str
 ) -> None:
     from phlo.cli.commands.services import start as start_module
 
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     compose_file = phlo_dir / "docker-compose.yml"
-    compose_file.write_text(
-        "services:\n  postgres:\n    ports:\n      - 127.0.0.1:${POSTGRES_PORT:-10000}:5432\n"
-    )
+    compose_file.write_text(f"services:\n  postgres:\n    ports:\n      - {port}\n")
 
     class FakeBackend:
         def list_project_containers(self, project_name: str):
