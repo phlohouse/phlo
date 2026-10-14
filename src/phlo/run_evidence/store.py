@@ -1877,16 +1877,26 @@ class PostgresRunEvidenceStore(_SqlRunEvidenceStore):
     def _connect(self) -> Any:
         if self._connection_factory is not None:
             return self._connection_factory()
-        if self._pool is not None:
-            return self._pool.getconn()
         try:
+            from psycopg2 import InterfaceError, OperationalError
             from psycopg2.pool import ThreadedConnectionPool
         except ImportError as exc:
             raise RuntimeError(
                 "PostgresRunEvidenceStore requires the runtime extra: install phlo[runtime]."
             ) from exc
-        self._pool = ThreadedConnectionPool(1, RunEvidencePoolSettings().max_connections, self.dsn)
-        return self._pool.getconn()
+        if self._pool is None:
+            self._pool = ThreadedConnectionPool(
+                1, RunEvidencePoolSettings().max_connections, self.dsn
+            )
+        connection = self._pool.getconn()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            connection.rollback()
+        except (InterfaceError, OperationalError):
+            self._pool.putconn(connection, close=True)
+            return self._pool.getconn()
+        return connection
 
     def _close_connection(self, connection: Any) -> None:
         if self._connection_factory is not None:

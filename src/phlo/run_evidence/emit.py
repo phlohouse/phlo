@@ -64,6 +64,7 @@ def emit_observation(
     run_status: str | None = None,
     producer: str,
     stage_id: str | None = None,
+    asset_key: str | None = None,
     resources: list[dict[str, Any]] | None = None,
     catalog_change: dict[str, Any] | None = None,
     artifacts: list[dict[str, Any]] | None = None,
@@ -128,6 +129,7 @@ def emit_observation(
                 project_id=project_id,
                 run_id=run_id,
                 attempt=normalized_attempt,
+                asset_key=asset_key,
             ),
         )
         get_hook_bus().emit(event)

@@ -34,6 +34,7 @@ from phlo.plugins.observatory_settings import (
     parse_operational_settings,
 )
 from phlo_api.api.authentication import authenticate_request, get_request_principal
+from phlo_api.api.operation_controls import MutationRejected
 from phlo_api.api.v1_admin_audit import _audit_store
 from phlo_api.errors import BackendUnavailableError
 from phlo_api.v1_contract import WireModel
@@ -49,6 +50,7 @@ SignedAction = Literal[
     "incident.resolve",
     "branch.merge",
     "staging.promote",
+    "asset.audit.publish",
 ]
 SignatureMeaningValue = Literal["approved", "released", "reviewed", "acknowledged", "authored"]
 _SETTINGS_KEY = "phlo.identity.admin-settings"
@@ -134,7 +136,13 @@ class ServiceAccountCreated(WireModel):
 class SignatureCreate(WireModel):
     action: SignedAction
     target_type: Literal[
-        "member", "invitation", "service_account", "incident", "branch", "promotion"
+        "member",
+        "invitation",
+        "service_account",
+        "incident",
+        "branch",
+        "promotion",
+        "asset_contract",
     ]
     target_id: str = Field(min_length=1, max_length=512)
     target_version: str = Field(min_length=1, max_length=256)
@@ -300,8 +308,17 @@ def _expected_signature(
 
 
 def _consume_signature(
-    authority: IdentityAuthority, signature_id: str, expected: SignatureRequest
+    authority: IdentityAuthority,
+    signature_id: str,
+    expected: SignatureRequest,
+    *,
+    mutation_not_started: bool = False,
 ) -> None:
+    """Consume approval, with a proven rejection only before any action starts.
+
+    Sequential approvals must leave this flag false after the first consumption.
+    Storage and audit errors never become proven rejections.
+    """
     if not _identity_call(lambda: authority.consume_signature(signature_id, expected)):
         _audit(
             CanonicalAuditEvent(
@@ -322,7 +339,8 @@ def _consume_signature(
                 },
             )
         )
-        raise HTTPException(
+        error_type = MutationRejected if mutation_not_started else HTTPException
+        raise error_type(
             status_code=409, detail="Signature is missing, stale, reused, or mismatched."
         )
 
@@ -342,6 +360,7 @@ def _action_audit(
     target_id: str,
     signature_id: str,
     outcome: str = "success",
+    target_version: str | None = None,
 ) -> None:
     _audit(
         CanonicalAuditEvent(
@@ -357,7 +376,10 @@ def _action_audit(
             decision="allow" if outcome == "success" else "skip",
             reason_code="signed_admin_action" if outcome == "success" else "signed_action_attempt",
             outcome=outcome,
-            attributes={"signature_id": signature_id},
+            attributes={
+                "signature_id": signature_id,
+                **({"expected_version": target_version} if target_version is not None else {}),
+            },
         )
     )
 

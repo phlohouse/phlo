@@ -1594,7 +1594,10 @@ async def v1_branch_merge(
                     await to_thread.run_sync(_consume_independent_review, payload, expected)
                 else:
                     v1_admin_identity._consume_signature(
-                        v1_admin_identity._authority(), payload.signature_id, expected
+                        v1_admin_identity._authority(),
+                        payload.signature_id,
+                        expected,
+                        mutation_not_started=True,
                     )
                 applied = await _merge_payload(
                     source=source,

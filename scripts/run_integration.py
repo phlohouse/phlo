@@ -28,7 +28,13 @@ def run_suites(env: dict[str, str]) -> int:
     suites = {
         "iceberg": ["packages/phlo-iceberg/tests/test_integration_iceberg.py"],
         "dagster": ["packages/phlo-dagster/tests/test_integration_dagster.py"],
-        "api": ["packages/phlo-api/tests", "-m", "integration"],
+        "api": [
+            "packages/phlo-api/tests",
+            "tests/integration/test_issue1035_dataset_journey.py",
+            "tests/integration/test_issue1035_signed_branch_journey.py",
+            "-m",
+            "integration",
+        ],
         "minio-migration": [
             "packages/phlo-minio/tests/test_minio_migration.py",
             "-m",

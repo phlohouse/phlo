@@ -61,6 +61,7 @@ class AssetAuditProposalRequest(WireModel):
     idempotency_key: Annotated[
         str, StringConstraints(min_length=1, max_length=128, pattern=r"^\S(?:.*\S)?$")
     ]
+    previous_source_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class AssetAuditProposal(WireModel):
@@ -81,6 +82,19 @@ class AssetAuditProposal(WireModel):
     failure_policy: Literal["block", "warn"] = "block"
     schema_digest: str | None = None
     table_relation: str | None = None
+    previous_source: str | None = None
+    previous_source_digest: str | None = None
+
+    @model_validator(mode="after")
+    def validate_previous_source(self) -> AssetAuditProposal:
+        expected = (
+            hashlib.sha256(self.previous_source.encode()).hexdigest()
+            if self.previous_source is not None
+            else None
+        )
+        if self.previous_source_digest != expected:
+            raise ValueError("Previous contract source and digest must match.")
+        return self
 
 
 class AuditRuleResult(WireModel):
@@ -161,18 +175,25 @@ def create_audit_proposal(
     failure_policy: Literal["block", "warn"] = "block",
     schema_digest: str | None = None,
     table_relation: str | None = None,
+    previous_source: str | None = None,
 ) -> AssetAuditProposal:
     """Persist a deterministic, reviewable Git patch without writing project code."""
     source_digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-    identity = json.dumps(
-        [env, asset_id, nessie_ref, file_path, source_digest, schema_digest], separators=(",", ":")
+    previous_source_digest = (
+        hashlib.sha256(previous_source.encode("utf-8")).hexdigest()
+        if previous_source is not None
+        else None
     )
+    identity_parts = [env, asset_id, nessie_ref, file_path, source_digest, schema_digest]
+    if previous_source_digest is not None:
+        identity_parts.append(previous_source_digest)
+    identity = json.dumps(identity_parts, separators=(",", ":"))
     proposal_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
     patch = "".join(
         unified_diff(
-            [],
+            previous_source.splitlines(keepends=True) if previous_source is not None else [],
             source.splitlines(keepends=True),
-            fromfile="/dev/null",
+            fromfile=f"a/{file_path}" if previous_source is not None else "/dev/null",
             tofile=f"b/{file_path}",
         )
     )
@@ -192,6 +213,8 @@ def create_audit_proposal(
         failure_policy=failure_policy,
         schema_digest=schema_digest,
         table_relation=table_relation,
+        previous_source=previous_source,
+        previous_source_digest=previous_source_digest,
     )
     state_dir = project_root / ".phlo" / "observatory"
     state_dir.mkdir(parents=True, exist_ok=True)

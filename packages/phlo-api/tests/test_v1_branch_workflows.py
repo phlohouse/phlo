@@ -549,7 +549,7 @@ def test_signed_merge_rechecks_exact_heads_and_records_the_result(
     monkeypatch.setattr(
         v1_admin_identity,
         "_consume_signature",
-        lambda authority, signature_id, expected: consumed.append(
+        lambda authority, signature_id, expected, **_kwargs: consumed.append(
             (signature_id, expected.action, expected.record_id, expected.record_version)
         ),
     )
@@ -624,7 +624,9 @@ def test_signed_schema_merge_binds_the_signature_to_durable_decisions(
     monkeypatch.setattr(
         v1_admin_identity,
         "_consume_signature",
-        lambda authority, signature_id, expected: consumed.append(expected.record_version),
+        lambda authority, signature_id, expected, **_kwargs: consumed.append(
+            expected.record_version
+        ),
     )
     monkeypatch.setattr(v1_admin_identity, "_action_audit", lambda **kwargs: None)
 

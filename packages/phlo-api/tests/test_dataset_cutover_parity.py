@@ -210,6 +210,24 @@ def test_blocked_publish_returns_identical_ordered_reasons_on_every_surface(
         assert reason in payload["data"]["reasons"]
 
 
+@pytest.mark.parametrize("status", ["unknown", "failing"])
+def test_uncompleted_blocking_quality_cannot_approve_publication(
+    status, tmp_path, monkeypatch, observatory_loaders, _declared_orders
+) -> None:
+    from phlo_api.observatory_api import observatory as observatory_module
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    observatory_loaders(
+        assets=[_asset("gold.orders")],
+        tables_without_catalog=[],
+        quality=[_passing_quality_check().model_copy(update={"status": status})],
+    )
+    verdict = observatory_module._dataset_authority().readiness("gold.orders", "publish")
+    assert not verdict.ready
+    quality = next(item for item in verdict.controls if item["control"] == "quality_checks_passed")
+    assert quality["status"] != "passed"
+
+
 def test_authorized_publish_is_idempotent_audited_and_durable(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

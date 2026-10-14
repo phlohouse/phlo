@@ -1666,11 +1666,26 @@ async def v1_asset_audit_proposal(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    previous_source = None
+    if payload.previous_source_digest is not None:
+        root = project_root().resolve()
+        path = (root / file_path).resolve()
+        if not path.is_relative_to(root):
+            raise HTTPException(422, "The existing contract path leaves the project.")
+        try:
+            previous_source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise HTTPException(409, "The existing contract source is unavailable.") from exc
+        if hashlib.sha256(previous_source.encode()).hexdigest() != payload.previous_source_digest:
+            raise HTTPException(409, "The existing contract source changed; reload and retry.")
+
     schema_digest = audit_schema_digest([(column.name, column.type) for column in detail.columns])
     source_digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
     action_target = (
         f"{env}:{asset_id}@{target.nessie_ref}:audit-proposal:{source_digest}:{schema_digest}"
     )
+    if payload.previous_source_digest is not None:
+        action_target += f":replaces:{payload.previous_source_digest}"
     settings = get_deployment_settings()
     idempotency_store_ready = settings.actions_single_replica and settings.actions_single_process
     if not idempotency_store_ready:
@@ -1695,6 +1710,7 @@ async def v1_asset_audit_proposal(
                 failure_policy=payload.failure_policy,
                 schema_digest=schema_digest,
                 table_relation=detail.relation,
+                previous_source=previous_source,
             )
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise BackendUnavailableError("Audit proposal storage is unavailable.") from exc
@@ -1839,6 +1855,7 @@ async def v1_asset_audit_proposal_pull_request(
     """Publish the stored check source as a draft PR in this project repository."""
     from phlo_api.api.operation_controls import (
         IdempotencyConflict,
+        MutationRejected,
         audit_operation,
         enforce_rate_limit,
         idempotency_key_target,
@@ -1884,6 +1901,15 @@ async def v1_asset_audit_proposal_pull_request(
         f"{env}:{asset_id}@{target.nessie_ref}:audit-draft-pr:{proposal.source_digest}:"
         f"{config.repository}:{config.base_branch}"
     )
+    if proposal.previous_source_digest is not None and (
+        payload.signature_id is None or get_request_principal(request) is None
+    ):
+        raise HTTPException(422, "Replacement requires an authenticated principal and signature.")
+    action_target += (
+        f":replaces:{proposal.previous_source_digest}"
+        if proposal.previous_source_digest is not None
+        else ""
+    )
     bound_target = idempotency_key_target(
         payload.idempotency_key,
         "v1_publish_asset_audit_proposal",
@@ -1891,16 +1917,54 @@ async def v1_asset_audit_proposal_pull_request(
     if bound_target is not None and bound_target != action_target:
         raise IdempotencyConflict({"error": "idempotency_key_conflict"})
 
+    def authorize_write() -> None:
+        from phlo_api.api import v1_admin_identity
+
+        assert payload.signature_id is not None  # Validated before claiming idempotency.
+        v1_admin_identity._consume_signature(
+            v1_admin_identity._authority(),
+            payload.signature_id,
+            v1_admin_identity._expected_signature(
+                actor=auth["subject"],
+                action="asset.audit.publish",
+                target_type="asset_contract",
+                target_id=f"{env}:{asset_id}:{proposal.file_path}",
+                target_version=f"{proposal.previous_source_digest}:{proposal.source_digest}",
+            ),
+            mutation_not_started=True,
+        )
+
     async def execute() -> dict[str, Any]:
         try:
             async with project_git_review_client(config) as client:
-                result = await publish_project_draft_pr(client, config, proposal)
+                result = await publish_project_draft_pr(
+                    client,
+                    config,
+                    proposal,
+                    before_write=authorize_write
+                    if proposal.previous_source_digest is not None
+                    else None,
+                )
         except GitReviewConflict as exc:
-            raise HTTPException(
+            # The publisher reports these conflicts before any signature or Git write.
+            raise MutationRejected(
                 status_code=409, detail={"error": "audit_proposal_branch_conflict"}
             ) from exc
         except (GitReviewUnavailable, httpx.HTTPError) as exc:
             raise BackendUnavailableError("Project Git review is unavailable.") from exc
+        if proposal.previous_source_digest is not None:
+            from phlo_api.api import v1_admin_identity
+
+            principal = get_request_principal(request)
+            assert principal is not None and payload.signature_id is not None
+            v1_admin_identity._action_audit(
+                actor=principal,
+                action="asset.audit.publish",
+                target_type="asset_contract",
+                target_id=f"{env}:{asset_id}:{proposal.file_path}",
+                signature_id=payload.signature_id,
+                target_version=f"{proposal.previous_source_digest}:{proposal.source_digest}",
+            )
         return result.model_dump(mode="json")
 
     try:
