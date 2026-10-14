@@ -1,7 +1,9 @@
 """Signed branch merge through real Nessie, Iceberg, Dagster and PostgreSQL.
 
-Only authentication and Dagster's HTTP transport are injected. The transport
+Authentication and Dagster's HTTP transport are injected. The transport
 executes the actual GraphQL schema and launches real disposable job processes.
+GitHub transport uses stock Git in a disposable repo; its draft PR envelope
+is injected, so this does not prove GitHub's own PR creation behavior.
 No check result, catalog operation, Nessie response or signature is fabricated.
 """
 
@@ -23,7 +25,7 @@ from dagster_graphql.test.utils import execute_dagster_graphql
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from phlo_api import incidents
-from phlo_api.api import operation_controls, v1_admin_audit, v1_admin_identity, v1_jobs
+from phlo_api.api import operation_controls, v1_admin_audit, v1_admin_identity, v1_assets, v1_jobs
 from phlo_api.api import v1_branch_workflows as branches
 from phlo_iceberg.catalog import get_catalog, reset_catalog_cache
 from phlo_iceberg.settings import get_settings as iceberg_settings
@@ -35,6 +37,7 @@ from testcontainers.postgres import PostgresContainer
 
 from phlo.capabilities.interfaces import AuthenticatedSession, AuthPrincipal, AuthResult
 from phlo.identity.authority import IdentityAuthority
+from tests.integration.issue1035_git_rest import LocalGitRest
 
 pytestmark = pytest.mark.integration
 
@@ -81,6 +84,7 @@ def real_branch_services(monkeypatch, tmp_path):
         )
         for key, value in {
             "QUARKUS_HTTP_PORT": str(port),
+            "QUARKUS_MANAGEMENT_PORT": "0",
             "NESSIE_VERSION_STORE_TYPE": "IN_MEMORY",
             "nessie.catalog.default-warehouse": "warehouse",
             "nessie.catalog.warehouses.warehouse.location": "s3://lake/warehouse",
@@ -112,6 +116,11 @@ def real_branch_services(monkeypatch, tmp_path):
                 "PHLO_SIGNATURE_HMAC_KEY": "disposable-signature-key",
                 "PHLO_AUDIT_HMAC_KEY": "disposable-audit-key",
                 "PHLO_V1_ACTIONS_REF_TAG_CONTRACT": "1",
+                "PHLO_V1_ACTIONS_SINGLE_REPLICA": "1",
+                "PHLO_V1_ACTIONS_SINGLE_PROCESS": "1",
+                "PHLO_V1_GIT_REVIEW_REPOSITORY": "local/journey",
+                "PHLO_V1_GIT_REVIEW_BASE_BRANCH": "main",
+                "PHLO_V1_GIT_REVIEW_TOKEN": "disposable",
                 "PHLO_V1_BRANCH_CHECK_JOBS": json.dumps({"prod": jobs, "staging": jobs}),
                 "PHLO_V1_ENVIRONMENTS": json.dumps(
                     {
@@ -157,6 +166,10 @@ def signed_branch_api(real_branch_services, monkeypatch, tmp_path):
     monkeypatch.setattr(
         "phlo.plugins.observatory_settings.get_settings_service", lambda: services.store
     )
+    monkeypatch.setattr(
+        "phlo_api.observatory_api.observatory_durable_state.get_settings_service",
+        lambda: services.store,
+    )
     monkeypatch.setattr(v1_admin_identity, "_authority", lambda: IdentityAuthority(services.store))
     monkeypatch.setattr(
         v1_admin_identity,
@@ -165,6 +178,14 @@ def signed_branch_api(real_branch_services, monkeypatch, tmp_path):
     )
     monkeypatch.setattr(incidents, "get_request_principal", lambda _request: actor)
     monkeypatch.setattr(branches, "get_request_principal", lambda _request: actor)
+    monkeypatch.setattr(v1_assets, "get_request_principal", lambda _request: actor)
+    monkeypatch.setattr(
+        operation_controls,
+        "require_scope",
+        lambda _request, scope: {"subject": actor.subject, "scopes": [scope]},
+    )
+    git = LocalGitRest(tmp_path)
+    monkeypatch.setattr(v1_assets, "project_git_review_client", git.client)
     monkeypatch.setattr(
         branches,
         "require_scope",
@@ -192,7 +213,11 @@ def inspect_pinned_table(context):
 @dg.job
 def branch_evidence():
     inspect_pinned_table()
-defs = dg.Definitions(jobs=[branch_evidence])
+@dg.asset(key=["silver", "journey"], metadata={"phlo/relation": "silver.journey"})
+def journey_table():
+    from phlo_iceberg.catalog import get_catalog
+    return get_catalog("staging-target").load_table("silver.journey").scan().to_arrow()
+defs = dg.Definitions(jobs=[branch_evidence], assets=[journey_table])
 """)
     instance_dir = tmp_path / "instance"
     instance_dir.mkdir()
@@ -218,16 +243,18 @@ defs = dg.Definitions(jobs=[branch_evidence])
                 return {"data": result.data}
 
             monkeypatch.setattr(v1_jobs, "_graphql", graphql)
+            monkeypatch.setattr(v1_assets, "_graphql", graphql)
             app = FastAPI()
             for router in (
                 incidents.router,
                 branches.router,
+                v1_assets.router,
                 v1_admin_identity.router,
                 v1_admin_audit.router,
             ):
                 app.include_router(router, prefix="/api/v1")
             with TestClient(app) as client:
-                yield SimpleNamespace(client=client, instance=instance, services=services)
+                yield SimpleNamespace(client=client, instance=instance, services=services, git=git)
 
 
 def test_signed_per_column_merge_is_head_and_decision_bound(signed_branch_api):
@@ -469,6 +496,7 @@ def test_signed_per_column_merge_is_head_and_decision_bound(signed_branch_api):
     assert merge_event["attributes"]["source_hash"] == heads["staging-source"]
     assert merge_event["attributes"]["target_hash"] == heads["staging-target"]
     assert merge_event["attributes"]["resulting_hash"] == result["resulting_hash"]
+    prove_contract_replacement(journey)
     print(
         "ISSUE1035 SIGNED BRANCH",
         json.dumps(
@@ -488,6 +516,163 @@ def test_signed_per_column_merge_is_head_and_decision_bound(signed_branch_api):
                 "audit_valid": verified.json()["valid"],
                 "branch_merge_denials": 5,
                 "branch_merge_allow": 1,
+            },
+            sort_keys=True,
+        ),
+    )
+
+
+def prove_contract_replacement(journey):
+    client, git = journey.client, journey.git
+    route = "/api/v1/assets/silver/journey/audits"
+    detail = client.get("/api/v1/assets/silver/journey", params={"env": "staging"})
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["schema_source"] == "catalog"
+    assert {col["name"]: col["type"] for col in detail.json()["columns"]} == {
+        "id": "long",
+        "status": "long",
+        "note": "string",
+    }
+
+    def propose(**extra):
+        return client.post(
+            route,
+            params={"env": "staging"},
+            json={
+                "check_name": "resolved_contract",
+                "rules": [{"kind": "not_null", "column": "status"}],
+                "idempotency_key": uuid4().hex,
+                **extra,
+            },
+        )
+
+    initial = propose()
+    assert initial.status_code == 202, initial.text
+    old = initial.json()
+    path = journey.services.root / old["file_path"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(old["source"])
+    base = git.commit()
+    stale = propose(previous_source_digest="0" * 64)
+    assert stale.status_code == 409, stale.text
+    replacement = propose(
+        previous_source_digest=old["source_digest"],
+        rules=[{"kind": "range", "column": "status", "minimum": 0, "maximum": 10}],
+    )
+    assert replacement.status_code == 202, replacement.text
+    proposal = replacement.json()
+    assert proposal["previous_source"] == old["source"]
+    assert proposal["previous_source_digest"] == hashlib.sha256(old["source"].encode()).hexdigest()
+    assert proposal["source_digest"] == hashlib.sha256(proposal["source"].encode()).hexdigest()
+    assert proposal["source_digest"] != old["source_digest"]
+    assert "-        NullCheck" in proposal["patch"] and "+        RangeCheck" in proposal["patch"]
+    version = old["source_digest"] + ":" + proposal["source_digest"]
+    record_id = "staging:silver/journey:" + proposal["file_path"]
+
+    def sign(target_version=version, target_id=record_id):
+        response = client.post(
+            "/api/v1/signatures",
+            json={
+                "action": "asset.audit.publish",
+                "target_type": "asset_contract",
+                "target_id": target_id,
+                "target_version": target_version,
+                "meaning": "approved",
+                "justification": "Reviewed resolved Iceberg status contract",
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["signature_id"]
+
+    def publish(signature, key=None):
+        return client.post(
+            route + "/" + proposal["proposal_id"] + "/pull-request",
+            params={"env": "staging"},
+            json={
+                "idempotency_key": key or uuid4().hex,
+                "signature_id": signature,
+                "expected_source_digest": proposal["source_digest"],
+            },
+        )
+
+    for signature in (
+        sign("0" * 64 + ":" + proposal["source_digest"]),
+        sign(target_id="prod:silver/journey:" + proposal["file_path"]),
+    ):
+        denied = publish(signature)
+        assert denied.status_code == 409, denied.text
+        assert denied.json()["detail"] == "Signature is missing, stale, reused, or mismatched."
+        assert git.writes == [] and git.git("rev-parse", "main") == base
+    # A valid approval cannot publish over independently changed base content.
+    path.write_text(old["source"] + "\n# concurrent review\n")
+    changed = git.commit()
+    stale_approval = sign()
+    rejected = publish(stale_approval)
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"] == {"error": "audit_proposal_branch_conflict"}
+    assert git.writes == [] and git.git("rev-parse", "main") == changed
+    stored = IdentityAuthority(journey.services.store).signatures("operator")
+    assert next(s for s in stored if s.record.signature_id == stale_approval).consumed_at is None
+    git.git("reset", "--hard", base)
+    signature, key = sign(), uuid4().hex
+    published = publish(signature, key)
+    assert published.status_code == 202, published.text
+    branch = published.json()["head_branch"]
+    commit = git.git("rev-parse", branch)
+    assert git.git("rev-parse", commit + "^") == base
+    assert git.git("show", branch + ":" + proposal["file_path"]) + "\n" == proposal["source"]
+    assert git.git("show", "main:" + proposal["file_path"]) + "\n" == old["source"]
+    assert path.read_text() == old["source"]
+    assert git.git("diff", "--name-only", "main", branch) == proposal["file_path"]
+    writes = list(git.writes)
+    consumed_before = [
+        s.record.signature_id
+        for s in IdentityAuthority(journey.services.store).signatures("operator")
+        if s.consumed_at is not None
+    ]
+    assert publish(signature, key).json() == published.json()
+    assert git.writes == writes and git.git("rev-parse", branch) == commit
+    consumed_after = [
+        s.record.signature_id
+        for s in IdentityAuthority(journey.services.store).signatures("operator")
+        if s.consumed_at is not None
+    ]
+    assert consumed_before == consumed_after and consumed_after.count(signature) == 1
+    assert publish("missing-signature-with-new-key").status_code == 409
+    assert git.writes == writes and git.git("rev-parse", branch) == commit
+    events = client.get(
+        "/api/v1/admin/audit/records",
+        params={"surface": "phlo-api", "action": "asset.audit.publish"},
+    ).json()["items"]
+    assert not any(
+        item["event"]["attributes"].get("signature_id") == "missing-signature-with-new-key"
+        for item in events
+    )
+    approved = [
+        i["event"] for i in events if i["event"]["attributes"].get("signature_id") == signature
+    ]
+    assert len(approved) == 1 and approved[0]["resource_id"] == record_id
+    assert approved[0]["attributes"]["expected_version"] == version
+    operations = operation_controls.read_operation_audit("v1_publish_asset_audit_proposal")
+    assert len(operations) == 1
+    assert operations[0]["result"]["status"] == "pending_review"
+    assert operations[0]["result"]["pull_request_url"] == published.json()["pull_request_url"]
+    assert proposal["source_digest"] in operations[0]["target"]
+    verified = client.get("/api/v1/admin/audit/verify", params={"surface": "phlo-api"})
+    assert verified.status_code == 200 and verified.json()["valid"] is True
+    print(
+        "ISSUE1035 SIGNED CONTRACT",
+        json.dumps(
+            {
+                "proposal_id": proposal["proposal_id"],
+                "previous_digest": old["source_digest"],
+                "new_digest": proposal["source_digest"],
+                "signature_id": signature,
+                "base": base,
+                "proposal_commit": commit,
+                "git_writes": writes,
+                "audit_valid": True,
+                "draft_pr_envelope": "injected; Git objects and refs are real",
             },
             sort_keys=True,
         ),

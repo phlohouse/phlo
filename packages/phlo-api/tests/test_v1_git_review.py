@@ -144,6 +144,13 @@ async def test_existing_draft_pull_request_is_replayed_without_writes():
         transport=httpx.MockTransport(respond),
     ) as client:
         result = await publish_project_draft_pr(client, _config(), _proposal())
+        previous = "Existing reviewed contract\n"
+        replacement = _proposal(
+            previous_source=previous,
+            previous_source_digest=hashlib.sha256(previous.encode()).hexdigest(),
+        )
+        with pytest.raises(GitReviewConflict):
+            await publish_project_draft_pr(client, _config(), replacement)
 
     assert result.pull_request_number == 42
 

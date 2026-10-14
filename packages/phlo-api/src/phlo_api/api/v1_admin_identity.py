@@ -50,6 +50,7 @@ SignedAction = Literal[
     "incident.resolve",
     "branch.merge",
     "staging.promote",
+    "asset.audit.publish",
 ]
 SignatureMeaningValue = Literal["approved", "released", "reviewed", "acknowledged", "authored"]
 _SETTINGS_KEY = "phlo.identity.admin-settings"
@@ -135,7 +136,13 @@ class ServiceAccountCreated(WireModel):
 class SignatureCreate(WireModel):
     action: SignedAction
     target_type: Literal[
-        "member", "invitation", "service_account", "incident", "branch", "promotion"
+        "member",
+        "invitation",
+        "service_account",
+        "incident",
+        "branch",
+        "promotion",
+        "asset_contract",
     ]
     target_id: str = Field(min_length=1, max_length=512)
     target_version: str = Field(min_length=1, max_length=256)
@@ -353,6 +360,7 @@ def _action_audit(
     target_id: str,
     signature_id: str,
     outcome: str = "success",
+    target_version: str | None = None,
 ) -> None:
     _audit(
         CanonicalAuditEvent(
@@ -368,7 +376,10 @@ def _action_audit(
             decision="allow" if outcome == "success" else "skip",
             reason_code="signed_admin_action" if outcome == "success" else "signed_action_attempt",
             outcome=outcome,
-            attributes={"signature_id": signature_id},
+            attributes={
+                "signature_id": signature_id,
+                **({"expected_version": target_version} if target_version is not None else {}),
+            },
         )
     )
 
