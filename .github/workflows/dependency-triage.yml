@@ -2,8 +2,7 @@ name: Dependency remediation handoff
 
 on:
   # Only trusted main code executes; the authenticated producer artifact is JSON data.
-  # zizmor: ignore[dangerous-triggers]
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [Security]
     types: [completed]
 
