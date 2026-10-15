@@ -148,18 +148,6 @@ def report_status(
         report.gaps.append(
             f"{len(qualifying)} of {promote.MIN_QUALIFYING_RUNS} required qualifying runs"
         )
-    hosts = sorted({verdict.host for verdict in qualifying})
-    if len(hosts) < promote.MIN_DISTINCT_HOSTS:
-        report.gaps.append(
-            f"{len(hosts)} of {promote.MIN_DISTINCT_HOSTS} required distinct hosts "
-            f"({', '.join(hosts) or 'none'})"
-        )
-    days = {promote.parse_utc(verdict.started_utc).date() for verdict in qualifying}
-    if len(days) < promote.MIN_DISTINCT_DAYS:
-        report.gaps.append(
-            f"{len(days)} of {promote.MIN_DISTINCT_DAYS} required distinct UTC days "
-            f"({', '.join(sorted(str(day) for day in days)) or 'none'})"
-        )
     finished = [promote.parse_utc(verdict.finished_utc) for verdict in qualifying]
     if finished:
         newest = max(finished)
@@ -215,8 +203,6 @@ def _render_json(report: StatusReport) -> str:
         },
         "thresholds": {
             "min_qualifying_runs": promote.MIN_QUALIFYING_RUNS,
-            "min_distinct_hosts": promote.MIN_DISTINCT_HOSTS,
-            "min_distinct_days": promote.MIN_DISTINCT_DAYS,
             "max_evidence_age_days": promote.MAX_EVIDENCE_AGE_DAYS,
         },
         "bundles": [

@@ -349,28 +349,17 @@ def test_insufficient_run_count_blocks() -> None:
     assert excinfo.value.reason == "insufficient_runs"
 
 
-def test_insufficient_distinct_hosts_blocks() -> None:
+def test_repeated_runs_on_one_host_on_one_day_qualify() -> None:
     bom = _bom()
     bundles = [
         _day_bundle(bom, HOST_A, 1),
         _day_bundle(bom, HOST_A, 1, hour=13),
-        _day_bundle(bom, HOST_A, 2),
+        _day_bundle(bom, HOST_A, 1, hour=14),
     ]
-    with pytest.raises(promote_release_candidate.PromotionGateError) as excinfo:
-        promote_release_candidate.qualify_evidence_set(bundles, bom, now_utc=_now())
-    assert excinfo.value.reason == "insufficient_hosts"
-
-
-def test_insufficient_distinct_days_blocks() -> None:
-    bom = _bom()
-    bundles = [
-        _day_bundle(bom, HOST_A, 1),
-        _day_bundle(bom, HOST_B, 1),
-        _day_bundle(bom, HOST_C, 1),
-    ]
-    with pytest.raises(promote_release_candidate.PromotionGateError) as excinfo:
-        promote_release_candidate.qualify_evidence_set(bundles, bom, now_utc=_now())
-    assert excinfo.value.reason == "insufficient_days"
+    qualification = promote_release_candidate.qualify_evidence_set(bundles, bom, now_utc=_now())
+    assert len(qualification.qualifying) == 3
+    assert qualification.hosts == [HOST_A]
+    assert qualification.distinct_utc_days == 1
 
 
 def test_run_predating_staging_blocks() -> None:

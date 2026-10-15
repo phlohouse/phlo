@@ -115,8 +115,8 @@ attempt does not permit restaging that SHA.
 Dispatch **Release Artifact Acceptance** with the candidate SHA and staging run.
 Clean amd64 and arm64 hosts exercise staged artifacts, never source builds.
 Missing BOMs fail. Promotion authenticates every candidate acceptance attempt,
-including failures, and retains ADR 0050's three hosts, three qualifying runs and
-two-day span. No reduced release policy is introduced.
+including failures, and requires three qualifying runs. Runs may share a clean
+host and UTC calendar day; there is no host-diversity or two-day waiting gate.
 
 **Release Promotion** defaults to a dry run. Set `execute: true` on a fresh
 manual dispatch to publish. GitHub authenticates the dispatch actor, and promotion

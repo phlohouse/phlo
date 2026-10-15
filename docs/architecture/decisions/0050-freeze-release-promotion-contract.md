@@ -4,6 +4,8 @@
 
 Accepted (2026-09-03). Supersedes no prior ADR; there are no ADRs previously committed to this repository. Companion decisions: ADR 0047 (production trust and readiness contract), ADR 0048 (run-evidence semantics), ADR 0049 (continuity and upgrade contract) — all local to the programme register.
 
+Amended (2026-10-15): remove host and calendar-day diversity requirements. Three complete qualifying runs remain required, but they may execute on the same clean host on the same UTC day.
+
 **Approval slot — release owner:** the maintainer/release-owner sign-off for this ADR is recorded by the programme controller in the plans ledger (`plans/014-freeze-release-promotion-contract.md`). This ADR is Accepted on that basis. The release-owner approval slot it establishes for *candidate* promotions is defined in the Decision table (concern 6a) and is exercised per release, not per ADR.
 
 ## Context
@@ -73,7 +75,7 @@ Each bundle record carries: the candidate identity pair, the digest of every art
 Promotion is gated on **qualifying runs**, owned and adjudicated by the **release owner**:
 
 - **Count:** at least **three (3)** qualifying runs per candidate. A qualifying run is a complete, successful execution of the full evidence-bundle demonstration set (concern 4) against the staged artifacts, on a clean host, producing no failed demonstration.
-- **Distinctness:** the three qualifying runs must execute on **three distinct clean hosts** and at least **two distinct calendar days** (UTC).
+- **Distinctness:** qualifying runs must be separate executions, but may share the same clean host and UTC calendar day. Host identities and timestamps remain recorded for audit, not as diversity gates.
 - **Freshness:** the newest qualifying run must be no older than **7 days** at authorization time; no qualifying run may predate the staging of the exact canonical digest it references.
 - **Binding:** every qualifying run must record the same canonical candidate digest and artifact digests as the BOM. Evidence from any other digest (including an earlier commit's artifacts) is non-qualifying.
 - **Retry and failure rules:** infrastructure failures (runner loss, network outage) that occur before the acceptance suite begins producing evidence may be retried; every attempt, successful or not, is appended to the bundle. A functional failure — any Horizon A demonstration failing on the candidate — is terminal for that candidate: it is rejected and a new candidate must be staged. Silent or unrecorded retries are prohibited.
@@ -105,7 +107,7 @@ Promotion is gated on **qualifying runs**, owned and adjudicated by the **releas
 | 2 | Staging namespace | Immutable, append-only draft-release + workflow artifacts + candidate-tagged images, identified by digest |
 | 3 | Promotion mechanism | Visibility/namespace change of the exact staged bytes; digest-verified uploads; promotion by digest; never rebuild |
 | 4 | Evidence bundle | `release-candidate-evidence-<sha>` covering all six Horizon A demonstrations; retained ≥ 24 months |
-| 5 | Qualifying evidence | ≥ 3 qualifying runs, 3 distinct clean hosts, ≥ 2 calendar days, newest ≤ 7 days at authorization; infra failures retried and logged, functional failures terminal; owned by the release owner |
+| 5 | Qualifying evidence | ≥ 3 qualifying runs on clean hosts, with no host or calendar-day diversity requirement, newest ≤ 7 days at authorization; infra failures retried and logged, functional failures terminal; owned by the release owner |
 | 6a | Promotion authority | One recorded, signed release-owner authorization bound to candidate + bundle + channel; publish workflow fails closed without it |
 | 6b | Publish ordering | Tag → PyPI → images by digest → GitHub Release finalisation; fixed, idempotent, digest-verified |
 | 6c | Reconciliation | Automated digest re-verification of all published artifacts within 24 h, report appended to the bundle |
@@ -117,6 +119,6 @@ Promotion is gated on **qualifying runs**, owned and adjudicated by the **releas
 
 **Positive.** Plans 015–016 (T3-02, T3-03) inherit a frozen BOM, staging model, and evidence/gating contract instead of inventing one. Provider trust tiers (#854 / T7-01) can bind conformance evidence to a stable candidate identity. Consumers and auditors can reconstruct exactly which bytes were tested and who promoted them. Clean-host acceptance from immutable artifacts — the Phase-3 exit — is now a specified procedure, not an aspiration.
 
-**Costs and follow-through.** The Plan 015/016 implementation work must build the BOM emitter, staging automation, evidence-bundle writer, and qualification tracker this ADR describes; until they exist, promotion continues under the existing SHA-scoped candidate protection, which remains a necessary but not sufficient gate. Qualifying-run scheduling adds up to three days of wall-clock latency to a release. The 24-month evidence retention exceeds default GitHub artifact retention and requires the archival step in concern 4. The release-owner approval slot makes promotion an explicit human act; automation may prepare but never authorise.
+**Costs and follow-through.** The Plan 015/016 implementation work must build the BOM emitter, staging automation, evidence-bundle writer, and qualification tracker this ADR describes; until they exist, promotion continues under the existing SHA-scoped candidate protection, which remains a necessary but not sufficient gate. Qualifying runs require repeated execution but no calendar-day wait. Removing host and day diversity reduces coverage of host-specific and time-dependent failures. The 24-month evidence retention exceeds default GitHub artifact retention and requires the archival step in concern 4. The release-owner approval slot makes promotion an explicit human act; automation may prepare but never authorise.
 
 **Neutral.** Nothing in this ADR changes runtime code, CI gate status, publication state, or `registry/support/v1.json`; `scripts/validate_support_manifest.py` must continue to pass unchanged.
