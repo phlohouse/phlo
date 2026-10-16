@@ -7,13 +7,13 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.17.0,<0.18",
+    "phlo>=0.18.0,<0.19",
     "fastapi>=0.127.0,<0.137",
     "httpx>=0.28.1",
     "anyio>=4.14.2",
     "psycopg2-binary>=2.9.11",
-    "phlo-pandera>=0.16.0,<0.17",
-    "phlo-postgres>=0.16.0,<0.17",
+    "phlo-pandera>=0.16.1,<0.17",
+    "phlo-postgres>=0.17.0,<0.18",
     "pydantic>=2.0",
     "pyyaml>=6.0.1",
     "sqlglot>=30.2.1,<31",
@@ -22,7 +22,7 @@ dependencies = [
 description = "Phlo API - Backend service exposing Phlo internals to Observatory"
 name = "phlo-api"
 requires-python = ">=3.12"
-version = "0.17.0"
+version = "0.18.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
@@ -40,22 +40,25 @@ dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",
 ]
-iceberg = ["phlo-iceberg>=0.16.0,<0.17"]
+iceberg = ["phlo-iceberg>=0.17.0,<0.18"]
 lineage = ["phlo-lineage>=0.1.0"]
 
 [project.readme]
 content-type = "text/plain"
 text = "Phlo API backend for Observatory."
 
+[tool.mutmut]
+only_mutate = ["src/phlo_api/observatory_api/trino.py"]
+pytest_add_cli_args = [
+    "--confcutdir=.",
+    "--import-mode=importlib",
+]
+pytest_add_cli_args_test_selection = ["tests/test_trino_sql.py"]
+source_paths = ["src/"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-
-[tool.mutmut]
-source_paths = ["src/"]
-only_mutate = ["src/phlo_api/observatory_api/trino.py"]
-pytest_add_cli_args = ["--confcutdir=.", "--import-mode=importlib"]
-pytest_add_cli_args_test_selection = ["tests/test_trino_sql.py"]
 
 [tool.setuptools]
 include-package-data = true
