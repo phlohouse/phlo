@@ -1045,6 +1045,15 @@ def bom_release_version(bom: dict[str, object]) -> str:
     return str(sources[0]["version"])
 
 
+def bom_package_requirements(bom: dict[str, object], packages: tuple[str, ...]) -> list[str]:
+    """Pin dependency resolution to each package's independently versioned BOM wheel."""
+    versions = {
+        str(artifact["name"]): str(artifact["version"])
+        for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL)
+    }
+    return [f"{name}=={versions[name]}" for name in packages]
+
+
 def verify_candidate_bom(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:
     """Re-derive every BOM invariant and verify every staged distribution digest."""
     bom = config.bom
@@ -1090,6 +1099,9 @@ def install_operator_from_bom(
     bom = config.bom
     assert bom is not None and config.staging_dir is not None
     distributions = config.staging_dir / "distributions"
+    packages = tuple(
+        str(artifact["name"]) for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL)
+    )
     requirements = write_hashed_requirements(
         config, config.operator_env.parent / "candidate-requirements.txt"
     )
@@ -1124,11 +1136,11 @@ def install_operator_from_bom(
             str(config.operator_python),
             "--find-links",
             str(distributions),
-            *[f"{name}=={bom_release_version(bom)}" for name in OPERATOR_PACKAGES],
+            *bom_package_requirements(bom, packages),
         ),
         cwd=config.repo_root,
     )
-    force_local_install(config, config.operator_python, *OPERATOR_PACKAGES)
+    force_local_install(config, config.operator_python, *packages)
     installed = verify_installed_versions(config)
     return (
         {
@@ -1183,7 +1195,7 @@ def install_project_dependencies_from_bom(config: RunConfig) -> None:
             str(config.project_python),
             "--find-links",
             str(config.wheelhouse),
-            *[f"{name}=={bom_release_version(bom)}" for name in PROJECT_PACKAGES],
+            *bom_package_requirements(bom, PROJECT_PACKAGES),
         ),
         cwd=config.project_dir,
     )

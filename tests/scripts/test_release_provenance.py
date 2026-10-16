@@ -406,7 +406,12 @@ def test_prebuilt_staging_consumes_independent_minio_without_rebuilding(
         json.dumps(
             {
                 "current_release": {"version": "0.15.0"},
-                "release_set": {"packages": [{"name": "phlo"}]},
+                "release_set": {
+                    "packages": [
+                        {"name": "phlo", "version": "0.15.0"},
+                        {"name": "phlo-core-plugins", "version": "0.14.1"},
+                    ]
+                },
             }
         ),
         encoding="utf-8",
@@ -415,6 +420,8 @@ def test_prebuilt_staging_consumes_independent_minio_without_rebuilding(
     built.mkdir()
     (built / "phlo-0.15.0.tar.gz").write_bytes(b"sdist")
     (built / "phlo-0.15.0-py3-none-any.whl").write_bytes(b"wheel")
+    (built / "phlo_core_plugins-0.14.1.tar.gz").write_bytes(b"plugins-sdist")
+    (built / "phlo_core_plugins-0.14.1-py3-none-any.whl").write_bytes(b"plugins-wheel")
     monkeypatch.setattr(
         bom_module,
         "_run_git",
@@ -427,6 +434,7 @@ def test_prebuilt_staging_consumes_independent_minio_without_rebuilding(
             "service.yaml": [
                 "ghcr.io/phlohouse/phlo-api:0.15.0",
                 "ghcr.io/phlohouse/phlo-minio:0.29.1",
+                "ghcr.io/phlohouse/phlo-observe/phlo-observer:0.2.3@sha256:" + "d" * 64,
                 "postgres:18@sha256:" + "f" * 64,
             ]
         },
@@ -455,6 +463,21 @@ def test_prebuilt_staging_consumes_independent_minio_without_rebuilding(
     )
     assert candidate.release_commit == SHA
     assert (output / "distributions/phlo-0.15.0-py3-none-any.whl").read_bytes() == b"wheel"
+    assert (
+        output / "distributions/phlo_core_plugins-0.14.1-py3-none-any.whl"
+    ).read_bytes() == b"plugins-wheel"
+    assert {
+        artifact["name"]: artifact["version"]
+        for artifact in candidate.bom["artifacts"]
+        if artifact["kind"] == "wheel"
+    } == {"phlo": "0.15.0", "phlo-core-plugins": "0.14.1"}
+    observer = next(
+        artifact
+        for artifact in candidate.bom["artifacts"]
+        if artifact["name"] == "ghcr.io/phlohouse/phlo-observe/phlo-observer"
+    )
+    assert observer["kind"] == "provider-image"
+    assert observer["digest"] == "sha256:" + "d" * 64
     minio = next(
         artifact
         for artifact in candidate.bom["artifacts"]

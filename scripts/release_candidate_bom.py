@@ -273,8 +273,7 @@ def _distribution_version_from_filename(filename: str, project: str) -> str:
 
 def _build_distributions_from_tree(
     tree: ReleaseTree,
-    projects: list[str],
-    version: str,
+    projects: dict[str, str],
     distributions_dir: Path,
     built_distributions: Path | None = None,
 ) -> list[dict[str, object]]:
@@ -317,7 +316,7 @@ def _build_distributions_from_tree(
         built = sorted(path for path in built_dir.iterdir() if path.is_file())
 
         staged: list[dict[str, object]] = []
-        for project in sorted(projects):
+        for project, version in sorted(projects.items()):
             for kind in (KIND_SDIST, KIND_WHEEL):
                 matches = [
                     path
@@ -334,7 +333,7 @@ def _build_distributions_from_tree(
                 if built_version != version:
                     raise BomError(
                         f"the pinned tree built {project} {built_version!r} but the support "
-                        f"manifest declares release version {version!r}"
+                        f"manifest pins {project} version {version!r}"
                     )
                 destination = distributions_dir / path.name
                 if destination.exists():
@@ -357,8 +356,8 @@ def _build_distributions_from_tree(
         return staged
 
 
-def _release_inventory(tree: ReleaseTree) -> tuple[bytes, str, list[str]]:
-    """Return the support manifest bytes, release version, and release-set package names."""
+def _release_inventory(tree: ReleaseTree) -> tuple[bytes, str, dict[str, str]]:
+    """Return the support manifest bytes, source version, and per-package version pins."""
     support_bytes = tree.read(SUPPORT_MANIFEST_PATH)
     try:
         support = json.loads(support_bytes)
@@ -369,12 +368,14 @@ def _release_inventory(tree: ReleaseTree) -> tuple[bytes, str, list[str]]:
     release_set = support.get("release_set", {}).get("packages", [])
     if not isinstance(version, str) or not version:
         raise BomError(f"{SUPPORT_MANIFEST_PATH} does not declare current_release.version")
-    package_names = [
-        entry.get("name") for entry in release_set if isinstance(entry.get("name"), str)
-    ]
-    if not package_names:
+    package_versions = {
+        entry["name"]: entry["version"]
+        for entry in release_set
+        if isinstance(entry.get("name"), str)
+    }
+    if not package_versions:
         raise BomError(f"{SUPPORT_MANIFEST_PATH} release_set declares no packages")
-    return support_bytes, version, package_names
+    return support_bytes, version, package_versions
 
 
 def _source_artifacts(
@@ -410,8 +411,7 @@ def _source_artifacts(
 
 def _distribution_artifacts(
     tree: ReleaseTree,
-    package_names: list[str],
-    version: str,
+    package_versions: dict[str, str],
     distributions_dir: Path | None,
     *,
     build_from_tree: bool,
@@ -425,11 +425,11 @@ def _distribution_artifacts(
         )
     if build_from_tree or built_distributions is not None:
         return _build_distributions_from_tree(
-            tree, package_names, version, distributions_dir, built_distributions
+            tree, package_versions, distributions_dir, built_distributions
         )
     return [
         _download_distribution(project, version, kind, distributions_dir)
-        for project in sorted(package_names)
+        for project, version in sorted(package_versions.items())
         for kind in (KIND_SDIST, KIND_WHEEL)
     ]
 
@@ -510,7 +510,11 @@ def _image_artifacts(
                         f"{existing['digest']!r} and {digest!r}"
                     )
                 continue
-            if name.startswith(FIRST_PARTY_IMAGE_PREFIX) and name != "ghcr.io/phlohouse/phlo-minio":
+            if (
+                name.startswith(FIRST_PARTY_IMAGE_PREFIX)
+                and "/" not in name.removeprefix(FIRST_PARTY_IMAGE_PREFIX)
+                and name != "ghcr.io/phlohouse/phlo-minio"
+            ):
                 entry = _first_party_image_entry(
                     reference, name, tag, digest, relative_path, image_digests
                 )
@@ -529,13 +533,12 @@ def build_bom_artifacts(
     image_digests: dict[str, str] | None = None,
 ) -> list[dict[str, object]]:
     """Enumerate the exact artifact inventory at the pinned identity."""
-    support_bytes, version, package_names = _release_inventory(tree)
+    support_bytes, version, package_versions = _release_inventory(tree)
     artifacts = _source_artifacts(tree, version, support_bytes)
     artifacts.extend(
         _distribution_artifacts(
             tree,
-            package_names,
-            version,
+            package_versions,
             distributions_dir,
             build_from_tree=build_from_tree,
             built_distributions=built_distributions,
