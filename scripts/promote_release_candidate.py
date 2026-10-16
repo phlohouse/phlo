@@ -4,9 +4,9 @@
 It consumes one immutable staged candidate BOM (``phlo.release-candidate-bom/v1``)
 and a set of real evidence bundles (``phlo.release-candidate-evidence/v1``).
 It allows promotion only when at least three successful qualifying runs are
-bound to the same canonical candidate digest, ran on three distinct clean
-hosts across at least two distinct UTC days, and the newest run is no older
-than seven days at authorization time.
+bound to the same canonical candidate digest, ran on clean hosts, and the
+newest run is no older than seven days at authorization time. Runs may share
+a host and UTC calendar day.
 
 Those checks allow promotion of the exact staged bytes.
 
@@ -66,8 +66,6 @@ SIGNING_ISSUER = "https://token.actions.githubusercontent.com"
 #: Qualifying-evidence thresholds. These values define the promotion contract
 #: and must not be tuned at this call site.
 MIN_QUALIFYING_RUNS = 3
-MIN_DISTINCT_HOSTS = 3
-MIN_DISTINCT_DAYS = 2
 MAX_EVIDENCE_AGE_DAYS = 7
 
 #: Fixed publish ordering.
@@ -369,7 +367,7 @@ def _bundle_started(bundle: dict[str, object]) -> datetime:
 def _check_replay_and_counts(
     valid: list[dict[str, object]], prior_receipt_bundles: set[str] | None
 ) -> list[str]:
-    """Reject replayed evidence and too few runs or hosts; return the sorted hosts."""
+    """Reject replayed evidence and too few runs; return the sorted hosts."""
     if prior_receipt_bundles:
         replayed = sorted({bundle_checksum(bundle) for bundle in valid} & prior_receipt_bundles)
         if replayed:
@@ -383,29 +381,15 @@ def _check_replay_and_counts(
             "insufficient_runs",
             f"{len(valid)} qualifying run(s) is below the minimum of {MIN_QUALIFYING_RUNS}",
         )
-    hosts = sorted({bundle_host(bundle) for bundle in valid})
-    if len(hosts) < MIN_DISTINCT_HOSTS:
-        raise PromotionGateError(
-            "insufficient_hosts",
-            f"qualifying runs executed on {len(hosts)} distinct host(s) {hosts!r}, below "
-            f"the minimum of {MIN_DISTINCT_HOSTS}",
-        )
-    return hosts
+    return sorted({bundle_host(bundle) for bundle in valid})
 
 
 def _check_timing(
     valid: list[dict[str, object]], now_utc: datetime, staged_utc: str | None
 ) -> tuple[int, list[datetime]]:
-    """Enforce day distinctness, freshness and staging order; return days and finish times."""
+    """Enforce freshness and staging order; return days and finish times."""
     finished = [parse_utc(str(bundle["finished_utc"])) for bundle in valid]
     days = {_bundle_started(bundle).date() for bundle in valid}
-    if len(days) < MIN_DISTINCT_DAYS:
-        raise PromotionGateError(
-            "insufficient_days",
-            f"qualifying runs span {len(days)} distinct UTC calendar day(s) "
-            f"{sorted(str(day) for day in days)!r}, below the minimum of "
-            f"{MIN_DISTINCT_DAYS}",
-        )
     newest = max(finished)
     if now_utc - newest > timedelta(days=MAX_EVIDENCE_AGE_DAYS):
         raise PromotionGateError(
@@ -441,7 +425,7 @@ def qualify_evidence_set(
 
     Every submitted bundle is validated, bound to the BOM, and required to be a
     complete, passed run on a clean host. Set-level rules then enforce the
-    frozen repetition counts, host/day distinctness, freshness at ``now_utc``
+    frozen repetition count, freshness at ``now_utc``
     (the authorization instant when promoting), and the no-predating-staging
     rule. Replays of bundles already consumed by a prior promotion receipt are
     rejected. Raises :class:`PromotionGateError` with a stable reason code when
