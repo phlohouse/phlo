@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from phlo.plugins.compose.generator import ComposeGenerator
@@ -280,6 +283,41 @@ def _step_with_id(steps: list[dict[str, Any]], step_id: str) -> dict[str, Any]:
     raise AssertionError(f"No step with id {step_id!r}")
 
 
+@pytest.mark.integration
+def test_staging_renders_all_services_with_generated_credentials(tmp_path: Path) -> None:
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/build-core-services.yml").read_text(encoding="utf-8")
+    )
+    step = _step_with_id(_job_steps(workflow["jobs"]["prepare"]), "matrix")
+    distributions = tmp_path / "candidate-distributions"
+    distributions.mkdir()
+    # Rendering only copies wheels into the build context; it does not install them.
+    (distributions / "fixture.whl").touch()
+    scripts = tmp_path / "trusted-scripts"
+    scripts.mkdir()
+    shutil.copy(REPO_ROOT / "scripts/generated_image_matrix.py", scripts)
+    output = tmp_path / "output"
+    sha = "a" * 40
+    subprocess.run(
+        ["bash", "-c", step["run"]],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "GITHUB_WORKSPACE": str(REPO_ROOT),
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "CANDIDATE_SHA": sha,
+        },
+    )
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    targets = json.loads(values["targets"])
+    assert {target["service"] for target in targets} == {"dagster", "observatory", "phlo-api"}
+    assert all(target["image"].endswith(f"-development:{sha}") for target in targets)
+    assert values["has_targets"] == "true"
+
+
 def test_publication_workflow_publishes_attested_images_after_digest_scans() -> None:
     workflow = yaml.safe_load(
         (REPO_ROOT / ".github/workflows/build-core-services.yml").read_text(encoding="utf-8")
@@ -324,6 +362,9 @@ def test_publication_workflow_publishes_attested_images_after_digest_scans() -> 
 
     build_job = jobs["build"]
     build_steps = _job_steps(build_job)
+    assert _step_using(build_steps, "actions/checkout@")["with"]["ref"] == (
+        "${{ inputs.candidate_sha }}"
+    )
     build_step = _step_using(build_steps, "docker/build-push-action@")
     all_steps = [step for job in jobs.values() for step in _job_steps(job)]
     assert not any("setup-qemu-action" in str(step.get("uses", "")) for step in all_steps)

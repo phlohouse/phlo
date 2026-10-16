@@ -37,7 +37,7 @@ environments.
 | Main and beta | Authenticate and reuse full queue evidence. Run the full fallback only when evidence cannot be reused. |
 | Scheduled maintenance | Fresh dependency and upstream-image scans, mutation and extended reliability checks. Findings enter the normal remediation PR flow. |
 | Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
-| Release acceptance and promotion | Exercise the staged bytes on required platforms and repeated runs, then publish those bytes through an explicit manual dispatch. |
+| Release acceptance and promotion | Exercise staged bytes on required platforms and repeated runs, then publish through the authenticated promotion dispatch. Release merges coordinate these dispatches automatically. |
 
 `pr / required` collects combined coverage after both Python and service
 contracts finish, then records queue evidence. Coverage does not need its own
@@ -105,7 +105,13 @@ webhook or agent schedule is provisioned by this change.
 ## Artifact readiness and publication
 
 Ordinary main pushes are not release candidates. ReleaseX still proposes the
-version PR. After it merges, dispatch **Release Stage** with a full main SHA.
+version PR. After an in-repository `relx/release/` PR merges, **Release on merge**
+authenticates its exact merge SHA, waits for source health, and dispatches
+**Release Stage**, two **Release Artifact Acceptance** runs, and
+**Release Promotion** with `execute: true`. It uses only Actions write and
+read-only repository access. Existing successful or running producers are
+reused; failed attempts stop automation without restaging or blind retries.
+See [release publication and manual recovery](release-publication.md).
 Staging first requires a fresh release-mode dependency assessment and successful
 exact-SHA main source health, then reserves the candidate once. It builds package
 distributions once, reuses those wheels in native image builds, scans images,
@@ -115,18 +121,19 @@ attempt does not permit restaging that SHA.
 Dispatch **Release Artifact Acceptance** with the candidate SHA and staging run.
 Clean amd64 and arm64 hosts exercise staged artifacts, never source builds.
 Missing BOMs fail. Promotion authenticates every candidate acceptance attempt,
-including failures, and requires three qualifying runs. Runs may share a clean
+including failures, and requires three qualifying bundles. Two successful
+dispatches produce four bundles. Runs may share a clean
 host and UTC calendar day; there is no host-diversity or two-day waiting gate.
 
 **Release Promotion** defaults to a dry run. Set `execute: true` on a fresh
-manual dispatch to publish. GitHub authenticates the dispatch actor, and promotion
-verifies the live workflow run on protected `main`. The `release` environment
-does not require reviewers or prevent-self-review protection. Configure the
-existing `PYPI_API_TOKEN` publication credential separately. Promotion publishes
+dispatch to publish during manual recovery. The coordinator sets it automatically.
+GitHub authenticates the dispatch actor, and promotion verifies the live workflow
+run on protected `main`. The `pypi` environment and trusted publisher identity
+remain unchanged. Promotion rejects long-lived publication tokens and publishes
 the authorized staged bytes without rebuilding and reconciles published digests.
 Development images use a separate `-development:<SHA>` namespace.
-Only an explicit Release Stage dispatch builds and uploads these staging images.
-Ordinary main pushes cannot invoke the image publisher. PR, queue and main checks
+Only Release Stage dispatches build and upload these staging images.
+Ordinary non-release pushes cannot invoke the image publisher. PR, queue and main checks
 reuse installed-provider image builds for local scans by image ID, with no
 registry writes or duplicate builds.
 
