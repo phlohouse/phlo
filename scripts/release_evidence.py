@@ -22,6 +22,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+import release_candidate_bom
+
 EVIDENCE_SCHEMA = "phlo.release-candidate-evidence/v1"
 
 #: Every required runtime demonstration the golden-path runner must record
@@ -51,6 +53,17 @@ REQUIRED_DEMONSTRATIONS: tuple[tuple[str, str], ...] = (
     ("row_query_final", "Final row query"),
     ("support_boundary_consistency", "Support-boundary consistency"),
 )
+
+
+def required_demonstrations(qualification: str) -> tuple[tuple[str, str], ...]:
+    """Alpha artifacts do not certify a production deployment or upgrade path."""
+    production_only = {"production_preflight", "supported_upgrade", "upgrade_recovery"}
+    return tuple(
+        item
+        for item in REQUIRED_DEMONSTRATIONS
+        if qualification != "artifact" or item[0] not in production_only
+    )
+
 
 STATUS_PASSED = "passed"
 STATUS_FAILED = "failed"
@@ -261,7 +274,10 @@ def _validate_demonstrations(bundle: dict[str, object]) -> tuple[list[dict[str, 
 
 
 def _validate_conclusion(
-    bundle: dict[str, object], demonstrations: list[dict[str, object]], seen: set[str]
+    bundle: dict[str, object],
+    demonstrations: list[dict[str, object]],
+    seen: set[str],
+    qualification: str,
 ) -> None:
     conclusion = bundle.get("conclusion")
     if conclusion not in (CONCLUSION_PASSED, CONCLUSION_FAILED):
@@ -273,7 +289,9 @@ def _validate_conclusion(
             raise EvidenceError("failed bundle must carry a failure record")
         return
     missing = [
-        title for demonstration_id, title in REQUIRED_DEMONSTRATIONS if demonstration_id not in seen
+        title
+        for demonstration_id, title in required_demonstrations(qualification)
+        if demonstration_id not in seen
     ]
     if missing:
         raise EvidenceError(f"passed bundle is missing demonstrations: {missing!r}")
@@ -320,8 +338,13 @@ def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dic
         raise EvidenceError(f"bundle schema must be {EVIDENCE_SCHEMA!r}")
     candidate = _validate_candidate(bundle)
     _validate_checksum(bundle)
+    qualification = release_candidate_bom.qualification_profile(bom) if bom else "production"
+    if bundle.get("qualification", "production") != qualification:
+        raise EvidenceError(
+            "bundle qualification does not match the candidate's required qualification"
+        )
     demonstrations, seen = _validate_demonstrations(bundle)
-    _validate_conclusion(bundle, demonstrations, seen)
+    _validate_conclusion(bundle, demonstrations, seen, qualification)
     exercised = bundle.get("artifacts_exercised")
     if not isinstance(exercised, list):
         raise EvidenceError("bundle artifacts_exercised must be a list")
@@ -331,10 +354,10 @@ def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dic
 
 
 def _is_sanitized(value: object) -> bool:
-    """Return True when no dict key in the value carries a secret-shaped name."""
+    """Require secret-shaped fields to be empty or carry the canonical redaction."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if _SECRET_KEY_RE.search(str(key)) and item not in (None, "", [], {}):
+            if _SECRET_KEY_RE.search(str(key)) and item not in (None, "", [], {}, _REDACTED):
                 return False
             if not _is_sanitized(item):
                 return False

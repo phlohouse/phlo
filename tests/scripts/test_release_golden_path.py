@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import sys
+import zipfile
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -436,6 +437,32 @@ def test_wap_wait_requires_success_then_promotion_tag(tmp_path: Path, monkeypatc
     release_golden_path.wait_for_wap_promotion(
         config, release_golden_path.WapRun("logical", "dagster-1")
     )
+
+
+def test_report_token_is_scoped_to_the_actual_run_and_rotated(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.compose_file.parent.mkdir(parents=True)
+    config.compose_file.write_text("services: {}\n", encoding="utf-8")
+    env_path = config.project_dir / ".phlo" / ".env.local"
+    env_path.write_text("PHLO_PROJECT=test\nPHLO_AUTH_SERVICE_TOKENS={}\n", encoding="utf-8")
+    monkeypatch.setattr(release_golden_path, "run", lambda *args, **kwargs: None)
+
+    for run_id, token in (
+        ("rejected", config.rejection_report_token),
+        ("allowed", config.report_token),
+    ):
+        release_golden_path.configure_report_token(
+            config, release_golden_path.WapRun(run_id, "dagster-id"), token
+        )
+        environment = release_golden_path.parse_env_values(env_path)
+        assert environment["PHLO_PROJECT"] == "test"
+        tokens = json.loads(environment["PHLO_AUTH_SERVICE_TOKENS"])
+        assert list(tokens) == [token]
+        assert tokens[token]["attributes"] == {
+            "qa001_role": "report_reader",
+            "phlo.run_report_resource_id": f"project_id=phlo-qa001-test|run_id={run_id}|attempt=1",
+        }
+        assert env_path.read_text().count("PHLO_AUTH_SERVICE_TOKENS=") == 1
 
 
 def test_run_report_requires_the_wap_logical_run_id(tmp_path: Path, monkeypatch) -> None:
@@ -1283,6 +1310,67 @@ def test_verify_installed_versions_requires_exact_bom_versions(tmp_path: Path, m
         release_golden_path.verify_installed_versions(config)
 
 
+def test_candidate_installs_each_package_at_its_bom_version(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(wheelhouse=tmp_path / "distributions")
+    config.project_dir.mkdir()
+    config.wheelhouse.mkdir()
+    versions = {
+        "phlo": "0.14.0",
+        "phlo-api": "0.15.2",
+        "phlo-iceberg": "0.13.7",
+        "phlo-dbt": "0.17.0",
+        "phlo-dlt": "0.11.0",
+        "phlo-pandera": "0.16.1",
+        "phlo-dagster": "0.12.3",
+    }
+    artifacts = [{"kind": "source", "name": "phlohouse/phlo", "version": "0.14.0"}]
+    for name, version in [*versions.items(), ("release-test-dependency", "1.2.3")]:
+        normalized = name.replace("-", "_")
+        info = f"{normalized}-{version}.dist-info"
+        wheel = config.wheelhouse / f"{normalized}-{version}-py3-none-any.whl"
+        with zipfile.ZipFile(wheel, "w") as archive:
+            archive.writestr(
+                f"{info}/METADATA",
+                f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+                + (
+                    "Requires-Dist: release-test-dependency==1.2.3\n"
+                    if name == "phlo-dagster"
+                    else ""
+                ),
+            )
+            archive.writestr(
+                f"{info}/WHEEL",
+                "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+            )
+            archive.writestr(f"{info}/RECORD", "")
+        if name in versions:
+            artifacts.append(
+                {
+                    "kind": "wheel",
+                    "name": name,
+                    "version": version,
+                    "digest": release_golden_path.bom_module.file_sha256(wheel),
+                }
+            )
+    config.__dict__.update(bom={"artifacts": artifacts}, staging_dir=tmp_path)
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+
+    result, _ = release_golden_path.install_operator_from_bom(config)
+    assert result["installed_versions"] == versions
+    release_golden_path.run(
+        ["uv", "pip", "check", "--python", str(config.operator_python)], cwd=tmp_path
+    )
+    release_golden_path.install_project_dependencies_from_bom(config)
+    installed = release_golden_path.run(
+        ["uv", "pip", "freeze", "--python", str(config.project_python)],
+        cwd=config.project_dir,
+        capture_output=True,
+    ).stdout.splitlines()
+    assert set(installed) == {"phlo-dbt==0.17.0", "phlo-dlt==0.11.0", "phlo-pandera==0.16.1"}
+
+
 def test_negative_security_requires_an_authorization_denial(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
     monkeypatch.setattr(release_golden_path, "ops_environment", lambda cfg, **_: {})
@@ -1361,6 +1449,7 @@ def test_ops_environment_resolves_dynamic_ports_and_journal_dir(
 
     assert environment["NESSIE_PORT"] == "31999"
     assert environment["POSTGRES_PORT"] == "31000"
+    assert environment["ICEBERG_S3_ENDPOINT"] == "http://127.0.0.1:31000"
     assert environment["PHLO_OPERATIONS_JOURNAL_DIR"] == str(
         config.project_dir / ".phlo" / "operations-journal"
     )

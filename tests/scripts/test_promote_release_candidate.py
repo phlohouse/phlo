@@ -1391,6 +1391,8 @@ def test_dispatch_authorization_is_bound_to_authenticated_publication_plan(
     monkeypatch.setattr(provenance, "api", lambda path: responses[path])
 
     def artifacts(path, key):
+        if path == f"repos/{provenance.REPOSITORY}/commits/{COMMIT}/pulls":
+            return []
         assert path == f"repos/{provenance.REPOSITORY}/actions/runs/10/artifacts"
         assert key == "artifacts"
         return [

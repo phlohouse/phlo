@@ -83,20 +83,12 @@ class TestCatalogOperations:
         # Mock namespaces (PyIceberg returns list of tuples)
         mock_catalog.list_namespaces.return_value = [("raw",), ("bronze",)]
 
-        # Mock tables in namespaces
-        mock_table1 = MagicMock()
-        mock_table1.__str__ = MagicMock(return_value="raw.entries")
-        mock_table2 = MagicMock()
-        mock_table2.__str__ = MagicMock(return_value="raw.treatments")
-        mock_table3 = MagicMock()
-        mock_table3.__str__ = MagicMock(return_value="bronze.entries")
-
         def mock_list_tables(namespace):
-            """Return mocked table objects for the provided namespace."""
+            """Return PyIceberg's tuple identifiers for the provided namespace."""
             if namespace == "raw":
-                return [mock_table1, mock_table2]
+                return [("raw", "entries"), ("raw", "treatments")]
             elif namespace == "bronze":
-                return [mock_table3]
+                return [("bronze", "entries")]
             else:
                 return []
 

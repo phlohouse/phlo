@@ -66,6 +66,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      pull-requests: read
       packages: write
       id-token: write
     steps:
