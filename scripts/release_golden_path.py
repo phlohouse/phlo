@@ -782,6 +782,40 @@ def wait_for_wap_promotion(config: RunConfig, wap_run: WapRun) -> None:
     raise TimeoutError(f"WAP run was not promoted: {wap_run.dagster_run_id}")
 
 
+def configure_report_token(config: RunConfig, wap_run: WapRun, token: str) -> None:
+    """Register a reader scoped to the actual CLI-created run, then reload the API."""
+    tokens = {
+        token: {
+            "subject": "release-golden-path-report-reader",
+            "attributes": {
+                "qa001_role": "report_reader",
+                "phlo.run_report_resource_id": (
+                    f"project_id={config.project_name}|run_id={wap_run.logical_run_id}|attempt=1"
+                ),
+            },
+        }
+    }
+    env_local = env_secrets_path(config.project_dir / ".phlo")
+    lines = env_local.read_text(encoding="utf-8").splitlines()
+    lines = [line for line in lines if not line.startswith("PHLO_AUTH_SERVICE_TOKENS=")]
+    lines.append(f"PHLO_AUTH_SERVICE_TOKENS={json.dumps(tokens)}")
+    env_local.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    run(
+        compose_command(
+            config,
+            "up",
+            "--wait",
+            "--wait-timeout",
+            "60",
+            "--no-build",
+            "--no-deps",
+            "--force-recreate",
+            "phlo-api",
+        ),
+        cwd=config.project_dir,
+    )
+
+
 def fetch_run_report(config: RunConfig, wap_run: WapRun, token: str) -> dict[str, object]:
     """Read one exact run report, waiting for its durable projection."""
     url = service_url(
@@ -1435,12 +1469,14 @@ def compose_service_port(config: RunConfig, service: str, container_port: int) -
 def ops_environment(config: RunConfig, *, authorized: bool = False) -> dict[str, str]:
     """Build the operator environment for guarded operations against the stack."""
     environment = dict(os.environ)
+    environment["PHLO_REGULATED"] = "true"
     environment.pop("PHLO_SERVICE_ACCOUNT", None)
     environment.pop("PHLO_AUTH_SUBJECT", None)
     if authorized:
         environment["PHLO_SERVICE_ACCOUNT"] = OPERATOR_SERVICE_ACCOUNT
     for service, container_port, variable in COMPOSE_PORT_PROBES:
         environment[variable] = compose_service_port(config, service, container_port)
+    environment["ICEBERG_S3_ENDPOINT"] = f"http://127.0.0.1:{environment['MINIO_API_PORT']}"
     values: dict[str, str] = {}
     for path in project_env_paths(config.project_dir / ".phlo"):
         values.update(parse_env_values(path))
@@ -1472,12 +1508,18 @@ def run_operations(
     environment: dict[str, str],
 ) -> dict[str, object]:
     """Run one operations CLI command and parse its JSON envelope."""
-    result = run(
-        command(str(config.operator_bin), "operations", *args),
-        cwd=config.project_dir,
-        env=environment,
-        capture_output=True,
-    )
+    try:
+        result = run(
+            command(str(config.operator_bin), "operations", *args),
+            cwd=config.project_dir,
+            env=environment,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise CandidateError(
+            f"operations {' '.join(args[:2])} failed (exit {exc.returncode}): "
+            f"{exc.stdout!r} {exc.stderr!r}"
+        ) from exc
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -1493,6 +1535,9 @@ def run_operations(
 def negative_security(config: RunConfig) -> dict[str, object]:
     """Require an unauthenticated operations mutation to be refused."""
     environment = ops_environment(config, authorized=False)
+    plan = config.project_dir / ".phlo" / "unauthorized-plan.json"
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    plan.write_text("{}\n", encoding="utf-8")
     result = subprocess.run(
         command(
             str(config.operator_bin),
@@ -1500,7 +1545,7 @@ def negative_security(config: RunConfig) -> dict[str, object]:
             "maintenance",
             "apply",
             "--plan",
-            str(config.project_dir / ".phlo" / "no-such-plan.json"),
+            str(plan),
             "--confirmation-token",
             "not-a-token",
         ),
@@ -1526,6 +1571,30 @@ def negative_security(config: RunConfig) -> dict[str, object]:
 
 def run_plan_first_maintenance(config: RunConfig) -> dict[str, object]:
     """Prove inventory, mutation-free planning, and a token-bound maintenance apply."""
+    environment = ops_environment(config, authorized=True)
+    # Container writers have finished. Advertise the host endpoint to the
+    # remaining operator clients without changing Nessie's internal S3 endpoint.
+    layer_path = config.project_dir / ".phlo" / "compose.candidate.json"
+    layer = json.loads(layer_path.read_text(encoding="utf-8"))
+    layer["services"]["nessie"]["environment"] = {
+        "nessie.catalog.service.s3.default-options.external-endpoint": environment[
+            "ICEBERG_S3_ENDPOINT"
+        ]
+    }
+    layer_path.write_text(json.dumps(layer, indent=2) + "\n", encoding="utf-8")
+    # Regulated backup commands reject development override files. Freeze this
+    # owned stack's effective configuration, including its image digests, as base.
+    effective = compose_config_json(config)
+    config.compose_file.write_text(json.dumps(effective, indent=2) + "\n", encoding="utf-8")
+    for override in project_compose_layers(config.project_dir / ".phlo")[1:]:
+        override.unlink(missing_ok=True)
+    layer_path.unlink()
+    run(
+        compose_command(
+            config, "up", "--wait", "--wait-timeout", "60", "--no-build", "--no-deps", "nessie"
+        ),
+        cwd=config.project_dir,
+    )
     environment = ops_environment(config, authorized=True)
     inventory = run_operations(
         config, "maintenance", "inventory", "--format", "json", environment=environment
@@ -1761,6 +1830,7 @@ class _CandidateJourney:
             "canonical_candidate_digest": bom["canonical_candidate_digest"],
             "artifact_count": len(bom["artifacts"]),
         }
+        self.bundle["qualification"] = bom_module.qualification_profile(bom)
         self.bundle["checksum"] = {
             "algorithm": "sha256",
             "value": release_evidence.bundle_checksum(self.bundle),
@@ -1818,6 +1888,7 @@ class _CandidateJourney:
         directive.write_text('{"reject_next_run": true}\n', encoding="utf-8")
         try:
             wap_run = materialize_wap(self.config)
+            configure_report_token(self.config, wap_run, self.config.rejection_report_token)
             verify_rejected_wap_report(self.config, wap_run)
         finally:
             directive.unlink(missing_ok=True)
@@ -1831,7 +1902,8 @@ class _CandidateJourney:
     def prove_run_report(self) -> _StepOutput:
         wap_run = self.promoted_wap_run
         assert isinstance(wap_run, WapRun)
-        fetch_run_report(self.config, wap_run, self.config.report_token)
+        configure_report_token(self.config, wap_run, self.config.report_token)
+        verify_run_report(self.config, wap_run)
         return {"logical_run_id": wap_run.logical_run_id, "scope_mismatch_denied": True}, []
 
     def create_backup(self) -> _StepOutput:
@@ -1861,7 +1933,7 @@ class _CandidateJourney:
     def steps(self) -> list[tuple[str, str, Callable[[], _StepOutput]]]:
         """Return every demonstration in the order the evidence bundle records it."""
         config = self.config
-        return [
+        steps = [
             ("candidate_bom_verification", "Candidate BOM verification", self.bind_candidate),
             (
                 "operator_installation",
@@ -1934,6 +2006,9 @@ class _CandidateJourney:
                 lambda: (verify_support_boundary(config), []),
             ),
         ]
+        qualification = bom_module.qualification_profile(bom_module.load_bom(self.bom_path))
+        required = dict(release_evidence.required_demonstrations(qualification))
+        return [step for step in steps if step[0] in required]
 
 
 def _candidate_bundle() -> dict[str, object]:

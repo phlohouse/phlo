@@ -4,6 +4,7 @@ Pins sanitization, canonical checksumming, BOM binding, required runtime
 demonstrations, and the failure-path invariants promotion gating consumes.
 """
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 _spec = importlib.util.spec_from_file_location(
     "release_evidence", REPO_ROOT / "scripts" / "release_evidence.py"
 )
@@ -62,6 +64,46 @@ def test_completed_bundle_is_valid_and_bom_bound() -> None:
     bundle = _completed_bundle()
     assert release_evidence.validate_bundle(bundle, _bom()) is bundle
     assert bundle["conclusion"] == release_evidence.CONCLUSION_PASSED
+
+
+def test_alpha_evidence_cannot_qualify_a_production_release() -> None:
+    bom = _bom()
+    manifest = json.dumps({"current_release": {"maturity": "alpha", "production_ready": False}})
+    bom["support_manifest"] = manifest
+    bom["artifacts"].append(
+        {"kind": "support-manifest", "digest": hashlib.sha256(manifest.encode()).hexdigest()}
+    )
+    bundle = _completed_bundle()
+    bundle["qualification"] = "artifact"
+    bundle["demonstrations"] = [
+        entry
+        for entry in bundle["demonstrations"]
+        if entry["id"] not in {"production_preflight", "supported_upgrade", "upgrade_recovery"}
+    ]
+    release_evidence.finalize_bundle(bundle)
+    assert release_evidence.validate_bundle(bundle, bom) is bundle
+
+    incomplete = {
+        **bundle,
+        "demonstrations": [
+            entry for entry in bundle["demonstrations"] if entry["id"] != "backup_verification"
+        ],
+    }
+    release_evidence.finalize_bundle(incomplete)
+    with pytest.raises(release_evidence.EvidenceError, match="Independent backup verification"):
+        release_evidence.validate_bundle(incomplete, bom)
+
+    with pytest.raises(release_evidence.EvidenceError, match="qualification"):
+        release_evidence.validate_bundle(bundle, _bom())
+    production = json.dumps({"current_release": {"maturity": "alpha", "production_ready": True}})
+    bom["support_manifest"] = production
+    bom["artifacts"][-1]["digest"] = hashlib.sha256(production.encode()).hexdigest()
+    with pytest.raises(release_evidence.EvidenceError, match="qualification"):
+        release_evidence.validate_bundle(bundle, bom)
+    bom["artifacts"][-1]["digest"] = hashlib.sha256(manifest.encode()).hexdigest()
+    bom["support_manifest"] = manifest.replace('"alpha"', '"stable"')
+    with pytest.raises(ValueError, match="manifest"):
+        release_evidence.validate_bundle(bundle, bom)
 
 
 def test_repeated_demonstrations_keep_unique_artifact_objects() -> None:

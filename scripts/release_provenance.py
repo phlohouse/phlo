@@ -158,8 +158,42 @@ def collect(sha: str, stage_run: int, output: Path, *, evidence: bool) -> None:
             download(run, workflow, sha, title, names, output / "evidence")
 
 
+def merged_release_pr(sha: str) -> dict | None:
+    """Find the exact protected-main ReleaseX merge, never a similarly named branch."""
+    matches = [
+        pr
+        for pr in pages(f"repos/{REPOSITORY}/commits/{sha}/pulls", "")
+        if pr.get("merged_at")
+        and pr.get("merge_commit_sha") == sha
+        and pr.get("base", {}).get("ref") == "main"
+        and pr.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY
+        and pr.get("head", {}).get("repo", {}).get("full_name") == REPOSITORY
+        and pr.get("head", {}).get("ref") == "relx/release/monorepo/main-release-set"
+        and pr.get("title", "").startswith("chore(release): phlo ")
+    ]
+    if len(matches) > 1:
+        raise ValueError("ambiguous release PR association")
+    return matches[0] if matches else None
+
+
+def publication_authority(sha: str) -> tuple[str, str]:
+    """The release PR merge authorizes automation; manual recovery requires a human."""
+    run = live_dispatch()
+    pr = merged_release_pr(sha)
+    if pr is not None:
+        details = api(f"repos/{REPOSITORY}/pulls/{pr['number']}")
+        merger = details.get("merged_by", {})
+        if details.get("merge_commit_sha") != sha or merger.get("type") != "User":
+            raise ValueError("release must have a recorded human merge authorization")
+        return merger["login"], f"https://github.com/{REPOSITORY}/pull/{pr['number']}"
+    actor = run["actor"]
+    if actor.get("type", "User") != "User" or actor["login"].endswith("[bot]"):
+        raise ValueError("automation may publish only an authenticated ReleaseX merge")
+    return actor["login"], f"https://github.com/{REPOSITORY}/actions/runs/{run['id']}"
+
+
 def live_dispatch() -> dict:
-    """Authenticate the current manual promotion dispatch on protected main."""
+    """Authenticate the current promotion dispatch on protected main."""
     if (
         os.environ.get("GITHUB_REPOSITORY") != REPOSITORY
         or os.environ.get("GITHUB_REF") != "refs/heads/main"
@@ -187,17 +221,13 @@ def live_dispatch() -> dict:
 
 def verify_live_authorization(record: dict) -> None:
     """A hand-written JSON record can never authorise --execute."""
-    run = live_dispatch()
-    reference = f"https://github.com/{REPOSITORY}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-    if (
-        record.get("release_owner") != run["actor"]["login"]
-        or record.get("approval_reference") != reference
-    ):
-        raise ValueError("authorization is not this run's manual dispatch")
+    owner, reference = publication_authority(record["candidate"]["release_commit"])
+    if record.get("release_owner") != owner or record.get("approval_reference") != reference:
+        raise ValueError("authorization does not match the release merge or manual dispatch")
 
 
 def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
-    """Bind the live manual dispatch to the authenticated BOM and evidence plan."""
+    """Bind the release owner's approval to the authenticated BOM and evidence plan."""
     import promote_release_candidate as promotion
 
     run = live_dispatch()
@@ -226,13 +256,14 @@ def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
         or plan["evidence"]["bundle_checksums"] != sorted(qualification.checksums)
     ):
         raise ValueError("Candidate or evidence changed after the publication plan; dispatch again")
+    owner, reference = publication_authority(bom["release_commit"])
     record = {
         "schema": promotion.AUTHORIZATION_SCHEMA,
         "authorized": True,
         "candidate": {key: bom[key] for key in ("release_commit", "canonical_candidate_digest")},
-        "release_owner": run["actor"]["login"],
+        "release_owner": owner,
         "target_channel": "pypi+ghcr+github-releases",
-        "approval_reference": f"https://github.com/{REPOSITORY}/actions/runs/{run_id}",
+        "approval_reference": reference,
         "authorized_utc": promotion.format_utc(promotion.utc_now()),
         "evidence_bundle_checksums": sorted(qualification.checksums),
     }

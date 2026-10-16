@@ -619,6 +619,28 @@ def _validate_unique_images(artifacts: list[dict[str, object]]) -> None:
         raise BomError("BOM contains duplicate image artifacts")
 
 
+def qualification_profile(bom: dict[str, object]) -> str:
+    """Select qualification from the digest-bound manifest; legacy BOMs stay strict."""
+    manifest = bom.get("support_manifest")
+    if manifest is None:
+        return "production"
+    expected = [
+        artifact["digest"]
+        for artifact in bom["artifacts"]
+        if artifact["kind"] == KIND_SUPPORT_MANIFEST
+    ]
+    if (
+        not isinstance(manifest, str)
+        or len(expected) != 1
+        or hashlib.sha256(manifest.encode("utf-8")).hexdigest() != expected[0]
+    ):
+        raise BomError("qualification manifest does not match the BOM support-manifest digest")
+    release = json.loads(manifest)["current_release"]
+    if release.get("maturity") in ("alpha", "beta") and release.get("production_ready") is False:
+        return "artifact"
+    return "production"
+
+
 def validate_bom(bom: object) -> dict[str, object]:
     """Enforce every structural and identity invariant on a BOM document."""
     if not isinstance(bom, dict):
@@ -643,6 +665,7 @@ def validate_bom(bom: object) -> dict[str, object]:
             "BOM canonical_candidate_digest does not match its artifact digests "
             f"(expected {recomputed}, got {bom.get('canonical_candidate_digest')!r})"
         )
+    qualification_profile(bom)
     return bom
 
 
@@ -739,6 +762,8 @@ def stage(
         f"{release_ref}^{{commit}}" if release_ref else "HEAD",
     )
     bom = make_bom(artifacts, commit, release_ref or commit)
+    bom["support_manifest"] = tree.read(SUPPORT_MANIFEST_PATH).decode("utf-8")
+    validate_bom(bom)
     verify_staged_distributions(bom, output_dir)
     rendered = json.dumps(bom, indent=2, sort_keys=True) + "\n"
     bom_path.write_text(rendered, encoding="utf-8")

@@ -439,6 +439,32 @@ def test_wap_wait_requires_success_then_promotion_tag(tmp_path: Path, monkeypatc
     )
 
 
+def test_report_token_is_scoped_to_the_actual_run_and_rotated(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.compose_file.parent.mkdir(parents=True)
+    config.compose_file.write_text("services: {}\n", encoding="utf-8")
+    env_path = config.project_dir / ".phlo" / ".env.local"
+    env_path.write_text("PHLO_PROJECT=test\nPHLO_AUTH_SERVICE_TOKENS={}\n", encoding="utf-8")
+    monkeypatch.setattr(release_golden_path, "run", lambda *args, **kwargs: None)
+
+    for run_id, token in (
+        ("rejected", config.rejection_report_token),
+        ("allowed", config.report_token),
+    ):
+        release_golden_path.configure_report_token(
+            config, release_golden_path.WapRun(run_id, "dagster-id"), token
+        )
+        environment = release_golden_path.parse_env_values(env_path)
+        assert environment["PHLO_PROJECT"] == "test"
+        tokens = json.loads(environment["PHLO_AUTH_SERVICE_TOKENS"])
+        assert list(tokens) == [token]
+        assert tokens[token]["attributes"] == {
+            "qa001_role": "report_reader",
+            "phlo.run_report_resource_id": f"project_id=phlo-qa001-test|run_id={run_id}|attempt=1",
+        }
+        assert env_path.read_text().count("PHLO_AUTH_SERVICE_TOKENS=") == 1
+
+
 def test_run_report_requires_the_wap_logical_run_id(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
     monkeypatch.setattr(
@@ -1423,6 +1449,7 @@ def test_ops_environment_resolves_dynamic_ports_and_journal_dir(
 
     assert environment["NESSIE_PORT"] == "31999"
     assert environment["POSTGRES_PORT"] == "31000"
+    assert environment["ICEBERG_S3_ENDPOINT"] == "http://127.0.0.1:31000"
     assert environment["PHLO_OPERATIONS_JOURNAL_DIR"] == str(
         config.project_dir / ".phlo" / "operations-journal"
     )

@@ -26,14 +26,15 @@ STAGE_WORKFLOW = {"id": 1, "path": provenance.STAGE}
 ACCEPTANCE_WORKFLOW = {"id": 2, "path": provenance.ACCEPTANCE}
 
 
-@pytest.mark.parametrize("change", [None, "foreign", "ordinary", "unmerged", "wrong_sha"])
+@pytest.mark.parametrize("change", [None, "foreign", "ordinary", "unmerged", "wrong_sha", "prefix"])
 def test_coordinator_only_accepts_exact_release_merge(monkeypatch, change) -> None:
     repo = {"full_name": provenance.REPOSITORY}
     pr = {
         "merged_at": "2026-10-01T00:00:00Z",
         "merge_commit_sha": SHA,
+        "title": "chore(release): phlo 0.18.0 + 38 packages",
         "base": {"ref": "main", "repo": repo},
-        "head": {"ref": "relx/release/main", "repo": repo},
+        "head": {"ref": "relx/release/monorepo/main-release-set", "repo": repo},
     }
     if change == "foreign":
         pr["head"]["repo"] = {"full_name": "attacker/phlo"}
@@ -43,8 +44,44 @@ def test_coordinator_only_accepts_exact_release_merge(monkeypatch, change) -> No
         pr["merged_at"] = None
     elif change == "wrong_sha":
         pr["merge_commit_sha"] = WORKFLOW_SHA
+    elif change == "prefix":
+        pr["head"]["ref"] = "relx/release/unrelated"
     monkeypatch.setattr(provenance, "pages", lambda *_: [pr])
     assert merge.release_merge(SHA) is (change is None)
+
+
+def test_merge_authorizes_automated_publication_but_an_ordinary_merge_does_not(monkeypatch) -> None:
+    monkeypatch.setattr(
+        provenance,
+        "live_dispatch",
+        lambda: {"id": 10, "actor": {"login": "github-actions[bot]", "type": "Bot"}},
+    )
+    repo = {"full_name": provenance.REPOSITORY}
+    pr = {
+        "number": 970,
+        "merged_at": "2026-10-01T00:00:00Z",
+        "merge_commit_sha": SHA,
+        "title": "chore(release): phlo 0.18.0 + 38 packages",
+        "base": {"ref": "main", "repo": repo},
+        "head": {"ref": "relx/release/monorepo/main-release-set", "repo": repo},
+    }
+    monkeypatch.setattr(provenance, "pages", lambda *_: [pr])
+    monkeypatch.setattr(
+        provenance,
+        "api",
+        lambda _: {**pr, "merged_by": {"login": "release-owner", "type": "User"}},
+    )
+    record = {
+        "candidate": {"release_commit": SHA},
+        "release_owner": "release-owner",
+        "approval_reference": "https://github.com/phlohouse/phlo/pull/970",
+    }
+    provenance.verify_live_authorization(record)
+    with pytest.raises(ValueError, match="authorization"):
+        provenance.verify_live_authorization({**record, "release_owner": "github-actions[bot]"})
+    pr["head"]["ref"] = "feature/ordinary"
+    with pytest.raises(ValueError, match="ReleaseX merge"):
+        provenance.verify_live_authorization(record)
 
 
 @pytest.mark.parametrize(
