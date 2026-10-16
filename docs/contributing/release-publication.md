@@ -64,8 +64,9 @@ release evidence.
    Staging builds distributions once and records their hashes and image digests
    in `bom.json`. `build-core-services.yml` produces development images only.
 3. Run the existing candidate acceptance workflow against that staging run.
-   Collect at least three complete successful runs on three distinct clean hosts
-   across at least two UTC days. The newest run must be at most seven days old.
+   Collect at least three complete successful runs on clean hosts. They may
+   execute on the same host on the same UTC day. The newest run must be at most
+   seven days old.
 4. Dispatch `release-promotion.yml` with that `candidate_sha` and `stage_run`,
    leaving `execute=false`. Review the dry-run receipt and all acceptance attempts.
 5. After release-owner approval, dispatch the same candidate with `execute=true`.

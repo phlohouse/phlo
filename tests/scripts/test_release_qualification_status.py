@@ -147,10 +147,10 @@ class TestReportStatus:
         assert report.gaps == []
         assert all(v.status == status.STATUS_QUALIFYING for v in report.verdicts)
 
-    def test_empty_set_reports_missing_runs_hosts_days(self) -> None:
+    def test_empty_set_reports_missing_runs(self) -> None:
         report = status.report_status([], _bom(), now_utc=NOW)
         assert not report.qualified
-        assert len(report.gaps) == 3
+        assert report.gaps == ["0 of 3 required qualifying runs"]
 
     def test_failed_bundle_is_rejected_but_others_evaluate(self) -> None:
         bom = _bom()
@@ -177,26 +177,13 @@ class TestReportStatus:
         report = status.report_status([stray], bom, now_utc=NOW)
         assert report.verdicts[0].reason == "wrong_candidate"
 
-    def test_same_day_runs_report_day_gap(self) -> None:
+    def test_same_host_same_day_runs_qualify(self) -> None:
         bom = _bom()
-        bundles = [
-            _day_bundle(bom, f"clean-host-{c}", 10, h) for c, h in (("a", 8), ("b", 12), ("c", 20))
-        ]
+        bundles = [_day_bundle(bom, "clean-host-a", 10, hour) for hour in (8, 12, 20)]
         report = status.report_status(bundles, bom, now_utc=NOW)
-        assert not report.qualified
-        assert any("distinct UTC days" in gap for gap in report.gaps)
-        assert not any("distinct hosts" in gap for gap in report.gaps)
-
-    def test_two_hosts_report_host_gap(self) -> None:
-        bom = _bom()
-        bundles = [
-            _day_bundle(bom, "clean-host-a", 10),
-            _day_bundle(bom, "clean-host-b", 10, 18),
-            _day_bundle(bom, "clean-host-a", 11),
-        ]
-        report = status.report_status(bundles, bom, now_utc=NOW)
-        assert not report.qualified
-        assert any("2 of 3 required distinct hosts" in gap for gap in report.gaps)
+        assert report.qualified
+        assert report.gaps == []
+        assert len(report.qualifying) == 3
 
     def test_duplicate_checksum_rejected(self) -> None:
         bom = _bom()
@@ -303,7 +290,10 @@ class TestCli:
         assert code == 1
         assert document["qualified"] is False
         assert document["bundles"][0]["status"] == "qualifying"
-        assert document["thresholds"]["min_qualifying_runs"] == 3
+        assert document["thresholds"] == {
+            "min_qualifying_runs": 3,
+            "max_evidence_age_days": 7,
+        }
         assert any("qualifying runs" in gap for gap in document["gaps"])
 
     def test_main_missing_bom_is_usage_error(

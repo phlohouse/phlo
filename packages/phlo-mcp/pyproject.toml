@@ -10,7 +10,7 @@ dependencies = [
     "phlo>=0.17.0,<0.18",
     "phlo-api>=0.1.0",
     "httpx>=0.28.1",
-    "mcp[cli]>=1.28.1",
+    "mcp[cli]>=1.30.0",
     "python-multipart>=0.0.31",
 ]
 description = "MCP server for Phlo observability and lakehouse operations"
