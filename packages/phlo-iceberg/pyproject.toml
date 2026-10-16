@@ -7,7 +7,7 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.18.0,<0.19",
+    "phlo>=0.19.0,<0.20",
     "pandera[pandas]>=0.26.1",
     "pyarrow>=26.0.0,<27",
     "pyiceberg[s3fs]>=0.11.0,<0.12",
@@ -15,7 +15,7 @@ dependencies = [
 description = "Iceberg table-store capability plugin for Phlo"
 name = "phlo-iceberg"
 requires-python = ">=3.12"
-version = "0.17.0"
+version = "0.18.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
