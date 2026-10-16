@@ -91,7 +91,7 @@ license = "AGPL-3.0-or-later"
 name = "phlo"
 readme = "README.md"
 requires-python = ">=3.12"
-version = "0.17.0"
+version = "0.18.0"
 
 [project.entry-points."phlo.plugins.quality"]
 
@@ -156,17 +156,113 @@ include = [
 ]
 packages = ["src/phlo"]
 
+[tool.importlinter]
+exclude_type_checking_imports = false
+root_packages = [
+    "phlo",
+    "phlo_iceberg",
+    "phlo_dagster",
+]
+
+[[tool.importlinter.contracts]]
+ancestors = [
+    "phlo.*",
+    "phlo_iceberg",
+    "phlo_dagster",
+]
+name = "Subpackages and providers have no import cycles"
+type = "acyclic_siblings"
+
+[[tool.importlinter.contracts]]
+forbidden_modules = [
+    "phlo.plugins",
+    "phlo.helpers",
+    "phlo.infrastructure",
+    "phlo.application",
+    "phlo.cli",
+    "phlo.logging",
+]
+name = "Capability definitions do not depend on application composition"
+source_modules = ["phlo.capabilities.*"]
+type = "forbidden"
+
+[[tool.importlinter.contracts]]
+as_packages = false
+forbidden_modules = [
+    "phlo",
+    "phlo.capabilities",
+    "phlo.helpers",
+]
+name = "Core never imports public aggregators inward"
+source_modules = ["phlo.**"]
+type = "forbidden"
+
+[[tool.importlinter.contracts]]
+forbidden_modules = ["phlo.cli"]
+name = "CLI is an outer layer"
+source_modules = [
+    "phlo.application",
+    "phlo.capabilities",
+    "phlo.helpers",
+    "phlo.infrastructure",
+    "phlo.plugins",
+    "phlo.security",
+    "phlo.config",
+    "phlo.hooks",
+    "phlo.operations",
+    "phlo.migrations",
+    "phlo.run_evidence",
+    "phlo.logging",
+    "phlo.telemetry",
+]
+type = "forbidden"
+
+[[tool.importlinter.contracts]]
+layers = [
+    "phlo.__main__ : phlo.cli",
+    "phlo.application : phlo.infrastructure : phlo.helpers : phlo.plugins : phlo.logging",
+    "phlo.capabilities.resolver : phlo.capabilities.authentication : phlo.capabilities.authorization : phlo.capabilities.authorization_opa : phlo.capabilities.maintenance : phlo.capabilities.telemetry : phlo.capabilities.external_refs : phlo.capabilities.table_store",
+    "phlo.capabilities.registry",
+    "phlo.capabilities.specs",
+    "phlo.capabilities.interfaces : phlo.capabilities.runtime : phlo.capabilities.support : phlo.capabilities.settings : phlo.capabilities.continuity : phlo.capabilities.history : phlo.capabilities.inventory : phlo.capabilities.workflow_wizard : phlo.capabilities.catalog : phlo.migrations.specs : phlo.run_evidence.contracts : phlo.security.adapters : phlo.security.readiness : phlo.dataset : phlo.hooks.events : phlo.contracts : phlo.run_evidence.reconciliation : phlo.run_evidence.models : phlo.run_evidence.redaction : phlo.run_evidence.stored",
+    "phlo.config : phlo.config_schema : phlo.exceptions : phlo.logging_context : phlo._attempt : phlo._correlation",
+]
+name = "Application capability and domain layering"
+type = "layers"
+
+[[tool.importlinter.contracts]]
+containers = ["phlo.rbac"]
+layers = [
+    "sync",
+    "registry",
+    "compilers",
+    "compiler",
+    "config",
+    "models",
+]
+name = "RBAC layering"
+type = "layers"
+
+[tool.mutmut]
+also_copy = ["conftest.py"]
+only_mutate = [
+    "src/phlo/security/mode.py",
+    "src/phlo/quality_rules.py",
+    "src/phlo/config/project.py",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/security/test_mode.py",
+    "tests/plugins/test_provider_neutral_quality_api.py",
+    "tests/cli/test_cli_services_utils.py",
+]
+source_paths = ["src/"]
+
 [tool.pytest.ini_options]
 addopts = "--ignore=src --continue-on-collection-errors --import-mode=importlib --strict-markers -m 'not integration'"
 filterwarnings = [
     "error",
-    # Legacy test helpers intentionally exercise the deprecated transformation SDK.
     "ignore:TransformationPlugin is deprecated and will be removed:DeprecationWarning",
-    # This warning comes from the installed Pydantic version, not project code.
     "ignore:Using `@model_validator` with mode='after' on a classmethod is deprecated:DeprecationWarning",
-    # Starlette's httpx fallback warns at its caller (stacklevel=2), which varies by test.
-    # Its warning inherits UserWarning; the built-in category avoids importing Starlette
-    # in isolated Windows tests, which do not install it.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
 ]
 markers = [
@@ -185,20 +281,6 @@ testpaths = [
     "tests",
     "packages/*/tests",
 ]
-
-[tool.mutmut]
-source_paths = ["src/"]
-only_mutate = [
-    "src/phlo/security/mode.py",
-    "src/phlo/quality_rules.py",
-    "src/phlo/config/project.py",
-]
-pytest_add_cli_args_test_selection = [
-    "tests/security/test_mode.py",
-    "tests/plugins/test_provider_neutral_quality_api.py",
-    "tests/cli/test_cli_services_utils.py",
-]
-also_copy = ["conftest.py"]
 
 [tool.ruff]
 line-length = 100
@@ -225,57 +307,8 @@ select = [
 max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["C901"]
 "packages/*/tests/**" = ["C901"]
-
-[tool.importlinter]
-root_packages = ["phlo", "phlo_iceberg", "phlo_dagster"]
-exclude_type_checking_imports = false
-
-# Public package facades re-export outward. Defining modules import only
-# defining modules; scripts/check_imports.py also checks the complete AST DAG.
-[[tool.importlinter.contracts]]
-name = "Subpackages and providers have no import cycles"
-type = "acyclic_siblings"
-ancestors = ["phlo.*", "phlo_iceberg", "phlo_dagster"]
-
-[[tool.importlinter.contracts]]
-name = "Capability definitions do not depend on application composition"
-type = "forbidden"
-source_modules = ["phlo.capabilities.*"]
-forbidden_modules = ["phlo.plugins", "phlo.helpers", "phlo.infrastructure", "phlo.application", "phlo.cli", "phlo.logging"]
-
-[[tool.importlinter.contracts]]
-name = "Core never imports public aggregators inward"
-type = "forbidden"
-source_modules = ["phlo.**"]
-forbidden_modules = ["phlo", "phlo.capabilities", "phlo.helpers"]
-as_packages = false
-
-[[tool.importlinter.contracts]]
-name = "CLI is an outer layer"
-type = "forbidden"
-source_modules = ["phlo.application", "phlo.capabilities", "phlo.helpers", "phlo.infrastructure", "phlo.plugins", "phlo.security", "phlo.config", "phlo.hooks", "phlo.operations", "phlo.migrations", "phlo.run_evidence", "phlo.logging", "phlo.telemetry"]
-forbidden_modules = ["phlo.cli"]
-
-[[tool.importlinter.contracts]]
-name = "Application capability and domain layering"
-type = "layers"
-layers = [
-    "phlo.__main__ : phlo.cli",
-    "phlo.application : phlo.infrastructure : phlo.helpers : phlo.plugins : phlo.logging",
-    "phlo.capabilities.resolver : phlo.capabilities.authentication : phlo.capabilities.authorization : phlo.capabilities.authorization_opa : phlo.capabilities.maintenance : phlo.capabilities.telemetry : phlo.capabilities.external_refs : phlo.capabilities.table_store",
-    "phlo.capabilities.registry",
-    "phlo.capabilities.specs",
-    "phlo.capabilities.interfaces : phlo.capabilities.runtime : phlo.capabilities.support : phlo.capabilities.settings : phlo.capabilities.continuity : phlo.capabilities.history : phlo.capabilities.inventory : phlo.capabilities.workflow_wizard : phlo.capabilities.catalog : phlo.migrations.specs : phlo.run_evidence.contracts : phlo.security.adapters : phlo.security.readiness : phlo.dataset : phlo.hooks.events : phlo.contracts : phlo.run_evidence.reconciliation : phlo.run_evidence.models : phlo.run_evidence.redaction : phlo.run_evidence.stored",
-    "phlo.config : phlo.config_schema : phlo.exceptions : phlo.logging_context : phlo._attempt : phlo._correlation",
-]
-
-[[tool.importlinter.contracts]]
-name = "RBAC layering"
-type = "layers"
-containers = ["phlo.rbac"]
-layers = ["sync", "registry", "compilers", "compiler", "config", "models"]
+"tests/**" = ["C901"]
 
 [tool.ty.environment]
 extra-paths = [
