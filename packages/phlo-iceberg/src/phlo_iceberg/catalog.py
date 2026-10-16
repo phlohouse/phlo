@@ -138,7 +138,7 @@ def list_tables(namespace: str | None = None, ref: str = "main") -> list[str]:
 
     try:
         if namespace:
-            tables = [str(table) for table in catalog.list_tables(namespace)]
+            tables = [".".join(table) for table in catalog.list_tables(namespace)]
             logger.info(
                 "iceberg_catalog_list_tables_succeeded",
                 namespace=namespace,
@@ -150,7 +150,7 @@ def list_tables(namespace: str | None = None, ref: str = "main") -> list[str]:
         all_tables: list[str] = []
         for ns in catalog.list_namespaces():
             ns_name = ".".join(ns)
-            all_tables.extend([str(table) for table in catalog.list_tables(ns_name)])
+            all_tables.extend(".".join(table) for table in catalog.list_tables(ns_name))
         logger.info(
             "iceberg_catalog_list_tables_succeeded",
             namespace=namespace,

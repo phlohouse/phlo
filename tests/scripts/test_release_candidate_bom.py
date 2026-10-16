@@ -253,8 +253,8 @@ def test_build_from_tree_stages_built_bytes_with_local_build_sources(
     built = [
         "phlo-0.14.0.tar.gz",
         "phlo-0.14.0-py3-none-any.whl",
-        "phlo_api-0.14.0.tar.gz",
-        "phlo_api-0.14.0-py3-none-any.whl",
+        "phlo_api-0.15.2.tar.gz",
+        "phlo_api-0.15.2-py3-none-any.whl",
         "phlo_unlisted-0.14.0-py3-none-any.whl",
     ]
     for name in built:
@@ -285,7 +285,7 @@ def test_build_from_tree_stages_built_bytes_with_local_build_sources(
         release_ref = "vNext"
 
     staged = release_candidate_bom._build_distributions_from_tree(
-        FakeTree(), ["phlo", "phlo-api"], "0.14.0", distributions_dir
+        FakeTree(), {"phlo": "0.14.0", "phlo-api": "0.15.2"}, distributions_dir
     )
 
     assert {(entry["name"], entry["kind"]) for entry in staged} == {
@@ -293,6 +293,10 @@ def test_build_from_tree_stages_built_bytes_with_local_build_sources(
         ("phlo", "wheel"),
         ("phlo-api", "sdist"),
         ("phlo-api", "wheel"),
+    }
+    assert {entry["name"]: entry["version"] for entry in staged} == {
+        "phlo": "0.14.0",
+        "phlo-api": "0.15.2",
     }
     assert all(str(entry["source"]).startswith("local-build:") for entry in staged)
     assert (distributions_dir / "phlo-0.14.0-py3-none-any.whl").exists()

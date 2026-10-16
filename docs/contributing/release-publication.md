@@ -48,28 +48,66 @@ the environment has required reviewers or branch restrictions. On 10 October
 policy on either `pypi` or `release`.
 
 The workflow still restricts dispatch to `phlohouse/phlo` on `main`. Its
-authorization script validates the live workflow dispatch, actor,
-workflow identity, candidate, and evidence. `execute` defaults to `false`.
+authorization script validates the live workflow dispatch, workflow identity,
+candidate, and evidence. For automatic publication, the human merger of the exact
+ReleaseX PR is the release owner and that PR is the approval reference. A bot
+cannot authorize publication of an ordinary merge. Explicit manual recovery
+instead records the human dispatcher. `execute` defaults to `false`.
 If additional environment protection is required, obtain separate approval
 for that shared-settings change. This procedure does not grant that approval.
 
 ## Monitor automatic publication
 
-Merging an in-repository ReleaseX PR from `relx/release/` into `main` starts
+**Merge the ReleaseX release PR. No further release action is required.**
+
+Merging an in-repository ReleaseX PR from
+`relx/release/monorepo/main-release-set` into `main` starts
 **Release on merge**. The coordinator authenticates the exact merge SHA through
 GitHub's PR association API and waits for its source-health aggregate. It then
 dispatches the existing stage, acceptance, and promotion workflows on trusted
 `main`. Two acceptance dispatches produce four architecture-specific bundles,
 which exceed the unchanged three-bundle minimum. Promotion runs with
 `execute=true` and retains its own dry-run, authorization, digest, and freshness
-checks. ReleaseX itself still cannot publish.
+checks. The merge authorizes publication of those exact tested bytes; no second
+manual dispatch or approval is part of the normal path. ReleaseX itself still
+cannot publish. Ordinary merges and version-tag pushes do not publish.
+
+### Artifact acceptance and production qualification
+
+The staged BOM embeds the exact support-manifest text, verified against its
+recorded digest. It selects the qualification requirements, not a workflow input
+or a version-name guess:
+
+- Explicit `alpha` or `beta` maturity with `production_ready: false` requires
+  artifact acceptance. Security denial, ingestion, queries, transformations,
+  WAP, maintenance, backup verification, and restore remain required.
+  Production deployment preflight and supported-pair upgrade/recovery are not
+  required and are never reported as passed.
+- Every other candidate requires production qualification as well. Missing
+  manifest text in a legacy BOM retains that stricter requirement.
+
+Evidence records `qualification: artifact` or `qualification: production`.
+Validation and promotion independently derive the expected qualification from
+the BOM. Artifact evidence cannot qualify a production candidate, and no skipped
+production check is recorded as passed. A production preflight failure or an
+unavailable check still blocks a production release.
+
+Artifact acceptance proves the tested packages and images work together. It does
+not certify a deployment's OIDC, TLS, backend policy, or workload identities.
+Publication does not change the support manifest's production-readiness claim.
+The current upgrade implementation accepts only the 0.14.0 → 0.15.0 fixture
+pair, not an upgrade to 0.18.0. A genuine 0.18.0 backup must never be relabelled
+to satisfy that fixture. Production qualification remains blocked until a real
+supported upgrade path exists for the candidate.
 
 Monitor the coordinator and its downstream runs. It reuses successful or running
 attempts on rerun, never restages a candidate, and stops on failed producers or
 unexpected reruns. Source health has a two-hour deadline, each downstream phase
 has a three-hour deadline, and the coordinator job has a six-hour limit.
 Dispatch discovery stops after five minutes without retrying the write.
-Environment approval rules, if configured, still apply to promotion.
+The `pypi` environment currently has no approval rules. Adding required reviewers
+would introduce another human action and change this single-action contract;
+it requires a separate, explicit settings decision.
 
 ## Recover manually and qualify the exact bytes
 

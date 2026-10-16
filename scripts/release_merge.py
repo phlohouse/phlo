@@ -16,16 +16,7 @@ ROOT = f"repos/{provenance.REPOSITORY}"
 
 def release_merge(sha: str) -> bool:
     """Accept only the exact merge commit of an in-repository release PR."""
-    pulls = provenance.pages(f"{ROOT}/commits/{sha}/pulls", "")
-    return any(
-        pr.get("merged_at")
-        and pr.get("merge_commit_sha") == sha
-        and pr.get("base", {}).get("ref") == "main"
-        and pr.get("base", {}).get("repo", {}).get("full_name") == provenance.REPOSITORY
-        and pr.get("head", {}).get("repo", {}).get("full_name") == provenance.REPOSITORY
-        and pr.get("head", {}).get("ref", "").startswith("relx/release/")
-        for pr in pulls
-    )
+    return provenance.merged_release_pr(sha) is not None
 
 
 def wait_run(run_id: int, workflow: dict, title: str, deadline: float) -> dict:

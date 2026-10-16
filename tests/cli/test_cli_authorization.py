@@ -302,8 +302,18 @@ class TestResourceActionMapping:
 class TestAuthorizationWrappers:
     """Tests for CLI authorization wrappers."""
 
-    def test_regulated_services_start_discovers_configured_authorization_backend(
-        self, monkeypatch, tmp_path
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "services.start",
+            "operations.maintenance.apply",
+            "operations.backup.create",
+            "operations.restore.apply",
+            "operations.upgrade.apply",
+        ],
+    )
+    def test_regulated_mutations_enforce_discovered_authorization(
+        self, monkeypatch, tmp_path, command
     ):
         """The regulated services wrapper resolves the configured discovered backend."""
         from phlo.capabilities import clear_all_capabilities
@@ -331,10 +341,10 @@ policies:
     effect: allow
     principal:
       roles: [operator]
-    action: infrastructure.start
+    action: "*"
     resource:
-      type: infrastructure
-      id_pattern: cli:services.start
+      type: "*"
+      id_pattern: "*"
 """.lstrip()
         )
         monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
@@ -344,12 +354,16 @@ policies:
         clear_all_capabilities()
         EnforcementContext.reset_instance()
 
-        @require_mutation_authorization("services.start")
+        @require_mutation_authorization(command)
         def handler() -> str:
             return "started"
 
         try:
             assert handler() == "started"
+            monkeypatch.delenv("PHLO_SERVICE_ACCOUNT")
+            monkeypatch.delenv("PHLO_AUTH_SUBJECT", raising=False)
+            with pytest.raises(click.ClickException, match="Authorization denied"):
+                handler()
         finally:
             EnforcementContext.reset_instance()
             clear_all_capabilities()

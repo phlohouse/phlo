@@ -71,6 +71,10 @@ MUTATION_COMMANDS: frozenset[str] = frozenset(
         "init",
         "dataset.migrate_overlay_apply",
         "dataset.migrate_overlay_discard",
+        "operations.maintenance.apply",
+        "operations.backup.create",
+        "operations.restore.apply",
+        "operations.upgrade.apply",
     }
 )
 
@@ -125,6 +129,10 @@ COMMAND_RESOURCE_MAP: dict[str, str] = {
     "init": "project",
     "dataset.migrate_overlay_apply": "dataset_workflow",
     "dataset.migrate_overlay_discard": "dataset_workflow",
+    "operations.maintenance.apply": "cli_command",
+    "operations.backup.create": "cli_command",
+    "operations.restore.apply": "cli_command",
+    "operations.upgrade.apply": "cli_command",
 }
 
 COMMAND_ACTION_MAP: dict[str, str] = {
@@ -152,6 +160,10 @@ COMMAND_ACTION_MAP: dict[str, str] = {
     "init": "project.create",
     "dataset.migrate_overlay_apply": "dataset_workflow.migrate_overlay.apply",
     "dataset.migrate_overlay_discard": "dataset_workflow.migrate_overlay.discard",
+    "operations.maintenance.apply": "operations.maintenance.apply",
+    "operations.backup.create": "operations.backup.create",
+    "operations.restore.apply": "operations.restore.apply",
+    "operations.upgrade.apply": "operations.upgrade.apply",
 }
 
 

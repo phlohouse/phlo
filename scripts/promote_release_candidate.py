@@ -25,9 +25,9 @@ authorization record and ``--qualification-archive``; without these, nothing
 is tagged, pushed, uploaded, or finalised. The archive is uploaded and its
 public SHA-256 checked before removing the release's draft status.
 
-Support-status promotion is explicitly out of scope:
-``registry/support/v1.json`` and ``scripts/validate_support_manifest.py`` are
-neither a promotion gate nor a promotion output and are not touched here.
+Support-status promotion is explicitly out of scope. The digest-bound release
+maturity selects artifact or production qualification; publication never
+changes ``registry/support/v1.json`` or its production-readiness claim.
 """
 
 from __future__ import annotations
