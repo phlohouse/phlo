@@ -173,6 +173,8 @@
 - phlo: qualify remaining acceptance and scoped MCP reads (#1114)
 - phlo: apply dependency triage trigger exception inline (#1116)
 - phlo: patch MCP and remove host/day qualification gates (#1117)
+- phlo: restore merge-triggered publication and repair staging (#1119)
+- phlo: make ReleaseX merges publish qualified artifacts (#1121)
 - phlo-airbyte: remove credential defaults and harden runtime access (#1101)
 - phlo-alloy: remove credential defaults and harden runtime access (#1101)
 - phlo-api: report route failures as typed HTTP errors, not 200 error dicts (#1024)
