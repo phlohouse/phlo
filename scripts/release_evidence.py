@@ -354,10 +354,10 @@ def validate_bundle(bundle: object, bom: dict[str, object] | None = None) -> dic
 
 
 def _is_sanitized(value: object) -> bool:
-    """Return True when no dict key in the value carries a secret-shaped name."""
+    """Require secret-shaped fields to be empty or carry the canonical redaction."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if _SECRET_KEY_RE.search(str(key)) and item not in (None, "", [], {}):
+            if _SECRET_KEY_RE.search(str(key)) and item not in (None, "", [], {}, _REDACTED):
                 return False
             if not _is_sanitized(item):
                 return False

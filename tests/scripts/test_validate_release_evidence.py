@@ -157,12 +157,20 @@ def test_bundle_sanitizes_secret_shaped_keys() -> None:
         bundle,
         demonstration_id="candidate_bom_verification",
         title="t",
-        status=release_evidence.STATUS_PASSED,
+        status=release_evidence.STATUS_FAILED,
         result={"access_key": "hunter2", "nested": {"authorization": "bearer"}},
+        error="intentional failure",
     )
     demonstration = bundle["demonstrations"][0]
     assert demonstration["result"]["access_key"] == "[REDACTED]"  # type: ignore[index]
     assert demonstration["result"]["nested"]["authorization"] == "[REDACTED]"  # type: ignore[index]
+    release_evidence.finalize_bundle(bundle)
+    assert release_evidence.validate_bundle(bundle) is bundle
+
+    demonstration["result"]["nested"]["authorization"] = "unredacted"
+    release_evidence.finalize_bundle(bundle)
+    with pytest.raises(release_evidence.EvidenceError, match="secret-shaped"):
+        release_evidence.validate_bundle(bundle)
 
 
 def test_passed_bundle_requires_every_horizon_a_demonstration() -> None:
