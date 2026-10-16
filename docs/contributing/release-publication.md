@@ -48,25 +48,51 @@ the environment has required reviewers or branch restrictions. On 10 October
 policy on either `pypi` or `release`.
 
 The workflow still restricts dispatch to `phlohouse/phlo` on `main`. Its
-authorization script validates the live manual dispatch, actor permission,
+authorization script validates the live workflow dispatch, actor,
 workflow identity, candidate, and evidence. `execute` defaults to `false`.
 If additional environment protection is required, obtain separate approval
 for that shared-settings change. This procedure does not grant that approval.
 
-## Stage and qualify the exact bytes
+## Monitor automatic publication
+
+Merging an in-repository ReleaseX PR from `relx/release/` into `main` starts
+**Release on merge**. The coordinator authenticates the exact merge SHA through
+GitHub's PR association API and waits for its source-health aggregate. It then
+dispatches the existing stage, acceptance, and promotion workflows on trusted
+`main`. Two acceptance dispatches produce four architecture-specific bundles,
+which exceed the unchanged three-bundle minimum. Promotion runs with
+`execute=true` and retains its own dry-run, authorization, digest, and freshness
+checks. ReleaseX itself still cannot publish.
+
+Monitor the coordinator and its downstream runs. It reuses successful or running
+attempts on rerun, never restages a candidate, and stops on failed producers or
+unexpected reruns. Source health has a two-hour deadline, each downstream phase
+has a three-hour deadline, and the coordinator job has a six-hour limit.
+Dispatch discovery stops after five minutes without retrying the write.
+Environment approval rules, if configured, still apply to promotion.
+
+## Recover manually and qualify the exact bytes
 
 Obtain explicit authorization before dispatching workflows that publish images,
 reserve candidates, or publish releases. Do not use a local test fixture as
 release evidence.
+
+Before recovery, inspect all existing runs and stop any active coordinator.
+Reuse the successful stage run. A failed, deleted, or expired staging attempt
+never permits rebuilding that SHA. A failed acceptance attempt remains part of
+the evidence history and blocks promotion. Fix the cause in a new reviewed
+candidate rather than hiding failed evidence. After a timeout, inspect the
+dispatched workflow before rerunning the coordinator or dispatching manually.
 
 1. Merge the reviewed implementation before attempting its operational proof.
 2. Dispatch `release-stage.yml` on `main` with the full reviewed candidate SHA.
    Staging builds distributions once and records their hashes and image digests
    in `bom.json`. `build-core-services.yml` produces development images only.
 3. Run the existing candidate acceptance workflow against that staging run.
-   Collect at least three complete successful runs on clean hosts. They may
-   execute on the same host on the same UTC day. The newest run must be at most
-   seven days old.
+   Collect at least three complete successful bundles on clean hosts. Each
+   successful dispatch produces amd64 and arm64 bundles, so two dispatches suffice.
+   They may execute on the same host on the same UTC day. The newest bundle must
+   be at most seven days old.
 4. Dispatch `release-promotion.yml` with that `candidate_sha` and `stage_run`,
    leaving `execute=false`. Review the dry-run receipt and all acceptance attempts.
 5. After release-owner approval, dispatch the same candidate with `execute=true`.
