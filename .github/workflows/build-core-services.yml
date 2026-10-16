@@ -101,6 +101,8 @@ jobs:
             --profile '*' \
             -f "$project/.phlo/docker-compose.yml" \
             --project-directory "$project/.phlo" \
+            --env-file "$project/.phlo/overrides/.env" \
+            --env-file "$project/.phlo/secrets/.env" \
             --env-file "$project/.phlo/.env.local" \
             config --format json > "$RUNNER_TEMP/generated-compose.json"
           matrix="$(

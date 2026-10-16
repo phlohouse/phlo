@@ -9,6 +9,7 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,11 +18,133 @@ bom_module = importlib.import_module("release_candidate_bom")
 golden = importlib.import_module("release_golden_path")
 provenance = importlib.import_module("release_provenance")
 staging = importlib.import_module("release_stage")
+merge = importlib.import_module("release_merge")
 
 SHA = "a" * 40
 WORKFLOW_SHA = "b" * 40
 STAGE_WORKFLOW = {"id": 1, "path": provenance.STAGE}
 ACCEPTANCE_WORKFLOW = {"id": 2, "path": provenance.ACCEPTANCE}
+
+
+@pytest.mark.parametrize("change", [None, "foreign", "ordinary", "unmerged", "wrong_sha"])
+def test_coordinator_only_accepts_exact_release_merge(monkeypatch, change) -> None:
+    repo = {"full_name": provenance.REPOSITORY}
+    pr = {
+        "merged_at": "2026-10-01T00:00:00Z",
+        "merge_commit_sha": SHA,
+        "base": {"ref": "main", "repo": repo},
+        "head": {"ref": "relx/release/main", "repo": repo},
+    }
+    if change == "foreign":
+        pr["head"]["repo"] = {"full_name": "attacker/phlo"}
+    elif change == "ordinary":
+        pr["head"]["ref"] = "feature/release"
+    elif change == "unmerged":
+        pr["merged_at"] = None
+    elif change == "wrong_sha":
+        pr["merge_commit_sha"] = WORKFLOW_SHA
+    monkeypatch.setattr(provenance, "pages", lambda *_: [pr])
+    assert merge.release_merge(SHA) is (change is None)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {},
+        {"conclusion": "failure"},
+        {"event": "push"},
+        {"run_attempt": 2},
+        {"head_repository": {"full_name": "attacker/phlo"}},
+    ],
+)
+def test_coordinator_reuses_stage_but_never_retries_failure(monkeypatch, mutation) -> None:
+    run = {**run_record(), **mutation}
+    monkeypatch.setattr(
+        provenance, "api", lambda path: STAGE_WORKFLOW if "workflows/" in path else run
+    )
+    monkeypatch.setattr(provenance, "pages", lambda *_: [run])
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: pytest.fail("unexpected dispatch"))
+    if mutation:
+        with pytest.raises(ValueError):
+            merge.ensure_runs("release-stage.yml", f"stage {SHA}", {"candidate_sha": SHA}, 1)
+    else:
+        assert merge.ensure_runs(
+            "release-stage.yml", f"stage {SHA}", {"candidate_sha": SHA}, 1
+        ) == [run]
+
+
+def test_coordinator_waits_running_stage_without_dispatch(monkeypatch) -> None:
+    records = iter([{**run_record(), "status": "in_progress"}, run_record()])
+    monkeypatch.setattr(
+        provenance, "api", lambda path: STAGE_WORKFLOW if "workflows/" in path else next(records)
+    )
+    monkeypatch.setattr(provenance, "pages", lambda *_: [run_record()])
+    monkeypatch.setattr(merge, "time", SimpleNamespace(monotonic=lambda: 0, sleep=lambda _: None))
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: pytest.fail("unexpected dispatch"))
+    assert merge.ensure_runs("release-stage.yml", f"stage {SHA}", {"candidate_sha": SHA}, 1) == [
+        run_record()
+    ]
+
+
+@pytest.mark.parametrize("failed", [None, "source", "stage", "acceptance"])
+def test_coordinator_dispatches_in_order_and_stops_on_failure(monkeypatch, failed) -> None:
+    monkeypatch.setattr(staging, "validate_candidate", lambda _: None)
+
+    def health(_):
+        if failed == "source":
+            raise ValueError("failed source")
+
+    monkeypatch.setattr(staging, "verify_source_health", health)
+    monkeypatch.setattr(merge, "release_merge", lambda _: True)
+    monkeypatch.setattr(provenance, "api", lambda _: {"id": 4})
+    monkeypatch.setattr(provenance, "pages", lambda *_: [{"id": 5, "status": "completed"}])
+    calls = []
+
+    def ensure(filename, title, inputs, count):
+        calls.append((filename, title, inputs, count))
+        if (failed == "acceptance" and filename == "release-artifact-acceptance.yml") or (
+            failed == "stage" and filename == "release-stage.yml"
+        ):
+            raise ValueError(f"failed {failed}")
+        return [{"id": 10}]
+
+    monkeypatch.setattr(merge, "ensure_runs", ensure)
+    if failed:
+        with pytest.raises(ValueError, match=f"failed {failed}"):
+            merge.coordinate(SHA)
+    else:
+        merge.coordinate(SHA)
+    expected = ["release-stage.yml", "release-artifact-acceptance.yml", "release-promotion.yml"]
+    length = {"source": 0, "stage": 1, "acceptance": 2, None: 3}[failed]
+    assert [call[0] for call in calls] == expected[:length]
+    if length >= 2:
+        assert calls[1][2:] == ({"candidate_sha": SHA, "stage_run": "10"}, 2)
+    if not failed:
+        assert calls[2][2:] == ({"candidate_sha": SHA, "stage_run": "10", "execute": True}, 1)
+
+
+@pytest.mark.parametrize("visible", [True, False])
+def test_coordinator_dispatch_is_single_write_with_bounded_discovery(monkeypatch, visible) -> None:
+    monkeypatch.setattr(
+        provenance, "api", lambda path: STAGE_WORKFLOW if "workflows/" in path else run_record()
+    )
+    snapshots = iter([[], [run_record()] if visible else []])
+    monkeypatch.setattr(provenance, "pages", lambda *_: next(snapshots, []))
+    clock = iter([0, 0, 0, 0, 301])
+    monkeypatch.setattr(
+        merge, "time", SimpleNamespace(monotonic=lambda: next(clock, 301), sleep=lambda _: None)
+    )
+    writes = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: writes.append((args, kwargs)))
+    if visible:
+        assert merge.ensure_runs(
+            "release-stage.yml", f"stage {SHA}", {"candidate_sha": SHA}, 1
+        ) == [run_record()]
+    else:
+        with pytest.raises(TimeoutError, match="dispatch not visible"):
+            merge.ensure_runs("release-stage.yml", f"stage {SHA}", {"candidate_sha": SHA}, 1)
+    assert len(writes) == 1
+    assert json.loads(writes[0][1]["input"]) == {"ref": "main", "inputs": {"candidate_sha": SHA}}
 
 
 def run_record(run_id: int = 10, *, acceptance: bool = False) -> dict:
