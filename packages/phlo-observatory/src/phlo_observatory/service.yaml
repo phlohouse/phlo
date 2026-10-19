@@ -16,6 +16,12 @@ compose:
   restart: unless-stopped
   labels:
     phlo.metrics.enabled: 'false'
+    traefik.enable: 'true'
+    traefik.http.routers.observatory.rule: 'Host(`observatory.${TRAEFIK_DOMAIN:-phlo.localhost}`) && !PathPrefix(`/oauth2/`)'
+    traefik.http.routers.observatory.entrypoints: 'web'
+    traefik.http.routers.observatory.middlewares: 'phlo-api-login,phlo-api-auth'
+    traefik.http.routers.observatory.service: 'observatory'
+    traefik.http.services.observatory.loadbalancer.server.port: '3000'
   environment:
     NODE_ENV: production
     HOST: 0.0.0.0
