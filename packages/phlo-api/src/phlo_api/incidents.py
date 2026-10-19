@@ -269,6 +269,7 @@ def initialize_incidents() -> None:
     """Apply the additive incident schema to the configured Phlo database."""
     schema = Path(__file__).parent / "sql" / "001_incidents.sql"
     with _transaction() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(1123, 1)")
         cursor.execute(schema.read_text(encoding="utf-8"))
         cursor.execute(
             schema.with_name("003_incident_query_parity.sql").read_text(encoding="utf-8")
