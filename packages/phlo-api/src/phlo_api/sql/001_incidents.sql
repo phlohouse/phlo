@@ -3,7 +3,7 @@ CREATE SCHEMA IF NOT EXISTS phlo;
 
 CREATE TABLE IF NOT EXISTS phlo.incident (
     incident_id text PRIMARY KEY,
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     asset_id text NOT NULL,
     kind text NOT NULL,
     title text NOT NULL,
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident (
 CREATE TABLE IF NOT EXISTS phlo.incident_event (
     event_id text PRIMARY KEY,
     incident_id text NOT NULL REFERENCES phlo.incident,
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     actor text NOT NULL,
     kind text NOT NULL,
     payload jsonb NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident_event (
 );
 
 CREATE TABLE IF NOT EXISTS phlo.incident_signal (
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     evidence_id text NOT NULL,
     incident_id text NOT NULL REFERENCES phlo.incident,
     payload_sha256 text NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident_signal (
 );
 
 CREATE TABLE IF NOT EXISTS phlo.incident_command (
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     actor text NOT NULL,
     action_target text NOT NULL,
     key text NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident_command (
 );
 
 CREATE TABLE IF NOT EXISTS phlo.incident_subscription (
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     incident_id text NOT NULL REFERENCES phlo.incident,
     subject text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident_subscription (
 
 CREATE TABLE IF NOT EXISTS phlo.incident_follow_up (
     follow_up_id text PRIMARY KEY,
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     incident_id text NOT NULL REFERENCES phlo.incident,
     description text NOT NULL,
     due_at timestamptz,
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident_follow_up (
 CREATE TABLE IF NOT EXISTS phlo.incident_schema_decision (
     decision_id text PRIMARY KEY,
     incident_id text NOT NULL REFERENCES phlo.incident,
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     source_ref text NOT NULL,
     target_ref text NOT NULL,
     source_hash text NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident_schema_decision (
 );
 
 CREATE TABLE IF NOT EXISTS phlo.asset_incident_policy (
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     asset_id text NOT NULL,
     owner text,
     freshness_sla_seconds integer CHECK (freshness_sla_seconds > 0),

@@ -18,6 +18,11 @@ const state: {
 } = { members: [], invitations: [], serviceAccounts: [] }
 
 vi.mock('@tanstack/react-router', () => ({
+  getRouteApi: () => ({
+    useRouteContext: () => ({
+      environments: [{ env: 'sandbox', status: 'available' }],
+    }),
+  }),
   createFileRoute: () => (options: { component?: React.ComponentType }) => ({
     options,
     useLoaderData: () => state,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
@@ -45,10 +46,10 @@ def _location_environments(raw: str | None) -> dict[str, str]:
         not isinstance(location, str)
         or not location
         or not isinstance(environment, str)
-        or environment not in {"prod", "staging"}
+        or not re.fullmatch(r"[a-z][a-z0-9_-]{0,62}", environment)
         for location, environment in value.items()
     ):
-        raise ValueError(f"{_LOCATION_ENV_MAP} maps location names to prod or staging")
+        raise ValueError(f"{_LOCATION_ENV_MAP} maps location names to configured environment IDs")
     return value
 
 

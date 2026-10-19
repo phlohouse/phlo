@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AwareDatetime, AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from phlo.config_schema import EnvironmentId as Environment
+from phlo.config_schema import EnvironmentTarget as EnvironmentTarget
 
-Environment = Literal["prod", "staging"]
 ServiceStatus = Literal["healthy", "degraded", "unhealthy", "unknown", "unavailable", "inactive"]
 RunStatus = Literal[
     "NOT_STARTED",
@@ -44,24 +45,6 @@ class ProviderActionResult(WireModel):
     message: str | None = None
 
 
-class EnvironmentTarget(WireModel):
-    """Operator-configured target, never supplied by the request caller."""
-
-    dagster_location: str = Field(min_length=1)
-    nessie_ref: str = Field(min_length=1)
-    compose_project: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]*$")
-    service_health_urls: dict[str, AnyHttpUrl] = Field(default_factory=dict, max_length=500)
-
-    @model_validator(mode="after")
-    def require_server_owned_health_urls(self) -> EnvironmentTarget:
-        for url in self.service_health_urls.values():
-            if url.username or url.password or url.query or url.fragment:
-                raise ValueError(
-                    "service health URLs cannot contain credentials, queries, or fragments"
-                )
-        return self
-
-
 class MeResponse(WireModel):
     subject: str = Field(min_length=1)
     principal_type: Literal["user", "service", "platform"]
@@ -77,6 +60,8 @@ class EnvironmentAvailability(WireModel):
 
 class EnvironmentsResponse(WireModel):
     items: list[EnvironmentAvailability]
+    default_environment: Environment | None = None
+    promotion_source_environment: Environment | None = None
 
 
 class ServiceSnapshot(WireModel):
