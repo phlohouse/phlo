@@ -326,6 +326,47 @@ def test_asset_function_cannot_write_before_physical_registration(environment):
     assert writes == []
 
 
+@pytest.mark.parametrize("tag", ["phlo/ref", "phlo/wap_branch"])
+def test_canonical_tag_conflict_blocks_public_execution_and_sensors(environment, monkeypatch, tag):
+    launch = wap_launch.prepare_wap_launch(logical_run_id="canonical-conflict")
+    run = run_for(launch)
+    launch.record_launch_result(status="launched", dagster_run_id=run.run_id)
+    run.tags[tag] = "main"
+    writes = []
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=[
+            AssetSpec(
+                key="raw.orders",
+                group=None,
+                description=None,
+                run=RunSpec(fn=lambda runtime: writes.append("wrote")),
+            )
+        ],
+        checks=[],
+        resources=[],
+    )
+    with dg.DagsterInstance.ephemeral() as instance:
+        result = dg.materialize(
+            list(definitions.assets), instance=instance, tags=run.tags, raise_on_error=False
+        )
+        assert not result.success
+        assert "WAP execution binding or capability routing is invalid" in (
+            result.failure_data_for_node("raw__orders").error.to_string()
+        )
+        assert writes == []
+        # Present the registered successful physical run to both sensor APIs;
+        # rejection must not depend on the failed execution's status or ID.
+        monkeypatch.setattr(instance, "get_runs", lambda **kwargs: [run])
+        for sensor in (
+            wap_sensors.wap_auto_promotion_sensor,
+            wap_sensors.wap_branch_cleanup_sensor,
+        ):
+            with dg.build_sensor_context(instance=instance) as context:
+                sensor.evaluate_tick(context)
+    assert environment.catalog.refs == {"main": "production-0", "qa": "qa-0", launch.branch: "qa-0"}
+    assert environment.catalog.merges == environment.catalog.deletes == []
+
+
 def test_foreign_run_failure_does_not_stop_supported_publication(environment):
     foreign_launch = wap_launch.prepare_wap_launch(logical_run_id="foreign")
     foreign = run_for(foreign_launch, physical="foreign-physical", location="foreign-code")
