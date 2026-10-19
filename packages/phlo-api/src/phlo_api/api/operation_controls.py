@@ -264,13 +264,10 @@ def _audit_write_lock(audit_dir: Path):
         import msvcrt
 
         with lock_path.open("a+b") as handle:
-            handle.seek(0)
-            if not handle.read(1):
-                handle.seek(0)
-                handle.write(b"\0")
-                handle.flush()
             while True:
                 try:
+                    # Keep the lock file contentless: another process holding
+                    # this byte-range lock prevents even reads of the same byte.
                     handle.seek(0)
                     msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
                     break
