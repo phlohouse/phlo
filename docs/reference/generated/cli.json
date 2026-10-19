@@ -8004,6 +8004,22 @@
         {
           "default": false,
           "envvar": null,
+          "help": "Provision loopback-only Observatory with the canonical development identity and read-only policy.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
           "help": "Render the production deployment profile without core host ports.",
           "is_flag": true,
           "kind": "option",
@@ -8438,6 +8454,22 @@
           "nargs": 1,
           "options": [
             "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Check the local Observatory identity, policy and environment contract.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
           ],
           "required": false,
           "secondary_options": [],

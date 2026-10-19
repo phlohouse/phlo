@@ -1714,6 +1714,52 @@ def test_services_init_writes_env_defaults_as_utf8_with_non_ascii_descriptions(
     env_secrets_path(phlo_dir).read_bytes().decode("utf-8")
 
 
+def test_observatory_dev_generates_loopback_scoped_read_contract(tmp_path, monkeypatch):
+    from phlo.capabilities import Principal, ResourceRef
+    from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
+    from phlo.cli.commands.services.init import init_cmd
+    from phlo.cli.commands.services.preflight import preflight_cmd
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(init_cmd, ["--observatory-dev", "--no-dev"])
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load((tmp_path / "phlo.yaml").read_text())
+    assert list(config["environments"]) == ["sandbox"]
+    assert config["default_environment"] == "sandbox"
+    compose = yaml.safe_load((tmp_path / ".phlo/docker-compose.yml").read_text())
+    for service in ("phlo-api", "observatory"):
+        assert all(port.startswith("127.0.0.1:") for port in compose["services"][service]["ports"])
+    policy = yaml.safe_load((tmp_path / ".phlo/authorization/policies.yaml").read_text())
+    backend = DefaultAuthorizationPolicyBackend(policies=policy["policies"])
+    actor = Principal(subject="dev_user", principal_type="user", roles=("admin",))
+    from phlo.capabilities import DecisionContext
+
+    context = DecisionContext(environment="sandbox")
+    for action, resource, allowed in (
+        ("service.read", ResourceRef(resource_type="service", resource_id="env=sandbox"), True),
+        (
+            "platform_metadata.read",
+            ResourceRef(resource_type="platform_metadata", resource_id="project"),
+            True,
+        ),
+        ("service.read", ResourceRef(resource_type="service", resource_id="env=other"), False),
+        ("service.manage", ResourceRef(resource_type="service", resource_id="env=sandbox"), False),
+    ):
+        assert backend.explain_decision(actor, action, resource, context).allowed is allowed
+    checked = CliRunner().invoke(preflight_cmd, ["--observatory-dev", "--json"])
+    assert checked.exit_code == 0, checked.output
+
+
+@pytest.mark.parametrize("flag", ["--production", "--publish-all-interfaces"])
+def test_observatory_dev_rejects_exposed_profiles_before_writing(tmp_path, monkeypatch, flag):
+    from phlo.cli.commands.services.init import init_cmd
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(init_cmd, ["--observatory-dev", "--no-dev", flag])
+    assert result.exit_code != 0
+    assert not (tmp_path / "phlo.yaml").exists()
+
+
 @pytest.mark.parametrize(
     ("flags", "message"),
     [

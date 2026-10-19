@@ -72,16 +72,24 @@ The API middleware resolves the authentication provider first, then evaluates au
 
 ## 4. Authenticate Observatory
 
-Observatory exposes service-lifecycle and operational server functions (start, stop, restart, cache controls, and service inventory). Set the shared credential in `.phlo/secrets/.env`:
+Protect Observatory with your authenticated ingress. Its server-side API client forwards
+the incoming `Authorization: Bearer <credential>` header to phlo-api. If that header
+is absent or is not a bearer header, the client forwards `X-Auth-Request-Access-Token`
+as a bearer token instead. phlo-api independently verifies that credential and
+authorises each operation against the canonical policy and selected environment.
 
-```bash
-OBSERVATORY_AUTH_ENABLED=true
-OBSERVATORY_AUTH_TOKEN=replace-me
-```
+Configure `PHLO_API_URL` on the Observatory server. Keep the API behind the same
+trusted network boundary and configure its authentication provider to verify the
+forwarded tokens, including issuer and audience where applicable. Strip
+caller-supplied proxy headers at ingress before setting trusted headers.
 
-The guarded server functions expect `authToken` in the request data. Service start, stop and restart also forward the caller's `Authorization: Bearer <credential>` header to phlo-api, which checks the required scope. The Observatory token does not grant phlo-api access. No current browser route calls these server functions; do not put the shared Observatory token in browser code.
+There is no shared Observatory token or browser `authToken` setup. Do not put
+service credentials in browser code. An unauthenticated API response remains
+HTTP `401`, and an authenticated policy denial remains HTTP `403`.
 
-When `PHLO_ENVIRONMENT` is `prod`, `production`, `staging`, or `regulated` — or `PHLO_REGULATED` is enabled — authentication is mandatory rather than opt-in: Observatory refuses to start until `OBSERVATORY_AUTH_TOKEN` is configured. `OBSERVATORY_AUTH_ENABLED` only opts environments in ahead of that; it cannot opt a production-like deployment out.
+For a loopback-only development identity and a single configured target, follow
+[Set up Observatory locally](set-up-observatory-locally.md). Do not use that
+development profile for a network-accessible deployment.
 
 ## 5. Define and validate RBAC policy
 

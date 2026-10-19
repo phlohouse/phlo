@@ -91,6 +91,19 @@ class ComposeGenerator:
         sorted_services = self.discovery.resolve_dependencies(services)
         user_overrides = user_overrides or {}
         env_values = env_values or {}
+        api_env = user_overrides.get("phlo-api", {}).get("environment", {})
+        development_identity = str(
+            api_env.get("PHLO_AUTH_DEV_MODE", env_values.get("PHLO_AUTH_DEV_MODE", ""))
+        ).lower() in {"1", "true"}
+        if development_identity and (
+            deployment_profile == "production"
+            or publish_all_interfaces
+            or str(env_values.get("PHLO_ENVIRONMENT", "development")).lower()
+            not in {"dev", "development", "local", "test"}
+        ):
+            raise ValueError(
+                "Development authentication requires a development profile and loopback ports"
+            )
 
         compose: dict[str, Any] = {"services": {}}
 
@@ -117,6 +130,13 @@ class ComposeGenerator:
                 config["ports"] = [_loopback_port(port) for port in config["ports"]]
             if deployment_profile == "production":
                 self._apply_production_profile(service.name, compose["services"][service.name])
+            if development_identity and service.name in {"phlo-api", "observatory"}:
+                ports = compose["services"][service.name].get("ports", [])
+                if any(
+                    not isinstance(port, str) or not port.startswith(("127.0.0.1:", "[::1]:"))
+                    for port in ports
+                ):
+                    raise ValueError("Development UI/API ports must bind to loopback")
 
         if deployment_profile == "production":
             self._validate_workload_identity_references(env_values or {})
