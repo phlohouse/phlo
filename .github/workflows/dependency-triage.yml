@@ -1,10 +1,7 @@
 name: Dependency remediation handoff
 
 on:
-  # Only trusted main code executes; the authenticated producer artifact is JSON data.
-  workflow_run: # zizmor: ignore[dangerous-triggers]
-    workflows: [Security]
-    types: [completed]
+  workflow_call:
 
 permissions:
   contents: read
@@ -15,11 +12,6 @@ concurrency:
 
 jobs:
   triage:
-    if: >-
-      github.repository == 'phlohouse/phlo' &&
-      github.event.workflow_run.event == 'schedule' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -36,9 +28,9 @@ jobs:
       - name: Authenticate assessment and hand off owned remediation
         env:
           GH_TOKEN: ${{ secrets.PHLO_DEPENDENCY_TRIAGE_TOKEN || github.token }}
-          SCAN_RUN: ${{ github.event.workflow_run.id }}
-          SCAN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          SCAN_SHA: ${{ github.event.workflow_run.head_sha }}
+          SCAN_RUN: ${{ github.run_id }}
+          SCAN_ATTEMPT: ${{ github.run_attempt }}
+          SCAN_SHA: ${{ github.sha }}
         # Human-owned, issues/PR-write token enables existing signed webhook intake.
         # Without it, bot issues still record risks but require maintainer triage.
         run: >-

@@ -22,6 +22,16 @@ WORKFLOW = {"id": 7, "path": ".github/workflows/security.yml"}
 def test_handoff_grants_permissions_for_issue_and_advisory_pr_comments():
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((root / ".github/workflows/dependency-triage.yml").read_text())
+    security = yaml.safe_load((root / ".github/workflows/security.yml").read_text())
+    triggers = workflow.get("on", workflow.get(True, {}))
+    assert "workflow_call" in triggers
+    assert "workflow_run" not in triggers
+    assert security["jobs"]["dependency-triage"]["uses"] == (
+        "./.github/workflows/dependency-triage.yml"
+    )
+    assert security["jobs"]["dependency-triage"]["if"] == (
+        "always() && github.event_name == 'schedule' && github.repository == 'phlohouse/phlo'"
+    )
     permissions = workflow["jobs"]["triage"]["permissions"]
     assert permissions == {
         "contents": "read",
