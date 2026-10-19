@@ -15,6 +15,8 @@ import pyarrow as pa
 import pytest
 import yaml
 from click.testing import CliRunner
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pyiceberg.catalog.rest import RestCatalog
 from pyiceberg.io import load_file_io
 from testcontainers.core.container import DockerContainer
@@ -187,7 +189,7 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                     {
                         "name": "preview-contract",
                         "environments": {
-                            "prod": {
+                            "analytics": {
                                 "dagster_location": "primary",
                                 "nessie_ref": "main",
                                 "preview": {
@@ -198,7 +200,7 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                             },
                             "etl": {"dagster_location": "etl", "nessie_ref": "etl"},
                         },
-                        "default_environment": "prod",
+                        "default_environment": "analytics",
                     }
                 ),
                 encoding="utf-8",
@@ -236,7 +238,7 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                 assert started.returncode == 0, started.stderr
                 ca = str(tmp_path / "ca.pem")
                 tls = ssl.create_default_context(cafile=ca)
-                auth = ("phlo_api_preview_prod", "disposable-preview-password")
+                auth = ("phlo_api_preview_analytics", "disposable-preview-password")
                 try:
                     _ready("https://localhost:10025/v1/info", verify=tls, auth=auth)
                 except AssertionError:
@@ -259,6 +261,7 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                     "CREATE TABLE preview_primary.warehouse.denied (id bigint)",
                     "INSERT INTO preview_primary.warehouse.orders VALUES (99)",
                     "DELETE FROM preview_primary.warehouse.orders",
+                    "SELECT * FROM system.runtime.nodes",
                     "SET SESSION query_max_run_time = '1h'",
                     "SET SESSION preview_primary.target_max_file_size = '1GB'",
                 ):
@@ -309,30 +312,56 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                     monkeypatch.setenv(
                         "PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None)
                     )
+                    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_REPLICA", "1")
+                    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_PROCESS", "1")
                     incidents.initialize_incidents()
-                    session = v1_query.QuerySession(
-                        query_id="preview-integration",
-                        actor="analyst",
-                        env="prod",
-                        nessie_ref="main",
-                        sql="SELECT id FROM preview_primary.warehouse.orders ORDER BY id",
-                        catalog="preview_primary",
-                        row_limit=2,
-                    )
-                    asyncio.run(v1_query._execute_session(session))
-                    assert session.status == "completed", session.error
-                    assert session.evidence_available
-                    assert session.result["rows"] == [{"id": 7}, {"id": 19}]
-                    assert session.trino_query_id
-                    assert (
-                        incidents.load_query_execution(session.id, "prod", "analyst")["statement"]
-                        == session.sql
-                    )
-                    subprocess.run([*compose, "restart"], check=True, capture_output=True)
-                    _ready("https://localhost:10025/v1/info", verify=tls, auth=auth)
-                    assert incidents.load_query_execution(session.id, "prod", "analyst")["result"][
-                        "rows"
-                    ] == [{"id": 7}, {"id": 19}]
+                    # Exercise public query contracts with the real executor and evidence store.
+                    # This isolated router does not assert production API authentication readiness.
+                    app = FastAPI()
+                    app.include_router(v1_query.router, prefix="/api/v1")
+                    with TestClient(app) as client:
+                        catalog = client.get("/api/v1/query/catalog?env=analytics")
+                        assert catalog.status_code == 200, catalog.text
+                        assert any(
+                            schema == {"name": "warehouse", "tables": ["orders"]}
+                            for schema in catalog.json()["catalogs"][0]["schemas"]
+                        )
+                        for sql in (
+                            "INSERT INTO preview_primary.warehouse.orders VALUES (99)",
+                            "SET SESSION query_max_run_time = '1h'",
+                        ):
+                            assert (
+                                client.post(
+                                    "/api/v1/queries?env=analytics", json={"sql": sql}
+                                ).status_code
+                                == 422
+                            )
+                        submitted = client.post(
+                            "/api/v1/queries?env=analytics",
+                            json={
+                                "sql": "SELECT sum(id) AS total, count(*) AS n FROM preview_primary.warehouse.orders",
+                                "row_limit": 2,
+                            },
+                        )
+                        assert submitted.status_code == 202, submitted.text
+                        query_id = submitted.json()["id"]
+                        route = f"/api/v1/queries/{query_id}?env=analytics"
+                        for _ in range(100):
+                            completed = client.get(route).json()
+                            if completed["status"] not in {"queued", "running"}:
+                                break
+                            time.sleep(0.05)
+                        assert completed["status"] == "completed", completed
+                        assert completed["evidence_available"] is True
+                        assert completed["result"]["rows"] == [{"total": 57, "n": 3}]
+                        history = client.get("/api/v1/queries/history?env=analytics").json()
+                        assert [item["id"] for item in history["items"]] == [query_id]
+                        subprocess.run([*compose, "restart"], check=True, capture_output=True)
+                        _ready("https://localhost:10025/v1/info", verify=tls, auth=auth)
+                        v1_query._QUERY_SESSIONS.clear()
+                        recovered = client.get(route).json()
+                        assert recovered["status"] == "completed"
+                        assert recovered["result"]["rows"] == [{"total": 57, "n": 3}]
                 # Renew both credentials and trust using newly generated configuration.
                 _tls(tmp_path, password="renewed-disposable-password")
                 renewed = tmp_path / "renewed"
@@ -343,6 +372,7 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                 assert generated.exit_code == 0, generated.output
                 shutil.copytree(renewed / "trino", output / "trino", dirs_exist_ok=True)
                 shutil.copytree(renewed / "secrets", output / "secrets", dirs_exist_ok=True)
+                shutil.copytree(renewed / "api-secrets", output / "api-secrets", dirs_exist_ok=True)
                 subprocess.run([*compose, "restart"], check=True, capture_output=True)
                 renewed_tls = ssl.create_default_context(cafile=ca)
                 renewed_auth = (auth[0], "renewed-disposable-password")

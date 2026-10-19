@@ -71,6 +71,15 @@ the server keystore, an authenticated CA-verifying health check, and
 `api-settings.json`. Preserve file privacy when making files readable by the
 Trino container UID. Never make secrets world-readable to repair a mount.
 
+The generator preserves the invoking owner's UID; it does not run privileged
+ownership changes. Keep `trino/` and `secrets/` readable by the actual Trino UID.
+Mount only `api-secrets/` into the API, with ownership assigned to its actual UID
+by your deployment or secret-store tooling. The API needs neither the server
+keystore nor the password database. These separate private directories allow
+different API and Trino UIDs without broadening permissions. Adapt paths in
+`api-settings.json` to that mount, and fail deployment checks if either service
+cannot read its private files. Do not mount the entire output into the API.
+
 Review the deployment through your normal approval process before starting it:
 
 ```bash

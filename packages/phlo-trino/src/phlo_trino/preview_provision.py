@@ -167,10 +167,11 @@ def _write_bundle(
         # Trino 483 verifies PBKDF2WithHmacSHA1, with the stored hash's key length.
         digest = hashlib.pbkdf2_hmac("sha1", password.encode(), salt, 600_000, dklen=32)
         entries.append(f"phlo_api_preview_{env}:600000:{salt.hex()}:{digest.hex()}\n")
-        write(f"secrets/password-{env}", password)
+        write(f"api-secrets/password-{env}", password)
     write("secrets/preview-password.db", "".join(entries))
     write("secrets/preview-keystore.jks", keystore)
     write("secrets/ca.pem", ca)
+    write("api-secrets/ca.pem", ca)
     first = next(iter(passwords))
     write(
         "secrets/healthcheck.curl",
@@ -203,9 +204,9 @@ def _write_bundle(
     write("compose.yaml", yaml.safe_dump(compose, sort_keys=False))
     api = {
         "PHLO_V1_PREVIEW_TRINO_URL": "https://trino-preview:8443",
-        "PHLO_V1_PREVIEW_TRINO_CA_FILE": str((output / "secrets/ca.pem").resolve()),
+        "PHLO_V1_PREVIEW_TRINO_CA_FILE": str((output / "api-secrets/ca.pem").resolve()),
         "PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES": json.dumps(
-            {env: str((output / f"secrets/password-{env}").resolve()) for env in passwords}
+            {env: str((output / f"api-secrets/password-{env}").resolve()) for env in passwords}
         ),
         "PHLO_V1_PREVIEW_CATALOGS": json.dumps(mapping),
     }
