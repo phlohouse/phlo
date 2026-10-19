@@ -9,6 +9,7 @@ resource before the handler is called.
 from __future__ import annotations
 
 import json
+import re
 from hashlib import sha256
 from uuid import uuid4
 from dataclasses import dataclass, replace
@@ -1147,7 +1148,7 @@ def _validate_v1_principal_and_selection(
         )
     if "env" in spec.resource_keys:
         selections = request.query_params.getlist("env")
-        if len(selections) != 1 or selections[0] not in {"prod", "staging"}:
+        if len(selections) != 1 or not re.fullmatch(r"[a-z][a-z0-9_-]{0,62}", selections[0]):
             raise HTTPException(
                 status_code=422,
                 detail={"error": "unprocessable_input", "reason": "Invalid env selector."},

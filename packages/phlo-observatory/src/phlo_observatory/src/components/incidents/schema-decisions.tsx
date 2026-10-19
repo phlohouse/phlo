@@ -16,7 +16,7 @@ export function SchemaDecisions({
   incidentId,
   kind,
 }: {
-  env: 'prod' | 'staging'
+  env: string
   incidentId: string
   kind: string
 }) {

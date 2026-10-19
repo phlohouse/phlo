@@ -3,9 +3,9 @@ import { createServerOnlyFn } from '@tanstack/react-start'
 import { getRequestHeader } from '@tanstack/react-start/server'
 import { z } from 'zod'
 
-export const environmentSchema = z.enum(['prod', 'staging'])
+export const environmentSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,62}$/)
 export const environmentSearchSchema = z.object({
-  env: environmentSchema.default('prod'),
+  env: z.union([environmentSchema, z.literal('')]).default(''),
 })
 
 export const overviewSchema = z.object({

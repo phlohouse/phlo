@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS phlo.asset_query_usage (
     source_id text NOT NULL,
     query_id text NOT NULL,
     catalog_version text NOT NULL,
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     nessie_ref text NOT NULL,
     table_id text NOT NULL,
     occurred_at timestamptz NOT NULL,

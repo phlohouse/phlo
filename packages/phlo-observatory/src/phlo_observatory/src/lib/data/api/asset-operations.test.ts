@@ -43,9 +43,9 @@ describe('materialization intent', () => {
       ).toBe(true)
     }
   })
-  it('rejects unknown environments, modes and non-boolean rebuild controls', () => {
+  it('rejects malformed environment IDs, modes and non-boolean rebuild controls', () => {
     for (const change of [
-      { env: 'dev' },
+      { env: '../dev' },
       { mode: 'drop' },
       { rebuild_downstream: 'false' },
     ])

@@ -485,10 +485,11 @@ function EnvironmentBindingCard({
           Deployment details
         </summary>
         <p className="mt-2 mb-0 text-muted-foreground">
-          This Observatory supports prod and staging. To change their
-          connections, an operator updates <code>PHLO_V1_ENVIRONMENTS</code> in
-          the API deployment. This page cannot create environments or provision
-          services.
+          Environments and their default selection come from{' '}
+          <code>environments</code> and
+          <code> default_environment</code> in the project's{' '}
+          <code>phlo.yaml</code>. This page cannot create environments or
+          provision services.
           <code> PHLO_ENVIRONMENT</code> only labels a Phlo runtime.
         </p>
       </details>
