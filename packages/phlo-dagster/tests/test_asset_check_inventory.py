@@ -287,6 +287,25 @@ def test_resolved_cacheable_asset_checks_are_exported() -> None:
     assert inventory["checks"] == [{"name": "cached_quality", "description": None}]
 
 
+def test_cacheable_single_key_without_output_map_is_not_duplicated() -> None:
+    class SingleKeyCacheableAssets(CacheableAssetsDefinition):
+        def __init__(self) -> None:
+            super().__init__("single-key-cacheable-test")
+
+        def compute_cacheable_data(self) -> list[AssetsDefinitionCacheableData]:
+            return [AssetsDefinitionCacheableData(keys_by_output_name=None)]
+
+        def build_definitions(self, data: list[AssetsDefinitionCacheableData]):
+            del data
+            return [dg.AssetsDefinition(specs=[dg.AssetSpec("cached_single")])]
+
+    definitions = add_asset_check_inventory(dg.Definitions(assets=[SingleKeyCacheableAssets()]))
+
+    graph = definitions.resolve_asset_graph()
+    assert len(graph.assets_defs) == 1
+    assert INVENTORY_METADATA_KEY in graph.get(dg.AssetKey("cached_single")).metadata
+
+
 def test_source_asset_metadata_and_check_target_are_preserved() -> None:
     # Keep the deprecated input to verify compatibility with existing user definitions.
     with pytest.warns(DeprecationWarning, match=r"Class `SourceAsset` is deprecated"):

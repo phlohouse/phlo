@@ -46,6 +46,24 @@ class _InventoryCacheableAssetsDefinition(CacheableAssetsDefinition):
         return dg.map_asset_specs(self._add_inventory, assets)
 
 
+def _cacheable_asset_keys(asset: CacheableAssetsDefinition) -> set[dg.AssetKey]:
+    """Collect emitted keys when cache data does not declare output names."""
+    cacheable_data = asset.compute_cacheable_data()
+    keys = {
+        key
+        for data in cacheable_data
+        if data.keys_by_output_name is not None
+        for key in data.keys_by_output_name.values()
+    }
+    if any(data.keys_by_output_name is None for data in cacheable_data):
+        keys.update(
+            key
+            for built_asset in asset.build_definitions(cacheable_data)
+            for key in built_asset.keys
+        )
+    return keys
+
+
 def add_asset_check_inventory(definitions: dg.Definitions) -> dg.Definitions:
     """Attach bounded check definitions from the fully resolved local asset graph."""
     asset_graph = definitions.resolve_asset_graph()
@@ -115,9 +133,7 @@ def add_asset_check_inventory(definitions: dg.Definitions) -> dg.Definitions:
             known_asset_keys.add(asset.key)
         elif isinstance(asset, CacheableAssetsDefinition):
             assets.append(_InventoryCacheableAssetsDefinition(asset, add_inventory))
-            for cacheable_data in asset.compute_cacheable_data():
-                if cacheable_data.keys_by_output_name is not None:
-                    known_asset_keys.update(cacheable_data.keys_by_output_name.values())
+            known_asset_keys.update(_cacheable_asset_keys(asset))
 
     for key in asset_graph.get_all_asset_keys() - known_asset_keys:
         assets.append(add_inventory(dg.AssetSpec(key)))
