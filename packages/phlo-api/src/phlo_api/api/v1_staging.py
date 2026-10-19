@@ -17,6 +17,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import ConfigDict, Field
 
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRequest
+from phlo.config.project import load_project_model
 from phlo_api.api import v1, v1_jobs
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.operation_controls import (
@@ -31,7 +32,7 @@ from phlo_api.api.v1_branch_workflows import BranchReference, _nessie, _referenc
 from phlo_api.errors import BackendUnavailableError, BadGatewayError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.settings import get_deployment_settings, get_process_settings
-from phlo_api.v1_contract import WireModel
+from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
 router = APIRouter(tags=["v1 staging"])
 
@@ -46,7 +47,7 @@ _DENIED_PARTS = {
     "build",
 }
 _PROMOTION_LOCK = asyncio.Lock()
-StagingEnvironment = Annotated[Literal["staging"], Query()]
+StagingEnvironment = Annotated[Environment, Query()]
 
 
 class PromotionCheckReadiness(WireModel):
@@ -82,12 +83,12 @@ class PromotionHistoryEntry(WireModel):
 
 
 class PromotionHistory(WireModel):
-    env: Literal["staging"]
+    env: Environment
     items: list[PromotionHistoryEntry]
 
 
 class StagingActionResult(WireModel):
-    env: Literal["staging"]
+    env: Environment
     operation: str
     status: Literal["succeeded"]
     resulting_hash: str
@@ -107,7 +108,9 @@ class PromotionResult(StagingActionResult):
 
 
 class PromotionCandidate(WireModel):
-    env: Literal["staging"]
+    env: Environment
+    source_environment: Environment
+    target_environment: Environment
     candidate_id: str
     prod_git_revision: str
     staging_git_revision: str
@@ -134,7 +137,7 @@ class PromotionCheck(WireModel):
 
 
 class PromotionChecks(WireModel):
-    env: Literal["staging"]
+    env: Environment
     candidate_id: str
     items: list[PromotionCheck]
     passed: bool
@@ -155,6 +158,27 @@ class ResyncRequest(WireModel):
     expected_prod_hash: str = Field(min_length=1, max_length=256)
     expected_staging_hash: str = Field(min_length=1, max_length=256)
     confirm: Literal[True]
+
+
+def _promotion_environments() -> tuple[str, str]:
+    configured = load_project_model().promotion
+    source, target = (
+        (configured.source_environment, configured.target_environment)
+        if configured
+        else ("staging", "prod")
+    )
+    targets = v1._targets()
+    if source == target or not {source, target} <= targets.keys():
+        raise HTTPException(503, "Configure two explicit promotion environments in phlo.yaml.")
+    return source, target
+
+
+def _promotion_target(request: Request, env: str) -> EnvironmentTarget:
+    target = v1._target(request, env)
+    source, _ = _promotion_environments()
+    if env != source:
+        raise HTTPException(422, "Promotion selector must name the configured source environment.")
+    return target
 
 
 def _configured() -> tuple[Path, Path, str, str, str]:
@@ -178,10 +202,11 @@ def _configured() -> tuple[Path, Path, str, str, str]:
     if not all(values):
         raise HTTPException(503, "Staging promotion is not configured.")
     targets = v1._targets()
+    source, target = _promotion_environments()
     if (
-        values[2] != targets["prod"].nessie_ref
-        or values[3] != targets["staging"].nessie_ref
-        or values[4] != targets["prod"].dagster_location
+        values[2] != targets[target].nessie_ref
+        or values[3] != targets[source].nessie_ref
+        or values[4] != targets[target].dagster_location
     ):
         raise HTTPException(503, "Promotion targets must match the environment allowlist.")
     prod, staging = Path(values[0]).resolve(), Path(values[1]).resolve()
@@ -329,18 +354,21 @@ async def _state() -> dict[str, Any]:
     if not prod_nessie or not staging_nessie:
         raise HTTPException(503, "Configured Nessie references are unavailable.")
     targets = v1._targets()
+    source, target = _promotion_environments()
     repositories = v1_jobs._repositories(
-        await v1_jobs._graphql(v1_jobs.JOBS_QUERY), targets["staging"].dagster_location
+        await v1_jobs._graphql(v1_jobs.JOBS_QUERY), targets[source].dagster_location
     )
     prod_repositories = v1_jobs._repositories(
-        await v1_jobs._graphql(v1_jobs.JOBS_QUERY), targets["prod"].dagster_location
+        await v1_jobs._graphql(v1_jobs.JOBS_QUERY), targets[target].dagster_location
     )
     prod_tables, staging_tables = await asyncio.gather(
         _copy_inventory(prod_ref, prod_nessie["hash"]),
         _copy_inventory(staging_ref, staging_nessie["hash"]),
     )
     state = {
-        "env": "staging",
+        "env": source,
+        "source_environment": source,
+        "target_environment": target,
         "prod_git_revision": prod_head,
         "staging_git_revision": staging_head,
         "prod_ref": prod_ref,
@@ -348,14 +376,14 @@ async def _state() -> dict[str, Any]:
         "staging_ref": staging_ref,
         "staging_hash": staging_nessie["hash"],
         "dagster_location": location,
-        "staging_location": targets["staging"].dagster_location,
+        "staging_location": targets[source].dagster_location,
         "code_paths": paths,
         "code_changes": [
             f"{status}\t{path}" for status, path in zip(changed[::2], paths, strict=True)
         ],
         "jobs": {
-            "prod": sorted(item.id for item in v1_jobs._jobs(prod_repositories, "prod", {})),
-            "staging": sorted(item.id for item in v1_jobs._jobs(repositories, "staging", {})),
+            "prod": sorted(item.id for item in v1_jobs._jobs(prod_repositories, target, {})),
+            "staging": sorted(item.id for item in v1_jobs._jobs(repositories, source, {})),
         },
         "copy_inventory": {"prod": prod_tables, "staging": staging_tables},
     }
@@ -366,7 +394,7 @@ async def _state() -> dict[str, Any]:
 
 @router.get("/staging/promotions", name="v1_staging_promotions", response_model=PromotionHistory)
 async def promotions(request: Request, env: StagingEnvironment) -> dict[str, Any]:
-    v1._target(request, env)
+    _promotion_target(request, env)
     require_scope(request, "lakehouse:read")
     return {
         "env": env,
@@ -378,7 +406,7 @@ async def promotions(request: Request, env: StagingEnvironment) -> dict[str, Any
     "/staging/promotions/candidate", name="v1_staging_candidate", response_model=PromotionCandidate
 )
 async def candidate(request: Request, env: StagingEnvironment) -> dict[str, Any]:
-    v1._target(request, env)
+    _promotion_target(request, env)
     require_scope(request, "lakehouse:read")
     state = await _state()
     state["check_readiness"] = await _check_readiness(state)
@@ -525,7 +553,7 @@ def _check_run_readiness(
     row = (staging_location or matching)[0]
     tags = {tag["key"]: tag["value"] for tag in row["tags"]}
     expected = {
-        "environment": "staging",
+        "environment": state["env"],
         "phlo/ref": state["staging_ref"],
         "phlo/code_version": state["staging_git_revision"],
         "phlo/nessie_hash": state["staging_hash"],
@@ -602,7 +630,7 @@ async def checks(
     env: StagingEnvironment,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
-    environment_target = v1._target(request, env)
+    environment_target = _promotion_target(request, env)
     auth = require_scope(request, "lakehouse:operate")
     state = await _state()
     if payload.candidate_id != state["candidate_id"]:
@@ -681,7 +709,7 @@ async def resync(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     auth = require_scope(request, "lakehouse:operate")
-    v1._target(request, env)
+    _promotion_target(request, env)
     _, _, prod_ref, staging_ref, _ = _configured()
     target = _operation_target(
         auth["subject"], "staging.resync", payload.model_dump(), idempotency_key
@@ -737,7 +765,7 @@ async def promote(
     env: StagingEnvironment,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
-    v1._target(request, env)
+    _promotion_target(request, env)
     auth = require_scope(request, "project:write")
     principal = get_request_principal(request)
     target = _operation_target(
@@ -842,7 +870,8 @@ def _operation_target(actor: str, operation: str, payload: dict[str, Any], key: 
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    target = f"{actor}:staging:{digest}"
+    source, destination = _promotion_environments()
+    target = f"{actor}:{source}:{destination}:{digest}"
     if idempotency_key_target(key, operation) not in {None, target}:
         raise HTTPException(409, "Idempotency key was already used for another intent.")
     return target

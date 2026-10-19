@@ -1,7 +1,12 @@
 /** Defines the authenticated application shell and loads its shared status data. */
 import * as React from 'react'
-import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
-import { getShell } from '@/lib/data/api/core'
+import {
+  Outlet,
+  createFileRoute,
+  redirect,
+  useRouterState,
+} from '@tanstack/react-router'
+import { getEnvironments, getShell } from '@/lib/data/api/core'
 import { environmentSearchSchema } from '@/lib/data/api/client'
 import { Sidebar } from '@/components/phlo/sidebar'
 import { MobileTabBar, MobileTopBar } from '@/components/phlo/mobile-nav'
@@ -18,6 +23,18 @@ import {
  */
 export const Route = createFileRoute('/_app')({
   validateSearch: environmentSearchSchema,
+  beforeLoad: async ({ search, location }) => {
+    const discovery = await getEnvironments({ data: search.env })
+    if (discovery.selected !== search.env) {
+      const url = new URL(location.href, 'http://route.invalid')
+      url.searchParams.set('env', discovery.selected)
+      throw redirect({
+        href: `${url.pathname}${url.search}${url.hash}`,
+        replace: true,
+      })
+    }
+    return { environments: discovery.items }
+  },
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: ({ deps }) => getShell({ data: deps.env }),
   pendingComponent: PageSkeleton,

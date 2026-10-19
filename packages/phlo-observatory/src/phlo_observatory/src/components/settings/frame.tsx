@@ -1,6 +1,6 @@
 /** Frames settings pages with workspace and environment subnavigation. */
 import * as React from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { Link, getRouteApi, useRouterState } from '@tanstack/react-router'
 import type { Env } from '@/lib/data/types'
 import { cn } from '@/lib/utils'
 
@@ -37,17 +37,13 @@ const workspace: Array<NavItem> = [
     match: (p) => p.startsWith('/settings/audit-log'),
   },
 ]
-const environments: Array<NavItem> = [
-  { label: 'prod', to: '/', env: 'prod' },
-  { label: 'staging', to: '/staging', env: 'staging' },
-]
 
 export function settingsDestination(
   item: NavItem,
   sourceSearch: { env?: unknown },
 ) {
   const env: Env =
-    item.env ?? (sourceSearch.env === 'staging' ? 'staging' : 'prod')
+    item.env ?? (typeof sourceSearch.env === 'string' ? sourceSearch.env : '')
   return { to: item.to, hash: item.hash, search: { env } }
 }
 
@@ -87,6 +83,7 @@ export function SettingsFrame({
   children: React.ReactNode
   className?: string
 }) {
+  const { environments } = getRouteApi('/_app').useRouteContext()
   const { pathname, hash, selectedEnv } = useRouterState({
     select: (s) => ({
       pathname: s.location.pathname,
@@ -95,7 +92,7 @@ export function SettingsFrame({
     }),
   })
   const h = hash.replace(/^#/, '')
-  const env: Env = selectedEnv === 'staging' ? 'staging' : 'prod'
+  const env: Env = selectedEnv ?? ''
 
   return (
     <>
@@ -124,7 +121,12 @@ export function SettingsFrame({
             className="mx-1 my-2.5 w-px shrink-0 bg-border lg:hidden"
           />
           {environments.map((i) => (
-            <SubnavLink key={i.label} item={i} env={env} on={false} />
+            <SubnavLink
+              key={i.env}
+              item={{ label: i.env, to: '/', env: i.env }}
+              env={env}
+              on={false}
+            />
           ))}
         </nav>
         <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)}>

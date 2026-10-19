@@ -1,5 +1,5 @@
 /** Renders desktop navigation, environment selection, and quick actions. */
-import { Link } from '@tanstack/react-router'
+import { Link, getRouteApi } from '@tanstack/react-router'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -44,20 +44,13 @@ export function BrandMark({ className }: { className?: string }) {
 
 export function EnvPill({ env }: { env: Env }) {
   return (
-    <span
-      className={cn(
-        'rounded-[5px] border px-1.5 py-px text-xs',
-        env === 'staging'
-          ? 'border-warn bg-warn-soft font-medium text-warn-ink'
-          : 'border-border-strong text-muted-foreground',
-      )}
-    >
+    <span className="rounded-[5px] border border-border-strong px-1.5 py-px text-xs text-muted-foreground">
       {env}
     </span>
   )
 }
 
-/** Brand + environment switcher. Anything that isn't prod is amber. */
+/** Brand and operator-configured environment selection. */
 export function EnvSwitcher({
   env,
   compact = false,
@@ -65,6 +58,7 @@ export function EnvSwitcher({
   env: Env
   compact?: boolean
 }) {
+  const { environments } = getRouteApi('/_app').useRouteContext()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -92,36 +86,29 @@ export function EnvSwitcher({
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-[280px]">
         <DropdownMenuLabel>Switch environment</DropdownMenuLabel>
-        <DropdownMenuItem
-          render={<Link to="/" search={{ env: 'prod' }} />}
-          className={cn('items-start', env === 'prod' && 'bg-soft')}
-        >
-          <Dot tone="neutral" size="md" className="mt-1.5 bg-text-3" />
-          <span className="flex flex-1 flex-col gap-0.5">
-            <span className="flex items-center gap-2 font-medium">prod</span>
-            <span className="text-[12.5px] text-muted-foreground">
-              Connected API environment
+        {environments.map((item) => (
+          <DropdownMenuItem
+            key={item.env}
+            render={<Link to="/" search={{ env: item.env }} />}
+            className={cn('items-start', env === item.env && 'bg-soft')}
+          >
+            <Dot
+              tone={item.status === 'available' ? 'ok' : 'warn'}
+              size="md"
+              className="mt-1.5"
+            />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate font-medium">{item.env}</span>
+              <span className="text-[12.5px] text-muted-foreground">
+                {item.status === 'available' ? 'Available' : 'Unavailable'} API
+                environment
+              </span>
             </span>
-          </span>
-          {env === 'prod' ? (
-            <CheckIcon className="mt-1 size-3.5 text-link" />
-          ) : null}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          render={<Link to="/" search={{ env: 'staging' }} />}
-          className={cn('items-start', env === 'staging' && 'bg-soft')}
-        >
-          <Dot tone="warn" size="md" className="mt-1.5" />
-          <span className="flex flex-1 flex-col gap-0.5">
-            <span className="flex items-center gap-2 font-medium">staging</span>
-            <span className="text-[12.5px] text-muted-foreground">
-              Connected API environment
-            </span>
-          </span>
-          {env === 'staging' ? (
-            <CheckIcon className="mt-1 size-3.5 text-link" />
-          ) : null}
-        </DropdownMenuItem>
+            {env === item.env ? (
+              <CheckIcon className="mt-1 size-3.5 text-link" />
+            ) : null}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   )

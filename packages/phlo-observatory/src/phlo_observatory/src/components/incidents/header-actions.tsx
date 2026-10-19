@@ -26,7 +26,7 @@ export function IncidentActions({
   env,
   incident,
 }: {
-  env: 'prod' | 'staging'
+  env: string
   incident: IncidentRecord
 }) {
   const router = useRouter()

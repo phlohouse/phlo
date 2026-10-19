@@ -717,7 +717,7 @@ function PinQueryDialog({
   onOpenChange,
   onPinned,
 }: {
-  env: 'prod' | 'staging'
+  env: string
   session?: QuerySession
   open: boolean
   onOpenChange: (open: boolean) => void
