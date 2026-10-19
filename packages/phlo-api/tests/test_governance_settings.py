@@ -859,6 +859,9 @@ def test_wap_review_required_is_actionable_and_retained_past_cleanup(
         )
         report = wap_sensors._read_wap_report("one")
         assert report["status"] == "promoted"
+        assert report["publication_reason"] == (
+            "Publish validated WAP run one: all required quality checks passed."
+        )
         assert "review_required" not in report
         assert "review_message" not in report
         assert "failure_reason" not in report

@@ -1970,6 +1970,7 @@ def _promote_branch(
             target_branch=target_ref,
             target_hash_before=target_hash_before,
             publication_method="ref_fast_forward",
+            publication_reason=merge_message,
         ):
             logger.warning("wap_promotion_outbox_write_failed", run_id=run.run_id)
             return (promoted, blocked)
