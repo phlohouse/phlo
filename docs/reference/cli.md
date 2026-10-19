@@ -1724,6 +1724,7 @@ Capabilities: `json=false`, `dry_run=false`, `confirmation_flag=false`
 | `no_dev` | option | `--no-dev` | `boolean` | false | `false` | flag |
 | `phlo_source` | option | `--phlo-source` | `path` | false | `Sentinel.UNSET` | none |
 | `service_dev` | option | `--service-dev` | `boolean` | false | `false` | flag |
+| `observatory_dev` | option | `--observatory-dev` | `boolean` | false | `false` | flag |
 | `production` | option | `--production` | `boolean` | false | `false` | flag |
 | `publish_all_interfaces` | option | `--publish-all-interfaces` | `boolean` | false | `false` | flag |
 | `allow_insecure` | option | `--allow-insecure` | `boolean` | false | `false` | flag |
@@ -1792,6 +1793,7 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 | --- | --- | --- | --- | --- | --- | --- |
 | `production` | option | `--production` | `boolean` | false | `false` | flag |
 | `as_json` | option | `--json` | `boolean` | false | `false` | flag |
+| `observatory_dev` | option | `--observatory-dev` | `boolean` | false | `false` | flag |
 | `output_path` | option | `--output` | `file` | false | `Sentinel.UNSET` | none |
 
 ## `phlo services remove`
@@ -1848,6 +1850,7 @@ Capabilities: `json=false`, `dry_run=false`, `confirmation_flag=false`
 | `service` | option | `--service` | `text` | false | `Sentinel.UNSET` | multiple |
 | `native` | option | `--native` | `boolean` | false | `false` | flag |
 | `backend_name` | option | `--backend` | `choice` | false | `none` | choices: docker, podman, auto |
+| `observatory_dev` | option | `--observatory-dev` | `boolean` | false | `false` | flag |
 
 ## `phlo services status`
 

@@ -1,5 +1,5 @@
 {
-  "field_count": 321,
+  "field_count": 322,
   "model_count": 52,
   "models": [
     {
@@ -309,6 +309,17 @@
             "PHLO_AUTHORIZATION_MODE"
           ],
           "name": "phlo_authorization_mode",
+          "required": false
+        },
+        {
+          "alias": "PHLO_AUTHZ_TOKEN",
+          "annotation": "pydantic.types.SecretStr | None",
+          "default": null,
+          "description": "Caller bearer credential for explicit trusted-endpoint CLI verification; never persisted.",
+          "environment_names": [
+            "PHLO_AUTHZ_TOKEN"
+          ],
+          "name": "phlo_authz_token",
           "required": false
         },
         {

@@ -146,7 +146,6 @@ export function Sidebar({
   services: ObservatoryServiceList['items'] | null
   identity: { subject: string; email: string | null; roles: Array<string> }
 }) {
-  const staging = env === 'staging'
   const calm = openIncidentCount === 0
   const visibleServices = environmentServices(services ?? [])
   return (
@@ -235,7 +234,7 @@ export function Sidebar({
 
       <div className="mt-auto flex flex-col gap-2 border-t border-border px-2.5 pt-3 pb-1">
         <div className="text-xs tracking-wide text-muted-foreground">
-          {staging ? 'Services · staging' : 'Services'}
+          Services · {env}
         </div>
         {visibleServices.length === 0 ? (
           <p className="m-0 text-[13px] text-text-3">
