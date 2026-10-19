@@ -935,7 +935,7 @@ def test_canonical_reads_preserve_pages_filters_and_bearer(monkeypatch, env) -> 
     ]
 
 
-@pytest.mark.parametrize("env", [None, "", "dev", "PROD"])
+@pytest.mark.parametrize("env", [None, "", "bad|environment", "PROD", "a" * 64])
 def test_canonical_client_rejects_invalid_environment_before_http(monkeypatch, env) -> None:
     def unexpected_http(*args, **kwargs):
         pytest.fail("Invalid environment reached HTTP")
@@ -948,7 +948,7 @@ def test_canonical_client_rejects_invalid_environment_before_http(monkeypatch, e
         (client.list_runs, ()),
         (client.get_run, ("run-1",)),
     ]:
-        with pytest.raises(ValueError, match="env must be prod or staging"):
+        with pytest.raises(ValueError, match="env must be a configured environment ID"):
             method(*args, env=env)
 
 
@@ -972,31 +972,31 @@ def test_canonical_registered_tools_and_resources(monkeypatch) -> None:
     server = create_server(McpConfig(api_base_url="http://example.test"))
     for name in ["list_assets", "get_asset", "list_runs", "get_run"]:
         tool = server._tool_manager.get_tool(name)
-        assert tool.parameters["properties"]["env"]["enum"] == ["prod", "staging"]
+        assert tool.parameters["properties"]["env"]["pattern"] == "^[a-z][a-z0-9_-]{0,62}$"
         assert "env" in tool.parameters["required"]
         assert "q" not in tool.parameters["properties"]
         assert "query" not in tool.parameters["properties"]
-        for arguments in [{}, {"env": "dev"}]:
+        for arguments in [{}, {"env": "bad|environment"}]:
             with pytest.raises(Exception, match="validation"):
                 asyncio.run(server.call_tool(name, arguments))
     assert not calls
     for name, arguments in [
-        ("list_assets", {"env": "staging", "cursor": "next"}),
-        ("get_asset", {"env": "staging", "asset_id": "silver/orders"}),
-        ("list_runs", {"env": "staging", "status": "FAILURE"}),
-        ("get_run", {"env": "staging", "run_id": "run-1"}),
+        ("list_assets", {"env": "analytics", "cursor": "next"}),
+        ("get_asset", {"env": "analytics", "asset_id": "silver/orders"}),
+        ("list_runs", {"env": "analytics", "status": "FAILURE"}),
+        ("get_run", {"env": "analytics", "run_id": "run-1"}),
     ]:
         asyncio.run(server.call_tool(name, arguments))
-        assert calls[-1][1]["env"] == "staging"
+        assert calls[-1][1]["env"] == "analytics"
     for suffix in ["assets", "assets/silver%2Forders", "runs", "runs/run-1"]:
         result = list(
-            asyncio.run(server.read_resource(f"phlo://runtime/environments/staging/{suffix}"))
+            asyncio.run(server.read_resource(f"phlo://runtime/environments/analytics/{suffix}"))
         )
-        assert json.loads(result[0].content)["env"] == "staging"
+        assert json.loads(result[0].content)["env"] == "analytics"
         assert calls[-1][0].endswith(f"/api/v1/{suffix.replace('%2F', '/')}")
     count = len(calls)
-    with pytest.raises(Exception, match="literal_error"):
-        asyncio.run(server.read_resource("phlo://runtime/environments/dev/assets"))
+    with pytest.raises(Exception, match="string_pattern_mismatch"):
+        asyncio.run(server.read_resource("phlo://runtime/environments/PROD/assets"))
     assert len(calls) == count
     tools_resource = next(
         r for r in server._resource_manager._resources.values() if r.name == "mcp_tools"
