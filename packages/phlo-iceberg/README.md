@@ -58,6 +58,10 @@ config = get_settings().get_pyiceberg_catalog_config("main")
 # Use config with pyiceberg
 ```
 
+### Adopt legacy history
+
+Use `phlo_iceberg.history_adoption.validate_history_adoption` for a read-only report, then `adopt_history_table` for explicit, revalidated transactional adoption. Ordinary history writes still reject unmarked nonempty tables. See the [adoption and recovery guide](../../docs/guides/adopt-history-table.md) before changing an existing table.
+
 ## Entry Points
 
 - `phlo.plugins.resources` - Provides `IcebergResourceProvider`

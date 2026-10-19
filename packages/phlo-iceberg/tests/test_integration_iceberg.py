@@ -95,6 +95,92 @@ def test_history_replay_conflict_and_concurrent_lookup_on_real_services(
         iceberg_catalog.drop_table(name)
 
 
+@pytest.mark.parametrize("competing_adopter", [False, True])
+def test_history_adoption_on_real_catalog_and_object_store(
+    iceberg_catalog, tmp_path, monkeypatch, competing_adopter
+):
+    import uuid
+
+    from pyiceberg.exceptions import CommitFailedException
+
+    from phlo.capabilities.history import HistoryConflictError, HistoryPolicy
+    from phlo_iceberg.history_adoption import adopt_history_table, validate_history_adoption
+    from phlo_iceberg.resource import IcebergResource
+
+    name = f"test_ns.adoption_{uuid.uuid4().hex[:8]}"
+    schema = pa.schema(
+        [("entity", pa.string()), ("version", pa.string()), ("payload", pa.string())]
+    )
+    row = {"entity": "E1", "version": "V1", "payload": "original"}
+    policy = HistoryPolicy("entity", "version", ("payload",))
+    store = IcebergResource(ref="main")
+    store.ensure_table(name, schema=schema)
+    try:
+        iceberg_catalog.load_table(name).append(pa.Table.from_pylist([row, row], schema=schema))
+        before = iceberg_catalog.load_table(name)
+        files = {task.file.file_path for task in before.scan().plan_files()}
+        report = validate_history_adoption(name, policy)
+        assert report["compatible"] is True
+        assert report["rows_scanned"] == 2
+        assert report["duplicate_rows"] == 1
+        assert iceberg_catalog.load_table(name).metadata_location == before.metadata_location
+
+        def adopt(selected):
+            return adopt_history_table(
+                name,
+                selected,
+                expected_metadata_location=report["metadata_location"],
+                operation_id=uuid.uuid4().hex,
+                operator="integration",
+                reason="adoption acceptance",
+            )
+
+        if competing_adopter:
+            catalog_type = type(iceberg_catalog)
+            commit = catalog_type.commit_table
+
+            def race(self, table, requirements, updates):
+                monkeypatch.setattr(catalog_type, "commit_table", commit)
+                adopt(HistoryPolicy("version", "entity", ("payload",)))
+                return commit(self, table, requirements, updates)
+
+            monkeypatch.setattr(catalog_type, "commit_table", race)
+            with pytest.raises(CommitFailedException):
+                adopt(policy)
+            assert validate_history_adoption(name, policy)["compatible"] is False
+        else:
+            adopt(policy)
+            after = iceberg_catalog.load_table(name)
+            assert after.scan().to_arrow().to_pylist() == [row, row]
+            assert {task.file.file_path for task in after.scan().plan_files()} == files
+            adopted_revision = after.metadata_location
+            path = tmp_path / "replay.parquet"
+            pq.write_table(pa.Table.from_pylist([row], schema=schema), path)
+            assert (
+                store.history_parquet(table_name=name, data_paths=[path], policy=policy)[
+                    "rows_skipped"
+                ]
+                == 1
+            )
+            assert iceberg_catalog.load_table(name).metadata_location == adopted_revision
+            pq.write_table(
+                pa.Table.from_pylist([{**row, "payload": "conflict"}], schema=schema), path
+            )
+            with pytest.raises(HistoryConflictError):
+                store.history_parquet(table_name=name, data_paths=[path], policy=policy)
+            assert iceberg_catalog.load_table(name).metadata_location == adopted_revision
+            pq.write_table(pa.Table.from_pylist([{**row, "version": "V2"}], schema=schema), path)
+            assert (
+                store.history_parquet(table_name=name, data_paths=[path], policy=policy)[
+                    "rows_inserted"
+                ]
+                == 1
+            )
+            assert iceberg_catalog.load_table(name).scan().count() == 3
+    finally:
+        iceberg_catalog.drop_table(name)
+
+
 @pytest.fixture
 def iceberg_catalog(request, monkeypatch):
     """Fixture providing a real Iceberg catalog for testing."""
