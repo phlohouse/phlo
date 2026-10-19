@@ -1,13 +1,15 @@
 """Focused contracts for the installed-provider artifact harness.
 
 Loads scripts/verify_installed_provider_artifacts.py directly via importlib
-and locks its workspace inventory, external-environment scrubbing, missing
-artifact reporting, and healthcheck shard behavior.
+and checks its workspace inventory, external-environment scrubbing, batch
+rendering evidence, and complete build/health evidence across image families.
 """
 
 import importlib.util
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
@@ -113,6 +115,211 @@ def test_health_shard_marks_a_service_without_a_healthcheck_not_applicable(tmp_p
     assert results == [
         {"service": "generated", "status": "not_applicable", "detail": "no healthcheck"}
     ]
+
+
+@pytest.mark.parametrize(
+    ("requested", "missing"),
+    [(["api", "worker"], None), (["api", "worker"], "worker"), ([], None)],
+)
+def test_batch_render_preserves_service_entries_and_scopes_new_files(
+    tmp_path, monkeypatch, requested, missing
+):
+    import yaml
+
+    phlo = tmp_path / "bin/phlo"
+    state = tmp_path / ".phlo"
+    batches = []
+    original_run = HARNESS._run
+
+    def run_installed_cli(command, *, cwd, env):
+        if command[0] != str(phlo):
+            return original_run(command, cwd=cwd, env=env)
+        if command[2] == "init":
+            state.mkdir()
+            (state / "initial.txt").write_text("initial artifact")
+            (state / "docker-compose.yml").write_text("services: {}\n")
+            return ""
+        if command[2] != "add" or "--no-start" not in command:
+            raise AssertionError("The renderer must add services without starting containers")
+        names = [command[index + 1] for index, token in enumerate(command) if token == "--service"]
+        batches.append(names)
+        entries = {}
+        for name in names:
+            if name != missing:
+                (state / f"{name}.txt").write_text(name)
+                entries[name] = {"image": f"example/{name}:1"}
+        (state / "docker-compose.yml").write_text(yaml.safe_dump({"services": entries}))
+        return ""
+
+    monkeypatch.setattr(HARNESS, "_run", run_installed_cli)
+    rendered, compose, rendering = HARNESS.render_services(
+        phlo, Path(sys.prefix), tmp_path, [{"name": name} for name in requested], {}
+    )
+
+    assert batches == ([requested] if requested else [])
+    assert rendered == [
+        {
+            "service": name,
+            "compose_service": None if name == missing else {"image": f"example/{name}:1"},
+        }
+        for name in requested
+    ]
+    assert set(compose["services"]) == set(requested) - {missing}
+    assert rendering == {
+        "scope": "batch_service_add",
+        "generated_files": sorted(f".phlo/{name}.txt" for name in requested if name != missing),
+    }
+
+
+@pytest.fixture
+def family_compose():
+    """Provide interleaved shared images and a dependency without a local build."""
+    minio_build = {"context": "./minio", "dockerfile": "Dockerfile"}
+    dagster_build = {"context": ".", "dockerfile": "dagster/Dockerfile"}
+    healthcheck = {"test": ["CMD", "true"]}
+    return {
+        "services": {
+            "minio": {"image": "example/minio:1", "build": minio_build, "healthcheck": healthcheck},
+            "api": {"image": "example/api:1", "build": "./api", "healthcheck": healthcheck},
+            "minio-setup": {
+                "image": "example/minio:1",
+                "build": dict(reversed(list(minio_build.items()))),
+                "command": ["setup"],
+            },
+            "observatory": {"image": "example/ui:1", "build": "./ui", "healthcheck": healthcheck},
+            "dagster": {
+                "image": "example/dagster:1",
+                "build": dagster_build,
+                "healthcheck": healthcheck,
+            },
+            "dagster-daemon": {"image": "example/dagster:1", "build": dagster_build},
+            "postgres": {"image": "postgres:16", "healthcheck": healthcheck},
+        }
+    }
+
+
+def test_image_families_form_complete_disjoint_shards(family_compose):
+    selected = [
+        HARNESS.select_buildable_services(family_compose, shard_index=index, shard_count=4)
+        for index in range(4)
+    ]
+    names = [[name for name, _config in shard] for shard in selected]
+
+    assert names == [
+        ["minio", "minio-setup"],
+        ["api"],
+        ["observatory"],
+        ["dagster", "dagster-daemon"],
+    ]
+    flattened = [name for shard in names for name in shard]
+    assert len(flattened) == len(set(flattened))
+    assert set(flattened) == {
+        name for name, config in family_compose["services"].items() if config.get("build")
+    }
+
+
+@pytest.mark.parametrize(
+    "difference",
+    [
+        {"context": "./other"},
+        {"dockerfile": "Other.Dockerfile"},
+        {"args": {"VERSION": "2"}},
+        {"target": "development"},
+    ],
+)
+def test_same_image_with_different_build_inputs_keeps_separate_families(difference):
+    build = {
+        "context": ".",
+        "dockerfile": "Dockerfile",
+        "args": {"VERSION": "1"},
+        "target": "runtime",
+    }
+    config = {"image": "example/app:1", "build": build}
+    compose = {
+        "services": {
+            "first": config,
+            "second": {"image": "example/app:1", "build": {**build, **difference}},
+            "alias": {"image": "example/app:1", "build": dict(reversed(list(build.items())))},
+            "other-image": {"image": "example/other:1", "build": build},
+        }
+    }
+
+    selected = [
+        [
+            name
+            for name, _config in HARNESS.select_buildable_services(
+                compose, shard_index=index, shard_count=3
+            )
+        ]
+        for index in range(3)
+    ]
+
+    assert selected == [["first", "alias"], ["second"], ["other-image"]]
+
+
+def test_family_shards_retain_every_build_and_health_result_after_failures(
+    tmp_path, monkeypatch, family_compose
+):
+    import json
+    import subprocess
+    from collections import Counter
+
+    operations = []
+    monkeypatch.setattr(
+        HARNESS, "_run", lambda *_args, **_kwargs: json.dumps(["docker", "compose"])
+    )
+
+    def run_container(command, **_kwargs):
+        operation = command[2]
+        service = command[-1] if operation != "down" else None
+        operations.append((operation, service))
+        failed = (operation, service) in {("build", "minio"), ("up", "dagster")}
+        return subprocess.CompletedProcess(
+            command, int(failed), f"{service} logs", "failure" if failed else ""
+        )
+
+    monkeypatch.setattr(HARNESS.subprocess, "run", run_container)
+    builds = []
+    health = []
+    for index in range(4):
+        arguments = {
+            "consumer": tmp_path,
+            "environment": tmp_path / "environment",
+            "shard_index": index,
+            "shard_count": 4,
+            "env": {},
+        }
+        builds.extend(HARNESS.build_shard(family_compose, **arguments))
+        health.extend(HARNESS.health_shard(family_compose, **arguments))
+
+    buildable = {
+        name: config for name, config in family_compose["services"].items() if config.get("build")
+    }
+    assert Counter(entry["service"] for entry in builds) == Counter(dict.fromkeys(buildable, 1))
+    assert Counter(entry["service"] for entry in health) == Counter(dict.fromkeys(buildable, 1))
+    assert {entry["service"]: entry["status"] for entry in builds} == {
+        name: "failed" if name == "minio" else "passed" for name in buildable
+    }
+    assert {entry["service"]: entry["status"] for entry in health} == {
+        name: "failed"
+        if name == "dagster"
+        else "passed"
+        if config.get("healthcheck")
+        else "not_applicable"
+        for name, config in buildable.items()
+    }
+    expected_probes = Counter(
+        {name: 1 for name, config in buildable.items() if config.get("healthcheck")}
+    )
+    assert (
+        Counter(service for operation, service in operations if operation == "up")
+        == expected_probes
+    )
+    assert (
+        Counter(service for operation, service in operations if operation == "logs")
+        == expected_probes
+    )
+    assert operations.count(("down", None)) == sum(expected_probes.values())
 
 
 def test_phlo_service_inventory_unwraps_result_before_rendering(tmp_path, monkeypatch):

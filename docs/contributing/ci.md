@@ -48,11 +48,23 @@ per-source floors. See [test and contract gates](testing-gates.md) for the sourc
 scope and local commands. Standalone Windows dispatch builds its own wheels;
 ordinary validation reuses the preparation artifact.
 
+Installed-provider verification renders the complete service inventory in one
+installed-CLI invocation. Its report records the generated files for that batch
+and the final Compose configuration for each service. The four Docker shards keep
+services with identical image and build settings together, so a second service
+using the same image can reuse its runner's build cache. Every buildable service
+still has a build result and its applicable health check, and local image scans
+use the resulting image IDs.
+
 Integration builds the checked-in MinIO image once, then transfers it to the
 storage/catalog job and three API groups. Each consumer verifies the loaded image
 ID before running tests. BuildKit imports the default-branch publisher's MinIO
 cache and the integration cache; the runtime stage still applies fresh operating
-system updates. A cache miss rebuilds the same sources.
+system updates. A cache miss rebuilds the same sources. Scheduled and manual
+Nightly runs on `phlohouse/phlo`'s `main` branch refresh the integration cache
+through the same build-only action, making it available to other PR and queue
+refs. This optional maintenance result is reported separately from the required
+nightly checks and release qualification.
 
 The API groups keep whole test modules together and provision their own services.
 PostgreSQL concurrency, quickstart and recovery run independently of the image
@@ -70,7 +82,9 @@ See [parallel integration contracts](testing-gates.md#parallel-integration-contr
 for individual group commands and timing diagnostics.
 
 Package-specific test environments and their coverage reports remain separate
-from the full-workspace measurement. The workspace shards also include
+from the full-workspace measurement. The four package groups place the API and
+Dagster tests in different jobs while retaining each package's own dependency
+environment. The workspace shards also include
 quickstart; its integration-lane execution retains the smoke-test artifacts.
 Each measured source tree has independent line and branch coverage floors.
 
@@ -102,8 +116,11 @@ event base and head commits before comparing their trees; it does not assume the
 event base is the test merge's first parent. Queue and full-fallback runs select
 the complete contract without fetching comparison commits. Core tests and coverage
 also use shallow checkouts; their Git-history tests create isolated repositories.
-Quality and dependency checks retain the history needed for the pinned header baseline,
-release versions and reviewed dependency exceptions.
+Quality and dependency checks retain the history needed for the pinned header
+baseline, release versions and reviewed dependency exceptions. Those checkouts
+and PR container selection use `filter: blob:none`: they retain commit ancestry
+and tags while fetching historical file contents only when needed. Container
+selection still uses a full history for its PR merge-base comparison.
 
 The checked-in [ruleset](../../security/release-candidate-ruleset.json) sets build
 concurrency to two, with one pull request merged at a time. GitHub can validate a

@@ -232,14 +232,32 @@ def test_minio_build_preserves_checkout_source_and_exports_one_local_image() -> 
         (job_id, step)
         for job_id, job in jobs.items()
         for step in _steps(job)
-        if "docker/build-push-action@" in step.get("uses", "")
+        if step.get("uses") == "./.github/actions/build-minio-image"
     ]
     assert len(builds) == 1
     assert builds[0][0] == "minio-image"
-    build = builds[0][1]["with"]
+    assert not any(
+        "docker/build-push-action@" in step.get("uses", "")
+        for job in jobs.values()
+        for step in _steps(job)
+    ), "MinIO builds must use the shared action instead of a second inline recipe"
+    assert builds[0][1]["with"] == {"image": "${{ env.MINIO_IMAGE }}"}
+    action = _parse_yaml(REPO_ROOT / ".github/actions/build-minio-image/action.yml")
+    assert action["inputs"]["image"]["required"] is True
+    assert action["runs"]["using"] == "composite"
+    steps = action["runs"]["steps"]
+    assert steps[0]["uses"] == "./.github/actions/docker-mirror"
+    assert steps[1]["uses"] == (
+        "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f"
+    )
+    assert 'mirrors = ["mirror.gcr.io"]' in steps[1]["with"]["buildkitd-config-inline"]
+    assert steps[2]["uses"] == ("docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8")
+    assert steps[2]["env"]["DOCKER_BUILD_RECORD_UPLOAD"] == "false"
+    assert len(steps) == 3
+    build = steps[2]["with"]
     assert build["context"] == "packages/phlo-minio/src/phlo_minio"
     assert build["file"] == "packages/phlo-minio/src/phlo_minio/Dockerfile"
-    assert build["tags"] == "${{ env.MINIO_IMAGE }}"
+    assert build["tags"] == "${{ inputs.image }}"
     assert build["platforms"] == "linux/amd64"
     assert build["load"] is True
     assert build["push"] is False
