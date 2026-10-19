@@ -235,9 +235,11 @@ import json, sys, yaml
 from pathlib import Path
 root=Path.cwd(); output=Path(sys.argv[1]); layer=yaml.safe_load((output/'compose.yaml').read_text())
 service=layer['services']['trino-preview']
-for index,mount in enumerate(service.get('volumes',[])):
-    source,destination=mount.split(':',1)
-    service['volumes'][index]=str((output/source).resolve())+':'+destination
+for definition in layer['services'].values():
+    for index,mount in enumerate(definition.get('volumes',[])):
+        source,destination=mount.split(':',1)
+        if source.startswith('./'):
+            definition['volumes'][index]=str((output/source).resolve())+':'+destination
 service['ports']=['127.0.0.1::8443']
 layer.pop('networks',None); service.pop('networks',None)
 settings=json.loads((output/'api-settings.json').read_text())
@@ -253,6 +255,7 @@ path=root/'.phlo/overrides/compose.yaml'
 existing=yaml.safe_load(path.read_text()) if path.exists() else {}
 for name,definition in layer['services'].items():
     existing.setdefault('services',{}).setdefault(name,{}).update(definition)
+existing.setdefault('volumes',{}).update(layer.get('volumes',{}))
 path.touch(mode=0o600); path.write_text(yaml.safe_dump(existing))
 print('{}')
 """,
@@ -264,10 +267,24 @@ print('{}')
     (config.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
     _, images = golden.pin_candidate_images(config)
     services = golden.compose_config_json(config)["services"]
+    # Let the provider stage private server files into its owned volumes. The
+    # nonroot coordinator must read the actual runtime mounts, not host binds.
+    if "trino-preview-init" in services:
+        compose(config, "run", "--rm", "--no-deps", "-T", "trino-preview-init")
+    compose(
+        config,
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "--entrypoint",
+        "sh",
+        "trino-preview",
+        "-c",
+        "test -r /etc/trino/config.properties && test -r /etc/trino/secrets/preview-keystore.jks",
+    )
     for service, directory, filename in (
         ("phlo-api", "api-secrets", f"password-{binding['env']}"),
-        ("trino-preview", "secrets", "preview-keystore.jks"),
-        ("trino-preview", "trino", "config.properties"),
     ):
         definition = services[service]
         command = ["docker", "run", "--rm", "--network", "none"]
@@ -291,7 +308,7 @@ print('{}')
         )
         if result.returncode:
             raise golden.CandidateError(
-                "Private preview mount is unreadable by its exact image identity; provision separate API/server ownership without widening permissions"
+                "Private API preview mount is unreadable by its exact image identity; provision API ownership without widening permissions"
             )
     return images
 

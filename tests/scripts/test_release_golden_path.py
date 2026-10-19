@@ -1507,6 +1507,88 @@ def test_observatory_acceptance_requires_previous_bom_before_running(tmp_path, m
         observatory.run_journey(_config(tmp_path), previous_bom=None, artifacts=tmp_path)
 
 
+def test_observatory_preview_layer_preserves_provider_private_volumes(tmp_path, monkeypatch):
+    """Layer transformation only; this does not verify image UID access."""
+    import release_observatory_acceptance as observatory
+    import yaml
+
+    config = _config(tmp_path)
+    overrides = config.project_dir / ".phlo/overrides"
+    overrides.mkdir(parents=True)
+    layer_path = overrides / "compose.yaml"
+    layer_path.write_text("volumes:\n  retained-data: {}\n")
+    output = config.project_dir / "private/generated"
+    output.mkdir(parents=True)
+    provider = {
+        "services": {
+            "trino-preview-init": {
+                "image": "example.invalid/trino@sha256:synthetic",
+                "network_mode": "none",
+                "volumes": ["./trino:/source/trino:ro", "preview-config:/target/trino"],
+            },
+            "trino-preview": {
+                "image": "example.invalid/trino@sha256:synthetic",
+                "volumes": ["preview-config:/etc/trino:ro"],
+                "networks": ["preview"],
+                "depends_on": {
+                    "trino-preview-init": {"condition": "service_completed_successfully"}
+                },
+            },
+        },
+        "volumes": {"preview-config": {}},
+        "networks": {"preview": {"external": True, "name": "owned-network"}},
+    }
+    provider_path = output / "compose.yaml"
+    provider_path.write_text(yaml.safe_dump(provider))
+    original = provider_path.read_bytes()
+    (output / "api-settings.json").write_text("{}")
+    inputs = output.parent / "preview.json"
+    monkeypatch.chdir(config.project_dir)
+    monkeypatch.setattr(observatory, "preview_config", lambda *args: inputs)
+    monkeypatch.setattr(observatory.golden, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(observatory.golden, "pin_candidate_images", lambda _: ({}, []))
+    monkeypatch.setattr(
+        observatory.golden,
+        "compose_config_json",
+        lambda _: {
+            "networks": {"default": {"name": "owned-network"}},
+            "services": {
+                **provider["services"],
+                "phlo-api": {"image": "example.invalid/api@sha256:synthetic"},
+            },
+        },
+    )
+
+    def run_installed_layer(_config, source, *args):
+        monkeypatch.setattr(sys, "argv", ["-c", *args])
+        exec(source, {})
+        return {}
+
+    monkeypatch.setattr(observatory, "installed", run_installed_layer)
+    monkeypatch.setattr(observatory, "compose", lambda *args: None)
+    monkeypatch.setattr(
+        observatory.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0)
+    )
+    observatory.provision_preview(config, {"env": "analytics"})
+
+    result = yaml.safe_load(layer_path.read_text())
+    assert result["volumes"] == {"retained-data": {}, "preview-config": {}}
+    coordinator = result["services"]["trino-preview"]
+    assert coordinator["volumes"] == ["preview-config:/etc/trino:ro"]
+    assert coordinator["depends_on"] == provider["services"]["trino-preview"]["depends_on"]
+    assert coordinator["ports"] == ["127.0.0.1::8443"]
+    init = result["services"]["trino-preview-init"]
+    assert init["network_mode"] == "none"
+    assert init["volumes"] == [
+        f"{output}/trino:/source/trino:ro",
+        "preview-config:/target/trino",
+    ]
+    assert result["services"]["phlo-api"]["volumes"] == [
+        f"{output}/api-secrets:/opt/phlo-preview/api-secrets:ro"
+    ]
+    assert provider_path.read_bytes() == original
+
+
 @pytest.mark.parametrize("repeat", [False, True])
 def test_observatory_history_contract_rejects_duplicate_pages(monkeypatch, repeat):
     """Synthetic pages prove validator behavior, never real Nessie pagination."""
