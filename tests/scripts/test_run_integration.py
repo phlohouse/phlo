@@ -6,6 +6,7 @@ fixture modules with the production required-suite plugin and writes real JUnit.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -15,9 +16,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts import run_integration
-
 ROOT = Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location(
+    "phlo_run_integration", ROOT / "scripts/run_integration.py"
+)
+assert SPEC and SPEC.loader
+run_integration = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(run_integration)
+
 FIXTURE_MODULES = {
     "iceberg": "packages/phlo-iceberg/tests/test_integration_iceberg.py",
     "dagster": "packages/phlo-dagster/tests/test_integration_dagster.py",

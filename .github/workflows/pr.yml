@@ -32,8 +32,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          # Only PR selection compares revisions; queue and fallback runs select all lanes.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          fetch-depth: 1
       - name: Select affected lanes
         id: select
         env:
@@ -41,7 +40,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           if [ "$EVENT_NAME" = pull_request ]; then
+            # The event base can precede the merge commit's parent. Fetch both
+            # exact endpoints without changing the checked-out merge result.
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+            git cat-file -e "$BASE_SHA^{commit}"
+            git cat-file -e "$HEAD_SHA^{commit}"
             selection="$(python3 scripts/select_ci.py --base "$BASE_SHA" --head "$HEAD_SHA")"
           else
             selection="$(python3 scripts/select_ci.py --base HEAD --head HEAD)"

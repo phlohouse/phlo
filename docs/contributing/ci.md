@@ -97,11 +97,12 @@ and merges that produce a different SHA.
 
 ## Queue throughput
 
-Queue and full-fallback selection use shallow checkouts because they select the
-complete contract without examining history. Pull-request selection retains the
-ancestry needed for changed-path detection. Core tests and coverage also use
-shallow checkouts; their Git-history tests create isolated repositories. Quality
-and dependency checks retain the history needed for the pinned header baseline,
+Lane selection uses a shallow checkout. For pull requests, it fetches the exact
+event base and head commits before comparing their trees; it does not assume the
+event base is the test merge's first parent. Queue and full-fallback runs select
+the complete contract without fetching comparison commits. Core tests and coverage
+also use shallow checkouts; their Git-history tests create isolated repositories.
+Quality and dependency checks retain the history needed for the pinned header baseline,
 release versions and reviewed dependency exceptions.
 
 The checked-in [ruleset](../../security/release-candidate-ruleset.json) sets build
