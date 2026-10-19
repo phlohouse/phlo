@@ -696,7 +696,7 @@ def test_compose_generator_production_profile_hides_core_host_ports_and_requires
                 },
             },
         )
-        for name in ("postgres", "minio", "nessie", "trino", "dagster")
+        for name in ("postgres", "minio", "nessie", "trino", "dagster", "phlo-api", "observatory")
     ]
 
     generator = ComposeGenerator(cast(ServiceDiscovery, MinimalFakeDiscovery()))
@@ -708,7 +708,7 @@ def test_compose_generator_production_profile_hides_core_host_ports_and_requires
         )
     )
 
-    for name in ("postgres", "minio", "nessie", "trino"):
+    for name in ("postgres", "minio", "nessie", "trino", "phlo-api", "observatory"):
         assert "ports" not in data["services"][name]
         environment = data["services"][name]["environment"]
         assert (
@@ -754,6 +754,9 @@ def test_compose_published_ports_default_to_loopback_with_explicit_opt_in(tmp_pa
     public = yaml.safe_load(
         generator.generate_compose(services, output_dir=tmp_path, publish_all_interfaces=True)
     )["services"]
+    protected = yaml.safe_load(
+        generator.generate_compose(services, output_dir=tmp_path, deployment_profile="production")
+    )["services"]
 
     assert local["postgres"]["ports"] == ["127.0.0.1:${POSTGRES_PORT:-10000}:5432"]
     assert local["phlo-api"]["ports"] == ["127.0.0.1:${PHLO_API_PORT:-4000}:4000"]
@@ -762,6 +765,11 @@ def test_compose_published_ports_default_to_loopback_with_explicit_opt_in(tmp_pa
     assert public["phlo-api"]["ports"] == ["${PHLO_API_PORT:-4000}:4000"]
     assert public["observatory"]["ports"] == ["${OBSERVATORY_PORT:-3001}:3000"]
     assert local["phlo-api"]["environment"]["HOST"] == "0.0.0.0"
+    for name in ("phlo-api", "observatory"):
+        assert "ports" not in protected[name]
+        assert protected[name]["labels"][f"traefik.http.routers.{name}.middlewares"] == (
+            "phlo-api-login,phlo-api-auth"
+        )
 
 
 def test_compose_does_not_rewrite_explicit_host_binding(tmp_path) -> None:

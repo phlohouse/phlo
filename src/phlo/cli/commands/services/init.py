@@ -246,7 +246,7 @@ def init_cmd(
         sys.exit(1)
 
     dev, phlo_src_path = _resolve_dev_mode(
-        dev, no_dev, service_dev, production, phlo_source, phlo_dir
+        dev, no_dev or (observatory_dev and not dev), service_dev, production, phlo_source, phlo_dir
     )
     # Derive project name from directory if not specified
     if not project_name:
@@ -419,6 +419,12 @@ def _configure_observatory_dev(
     if effective.get("PHLO_V1_ENVIRONMENTS"):
         raise click.ClickException(
             "Move runtime environment mappings into phlo.yaml before development onboarding."
+        )
+    if not config.get("environments") and any(
+        config.get("services", {}).get(name) for name in ("dagster", "nessie")
+    ):
+        raise click.ClickException(
+            "Configure the actual Dagster location, Nessie ref and local Compose project in phlo.yaml environments before onboarding a customized provider stack."
         )
     base = phlo_dir / "docker-compose.yml"
     if base.exists():

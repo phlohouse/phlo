@@ -157,6 +157,8 @@ class ComposeGenerator:
 
     def _apply_production_profile(self, service_name: str, config: dict[str, Any]) -> None:
         """Apply the bounded production network and credential posture."""
+        if service_name in {"phlo-api", "observatory"}:
+            config.pop("ports", None)
         if service_name in _PRODUCTION_INTERNAL_SERVICES:
             config.pop("ports", None)
             self._remove_traefik_labels(config)

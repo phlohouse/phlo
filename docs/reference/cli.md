@@ -1850,6 +1850,7 @@ Capabilities: `json=false`, `dry_run=false`, `confirmation_flag=false`
 | `service` | option | `--service` | `text` | false | `Sentinel.UNSET` | multiple |
 | `native` | option | `--native` | `boolean` | false | `false` | flag |
 | `backend_name` | option | `--backend` | `choice` | false | `none` | choices: docker, podman, auto |
+| `observatory_dev` | option | `--observatory-dev` | `boolean` | false | `false` | flag |
 
 ## `phlo services status`
 

@@ -1756,3 +1756,103 @@ def test_start_production_preflight_runs_only_when_production(
     assert preflight_calls_prod == ["preflight"]
     assert backend_calls_prod == ["require_container_backend"]
     assert result_prod.exit_code == 0, result_prod.output
+
+
+@pytest.mark.parametrize(
+    "capability_state,auth_status,provider",
+    [
+        ("ready", 200, "static"),
+        ("configured", 200, "static"),
+        ("ready", 403, "static"),
+        ("ready", 200, "jwt"),
+    ],
+)
+def test_saved_local_configuration_starts_without_repeated_flag(
+    tmp_path, monkeypatch, capability_state, auth_status, provider
+):
+    import httpx
+    import yaml
+
+    from phlo.cli.commands.services import preflight, start
+    from phlo.cli.commands.services.init import init_cmd
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PHLO_AUTHZ_TOKEN", raising=False)
+    generated = CliRunner().invoke(init_cmd, ["--observatory-dev"])
+    assert generated.exit_code == 0, generated.output
+    if provider == "jwt":
+        project_path = tmp_path / "phlo.yaml"
+        project = yaml.safe_load(project_path.read_text())
+        project["authentication"] = {"provider": "jwt"}
+        project["services"]["phlo-api"]["environment"].update(
+            PHLO_AUTHENTICATION_PROVIDER="jwt", PHLO_AUTH_DEV_MODE="false"
+        )
+        project_path.write_text(yaml.safe_dump(project))
+    paths = [
+        tmp_path / "phlo.yaml",
+        *list((tmp_path / ".phlo").rglob("*.yaml")),
+        tmp_path / ".phlo/docker-compose.yml",
+    ]
+    before = {path: path.read_bytes() for path in paths}
+    compose = yaml.safe_load((tmp_path / ".phlo/docker-compose.yml").read_text())
+    for name, target, published in (("phlo-api", 4000, "4000"), ("observatory", 3000, "3001")):
+        compose["services"][name]["ports"] = [
+            {"host_ip": "127.0.0.1", "target": target, "published": published}
+        ]
+
+    def command(cmd, **kwargs):
+        output = json.dumps(compose) if "config" in cmd else json.dumps({"state": "compatible"})
+        return CompletedProcess(cmd, 0, stdout=output)
+
+    monkeypatch.setattr(start, "run_command", command)
+    monkeypatch.setattr(preflight, "run_command", command)
+    monkeypatch.setattr(start, "require_container_backend", lambda *_a: None)
+    monkeypatch.setattr(start, "_preflight_requested_host_ports", lambda **_kw: None)
+    monkeypatch.setattr(start, "_wait_and_report_start", lambda *_a, **_kw: None)
+    monkeypatch.setattr(start, "_emit_service_lifecycle_events", lambda *_a, **_kw: None)
+    monkeypatch.setattr(preflight, "sleep", lambda _seconds: None)
+    clock = iter((0, 1, 1000))
+    monkeypatch.setattr(preflight, "monotonic", lambda: next(clock))
+
+    def respond(request):
+        bodies = {
+            "/api/v1/me": {"subject": "dev_user"},
+            "/api/v1/environments": {"default_environment": "sandbox"},
+            "/api/v1/readiness": {
+                "env": "sandbox",
+                "capabilities": {
+                    "orchestration": [{"state": capability_state}],
+                    "incidents": [{"state": "ready"}],
+                    "query_preview": [{"state": "disabled"}],
+                },
+            },
+            "/api/v1/overview": {"env": "sandbox"},
+        }
+        if request.url.port == 3001:
+            return httpx.Response(
+                200,
+                text="<html><title>Overview</title></html>",
+                headers={"content-type": "text/html"},
+            )
+        return httpx.Response(auth_status, json=bodies[request.url.path])
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(preflight.httpx, "Client", lambda **_kw: client)
+    report = tmp_path / ".phlo/observatory-ready.json"
+    report.write_text(json.dumps({"state": "ready", "env": "stale"}))
+    result = CliRunner().invoke(start.start_cmd, [])
+    success = provider == "jwt" or (capability_state == "ready" and auth_status == 200)
+    assert (result.exit_code == 0) is success, result.output
+    assert report.exists() is success
+    if success:
+        receipt = json.loads(report.read_text())
+        if provider == "jwt":
+            assert receipt["state"] == "verification_required"
+            assert "url" not in receipt
+            assert "Open Observatory:" not in result.output
+        else:
+            assert receipt["url"] == "http://127.0.0.1:3001/?env=sandbox"
+        assert receipt["schema_version"] == 1
+        assert receipt["observed_at"]
+        assert receipt["browser_login_verified"] is False
+    assert {path: path.read_bytes() for path in paths} == before

@@ -44,7 +44,7 @@ Set the authorisation backend and mode in `phlo.yaml`:
 ```yaml
 api:
   authorization:
-    backend: static
+    backend: default
     mode: required
 ```
 
@@ -52,23 +52,31 @@ You can instead set `authorization` under `services.phlo-api`. The service-speci
 
 `optional` permits guarded routes when no backend resolves. `required` fails closed with HTTP `503` until the configured backend is available.
 
-| Provider | Use |
-| --- | --- |
-| `static` | Resolve principals and policies from the local Phlo authorisation configuration. |
-| `proxy` | Trust identity headers supplied by an authenticated reverse proxy. |
-| `service_token` | Authenticate service-to-service calls with a configured token. |
+The `default` authorisation backend evaluates the canonical project role
+assignments and policies. Authentication providers are separate from this backend.
 
 ## 3. Choose an authentication provider
 
 Set provider-specific values in `.phlo/secrets/.env` and keep the mode declaration in project configuration:
 
 ```bash
-PHLO_AUTHENTICATION_PROVIDER=proxy
-PHLO_AUTHORIZATION_BACKEND=static
+PHLO_AUTHENTICATION_PROVIDER=jwt
+PHLO_AUTH_JWT_ISSUER=https://identity.example.com/realms/phlo
+PHLO_AUTH_JWT_AUDIENCE=phlo-observatory
+PHLO_AUTH_JWT_JWKS_URL=https://identity.example.com/realms/phlo/protocol/openid-connect/certs
 PHLO_AUTHORIZATION_MODE=required
 ```
 
-The API middleware resolves the authentication provider first, then evaluates authorisation for the route and tenant context. A proxy provider still requires the ingress layer to enforce authentication.
+Set `authentication.provider: jwt` in `phlo.yaml` too, or omit the YAML provider
+when the deployment supplies it through the environment. Nonempty provider
+selections must agree; conflicts fail startup. For a private issuer CA, mount its
+certificate and set `PHLO_AUTH_JWT_CA_FILE` to the container path. Configure the
+same issuer, client, and trusted CA on oauth2-proxy.
+
+The API verifies authentication before authorising the route and environment.
+Use the `jwt` provider for forwarded OIDC bearer tokens. The `static` provider
+and the signed-header `proxy` provider have different credential contracts;
+neither is a substitute for JWT verification in this flow.
 
 ## 4. Authenticate Observatory
 
@@ -82,6 +90,31 @@ Configure `PHLO_API_URL` on the Observatory server. Keep the API behind the same
 trusted network boundary and configure its authentication provider to verify the
 forwarded tokens, including issuer and audience where applicable. Strip
 caller-supplied proxy headers at ingress before setting trusted headers.
+
+The generated `proxy` profile routes `observatory.<TRAEFIK_DOMAIN>` through the
+same oauth2-proxy forward-auth middleware as the API. Its `/oauth2/` paths go to
+oauth2-proxy, not the UI. For browser sign-in on this host, configure the issuer's
+registered redirect URI and `OAUTH2_PROXY_REDIRECT_URL` to
+`https://observatory.<TRAEFIK_DOMAIN>/oauth2/callback`. The existing API-host
+callback remains the default for API-only deployments. Cross-host cookie sharing
+is not automatic. Configure it explicitly only for trusted sibling hosts.
+
+Terminate HTTPS at the trusted ingress and install the issuer's CA where the
+proxy and API require it. Do not disable TLS verification. The generated
+production profile removes direct API and UI host-port mappings while retaining
+their authenticated ingress routes. Review resolved Compose overrides too;
+publishing a separate UI port would bypass the browser session gate.
+
+Ordinary `phlo services start` honours the saved provider and enabled services.
+Without a caller session it reports infrastructure startup and
+`verification_required`, not authenticated dashboard readiness. Sign in through
+the configured ingress and inspect `/api/v1/readiness?env=<configured-id>`.
+All orchestration and incident checks must be `ready`; disabled query preview
+does not block the dashboard. A local authenticated deployment with loopback
+API/UI ports can use its existing `PHLO_AUTHZ_TOKEN` for the same non-mutating
+checks on startup. The token is never saved or forwarded across redirects.
+Protected external deployments require verification through their real ingress
+session, not a development identity.
 
 There is no shared Observatory token or browser `authToken` setup. Do not put
 service credentials in browser code. An unauthenticated API response remains

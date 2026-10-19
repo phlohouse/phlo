@@ -8855,6 +8855,22 @@
           "required": false,
           "secondary_options": [],
           "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Set up and start a loopback-only local Observatory, then wait for dashboard readiness.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
         }
       ]
     },

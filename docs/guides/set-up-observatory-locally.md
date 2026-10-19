@@ -11,15 +11,15 @@ shared network. It is not a production login mechanism.
 
 ## Generate the development configuration
 
-1. Initialise the existing services configuration:
+1. Choose local development once when initialising the services configuration:
 
    ```bash
-   phlo services init --observatory-dev --no-dev
+   phlo services init --observatory-dev
    ```
 
    The command enables `phlo-api` and `observatory`, binds host ports to loopback,
-   and writes the normal Compose and environment files. `--no-dev` disables
-   source mounts, not the explicit development identity. It also writes:
+   and writes the normal Compose and environment files without development source
+   mounts. Use `--dev` separately only when developing Phlo itself. It also writes:
 
    - `phlo.yaml` with static development authentication, required default
      authorisation, and a single `sandbox` target if no environments exist.
@@ -31,32 +31,57 @@ shared network. It is not a production login mechanism.
    overwritten. Review an existing security configuration manually instead.
    `--production` and `--publish-all-interfaces` are incompatible with this profile.
 
-2. Check the generated setup:
+2. Start the configured stack:
+
+   ```bash
+   phlo services start
+   ```
+
+   No repeated development flag is needed. The saved authentication provider and
+   enabled services select the local onboarding flow. The command preserves
+   generated files and existing data, starts the required services through the
+   normal lifecycle, then checks the actual API identity, environment discovery,
+   orchestration, incident storage, overview, and rendered UI. HTTP liveness
+   alone is not readiness. Fresh API startup creates its supported schemas.
+   Existing constraints that need migration `004` require the explicit upgrade
+   procedure below; startup does not apply it.
+
+   Only after these checks pass does the command print `Open Observatory: ...`
+   and write `.phlo/observatory-ready.json`. Receipt schema version `1` includes
+   `state: ready`, an ISO UTC `observed_at`, `env`, `url`, `capabilities`,
+   `verification_method: development`, and `browser_login_verified: false`.
+   The receipt records an observation, not a continuing health guarantee. Each
+   startup invalidates the old receipt before preflight. The dashboard gate waits
+   up to 180 seconds, with a 10-second timeout per HTTP request.
+   Query preview is optional and can remain disabled.
+   A readiness failure returns non-zero, preserves services and data, and prints
+   diagnostic next steps. Retry ordinary `phlo services start` after repair.
+
+   For an empty project, `phlo services start --observatory-dev` is a noninteractive
+   first-run shorthand for the same persisted setup and start flow. It is not a
+   separate authentication setting or required on later starts.
+
+3. To inspect setup without starting services:
 
    ```bash
    phlo services preflight --observatory-dev --json
    ```
 
    A successful JSON envelope has `data.passed: true` and
-   `data.live_dependencies_verified: false`.
-   The check distinguishes missing identity provider, role files, policy files,
-   and environment mapping. It does not prove that a backend is ready.
+   `data.live_dependencies_verified: false`. It checks configuration only.
 
-3. Start the generated services:
-
-   ```bash
-   phlo services start
-   phlo services list
-   ```
-
-4. Open the local Observatory address shown by the service configuration.
+4. Open the local Observatory address printed after the readiness gate.
    The bundled default publishes port `3001` on loopback. The browser does not
    need a fabricated token. The API's configured static provider resolves the
    development identity, and the normal authorisation backend evaluates policy.
 
    A backend outage must remain visible. Do not add a dummy environment to hide
    an unavailable target. Optional preview requires separate provider setup and
-   is not enabled by this command.
+   is not enabled by this command. Use `phlo trino preview provision --help` and
+   the preview provider's deployment guide to opt in with a dedicated coordinator,
+   TLS, and private credentials. Additional roles and mutation grants require an
+   explicit `phlo authz` setup. The generated identity has environment-scoped
+   reads, not query permission.
 
 ## Configure deployed targets
 
@@ -95,6 +120,15 @@ when adding targets. Deployment security still uses `PHLO_ENVIRONMENT` and
 regulated mode. A target's `nessie_ref` binds Observatory reads and governed
 operations. It does not itself change the branch-WAP launch and publication
 implementation. Review WAP routing separately before using another publication ref.
+
+Authentication belongs to an API deployment, not to a data environment selector.
+Separate local and corporate deployments can use different providers. All
+nonempty provider selections in `PHLO_AUTHENTICATION_PROVIDER`, legacy
+`PHLO_AUTHENTICATION_METHOD`, and `phlo.yaml authentication.provider` must agree.
+Conflicts fail startup. Provider-specific process settings override the
+corresponding YAML provider fields. A shared API verifies identity before
+environment-scoped authorisation. Changing `?env=` never changes the verifier,
+enables development identity, or forwards credentials to another deployment.
 
 For cross-environment promotion, configure distinct source and target IDs:
 
