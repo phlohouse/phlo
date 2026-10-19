@@ -716,6 +716,18 @@ function QueryPage() {
     return (
       <div className="min-h-0 overflow-y-auto p-4 lg:p-7">
         <h1 className="mb-4 text-xl font-semibold">Query setup</h1>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Preview is optional; the dashboard does not require it. Follow the{' '}
+          <a
+            href="https://github.com/phlohouse/phlo/tree/main/packages/phlo-trino/src/phlo_trino/preview"
+            className="underline underline-offset-2"
+            target="_blank"
+            rel="noreferrer"
+          >
+            dedicated preview setup guide
+          </a>{' '}
+          to configure its deployment, trust and credentials, then check again.
+        </p>
         {checks.map((check, index) => (
           <PanelUnavailable
             key={index}
