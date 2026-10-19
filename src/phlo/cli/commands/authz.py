@@ -18,6 +18,7 @@ import click
 
 from phlo.application.discovery import discover_capabilities
 from phlo.cli.authorization_wrappers import require_mutation_authorization
+from phlo.cli.commands.authz_identity import identity_group
 from phlo.logging import get_logger
 from phlo.rbac.config import RBACConfigLoader
 from phlo.rbac.sync import SyncController
@@ -44,6 +45,9 @@ def authz_group():
     For more information, see Spec 0017: RBAC Core Services Enforcement.
     """
     _ensure_capabilities_discovered()
+
+
+authz_group.add_command(identity_group)
 
 
 @authz_group.command()

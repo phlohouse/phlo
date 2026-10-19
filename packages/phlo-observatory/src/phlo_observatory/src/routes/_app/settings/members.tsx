@@ -5,10 +5,12 @@ import { PlusIcon } from 'lucide-react'
 import type {
   AdminMember,
   AdminRole,
+  AdminRoleCatalog,
   AdminServiceAccount,
 } from '@/lib/data/api/admin'
 import {
   changeMemberRoles,
+  checkMyPermission,
   createInvitation,
   createServiceAccount,
   getAdminIdentity,
@@ -41,18 +43,17 @@ export const Route = createFileRoute('/_app/settings/members')({
   component: MembersPage,
 })
 
-const roles: Array<AdminRole> = [
-  'admin',
-  'operator',
-  'developer',
-  'analyst',
-  'viewer',
-  'service',
-]
-const roleOptions = roles.map((role) => ({
-  value: role,
-  label: role[0].toUpperCase() + role.slice(1),
-}))
+const RoleCatalogContext = React.createContext<AdminRoleCatalog>({
+  assignment_scope: 'installation',
+  policy_status: 'unavailable',
+  items: [],
+})
+function useRoleOptions() {
+  return React.useContext(RoleCatalogContext).items.map(({ name }) => ({
+    value: name,
+    label: name[0].toUpperCase() + name.slice(1),
+  }))
+}
 const peopleGrid =
   '@[640px]:grid @[640px]:grid-cols-[minmax(0,1.6fr)_112px_180px_84px_110px] @[640px]:items-center @[640px]:gap-x-3.5'
 const serviceGrid =
@@ -68,207 +69,212 @@ function MembersPage() {
   }, [])
 
   return (
-    <SettingsFrame
-      header={
-        <PageHeader
-          crumbs={[{ label: 'Settings', to: '/settings' }]}
-          title="Members and access"
-          actions={<InviteButton onDone={refresh} />}
-        />
-      }
-    >
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
-        <section className="flex min-w-0 flex-1 flex-col gap-[26px] p-4 xl:overflow-y-auto lg:px-6 lg:py-5">
-          <div className="flex flex-col">
-            <div className="flex items-baseline gap-2.5 pb-2">
-              <h2 className="m-0 text-[15px] font-medium">People</h2>
-              <span className="text-[13px] text-muted-foreground">
-                {data.members.filter((member) => member.active).length} active ·{' '}
-                {
-                  data.invitations.filter(
-                    (invite) => invite.status === 'pending',
-                  ).length
-                }{' '}
-                pending
-              </span>
-            </div>
-            <div
-              role="table"
-              aria-label="People"
-              className="@container flex flex-col"
-            >
-              <div
-                role="row"
-                className={cn(
-                  peopleGrid,
-                  'sr-only h-[34px] @[640px]:not-sr-only border-b border-line text-xs text-muted-foreground',
-                )}
-              >
-                <span role="columnheader">Identity</span>
-                <span role="columnheader">Type</span>
-                <span role="columnheader">Roles</span>
-                <span role="columnheader">Status</span>
-                <span role="columnheader">Updated</span>
+    <RoleCatalogContext.Provider value={data.roleCatalog}>
+      <SettingsFrame
+        header={
+          <PageHeader
+            crumbs={[{ label: 'Settings', to: '/settings' }]}
+            title="Members and access"
+            actions={<InviteButton onDone={refresh} />}
+          />
+        }
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
+          <section className="flex min-w-0 flex-1 flex-col gap-[26px] p-4 xl:overflow-y-auto lg:px-6 lg:py-5">
+            <div className="flex flex-col">
+              <div className="flex items-baseline gap-2.5 pb-2">
+                <h2 className="m-0 text-[15px] font-medium">People</h2>
+                <span className="text-[13px] text-muted-foreground">
+                  {data.members.filter((member) => member.active).length} active
+                  ·{' '}
+                  {
+                    data.invitations.filter(
+                      (invite) => invite.status === 'pending',
+                    ).length
+                  }{' '}
+                  pending
+                </span>
               </div>
-              {data.members.map((member) => (
-                <MemberRow
-                  key={member.subject}
-                  member={member}
-                  onDone={refresh}
-                />
-              ))}
-              {data.invitations
-                .filter((invite) => invite.status === 'pending')
-                .map((invite) => (
-                  <div
-                    key={invite.invitation_id}
-                    role="row"
-                    className={cn(
-                      peopleGrid,
-                      'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line-soft py-3 text-[13.5px] @[640px]:min-h-[50px] @[640px]:py-2',
-                    )}
-                  >
+              <div
+                role="table"
+                aria-label="People"
+                className="@container flex flex-col"
+              >
+                <div
+                  role="row"
+                  className={cn(
+                    peopleGrid,
+                    'sr-only h-[34px] @[640px]:not-sr-only border-b border-line text-xs text-muted-foreground',
+                  )}
+                >
+                  <span role="columnheader">Identity</span>
+                  <span role="columnheader">Type</span>
+                  <span role="columnheader">Roles</span>
+                  <span role="columnheader">Status</span>
+                  <span role="columnheader">Updated</span>
+                </div>
+                {data.members.map((member) => (
+                  <MemberRow
+                    key={member.subject}
+                    member={member}
+                    onDone={refresh}
+                  />
+                ))}
+                {data.invitations
+                  .filter((invite) => invite.status === 'pending')
+                  .map((invite) => (
+                    <div
+                      key={invite.invitation_id}
+                      role="row"
+                      className={cn(
+                        peopleGrid,
+                        'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line-soft py-3 text-[13.5px] @[640px]:min-h-[50px] @[640px]:py-2',
+                      )}
+                    >
+                      <span
+                        role="cell"
+                        className="flex min-w-0 items-center gap-2.5"
+                      >
+                        <Avatar
+                          initials="··"
+                          size="md"
+                          className="bg-soft text-muted-foreground"
+                        />
+                        <span className="break-all">{invite.email}</span>
+                      </span>
+                      <span
+                        role="cell"
+                        className="sr-only text-text-2 @[640px]:not-sr-only"
+                      >
+                        Invitation
+                      </span>
+                      <span role="cell" className="text-text-2">
+                        {invite.roles.join(', ')}
+                      </span>
+                      <span role="cell">
+                        <Badge variant="warn">Pending</Badge>
+                      </span>
+                      <span
+                        role="cell"
+                        className="sr-only text-xs text-muted-foreground @[640px]:not-sr-only"
+                      >
+                        Expires {formatDate(invite.expires_at)}
+                      </span>
+                    </div>
+                  ))}
+                {data.members.length === 0 && data.invitations.length === 0 ? (
+                  <div role="row" className={cn(peopleGrid, 'grid py-6')}>
                     <span
                       role="cell"
-                      className="flex min-w-0 items-center gap-2.5"
+                      className="col-span-full text-[13.5px] text-muted-foreground"
                     >
-                      <Avatar
-                        initials="··"
-                        size="md"
-                        className="bg-soft text-muted-foreground"
-                      />
-                      <span className="break-all">{invite.email}</span>
-                    </span>
-                    <span
-                      role="cell"
-                      className="sr-only text-text-2 @[640px]:not-sr-only"
-                    >
-                      Invitation
-                    </span>
-                    <span role="cell" className="text-text-2">
-                      {invite.roles.join(', ')}
-                    </span>
-                    <span role="cell">
-                      <Badge variant="warn">Pending</Badge>
-                    </span>
-                    <span
-                      role="cell"
-                      className="sr-only text-xs text-muted-foreground @[640px]:not-sr-only"
-                    >
-                      Expires {formatDate(invite.expires_at)}
+                      No members or invitations.
                     </span>
                   </div>
-                ))}
-              {data.members.length === 0 && data.invitations.length === 0 ? (
-                <div role="row" className={cn(peopleGrid, 'grid py-6')}>
-                  <span
-                    role="cell"
-                    className="col-span-full text-[13.5px] text-muted-foreground"
-                  >
-                    No members or invitations.
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div id="service-accounts" className="flex scroll-mt-4 flex-col">
-            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-2 pb-2">
-              <h2 className="m-0 text-[15px] font-medium">Service accounts</h2>
-              <span className="text-[13px] text-muted-foreground">
-                Machines that access Phlo
-              </span>
-              <ServiceAccountButton onDone={refresh} />
-            </div>
-            <div
-              role="table"
-              aria-label="Service accounts"
-              className="flex flex-col"
-            >
-              <div
-                role="row"
-                className={cn(
-                  serviceGrid,
-                  'sr-only h-[34px] md:not-sr-only border-b border-line text-xs text-muted-foreground',
-                )}
-              >
-                <span role="columnheader">Account</span>
-                <span role="columnheader">Roles</span>
-                <span role="columnheader">Status</span>
-                <span role="columnheader">Actions</span>
+                ) : null}
               </div>
-              {data.serviceAccounts.map((account, index) => (
+            </div>
+
+            <div id="service-accounts" className="flex scroll-mt-4 flex-col">
+              <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-2 pb-2">
+                <h2 className="m-0 text-[15px] font-medium">
+                  Service accounts
+                </h2>
+                <span className="text-[13px] text-muted-foreground">
+                  Machines that access Phlo
+                </span>
+                <ServiceAccountButton onDone={refresh} />
+              </div>
+              <div
+                role="table"
+                aria-label="Service accounts"
+                className="flex flex-col"
+              >
                 <div
-                  key={account.subject}
                   role="row"
                   className={cn(
                     serviceGrid,
-                    'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 text-[13.5px] md:min-h-[50px] md:py-1',
-                    index < data.serviceAccounts.length - 1 &&
-                      'border-b border-line-soft',
+                    'sr-only h-[34px] md:not-sr-only border-b border-line text-xs text-muted-foreground',
                   )}
                 >
-                  <span role="cell" className="min-w-0">
-                    <Mono className="text-[13px] break-all">
-                      {account.name}
-                    </Mono>
-                    <span className="block break-all text-xs text-muted-foreground">
-                      {account.subject}
-                    </span>
-                  </span>
-                  <span role="cell" className="text-text-2">
-                    {account.roles.join(', ')}
-                  </span>
-                  <span role="cell">
-                    <Badge variant={account.active ? 'ok' : 'neutral'}>
-                      {account.active ? 'Active' : 'Revoked'}
-                    </Badge>
-                  </span>
-                  <span role="cell">
-                    {account.active ? (
-                      <RevokeServiceAccount
-                        account={account}
-                        onDone={refresh}
-                      />
-                    ) : null}
-                  </span>
+                  <span role="columnheader">Account</span>
+                  <span role="columnheader">Roles</span>
+                  <span role="columnheader">Status</span>
+                  <span role="columnheader">Actions</span>
                 </div>
-              ))}
-              {data.serviceAccounts.length === 0 ? (
-                <div role="row" className={cn(serviceGrid, 'grid py-6')}>
-                  <span
-                    role="cell"
-                    className="col-span-full text-[13.5px] text-muted-foreground"
+                {data.serviceAccounts.map((account, index) => (
+                  <div
+                    key={account.subject}
+                    role="row"
+                    className={cn(
+                      serviceGrid,
+                      'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 text-[13.5px] md:min-h-[50px] md:py-1',
+                      index < data.serviceAccounts.length - 1 &&
+                        'border-b border-line-soft',
+                    )}
                   >
-                    No service accounts.
-                  </span>
-                </div>
-              ) : null}
+                    <span role="cell" className="min-w-0">
+                      <Mono className="text-[13px] break-all">
+                        {account.name}
+                      </Mono>
+                      <span className="block break-all text-xs text-muted-foreground">
+                        {account.subject}
+                      </span>
+                    </span>
+                    <span role="cell" className="text-text-2">
+                      {account.roles.join(', ')}
+                    </span>
+                    <span role="cell">
+                      <Badge variant={account.active ? 'ok' : 'neutral'}>
+                        {account.active ? 'Active' : 'Revoked'}
+                      </Badge>
+                    </span>
+                    <span role="cell">
+                      {account.active ? (
+                        <RevokeServiceAccount
+                          account={account}
+                          onDone={refresh}
+                        />
+                      ) : null}
+                    </span>
+                  </div>
+                ))}
+                {data.serviceAccounts.length === 0 ? (
+                  <div role="row" className={cn(serviceGrid, 'grid py-6')}>
+                    <span
+                      role="cell"
+                      className="col-span-full text-[13.5px] text-muted-foreground"
+                    >
+                      No service accounts.
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
-        </section>
-        <aside
-          aria-label="Roles"
-          className="flex shrink-0 flex-col border-t border-line bg-raised px-4 py-5 xl:w-[300px] xl:overflow-y-auto xl:border-t-0 xl:border-l xl:px-[22px]"
-        >
-          <Eyebrow className="pb-1">Access model</Eyebrow>
-          <RoleNote title="Viewer / Analyst">
-            Read access for operational and analytical work.
-          </RoleNote>
-          <RoleNote title="Developer / Operator">
-            Build and operate data workflows according to API policy.
-          </RoleNote>
-          <RoleNote title="Admin" last>
-            Manage identities. Every change requires explicit confirmation, a
-            justification, and recent MFA.
-          </RoleNote>
-          <div className="mt-4 rounded-[10px] border border-primary-line bg-primary-soft px-3.5 py-3 text-[12.5px] leading-normal text-primary-ink xl:mt-auto">
-            Identity and audit data is installation-wide, independent of the
-            selected environment.
-          </div>
-        </aside>
-      </div>
-    </SettingsFrame>
+          </section>
+          <aside
+            aria-label="Roles"
+            className="flex shrink-0 flex-col border-t border-line bg-raised px-4 py-5 xl:w-[300px] xl:overflow-y-auto xl:border-t-0 xl:border-l xl:px-[22px]"
+          >
+            <Eyebrow className="pb-1">Access model</Eyebrow>
+            <p className="text-xs text-muted-foreground">
+              Supported assignment roles below show candidate policy rules, not
+              guaranteed access. Resource and attribute conditions must match;
+              denies take precedence. Unmatched actions are denied. Managed
+              roles replace upstream group assignments, without inheriting other
+              roles.
+            </p>
+            <RolePolicies />
+            <PermissionCheck />
+            <div className="mt-4 rounded-[10px] border border-primary-line bg-primary-soft px-3.5 py-3 text-[12.5px] leading-normal text-primary-ink xl:mt-auto">
+              Identity and audit data is installation-wide, independent of the
+              selected environment. Selecting an environment never changes your
+              sign-in provider.
+            </div>
+          </aside>
+        </div>
+      </SettingsFrame>
+    </RoleCatalogContext.Provider>
   )
 }
 
@@ -279,7 +285,7 @@ function MemberRow({
   member: AdminMember
   onDone: () => void
 }) {
-  const [nextRole, setNextRole] = React.useState<AdminRole | null>(null)
+  const [editing, setEditing] = React.useState(false)
   return (
     <div
       role="row"
@@ -306,13 +312,14 @@ function MemberRow({
         {member.principal_type}
       </span>
       <span role="cell">
-        <Select
-          aria-label={`Role for ${member.email ?? member.subject}`}
-          value={member.roles[0] ?? 'viewer'}
-          onValueChange={(role) => setNextRole(role)}
-          options={roleOptions.filter((option) => option.value !== 'service')}
-          className="h-10 w-[170px] rounded-md px-2 text-[13px] @[640px]:h-7"
-        />
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Edit roles for ${member.email ?? member.subject}`}
+          onClick={() => setEditing(true)}
+        >
+          {member.roles.join(', ')}
+        </Button>
       </span>
       <span role="cell">
         <Badge variant={member.active ? 'ok' : 'neutral'}>
@@ -325,41 +332,125 @@ function MemberRow({
       >
         {formatDate(member.updated_at)}
       </span>
-      {nextRole && nextRole !== member.roles[0] ? (
-        <ConfirmAction
-          title={`Change roles for ${member.email ?? member.subject}`}
-          submitLabel="Approve change"
-          onCancel={() => setNextRole(null)}
-          onSubmit={(justification, operationId) =>
-            changeMemberRoles({
-              data: {
-                subject: member.subject,
-                expectedVersion: member.version,
-                roles: [nextRole],
-                email: member.email,
-                principalType:
-                  member.principal_type === 'platform'
-                    ? 'platform'
-                    : member.principal_type === 'service'
-                      ? 'service'
-                      : 'user',
-                active: member.active,
-                justification,
-                confirmed: true,
-                operationId,
-              },
-            }).then(() => {
-              setNextRole(null)
-              onDone()
-            })
-          }
+      {editing ? (
+        <MemberRoleEditor
+          member={member}
+          onCancel={() => setEditing(false)}
+          onDone={() => {
+            setEditing(false)
+            onDone()
+          }}
         />
       ) : null}
     </div>
   )
 }
 
+function MemberRoleEditor({
+  member,
+  onCancel,
+  onDone,
+}: {
+  member: AdminMember
+  onCancel: () => void
+  onDone: () => void
+}) {
+  const roleOptions = useRoleOptions()
+  const [selected, setSelected] = React.useState(member.roles)
+  const [review, setReview] = React.useState(false)
+  if (review)
+    return (
+      <ConfirmAction
+        title={`Review roles for ${member.email ?? member.subject}`}
+        submitLabel="Approve change"
+        onCancel={() => setReview(false)}
+        details={
+          <>
+            <p>Installation-wide replacement at version {member.version}.</p>
+            <p>
+              Before: {member.roles.join(', ')}
+              <br />
+              After: {selected.join(', ')}
+            </p>
+            <RolePolicies selected={selected} />
+          </>
+        }
+        onSubmit={(justification, operationId) =>
+          changeMemberRoles({
+            data: {
+              subject: member.subject,
+              expectedVersion: member.version,
+              roles: selected,
+              email: member.email,
+              principalType:
+                member.principal_type === 'platform'
+                  ? 'platform'
+                  : member.principal_type === 'service'
+                    ? 'service'
+                    : 'user',
+              active: member.active,
+              justification,
+              confirmed: true,
+              operationId,
+            },
+          }).then(() => {
+            onDone()
+          })
+        }
+      />
+    )
+  return (
+    <Dialog
+      open
+      onOpenChange={(value) => {
+        if (!value) onCancel()
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Edit roles for {member.email ?? member.subject}
+          </DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <p>
+            Select the complete role set. Existing roles stay selected until you
+            remove them.
+          </p>
+          {roleOptions.map(({ value, label }) => (
+            <CheckLine
+              key={value}
+              checked={selected.includes(value)}
+              onCheckedChange={(checked) =>
+                setSelected(
+                  checked === true
+                    ? [...selected, value]
+                    : selected.filter((role) => role !== value),
+                )
+              }
+            >
+              {label}
+            </CheckLine>
+          ))}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            disabled={selected.length === 0}
+            onClick={() => setReview(true)}
+          >
+            Review assignment
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function InviteButton({ onDone }: { onDone: () => void }) {
+  const roleOptions = useRoleOptions()
   const [open, setOpen] = React.useState(false)
   const [email, setEmail] = React.useState('')
   const [role, setRole] = React.useState<AdminRole>('viewer')
@@ -475,6 +566,7 @@ function InviteButton({ onDone }: { onDone: () => void }) {
 }
 
 function ServiceAccountButton({ onDone }: { onDone: () => void }) {
+  const roleOptions = useRoleOptions()
   const [open, setOpen] = React.useState(false)
   const [name, setName] = React.useState('')
   const [role, setRole] = React.useState<AdminRole>('viewer')
@@ -626,11 +718,13 @@ function RevokeServiceAccount({
 
 function ConfirmAction({
   title,
+  details,
   submitLabel,
   onCancel,
   onSubmit,
 }: {
   title: string
+  details?: React.ReactNode
   submitLabel: string
   onCancel: () => void
   onSubmit: (justification: string, operationId: string) => Promise<unknown>
@@ -666,6 +760,7 @@ function ConfirmAction({
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
           <DialogBody>
+            {details}
             <ApprovalFields
               justification={justification}
               setJustification={setJustification}
@@ -729,27 +824,112 @@ function ApprovalFields({
     </>
   )
 }
-function RoleNote({
-  title,
-  children,
-  last,
-}: {
-  title: string
-  children: React.ReactNode
-  last?: boolean
-}) {
+function RolePolicies({ selected }: { selected?: Array<AdminRole> }) {
+  const catalog = React.useContext(RoleCatalogContext)
   return (
-    <div
-      className={cn(
-        'flex flex-col gap-[3px] py-3',
-        !last && 'border-b border-line-soft',
-      )}
-    >
-      <span className="text-[13.5px] font-medium">{title}</span>
-      <span className="text-[12.5px] leading-snug text-muted-foreground">
-        {children}
-      </span>
+    <div className="flex flex-col gap-2 text-xs">
+      {catalog.policy_status === 'unavailable' ? (
+        <p className="text-xs text-muted-foreground">
+          Policy catalog unavailable for this authorization backend. Assignments
+          remain supported; ask your administrator to inspect that backend's
+          effective policy.
+        </p>
+      ) : null}
+      {catalog.items
+        .filter((role) => !selected || selected.includes(role.name))
+        .map((role) => (
+          <details key={role.name} className="border-b border-line-soft py-2">
+            <summary className="cursor-pointer font-medium">
+              {role.name} ·{' '}
+              {catalog.policy_status === 'available'
+                ? `${role.policies.length} candidate rules`
+                : 'policies unavailable'}
+            </summary>
+            {role.policies.map((policy) => (
+              <p
+                key={policy.policy_id}
+                className="break-words text-muted-foreground"
+              >
+                {policy.effect} {policy.action} on {policy.resource_type}:
+                {policy.resource_id_pattern}
+                {policy.principal_attribute_names.length +
+                  policy.resource_attribute_names.length >
+                0
+                  ? ' (additional attribute conditions required)'
+                  : ''}
+              </p>
+            ))}
+            {catalog.policy_status === 'available' &&
+            role.policies.length === 0 ? (
+              <p>No candidate rules. This role alone grants no access.</p>
+            ) : null}
+          </details>
+        ))}
     </div>
+  )
+}
+function PermissionCheck() {
+  const [result, setResult] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState(false)
+  return (
+    <details className="my-4 text-xs">
+      <summary className="cursor-pointer font-medium">
+        Check my effective access
+      </summary>
+      <p>
+        Evaluates your current session for this resource identity without
+        resource attributes. This is not another member's access or approval to
+        perform an operation. Operations still check their full resource
+        context.
+      </p>
+      <form
+        className="flex flex-col gap-2"
+        onChange={() => setResult(null)}
+        onSubmit={async (event) => {
+          event.preventDefault()
+          if (busy) return
+          const values = new FormData(event.currentTarget)
+          setBusy(true)
+          setError(null)
+          setResult(null)
+          try {
+            const permission = await checkMyPermission({
+              data: {
+                action: String(values.get('action')),
+                resourceType: String(values.get('resourceType')),
+                resourceId: String(values.get('resourceId')),
+              },
+            })
+            setResult(
+              `${permission.allowed ? 'Allowed' : 'Denied'} for this context${permission.reason_code ? ` (${permission.reason_code})` : ''}.`,
+            )
+          } catch (cause) {
+            setError(message(cause))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        <label>
+          Action
+          <Input name="action" required placeholder="dataset.query" />
+        </label>
+        <label>
+          Resource type
+          <Input name="resourceType" required placeholder="dataset" />
+        </label>
+        <label>
+          Resource ID
+          <Input name="resourceId" required placeholder="sales.orders" />
+        </label>
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Checking…' : 'Check access'}
+        </Button>
+        {result ? <p role="status">{result}</p> : null}
+        {error ? <ErrorText text={error} /> : null}
+      </form>
+    </details>
   )
 }
 function ErrorText({ text }: { text: string }) {

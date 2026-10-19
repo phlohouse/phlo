@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 213,
+  "endpoint_count": 215,
   "endpoints": [
     {
       "method": "GET",
@@ -1015,6 +1015,24 @@
       "operation_id": "v1_admin_member_roles_api_v1_admin_members__subject__roles_patch",
       "path": "/api/v1/admin/members/{subject}/roles",
       "summary": "V1 Admin Member Roles",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_permissions_api_v1_admin_permissions_get",
+      "path": "/api/v1/admin/permissions",
+      "summary": "V1 Admin Permissions",
+      "tags": [
+        "v1 admin identity"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_admin_roles_api_v1_admin_roles_get",
+      "path": "/api/v1/admin/roles",
+      "summary": "V1 Admin Roles",
       "tags": [
         "v1 admin identity"
       ]

@@ -7,7 +7,7 @@ import secrets
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal, get_args
 
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRecord, SignatureRequest
 from phlo.plugins.observatory_settings import (
@@ -21,7 +21,8 @@ from phlo.plugins.observatory_settings import (
 
 _NAMESPACE = "phlo.identity.authority"
 _SCHEMA_VERSION = 1
-_ROLE_NAMES = frozenset({"admin", "operator", "developer", "analyst", "viewer", "service"})
+IdentityRole = Literal["admin", "operator", "developer", "analyst", "viewer", "service"]
+SUPPORTED_ROLES: frozenset[IdentityRole] = frozenset(get_args(IdentityRole))
 
 
 class IdentityConflictError(ValueError):
@@ -78,7 +79,7 @@ class StoredSignature:
 def validate_roles(roles: Sequence[str]) -> tuple[str, ...]:
     """Return canonical, de-duplicated role names or reject unknown roles."""
     canonical = tuple(sorted(set(roles)))
-    if not canonical or any(role not in _ROLE_NAMES for role in canonical):
+    if not canonical or any(role not in SUPPORTED_ROLES for role in canonical):
         raise ValueError("One or more role names are invalid.")
     return canonical
 
