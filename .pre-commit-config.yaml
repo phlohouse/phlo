@@ -85,7 +85,7 @@ repos:
         files: ^packages/phlo-observatory/src/phlo_observatory/.*(\.ts|\.tsx)$
       - id: zizmor
         name: zizmor (GitHub Actions security lint)
-        entry: uvx zizmor --no-online-audits --no-progress --min-severity low
+        entry: uvx --from zizmor==1.31.0 zizmor --no-online-audits --no-progress --min-severity low
         language: system
         files: ^\.github/(workflows/.*\.(yml|yaml)|dependabot\.yml)$
       - id: sqlfluff-dbt

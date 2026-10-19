@@ -70,6 +70,19 @@ jobs:
           path: dependency-assessment.json
           if-no-files-found: error
 
+  dependency-triage:
+    name: security / dependency triage
+    if: always() && github.event_name == 'schedule' && github.repository == 'phlohouse/phlo'
+    needs: [dependencies]
+    uses: ./.github/workflows/dependency-triage.yml
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: write
+    secrets:
+      PHLO_DEPENDENCY_TRIAGE_TOKEN: ${{ secrets.PHLO_DEPENDENCY_TRIAGE_TOKEN }}
+
   security-status:
     name: security / status
     if: always()
