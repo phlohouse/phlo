@@ -115,8 +115,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mode='queue'
-          if [ "$EVENT_NAME" = pull_request ]; then mode='delta'; fi
+          # Existing findings belong to nightly Security and agent triage.
+          # Both PR and merge-group checks block newly introduced vulnerable versions.
+          mode='delta'
           ledger="$RUNNER_TEMP/dependency-risks.json"
           if git cat-file -e "$BASE_SHA:security/dependency-risks.json" 2>/dev/null; then
             git show "$BASE_SHA:security/dependency-risks.json" > "$ledger"
