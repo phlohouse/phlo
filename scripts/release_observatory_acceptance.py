@@ -37,7 +37,7 @@ def request(url: str, *, payload: dict | None = None, expected: tuple[int, ...] 
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:  # nosec B310
+        with urllib.request.urlopen(req, timeout=30) as response:
             status, body = response.status, response.read()
     except urllib.error.HTTPError as exc:
         status, body = exc.code, exc.read()
