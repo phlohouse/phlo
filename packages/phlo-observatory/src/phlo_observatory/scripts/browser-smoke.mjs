@@ -275,6 +275,23 @@ try {
     true,
   )
   await capture('09-narrow-recovered')
+  for (const path of [
+    '/api/v1/overview',
+    '/api/v1/admin/settings',
+    '/api/v1/readiness',
+  ]) {
+    fixture.controls.overrides.set(path, {
+      status: 403,
+      body: { error: { code: 'authorization_denied', message: 'Denied.' } },
+    })
+    await browser('open', `${base}/settings?env=staging`)
+    await browser('wait', '--text', "Couldn't load this page")
+    assert.match(
+      (await browser('get', 'text', 'body')).text,
+      /Your account does not have permission/,
+    )
+    fixture.controls.overrides.clear()
+  }
   writeFileSync(
     resolve(artifactDir, 'results.json'),
     JSON.stringify(
@@ -290,6 +307,8 @@ try {
           'disabled preview skips catalog calls',
           'missing code location and schema readiness reasons',
           'backend outage retries visibly without process restart',
+          'unavailable configured default retained without switching',
+          'optional reads preserve explicit authorization failures',
         ],
         requests: fixture.requests.map(
           ({ authorization: _token, ...rest }) => rest,
