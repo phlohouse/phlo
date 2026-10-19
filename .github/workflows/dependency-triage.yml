@@ -2,6 +2,9 @@ name: Dependency remediation handoff
 
 on:
   workflow_call:
+    secrets:
+      PHLO_DEPENDENCY_TRIAGE_TOKEN:
+        required: false
 
 permissions:
   contents: read

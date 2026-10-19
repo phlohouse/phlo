@@ -32,6 +32,10 @@ def test_handoff_grants_permissions_for_issue_and_advisory_pr_comments():
     assert security["jobs"]["dependency-triage"]["if"] == (
         "always() && github.event_name == 'schedule' && github.repository == 'phlohouse/phlo'"
     )
+    assert triggers["workflow_call"]["secrets"]["PHLO_DEPENDENCY_TRIAGE_TOKEN"]["required"] is False
+    assert security["jobs"]["dependency-triage"]["secrets"] == {
+        "PHLO_DEPENDENCY_TRIAGE_TOKEN": "${{ secrets.PHLO_DEPENDENCY_TRIAGE_TOKEN }}"
+    }
     permissions = workflow["jobs"]["triage"]["permissions"]
     assert permissions == {
         "contents": "read",
@@ -90,7 +94,7 @@ def context(monkeypatch, tmp_path):
         "workflow_id": 7,
         "path": WORKFLOW["path"],
         "event": "schedule",
-        "status": "completed",
+        "status": "in_progress",
         "conclusion": "failure",
         "head_branch": "main",
         "repository": {"full_name": risk.github.REPOSITORY},
@@ -121,15 +125,33 @@ def context(monkeypatch, tmp_path):
     download = Mock(return_value=tmp_path)
     store = GitHubStore()
     write = Mock(side_effect=store.write)
+    jobs = [
+        {
+            "name": "security / dependency assessment",
+            "run_id": 10,
+            "run_attempt": 2,
+            "head_sha": SHA,
+            "status": "completed",
+            "conclusion": "failure",
+        }
+    ]
+
+    def pages(path, key):
+        if path.endswith("/jobs"):
+            assert key == "jobs"
+            assert path.endswith("/runs/10/attempts/2/jobs")
+            return jobs
+        return store.pages(path, key)
+
     monkeypatch.setattr(risk.github, "api", api)
-    monkeypatch.setattr(risk.github, "pages", store.pages)
+    monkeypatch.setattr(risk.github, "pages", pages)
     monkeypatch.setattr(risk.github, "download_artifact", download)
     monkeypatch.setattr(risk.subprocess, "run", write)
-    return run, report, download, write, tmp_path, store
+    return run, report, download, write, tmp_path, store, jobs
 
 
 def test_handoff_schema_and_deduplication(context):
-    _, report, _, _, _, store = context
+    _, report, _, _, _, store, _ = context
     assert risk.valid_report(report, SHA)
     risk.handoff(10, 2, SHA)
     assert len(store.issues) == 1
@@ -153,13 +175,13 @@ def test_handoff_schema_and_deduplication(context):
         {"repository": {"full_name": "foreign/phlo"}},
         {"event": "workflow_dispatch"},
         {"head_branch": "feature"},
-        {"status": "in_progress"},
+        {"status": "queued"},
         {"head_sha": "b" * 40},
         {"run_attempt": 1},
     ],
 )
 def test_wrong_producer_sha_attempt_rejected(context, mutation):
-    run, _, download, write, _, _ = context
+    run, _, download, write, _, _, _ = context
     run.update(mutation)
     with pytest.raises(ValueError):
         risk.handoff(10, 2, SHA)
@@ -167,8 +189,64 @@ def test_wrong_producer_sha_attempt_rejected(context, mutation):
     write.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "producer_jobs",
+    [
+        [],
+        [
+            {
+                "name": "security / dependency assessment",
+                "run_id": 10,
+                "run_attempt": 2,
+                "head_sha": SHA,
+                "status": "in_progress",
+                "conclusion": None,
+            }
+        ],
+        [{"name": "workflow-hardening", "status": "completed", "conclusion": "success"}],
+        [
+            {
+                "name": "security / dependency assessment",
+                "run_id": 10,
+                "run_attempt": 2,
+                "head_sha": SHA,
+                "status": "completed",
+                "conclusion": "failure",
+            },
+            {
+                "name": "security / dependency assessment",
+                "run_id": 10,
+                "run_attempt": 2,
+                "head_sha": SHA,
+                "status": "completed",
+                "conclusion": "success",
+            },
+        ],
+    ],
+)
+def test_in_progress_run_requires_one_completed_dependency_producer(context, producer_jobs):
+    _, _, download, write, _, _, jobs = context
+    jobs[:] = producer_jobs
+    with pytest.raises(ValueError, match="completed dependency producer"):
+        risk.handoff(10, 2, SHA)
+    download.assert_not_called()
+    write.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "field, value", [("run_id", 11), ("run_attempt", 1), ("head_sha", "b" * 40)]
+)
+def test_completed_dependency_job_must_match_exact_attempt(context, field, value):
+    _, _, download, write, _, _, jobs = context
+    jobs[0][field] = value
+    with pytest.raises(ValueError, match="completed dependency producer"):
+        risk.handoff(10, 2, SHA)
+    download.assert_not_called()
+    write.assert_not_called()
+
+
 def test_wrong_report_sha_rejected(context):
-    _, report, _, write, directory, _ = context
+    _, report, _, write, directory, _, _ = context
     report["head"] = "b" * 40
     (directory / "dependency-assessment.json").write_text(json.dumps(report))
     with pytest.raises(ValueError, match="different inspected SHA"):
@@ -178,7 +256,7 @@ def test_wrong_report_sha_rejected(context):
 
 @pytest.mark.parametrize("kind", ["unavailable", "missing", "fragment", "no-artifact"])
 def test_unavailable_scan_escalates(context, kind):
-    _, _, download, _, directory, store = context
+    _, _, download, _, directory, store, _ = context
     if kind == "missing":
         (directory / "dependency-assessment.json").unlink()
     elif kind == "no-artifact":
@@ -196,7 +274,7 @@ def test_unavailable_scan_escalates(context, kind):
 
 
 def test_duplicate_security_issue_preserves_paths(context):
-    run, report, _, write, _, store = context
+    run, report, _, write, _, store, _ = context
     title, body = next(iter(risk.requests(report, run["html_url"]).items()))
     issue = {"number": 42, "title": title, "body": body + "\n- `old/uv.lock`"}
     store.issues.append(issue)
@@ -215,7 +293,7 @@ def test_duplicate_security_issue_preserves_paths(context):
 
 
 def test_existing_advisory_pr_reused_with_all_consumers(context):
-    _, _, _, _, _, store = context
+    _, _, _, _, _, store, _ = context
     store.pulls.append({"number": 63, "title": "fix(example): GHSA-example", "body": ""})
     risk.handoff(10, 2, SHA)
     risk.handoff(10, 2, SHA)
@@ -236,7 +314,7 @@ def test_existing_advisory_pr_reused_with_all_consumers(context):
     ],
 )
 def test_unrelated_update_does_not_suppress_intake(context, title):
-    _, _, _, _, _, store = context
+    _, _, _, _, _, store, _ = context
     store.pulls.append({"number": 63, "title": title, "body": ""})
     risk.handoff(10, 2, SHA)
     assert len(store.issues) == 1
@@ -244,7 +322,7 @@ def test_unrelated_update_does_not_suppress_intake(context, title):
 
 
 def test_scoped_package_and_new_consumers_are_preserved(context):
-    run, _, _, _, _, store = context
+    run, _, _, _, _, store, _ = context
     title = "security(deps): GHSA-example in npm/@scope/example 1.0.0"
     store.pulls.extend(
         [

@@ -53,12 +53,13 @@ has no shell, and permits one bounded issue or draft PR via
 `publish_phlo_maintenance_issue` / `publish_phlo_maintenance_pull_request`.
 It cannot run scanners, approve risks, change workflows or change live settings.
 The scheduled Security workflow calls the trusted-main `dependency-triage.yml`
-reusable workflow after dependency assessment. It authenticates the completed
-Security run and its exact SHA/attempt, verifies its JSON artifact, and reuses
-matching advisory/package PRs before creating or updating deduplicated security
-issues. PR comments preserve all consumer paths; ordinary version bumps do not
-count as advisory remediation. Unavailable scans create maintainer-owned
-escalation issues. Configure `PHLO_DEPENDENCY_TRIAGE_TOKEN`
+reusable workflow after dependency assessment. It authenticates the scheduled
+Security run and exact SHA/attempt, requires its dependency-assessment job to be
+complete, verifies the matching JSON artifact, and reuses matching
+advisory/package PRs before creating or updating deduplicated security issues.
+PR comments preserve all consumer paths; ordinary version bumps do not count as
+advisory remediation. Unavailable scans create maintainer-owned escalation
+issues. Configure `PHLO_DEPENDENCY_TRIAGE_TOKEN`
 with Issues write, Pull requests write, Actions read and Contents read and a human
 sender to reach existing signed issue webhook intake; its bot filter
 rejects the fallback `github.token` sender. Without this credential, issues are

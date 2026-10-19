@@ -80,6 +80,8 @@ jobs:
       actions: read
       issues: write
       pull-requests: write
+    secrets:
+      PHLO_DEPENDENCY_TRIAGE_TOKEN: ${{ secrets.PHLO_DEPENDENCY_TRIAGE_TOKEN }}
 
   security-status:
     name: security / status

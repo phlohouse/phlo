@@ -141,6 +141,18 @@ def handoff(run_id: int, attempt: int, sha: str) -> None:
     run = github.api(f"repos/{github.REPOSITORY}/actions/runs/{run_id}/attempts/{attempt}")
     workflow = github.api(f"repos/{github.REPOSITORY}/actions/workflows/security.yml")
     repository = github.api(f"repos/{github.REPOSITORY}")
+    producer_jobs = github.pages(
+        f"repos/{github.REPOSITORY}/actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs"
+    )
+    completed_producers = [
+        job
+        for job in producer_jobs
+        if job.get("name") == "security / dependency assessment"
+        and job.get("status") == "completed"
+        and job.get("run_id") == run_id
+        and job.get("run_attempt") == attempt
+        and job.get("head_sha") == sha
+    ]
     if (
         run.get("event") != "schedule"
         or run.get("head_branch") != "main"
@@ -155,9 +167,13 @@ def handoff(run_id: int, attempt: int, sha: str) -> None:
         or run.get("workflow_id") != workflow["id"]
         or workflow.get("path") != ".github/workflows/security.yml"
         or run.get("path", "").split("@")[0] != workflow["path"]
-        or run.get("status") != "completed"
+        or run.get("status") not in {"in_progress", "completed"}
+        or len(completed_producers) != 1
     ):
-        raise ValueError("Only the allowlisted completed daily scan may open remediation issues")
+        raise ValueError(
+            "Only an allowlisted daily scan with one completed dependency producer may "
+            "open remediation issues"
+        )
     with tempfile.TemporaryDirectory() as directory:
         try:
             artifact = github.download_artifact(
