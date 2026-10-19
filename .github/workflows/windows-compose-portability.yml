@@ -27,6 +27,7 @@ jobs:
         with:
           version: "0.12.1"
           enable-cache: true
+          cache-suffix: workspace-dev-3.12
 
       - name: Install the complete service workspace
         working-directory: source
@@ -102,6 +103,7 @@ jobs:
         with:
           version: "0.12.1"
           enable-cache: true
+          cache-suffix: installed-providers
 
       - name: Set up Python 3.12
         uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38

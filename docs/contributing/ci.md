@@ -44,24 +44,39 @@ both Python and service contracts finish, then records queue evidence. The
 authoritative line and branch coverage gate runs the complete workspace in four
 module-preserving shards, alongside a required PostgreSQL coverage job. A final
 job verifies every producer and combines their data before enforcing the existing
-per-source floors. See [test and contract gates](testing-gates.md) for the source
-scope and local commands. Standalone Windows dispatch builds its own wheels;
-ordinary validation reuses the preparation artifact.
+per-source floors. Both reporting jobs install only the locked `coverage-report`
+dependency group. Their commands retain that group when running, so report
+generation does not trigger a full workspace installation. See
+[test and contract gates](testing-gates.md) for the source scope and local
+commands. Standalone Windows dispatch builds its own wheels; ordinary validation
+reuses the preparation artifact.
+
+Python dependency caches use separate keys for each environment purpose. Full
+workspace jobs share a cache; wheel preparation, provider installation and
+individual package groups use their own keys. Reporting and dependency-risk jobs
+do not restore or save Python dependency caches. This prevents a small, early job
+from reserving the cache key needed to retain the full workspace's built
+dependency wheels.
 
 Installed-provider verification renders the complete service inventory in one
 installed-CLI invocation. Its report records the generated files for that batch
-and the final Compose configuration for each service. The four Docker shards keep
-services with identical image and build settings together, so a second service
-using the same image can reuse its runner's build cache. Every buildable service
-still has a build result and its applicable health check, and local image scans
-use the resulting image IDs.
+and the final Compose configuration for each service. Two Docker shards divide
+the image build families into consecutive groups, keeping services with identical
+image and build settings together. A second service using the same image can
+reuse its runner's build cache. This limits concurrent provider runners while
+retaining a build result and applicable health check for every buildable service.
+Local image scans use the resulting image IDs.
 
 Integration builds the checked-in MinIO image once, then transfers it to the
 storage/catalog job and three API groups. Each consumer verifies the loaded image
 ID before running tests. BuildKit imports the default-branch publisher's MinIO
-cache and the integration cache; the runtime stage still applies fresh operating
-system updates. A cache miss rebuilds the same sources. Scheduled and manual
-Nightly runs on `phlohouse/phlo`'s `main` branch refresh the integration cache
+cache and the integration cache. A separate artifact stage caches the finished
+binaries, licences and source bundle for the runtime image to copy. Intermediate
+compilation caching is retained, and the runtime stage still applies fresh
+operating system updates. A cache miss rebuilds the same sources. To measure
+remote-cache performance, first populate the artifact stage's cache, then run
+another build on a fresh runner. Scheduled and manual Nightly runs on
+`phlohouse/phlo`'s `main` branch refresh the integration cache
 through the same build-only action, making it available to other PR and queue
 refs. This optional maintenance result is reported separately from the required
 nightly checks and release qualification.
