@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 213,
+  "endpoint_count": 214,
   "endpoints": [
     {
       "method": "GET",
@@ -1692,6 +1692,15 @@
       "summary": "V1 Query Refs",
       "tags": [
         "v1 query workspace"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_readiness_api_v1_readiness_get",
+      "path": "/api/v1/readiness",
+      "summary": "V1 Readiness",
+      "tags": [
+        "v1 readiness"
       ]
     },
     {

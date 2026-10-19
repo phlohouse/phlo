@@ -11,6 +11,8 @@ vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: { component?: React.ComponentType }) => ({
     options,
     useLoaderData: () => ({
+      env: 'prod',
+      panelErrors: [],
       overview: {
         env: 'prod',
         incident_counts: { open: 0, acknowledged: 0 },

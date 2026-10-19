@@ -192,7 +192,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_type="invitation",
     ),
     *_specs(
-        ("v1_services",),
+        ("v1_services", "v1_readiness"),
         action=CanonicalAction.SERVICE_READ.value,
         resource_type="service",
         resource_keys=("env",),

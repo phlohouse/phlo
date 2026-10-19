@@ -124,7 +124,7 @@ const apiErrorMessages: Partial<Record<number, string>> = {
 }
 const publicApiErrorSchema = z.object({
   error: z.object({
-    code: z.literal('backend_unavailable'),
+    code: z.enum(['backend_unavailable', 'bad_gateway']),
     message: z
       .string()
       .max(280)
@@ -141,6 +141,9 @@ const publicApiErrorSchema = z.object({
           !/\b(authorization|bearer|token|password|secret|api[_-]?key)\s*[:=]\s*\S+/i.test(
             message,
           ),
+      )
+      .refine(
+        (message) => !/\b(select|insert|update|delete)\s+|:\/\//i.test(message),
       ),
   }),
 })
@@ -149,6 +152,8 @@ export class PhloApiError extends Error {
   constructor(
     readonly status: number,
     detail?: string,
+    readonly reasonCode?: string,
+    readonly correlationId?: string,
   ) {
     const safeDetail = detail
       ?.split('')
@@ -167,6 +172,8 @@ export class PhloApiError extends Error {
       [
         apiErrorMessages[status] ?? `Phlo API request failed (${status}).`,
         safeDetail && safeDetail.length > 0 ? safeDetail : undefined,
+        reasonCode ? `Reason: ${reasonCode}.` : undefined,
+        correlationId ? `Reference: ${correlationId}.` : undefined,
       ]
         .filter(Boolean)
         .join(' '),
@@ -175,8 +182,23 @@ export class PhloApiError extends Error {
   }
 }
 
-async function apiErrorDetail(response: Response): Promise<string | undefined> {
-  if (response.status !== 503) return
+/** Optional reads may fail independently; identity and permission failures may not. */
+export async function optionalRead<T>(request: Promise<T>) {
+  try {
+    return { state: 'available' as const, data: await request }
+  } catch (error) {
+    if (error instanceof PhloApiError && [401, 403].includes(error.status))
+      throw error
+    return {
+      state: 'unavailable' as const,
+      error:
+        error instanceof Error ? error.message : 'Phlo API is unavailable.',
+    }
+  }
+}
+
+async function apiErrorDetail(response: Response) {
+  if (![502, 503].includes(response.status)) return
   let payload: unknown
   try {
     payload = await response.json()
@@ -184,7 +206,7 @@ async function apiErrorDetail(response: Response): Promise<string | undefined> {
     return
   }
   const result = publicApiErrorSchema.safeParse(payload)
-  return result.success ? result.data.error.message : undefined
+  return result.success ? result.data.error : undefined
 }
 
 export async function parseApiResponse<T>({
@@ -198,8 +220,19 @@ export async function parseApiResponse<T>({
   env?: z.infer<typeof environmentSchema>
   responseType?: 'json' | 'text'
 }): Promise<T> {
-  if (!response.ok)
-    throw new PhloApiError(response.status, await apiErrorDetail(response))
+  if (!response.ok) {
+    const id = z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .safeParse(response.headers.get('x-request-id'))
+    const detail = await apiErrorDetail(response)
+    throw new PhloApiError(
+      response.status,
+      detail?.message,
+      detail?.code,
+      id.success ? id.data : undefined,
+    )
+  }
   let payload: unknown
   try {
     const text = await response.text()

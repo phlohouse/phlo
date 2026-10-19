@@ -3,6 +3,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
 import { getIncidentList, updateIncident } from './incidents'
+import { readinessSchema } from './readiness'
 
 const columnSchema = z.object({ name: z.string(), type: z.string().nullable() })
 const resultSchema = z.object({
@@ -90,6 +91,17 @@ export const getQueryWorkspace = createServerFn({ method: 'GET' })
   .validator(inputSchema)
   .handler(async ({ data }) => {
     const env = data.env
+    const readiness = await phloApi(
+      `/api/v1/readiness?env=${env}`,
+      readinessSchema,
+      { env },
+    )
+    const checks = readiness.capabilities.query_preview
+    if (
+      !checks ||
+      checks.some((check) => ['disabled', 'unavailable'].includes(check.state))
+    )
+      return { state: 'unavailable' as const, readiness }
     const [catalog, refs, engines, saved] = await Promise.all([
       phloApi(
         `/api/v1/query/catalog?env=${env}`,
@@ -143,10 +155,14 @@ export const getQueryWorkspace = createServerFn({ method: 'GET' })
       ),
     ])
     return {
-      catalog,
-      refs: refs.items,
-      engines: engines.items,
-      saved: saved.items,
+      state: 'available' as const,
+      readiness,
+      data: {
+        catalog,
+        refs: refs.items,
+        engines: engines.items,
+        saved: saved.items,
+      },
     }
   })
 

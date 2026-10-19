@@ -124,6 +124,45 @@ describe('Phlo API response boundary', () => {
     })
   })
 
+  it('exposes safe reason and correlation identifiers but never SQL or unsafe IDs', async () => {
+    await expect(
+      parseApiResponse({
+        response: Response.json(
+          {
+            error: {
+              code: 'bad_gateway',
+              message: 'Dagster returned an invalid response.',
+            },
+          },
+          { status: 502, headers: { 'x-request-id': 'request-1129' } },
+        ),
+        schema: snapshot,
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      reasonCode: 'bad_gateway',
+      correlationId: 'request-1129',
+      message: expect.stringContaining('Reference: request-1129.'),
+    })
+    await expect(
+      parseApiResponse({
+        response: Response.json(
+          {
+            error: {
+              code: 'backend_unavailable',
+              message: 'SELECT confidential FROM table',
+            },
+          },
+          { status: 503, headers: { 'x-request-id': 'password=private' } },
+        ),
+        schema: snapshot,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Phlo API request failed (503).',
+      correlationId: undefined,
+    })
+  })
+
   it('rejects valid data returned for the wrong environment', async () => {
     await expect(
       parseApiResponse({

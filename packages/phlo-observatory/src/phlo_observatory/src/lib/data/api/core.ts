@@ -5,6 +5,7 @@ import { incidentSchema } from './incidents'
 import { runSchema } from './pipelines'
 import {
   environmentSchema,
+  optionalRead,
   overviewSchema,
   phloApi,
   servicesSchema,
@@ -20,8 +21,12 @@ export const getShell = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)
   .handler(async ({ data: env }) => {
     const [overview, serviceList, me, incidents] = await Promise.all([
-      phloApi(`api/v1/overview?env=${env}`, overviewSchema),
-      phloApi(`api/v1/services?env=${env}`, servicesSchema),
+      optionalRead(
+        phloApi(`api/v1/overview?env=${env}`, overviewSchema, { env }),
+      ),
+      optionalRead(
+        phloApi(`api/v1/services?env=${env}`, servicesSchema, { env }),
+      ),
       phloApi(
         'api/v1/me',
         z.object({
@@ -32,28 +37,45 @@ export const getShell = createServerFn({ method: 'GET' })
           permissions: z.record(z.string(), z.array(z.string())),
         }),
       ),
-      phloApi(`api/v1/incidents?env=${env}&limit=100`, incidentsPageSchema, {
-        env,
-      }),
+      optionalRead(
+        phloApi(`api/v1/incidents?env=${env}&limit=100`, incidentsPageSchema, {
+          env,
+        }),
+      ),
     ])
-    if (
-      overview.env !== env ||
-      serviceList.env !== env ||
-      incidents.env !== env
-    ) {
-      throw new Error('Phlo API returned data for a different environment.')
-    }
     return {
-      overview,
-      services: serviceList.items,
+      env,
+      overview: overview.state === 'available' ? overview.data : null,
+      services:
+        serviceList.state === 'available' ? serviceList.data.items : null,
+      panelErrors: [overview, serviceList, incidents].flatMap(
+        (result, index) =>
+          result.state === 'unavailable'
+            ? [
+                {
+                  panel: ['Overview', 'Services', 'Incidents'][index],
+                  message: result.error,
+                },
+              ]
+            : [],
+      ),
       environmentBinding: {
-        dagsterLocation: serviceList.dagster_location ?? null,
-        nessieRef: serviceList.nessie_ref ?? null,
+        dagsterLocation:
+          serviceList.state === 'available'
+            ? (serviceList.data.dagster_location ?? null)
+            : null,
+        nessieRef:
+          serviceList.state === 'available'
+            ? (serviceList.data.nessie_ref ?? null)
+            : null,
       },
       me,
-      incidents: incidents.items
-        .filter((item) => item.status !== 'resolved')
-        .slice(0, 5),
+      incidents:
+        incidents.state === 'available'
+          ? incidents.data.items
+              .filter((item) => item.status !== 'resolved')
+              .slice(0, 5)
+          : null,
     }
   })
 
@@ -101,21 +123,46 @@ export const getOverview = createServerFn({ method: 'GET' })
   )
   .handler(async ({ data: { env, range } }) => {
     const [overview, sources, layers, runs, incidents] = await Promise.all([
-      phloApi(`api/v1/overview?env=${env}`, overviewSchema, { env }),
-      phloApi(`api/v1/sources?env=${env}&limit=500`, sourcesSchema, { env }),
-      phloApi(`api/v1/layers?env=${env}&limit=500`, layersSchema, { env }),
-      phloApi(`api/v1/runs?env=${env}&limit=100`, runsPageSchema, { env }),
-      phloApi(`api/v1/incidents?env=${env}&limit=500`, incidentsPageSchema, {
-        env,
-      }),
+      optionalRead(
+        phloApi(`api/v1/overview?env=${env}`, overviewSchema, { env }),
+      ),
+      optionalRead(
+        phloApi(`api/v1/sources?env=${env}&limit=500`, sourcesSchema, { env }),
+      ),
+      optionalRead(
+        phloApi(`api/v1/layers?env=${env}&limit=500`, layersSchema, { env }),
+      ),
+      optionalRead(
+        phloApi(`api/v1/runs?env=${env}&limit=100`, runsPageSchema, { env }),
+      ),
+      optionalRead(
+        phloApi(`api/v1/incidents?env=${env}&limit=500`, incidentsPageSchema, {
+          env,
+        }),
+      ),
     ])
+    if (
+      overview.state !== 'available' ||
+      sources.state !== 'available' ||
+      layers.state !== 'available' ||
+      runs.state !== 'available' ||
+      incidents.state !== 'available'
+    )
+      return {
+        state: 'degraded' as const,
+        env,
+        panels: { overview, sources, layers, runs, incidents },
+      }
     return {
-      overview,
-      sources,
-      layers,
-      runs,
-      incidents,
-      range,
-      observedAt: new Date().toISOString(),
+      state: 'available' as const,
+      data: {
+        overview: overview.data,
+        sources: sources.data,
+        layers: layers.data,
+        runs: runs.data,
+        incidents: incidents.data,
+        range,
+        observedAt: new Date().toISOString(),
+      },
     }
   })

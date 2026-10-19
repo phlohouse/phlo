@@ -35,10 +35,14 @@ import {
 } from '@/components/ui/chart'
 import { Input } from '@/components/ui/input'
 import { Segmented } from '@/components/ui/toggle-group'
+import { PanelUnavailable } from '@/components/phlo/states'
 
 type Range = z.infer<typeof overviewRangeSchema>
 type Service = ObservatoryServiceList['items'][number]
-type Overview = Awaited<ReturnType<typeof getOverview>>
+type Overview = Extract<
+  Awaited<ReturnType<typeof getOverview>>,
+  { state: 'available' }
+>['data']
 
 export const Route = createFileRoute('/_app/')({
   validateSearch: z.object({ range: overviewRangeSchema.default('24h') }),
@@ -195,7 +199,113 @@ function allClear(overview: Overview['overview']) {
 }
 
 function OverviewPage() {
-  const data = Route.useLoaderData()
+  const result = Route.useLoaderData()
+  if (result.state === 'available') return <ReadyOverview data={result.data} />
+  const { panels, env } = result
+  return (
+    <>
+      <PageHeader title="Overview" meta={`Partial observations · ${env}`} />
+      <PageBody>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {Object.entries(panels)
+            .filter(([, panel]) => panel.state === 'unavailable')
+            .map(([name, panel]) =>
+              panel.state === 'unavailable' ? (
+                <PanelUnavailable
+                  key={name}
+                  title={name}
+                  message={panel.error}
+                />
+              ) : null,
+            )}
+          {panels.sources.state === 'available' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Sources</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {panels.sources.data.items.length ? (
+                  panels.sources.data.items.map((source) => (
+                    <p key={source.id}>{source.id}</p>
+                  ))
+                ) : (
+                  <p>No sources returned by Dagster.</p>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+          {panels.runs.state === 'available' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Observed runs</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {panels.runs.data.items.length ? (
+                  panels.runs.data.items.map((run) => (
+                    <p key={run.run_id}>
+                      <Link to="/pipelines" search={{ env }}>
+                        {run.run_id}
+                      </Link>{' '}
+                      · {run.status}
+                    </p>
+                  ))
+                ) : (
+                  <p>
+                    No runs returned by Dagster. This does not establish backend
+                    health.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+          {panels.incidents.state === 'available' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Reported incidents</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {panels.incidents.data.items.map((incident) => (
+                  <p key={incident.id}>
+                    <Link
+                      to="/incidents/$incidentId"
+                      params={{ incidentId: incident.id }}
+                      search={{ env }}
+                    >
+                      {incident.title}
+                    </Link>
+                  </p>
+                ))}
+                <Link to="/incidents" search={{ env }}>
+                  View incident observations
+                </Link>
+              </CardContent>
+            </Card>
+          ) : null}
+          {panels.layers.state === 'available' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Observed layers</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!panels.layers.data.items.length ? (
+                  <p>No layers returned by Dagster.</p>
+                ) : null}
+                {panels.layers.data.items.map((layer, index) => (
+                  <p key={index}>
+                    {layer.group_name ?? layer.layer ?? 'Ungrouped'} ·{' '}
+                    {layer.asset_count} assets
+                  </p>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+      </PageBody>
+    </>
+  )
+}
+
+function ReadyOverview({ data }: { data: Overview }) {
   const { overview, range, observedAt } = data
   const { services } = getRouteApi('/_app').useLoaderData()
   const router = useRouter()
@@ -400,10 +510,20 @@ function OverviewPage() {
         </div>
         <details id="services" className="shrink-0 text-sm">
           <summary className="cursor-pointer text-muted-foreground">
-            Environment services · {services.length} definitions
+            Environment services ·{' '}
+            {services === null
+              ? 'unavailable'
+              : `${services.length} definitions`}
           </summary>
           <div className="mt-3">
-            <ServiceHealth services={services} />
+            {services === null ? (
+              <PanelUnavailable
+                title="Services"
+                message="Service observations could not be loaded."
+              />
+            ) : (
+              <ServiceHealth services={services} />
+            )}
           </div>
         </details>
       </PageBody>

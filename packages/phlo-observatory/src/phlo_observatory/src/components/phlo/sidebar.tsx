@@ -156,12 +156,12 @@ export function Sidebar({
   env: Env
   openIncidentCount: number | null
   incidents: Array<IncidentRecord>
-  services: ObservatoryServiceList['items']
+  services: ObservatoryServiceList['items'] | null
   identity: { subject: string; email: string | null; roles: Array<string> }
 }) {
   const staging = env === 'staging'
   const calm = openIncidentCount === 0
-  const visibleServices = environmentServices(services)
+  const visibleServices = environmentServices(services ?? [])
   return (
     <nav
       aria-label="Primary navigation"
@@ -252,7 +252,9 @@ export function Sidebar({
         </div>
         {visibleServices.length === 0 ? (
           <p className="m-0 text-[13px] text-text-3">
-            No environment health checks are configured.
+            {services === null
+              ? 'Service status is unavailable.'
+              : 'No environment health checks are configured.'}
           </p>
         ) : null}
         <div

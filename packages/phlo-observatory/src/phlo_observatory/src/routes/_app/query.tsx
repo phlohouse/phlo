@@ -41,7 +41,12 @@ import {
   ResultsChart,
   ResultsGrid,
 } from '@/components/query/result-views'
-import { EmptyState, RouteError } from '@/components/phlo/states'
+import {
+  EmptyState,
+  PageSkeleton,
+  PanelUnavailable,
+  RouteError,
+} from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -93,6 +98,7 @@ export const Route = createFileRoute('/_app/query')({
   loaderDeps: ({ search }) => ({ env: search.env, sql: search.sql }),
   loader: ({ deps }) => getQueryWorkspace({ data: deps }),
   head: () => ({ meta: [{ title: 'Query · phlo' }] }),
+  pendingComponent: PageSkeleton,
   errorComponent: QueryUnavailable,
   component: QueryPage,
 })
@@ -568,9 +574,10 @@ function initialSql(table: QueryTable | null) {
 }
 
 function firstCatalogTable(
-  catalogs: Awaited<
-    ReturnType<typeof getQueryWorkspace>
-  >['catalog']['catalogs'],
+  catalogs: Extract<
+    Awaited<ReturnType<typeof getQueryWorkspace>>,
+    { state: 'available' }
+  >['data']['catalog']['catalogs'],
 ) {
   return (
     catalogs.flatMap((catalogItem) =>
@@ -698,10 +705,30 @@ function queryDisplayState(tab: Tab, pending: Array<string>) {
 function QueryPage() {
   const { env, sql } = Route.useSearch()
   const { me } = appRoute.useLoaderData()
+  const result = Route.useLoaderData()
   const actor = JSON.stringify([me.principal_type, me.subject])
   const cacheKey = queryWorkspaceKey(env, actor)
+  if (result.state === 'unavailable') {
+    const checks = result.readiness.capabilities.query_preview ?? []
+    return (
+      <div className="min-h-0 overflow-y-auto p-4 lg:p-7">
+        <h1 className="mb-4 text-xl font-semibold">Query setup</h1>
+        {checks.map((check, index) => (
+          <PanelUnavailable
+            key={index}
+            title="Query preview"
+            status={check.state}
+            message={`${check.message} ${check.remediation}\nReason: ${check.reason_code}. Reference: ${result.readiness.correlation_id}.`}
+          />
+        ))}
+        <QueryHistory key={env} env={env} />
+      </div>
+    )
+  }
   return (
     <QueryWorkspace
+      data={result.data}
+      checks={result.readiness.capabilities.query_preview ?? []}
       key={JSON.stringify([cacheKey, sql])}
       cacheKey={cacheKey}
       actor={actor}
@@ -839,15 +866,23 @@ function PinQueryDialog({
 }
 
 function QueryWorkspace({
+  data,
+  checks,
   cacheKey,
   actor,
   suppliedSql,
 }: {
+  data: Extract<
+    Awaited<ReturnType<typeof getQueryWorkspace>>,
+    { state: 'available' }
+  >['data']
+  checks: Awaited<
+    ReturnType<typeof getQueryWorkspace>
+  >['readiness']['capabilities'][string]
   cacheKey: string
   actor: string
   suppliedSql?: string
 }) {
-  const data = Route.useLoaderData()
   const { env } = Route.useSearch()
   const firstTable = firstCatalogTable(data.catalog.catalogs)
   const [savedQueries, setSavedQueries] = React.useState(data.saved)
@@ -1136,6 +1171,17 @@ function QueryWorkspace({
 
   return (
     <>
+      {checks
+        .filter((check) => check.state !== 'ready')
+        .map((check, index) => (
+          <div
+            role="status"
+            key={index}
+            className="border-b border-warn bg-warn-soft px-4 py-2 text-xs"
+          >
+            {check.message} {check.remediation} Reason: {check.reason_code}.
+          </div>
+        ))}
       <QueryToolbar
         tab={tab}
         tabs={tabs}

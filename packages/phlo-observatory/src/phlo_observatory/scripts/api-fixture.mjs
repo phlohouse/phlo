@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 
 export function startApiFixture() {
   const requests = []
+  const controls = { delayMs: 0, overrides: new Map() }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture')
     const env = url.searchParams.get('env') ?? 'prod'
@@ -20,6 +21,14 @@ export function startApiFixture() {
       res
         .writeHead(401)
         .end(JSON.stringify({ detail: 'User identity required' }))
+      return
+    }
+    if (controls.delayMs)
+      await new Promise((resolve) => setTimeout(resolve, controls.delayMs))
+    const override = controls.overrides.get(url.pathname)
+    if (override) {
+      res.setHeader('x-request-id', 'fixture-readiness-1129')
+      res.writeHead(override.status ?? 200).end(JSON.stringify(override.body))
       return
     }
     const page = { env, items: [], next_cursor: null }
@@ -44,12 +53,56 @@ export function startApiFixture() {
       },
     }
     const responses = {
+      '/api/v1/admin/settings': { version: 1, values: {} },
       '/api/v1/me': {
         subject: 'browser-smoke',
         email: null,
         principal_type: 'user',
         roles: ['reader'],
-        permissions: { staging: ['service.read', 'run.read'] },
+        permissions: {
+          staging: ['service.read', 'run.read'],
+          prod: ['service.read', 'run.read'],
+        },
+      },
+      '/api/v1/environments': {
+        items: [
+          { env: 'staging', status: 'available' },
+          { env: 'prod', status: 'available' },
+        ],
+        default_environment: 'staging',
+      },
+      '/api/v1/readiness': {
+        env,
+        observed_at: '2026-10-19T11:00:00Z',
+        correlation_id: 'fixture-readiness-1129',
+        capabilities: {
+          orchestration: [
+            {
+              state: 'ready',
+              reason_code: 'ready',
+              message: 'Configured code location is loaded.',
+              remediation: '',
+            },
+          ],
+          incidents: [
+            {
+              state: 'ready',
+              reason_code: 'ready',
+              message: 'Required storage schema is readable.',
+              remediation: '',
+            },
+          ],
+          query_preview: [
+            {
+              state: 'configured',
+              reason_code: 'enforcement_unverified',
+              message:
+                'Local configuration is not proof of deployed preview enforcement.',
+              remediation:
+                'Verify deployment enforcement before production use.',
+            },
+          ],
+        },
       },
       '/api/v1/overview': overview,
       '/api/v1/services': {
@@ -57,7 +110,10 @@ export function startApiFixture() {
         dagster_location: 'fixture-location',
         nessie_ref: ref,
       },
-      '/api/v1/sources': page,
+      '/api/v1/sources': {
+        ...page,
+        items: [{ id: 'warehouse_orders', last_materialization_at: null }],
+      },
       '/api/v1/layers': page,
       '/api/v1/runs': page,
       '/api/v1/incidents': page,
@@ -128,7 +184,12 @@ export function startApiFixture() {
     server.on('error', reject)
     server.listen(0, '127.0.0.1', () => {
       const address = server.address()
-      resolve({ server, requests, url: `http://127.0.0.1:${address.port}` })
+      resolve({
+        server,
+        requests,
+        controls,
+        url: `http://127.0.0.1:${address.port}`,
+      })
     })
   })
 }
