@@ -82,8 +82,11 @@ def test_location_mapping_is_explicit_and_validated() -> None:
     assert incident_sensor._location_environments('{"prod-location":"prod"}') == {
         "prod-location": "prod"
     }
+    assert incident_sensor._location_environments('{"sandbox_code":"sandbox"}') == {
+        "sandbox_code": "sandbox"
+    }
     with pytest.raises(ValueError, match="maps location names"):
-        incident_sensor._location_environments('{"prod-location":"production"}')
+        incident_sensor._location_environments('{"prod-location":"bad|environment"}')
     with pytest.raises(ValueError, match="maps location names"):
         incident_sensor._location_environments('{"prod-location":[]}')
 

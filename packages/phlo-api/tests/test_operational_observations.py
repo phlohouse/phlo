@@ -68,6 +68,10 @@ class ControlledDestination(AlertDestination):
 
 
 def test_notification_routes_confirm_all_and_retry_only_unconfirmed(saved_settings, monkeypatch):
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps({"staging": {"dagster_location": "code", "nessie_ref": "candidate"}}),
+    )
     saved_settings({"alerts.notify_owners": True, "alerts.notify_consumers": True})
     registry = AlertManager()
     qa = ControlledDestination()
