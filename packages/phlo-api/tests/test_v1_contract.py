@@ -24,7 +24,7 @@ from phlo_api.v1_contract import EnvironmentSelection, EnvironmentTarget, Servic
 def test_selection_rejects_missing_invalid_and_caller_supplied_target() -> None:
     for payload in (
         "{}",
-        '{"env":"production"}',
+        '{"env":"bad|environment"}',
         '{"env":"PROD"}',
         '{"env":"prod","nessie_ref":"other"}',
     ):
@@ -32,6 +32,7 @@ def test_selection_rejects_missing_invalid_and_caller_supplied_target() -> None:
             EnvironmentSelection.model_validate_json(payload)
     assert EnvironmentSelection.model_validate_json('{"env":"prod"}').env == "prod"
     assert EnvironmentSelection.model_validate_json('{"env":"staging"}').env == "staging"
+    assert EnvironmentSelection.model_validate_json('{"env":"sandbox"}').env == "sandbox"
     with pytest.raises(ValidationError):
         EnvironmentTarget(dagster_location="", nessie_ref="staging")
 

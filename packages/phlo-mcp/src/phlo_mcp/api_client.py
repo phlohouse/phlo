@@ -16,16 +16,17 @@ from urllib.parse import quote
 
 import httpx
 
+from phlo.config_schema import EnvironmentId
 from phlo_mcp.config import McpConfig
 from phlo_mcp.errors import map_httpx_error
 from phlo_mcp.tracing import CanonicalTracer, get_tracer
 
 
-Environment = str
+Environment = EnvironmentId
 
 
 def _environment_params(env: Environment) -> dict[str, Any]:
-    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,62}", env):
+    if not isinstance(env, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,62}", env):
         raise ValueError("env must be a configured environment ID")
     return {"env": env}
 
