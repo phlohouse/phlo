@@ -441,7 +441,7 @@ class NessieResource:
             response = self._request(
                 "GET",
                 self._url(f"/api/v2/trees/{source}@{tip}/history"),
-                params={"maxRecords": 100, **({"pageToken": token} if token else {})},
+                params={"max-records": 100, **({"page-token": token} if token else {})},
                 timeout=30,
             )
             if self._status_code(response) != 200:

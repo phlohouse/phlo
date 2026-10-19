@@ -312,8 +312,24 @@ class TestNessieIntegrationReal:
             assert catalog.create_branch(target)
             assert catalog.create_branch(source, target)
             before = catalog.get_branch_hash(target)
+            # Keep the captured target beyond even the server's default page,
+            # so an ignored continuation parameter cannot prove ancestry.
+            for index in range(251):
+                commit(source, f"history-{index}")
             audited = commit(source, "audited")
             later = commit(source, "unaudited")
+            first_page = requests.get(
+                catalog._url(f"/api/v2/trees/{source}@{audited}/history"),
+                params={"max-records": 100},
+                timeout=10,
+            )
+            first_page.raise_for_status()
+            history = first_page.json()
+            assert history["hasMore"]
+            assert all(
+                entry["commitMeta"]["hash"] != before and entry.get("parentCommitHash") != before
+                for entry in history["logEntries"]
+            )
             assert catalog.merge_branch(
                 source,
                 target,
