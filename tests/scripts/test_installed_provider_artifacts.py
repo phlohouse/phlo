@@ -341,6 +341,67 @@ def test_family_shards_retain_every_build_and_health_result_after_failures(
     assert operations.count(("down", None)) == sum(expected_probes.values())
 
 
+def test_build_evidence_preserves_early_errors_and_failed_gate(
+    tmp_path, monkeypatch, family_compose
+):
+    """Keep the original cause even when a later build of the same image succeeds."""
+    import json
+    import subprocess
+
+    services = [{"name": name} for name in family_compose["services"]]
+    rendered = [
+        {"service": name, "compose_service": config}
+        for name, config in family_compose["services"].items()
+    ]
+    stand_ins = {
+        "workspace_packages": [],
+        "build_wheelhouse": {},
+        "clean_environment": (tmp_path / "environment", tmp_path / "consumer"),
+        "install_dependencies": None,
+        "installed_distributions": {},
+        "_run": "",
+        "render_services": (rendered, family_compose, {}),
+        "prepare_container_wheelhouse": {},
+        "module_locations": {},
+        "installed_compose_command": ["docker", "compose"],
+    }
+    for name, value in stand_ins.items():
+        monkeypatch.setattr(HARNESS, name, lambda *args, value=value, **kwargs: value)
+    monkeypatch.setattr(
+        HARNESS,
+        "parse_phlo_json_command",
+        lambda command, **kwargs: services if command[1:3] == ["services", "list"] else {},
+    )
+    timestamps = iter([1000.0, 1300.0, 2000.0, 2007.0, 3000.0, 3002.0])
+    monkeypatch.setattr(HARNESS, "monotonic", lambda: next(timestamps))
+    stdout = "early stdout root cause\n" + "build progress\n" * 1000
+    stderr = "Dockerfile:21\n" + "build diagnostic\n" * 1000
+
+    def run_container(command, **kwargs):
+        failed = command[-1] == "minio"
+        return subprocess.CompletedProcess(
+            command, int(failed), stdout if failed else "built", stderr if failed else ""
+        )
+
+    monkeypatch.setattr(HARNESS.subprocess, "run", run_container)
+    output = tmp_path / "provider-artifacts.json"
+    status = HARNESS.main(
+        ["--output", str(output), "--include-docker-builds", "--docker-shard-count", "2"]
+    )
+    report = json.loads(output.read_text())
+
+    assert status == 1
+    assert report["checks"]["failed_builds"] == ["minio"]
+    assert [entry["status"] for entry in report["builds"]] == ["failed", "passed", "passed"]
+    assert [entry["elapsed_seconds"] for entry in report["builds"]] == [300.0, 7.0, 2.0]
+    failed_build = report["builds"][0]
+    assert failed_build["stdout"] == stdout
+    assert failed_build["stderr"] == stderr
+    assert failed_build["detail"] == stderr[-4000:]
+    assert "root cause" not in failed_build["detail"]
+    assert "Dockerfile:21" not in failed_build["detail"]
+
+
 def test_phlo_service_inventory_unwraps_result_before_rendering(tmp_path, monkeypatch):
     """The artifact lane must iterate service records, not the envelope's field names."""
     import json

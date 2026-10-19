@@ -65,7 +65,8 @@ the image build families into consecutive groups, keeping services with identica
 image and build settings together. A second service using the same image can
 reuse its runner's build cache. This limits concurrent provider runners while
 retaining a build result and applicable health check for every buildable service.
-Local image scans use the resulting image IDs.
+Local image scans use the resulting image IDs. Uploaded build evidence retains
+complete standard output, standard error and elapsed time for each service.
 
 Integration builds the checked-in MinIO image once, then transfers it to the
 storage/catalog job and three API groups. Each consumer verifies the loaded image

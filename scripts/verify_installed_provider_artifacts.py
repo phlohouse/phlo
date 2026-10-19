@@ -19,6 +19,7 @@ import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 
@@ -382,6 +383,7 @@ def build_shard(
         else []
     )
     for name, config in selected:
+        started = monotonic()
         completed = subprocess.run(
             [*command, "build", name],
             cwd=consumer,
@@ -389,12 +391,16 @@ def build_shard(
             text=True,
             capture_output=True,
         )
+        elapsed_seconds = monotonic() - started
         results.append(
             {
                 "service": name,
                 "build": config["build"],
                 "status": "passed" if completed.returncode == 0 else "failed",
                 "detail": completed.stderr[-4000:],
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "elapsed_seconds": elapsed_seconds,
             }
         )
     return results
