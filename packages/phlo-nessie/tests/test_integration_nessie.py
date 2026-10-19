@@ -279,6 +279,113 @@ def nessie_client():
 class TestNessieIntegrationReal:
     """Real integration tests against a running Nessie instance."""
 
+    def test_pinned_publication_is_strict_fast_forward(self, nessie_client, monkeypatch):
+        """Independent target writes and mutable/recreated sources cannot redirect WAP."""
+        import uuid
+        import requests
+
+        catalog = nessie_client
+        prefix = f"wap-cas-{uuid.uuid4().hex[:8]}"
+        target, source = f"{prefix}-qa", f"{prefix}-candidate"
+        main_before = catalog.get_branch_hash("main")
+
+        def commit(branch, key):
+            response = requests.post(
+                catalog._url(f"/api/v1/trees/branch/{branch}/commit"),
+                params={"expectedHash": catalog.get_branch_hash(branch)},
+                json={
+                    "commitMeta": {"message": f"disposable WAP {key}"},
+                    "operations": [
+                        {
+                            "type": "PUT",
+                            "key": {"elements": [key]},
+                            "content": {"type": "NAMESPACE", "elements": [key], "properties": {}},
+                        }
+                    ],
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+            return catalog.get_branch_hash(branch)
+
+        try:
+            assert catalog.create_branch(target)
+            assert catalog.create_branch(source, target)
+            before = catalog.get_branch_hash(target)
+            audited = commit(source, "audited")
+            later = commit(source, "unaudited")
+            assert catalog.merge_branch(
+                source,
+                target,
+                expected_target_hash=before,
+                expected_source_hash=audited,
+            )
+            assert catalog.get_branch_hash(target) == audited != later
+            assert catalog.get_branch_hash(source) == later
+            # Deletion/recreation cannot replace the immutable audited commit.
+            assert catalog.delete_branch(source)
+            assert catalog.create_branch(source, "main")
+            assert not catalog.merge_branch(
+                source,
+                target,
+                expected_target_hash=audited,
+                expected_source_hash=later,
+            )
+            assert catalog.get_branch_hash(target) == audited
+            assert catalog.delete_branch(source)
+            assert catalog.create_branch(source, target)
+            candidate = commit(source, "candidate")
+            original_request = catalog._request
+            target_movement = []
+
+            def move_target_at_put(method, url, **kwargs):
+                if method == "PUT":
+                    assert kwargs["params"]["expectedHash"] == audited
+                    assert kwargs["json"]["hash"] == candidate
+                    target_movement.append(commit(target, "independent-key"))
+                return original_request(method, url, **kwargs)
+
+            with monkeypatch.context() as boundary:
+                boundary.setattr(catalog, "_request", move_target_at_put)
+                assert not catalog.merge_branch(
+                    source,
+                    target,
+                    expected_target_hash=audited,
+                    expected_source_hash=candidate,
+                )
+            assert len(target_movement) == 1
+            assert catalog.get_branch_hash(target) == target_movement[0]
+            assert catalog.get_branch_hash(source) == candidate
+            assert catalog.delete_branch(source)
+            assert catalog.create_branch(source, target)
+            candidate = commit(source, "lost-response")
+            before = catalog.get_branch_hash(target)
+            put = requests.put
+            publication_requests = []
+
+            def lose_response(*args, **kwargs):
+                response = put(*args, **kwargs)
+                response.raise_for_status()
+                publication_requests.append(response.status_code)
+                raise requests.ConnectionError("disposable response lost after CAS")
+
+            with monkeypatch.context() as boundary:
+                boundary.setattr(requests, "put", lose_response)
+                with pytest.raises(requests.ConnectionError):
+                    catalog.merge_branch(
+                        source,
+                        target,
+                        expected_target_hash=before,
+                        expected_source_hash=candidate,
+                    )
+            assert len(publication_requests) == 1
+            assert catalog.get_branch_hash(target) == candidate
+            assert catalog.get_branch_hash(source) == candidate
+            assert catalog.get_branch_hash("main") == main_before
+        finally:
+            catalog.delete_branch(source)
+            catalog.delete_branch(target)
+
     def test_list_branches(self, nessie_client):
         """Test listing branches from real Nessie."""
         branches = nessie_client.list_branches()

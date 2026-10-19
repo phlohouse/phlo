@@ -182,6 +182,7 @@ Capabilities: `json=true`, `dry_run=true`, `confirmation_flag=false`
 | `dry_run` | option | `--dry-run` | `boolean` | false | `false` | flag |
 | `delay` | option | `--delay` | `float` | false | `0.0` | none |
 | `output_json` | option | `--json` | `boolean` | false | `false` | flag |
+| `environment` | option | `--environment` | `text` | false | `Sentinel.UNSET` | none |
 
 ## `phlo branch`
 
@@ -946,6 +947,7 @@ Capabilities: `json=true`, `dry_run=true`, `confirmation_flag=false`
 | `no_contract_refresh` | option | `--no-contract-refresh` | `boolean` | false | `false` | flag |
 | `dry_run` | option | `--dry-run` | `boolean` | false | `false` | flag |
 | `output_json` | option | `--json` | `boolean` | false | `false` | flag |
+| `environment` | option | `--environment` | `text` | false | `Sentinel.UNSET` | none |
 
 ## `phlo mcp`
 

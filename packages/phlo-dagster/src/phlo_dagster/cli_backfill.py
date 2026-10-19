@@ -121,6 +121,7 @@ BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
     help="Delay between parallel executions in seconds (rate limiting)",
 )
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
+@click.option("--environment", help="Configured WAP environment, otherwise default_environment.")
 def backfill(
     asset_name: str | None,
     start_date: str | None,
@@ -131,6 +132,7 @@ def backfill(
     dry_run: bool,
     delay: float,
     output_json: bool = False,
+    environment: str | None = None,
 ):
     """Run asset materialization across a date range with parallel execution.
 
@@ -172,6 +174,24 @@ def backfill(
         console.print(f"[yellow]Remaining:[/yellow] {len(partition_dates)}")
 
     wap_config = load_wap_config()
+    if environment is not None and not wap_config.enabled:
+        raise click.UsageError("--environment requires WAP to be enabled.")
+    saved_context = None
+    if wap_config.enabled:
+        from phlo_dagster.wap_context import select_wap_target
+
+        saved_context = _load_backfill_state().get("wap_context") if resume else None
+        if resume and partition_dates and not saved_context:
+            raise click.ClickException(
+                "Legacy WAP backfill has no routing proof; review retained runs and start a new backfill"
+            )
+        if saved_context:
+            environment = environment if environment is not None else saved_context["environment"]
+        environment, _target = select_wap_target(environment)
+        if saved_context and saved_context["environment"] != environment:
+            raise click.ClickException(
+                "WAP backfill context drift; review retained runs before resuming"
+            )
 
     if dry_run:
         _display_dry_run(
@@ -221,6 +241,8 @@ def backfill(
                 requested_parallel=parallel,
                 in_flight_wap=in_flight_wap,
                 output_json=output_json,
+                environment=environment,
+                expected_context=saved_context,
             )
         except click.ClickException as exc:
             if not output_json:
@@ -368,10 +390,12 @@ def _run_wap_backfill(
     requested_parallel: int = 1,
     in_flight_wap: dict[str, dict[str, str]] | None = None,
     output_json: bool = False,
+    environment: str | None = None,
+    expected_context: dict[str, str] | None = None,
 ) -> None:
     """Run each WAP partition through promotion before creating the next branch.
 
-    A WAP branch is based on ``main`` and can only be promoted against that
+    A WAP branch is based on the selected environment ref and can only be promoted against that
     snapshot. Consequently, partitions targeting one branch cannot safely
     overlap, even when the caller requested multiple workers.
     """
@@ -381,6 +405,15 @@ def _run_wap_backfill(
     successful: list[str] = []
     runs: list[dict[str, str]] = []
     in_flight_wap = dict(in_flight_wap or {})
+    from phlo_dagster.wap_context import resolve_wap_context
+
+    context = resolve_wap_context(environment)
+    if expected_context and expected_context != context.to_dict():
+        raise click.ClickException(
+            "WAP backfill context drift; review retained runs before resuming"
+        )
+    if repository_location_name is not None and repository_location_name != context.location:
+        raise click.ClickException("WAP backfill location does not match selected environment")
     if requested_parallel > 1:
         console.print(
             "[yellow]WAP backfills serialize partitions through promotion; "
@@ -400,14 +433,16 @@ def _run_wap_backfill(
                 )
             else:
                 logical_run_id = f"backfill-{uuid.uuid4().hex}"
-                launch = prepare_wap_launch(logical_run_id=logical_run_id)
+                launch = prepare_wap_launch(
+                    logical_run_id=logical_run_id, environment=context.environment
+                )
                 try:
                     result = asyncio.run(
                         launch_materialize(
                             dagster_url=dagster_url,
                             asset_key_path=asset_name,
                             job_name=job_name,
-                            repository_location_name=repository_location_name,
+                            repository_location_name=context.location,
                             repository_name=repository_name,
                             access_token=access_token,
                             partition_key=partition_date,
@@ -452,6 +487,7 @@ def _run_wap_backfill(
                     completed_partitions + successful,
                     in_flight_wap=in_flight_wap,
                     emit_log=False,
+                    wap_context=context.to_dict(),
                 )
             runs.append(
                 {
@@ -477,6 +513,7 @@ def _run_wap_backfill(
                 completed_partitions + successful,
                 in_flight_wap=in_flight_wap,
                 emit_log=True,
+                wap_context=context.to_dict(),
             )
             raise
         except Exception:
@@ -486,6 +523,7 @@ def _run_wap_backfill(
                 completed_partitions + successful,
                 in_flight_wap=in_flight_wap,
                 emit_log=True,
+                wap_context=context.to_dict(),
             )
             raise
         successful.append(partition_date)
@@ -496,6 +534,7 @@ def _run_wap_backfill(
             completed_partitions + successful,
             in_flight_wap=in_flight_wap,
             emit_log=False,
+            wap_context=context.to_dict(),
         )
     _remove_backfill_state()
     if output_json:
@@ -983,6 +1022,7 @@ def _save_backfill_state(
     completed_partitions: list[str],
     in_flight_wap: dict[str, dict[str, str]] | None = None,
     emit_log: bool = False,
+    wap_context: dict[str, str] | None = None,
 ) -> None:
     """
     Persist backfill state (asset name, remaining/completed partitions, and
@@ -998,6 +1038,8 @@ def _save_backfill_state(
         "in_flight_wap": in_flight_wap or {},
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
+    if wap_context:
+        state["wap_context"] = wap_context
 
     if emit_log:
         logger.info(

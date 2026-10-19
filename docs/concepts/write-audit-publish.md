@@ -76,3 +76,49 @@ This separation gives projects a stable declaration while leaving deployment-spe
 The stages share asset keys, relation references, dependency metadata, and run context. They differ in the question each stage answers and the failure policy it applies.
 
 This shared vocabulary lets operators trace a published table back to its write and audit evidence.
+
+## Select a WAP publication environment
+
+Branch-based WAP uses the selected environment's `nessie_ref` as both the base of its run-specific `pipeline-run-*` audit branch and the publication target. It does not implement cross-environment promotion.
+
+Configure the target and the one supported WAP code location in `phlo.yaml`:
+
+```yaml
+default_environment: stage
+environments:
+  stage:
+    dagster_location: warehouse-code
+    nessie_ref: qa
+  prod:
+    dagster_location: production-code
+    nessie_ref: main
+wap:
+  enabled: true
+  repository_location_name: warehouse-code
+```
+
+From the project directory, use `phlo materialize <asset-name> --environment stage`, or supply `--environment stage` to `phlo backfill`. Omitting the option selects `default_environment`. An explicit selection authorises the configured target; backend availability never selects another environment. An unknown environment is an error, not a fallback to `main`. The selected ref must already exist.
+
+### Supported routing boundary
+
+The launcher, worker and sensors must use the same configured code location, project identity and process backend. Environment selection does not construct another provider. Cross-location routing, run or asset capability overrides, unknown catalog implementations and unverified writer routing are rejected. Nessie supports non-`main` targets with the process Iceberg and Trino providers when their configured endpoints match the catalog. Snapshot WAP remains restricted to `main`.
+
+All three processes must share trusted, durable `.phlo/wap-reports` storage under `PHLO_PROJECT_PATH`. Do not grant untrusted callers write access to this directory. Immutable, content-addressed launch manifests bind the environment, target ref, code location, strategy and backend fingerprint. The fingerprint excludes credentials; credential rotation does not change it. Endpoint aliases are not interchangeable. Configuration changes can block an existing run, but cannot redirect its writes or publication. Changing only the configured default does not redirect an existing run either.
+
+Before running an asset function, the worker validates the launch binding and the run's actual remote origin. It waits up to 30 seconds for the trusted launcher to register the physical run ID returned by Dagster. Copied tags cannot register another run. A missing or lost launch response blocks execution and retains the branch; there is no first-claim-wins recovery. Authenticated remote submission requirements still apply.
+
+Publication proves that the pinned audit hash contains the captured target ancestor, then fast-forwards the target with Nessie's conditional reference assignment. The PUT body contains the exact audited source hash and `expectedHash` contains the launch target hash. Ordinary Nessie merge permits conflict-free rebasing even with a target hash in its URL, so it is not a strict publication precondition. Missing or incomplete ancestry proof blocks publication. The report records `publication_method: ref_fast_forward`, not a newly created merge commit.
+
+Target movement blocks publication instead of rebasing the audit onto new data. A temporary catalog read failure is recorded as `catalog_hash_unavailable`; target movement is recorded separately as `target_hash_drift`. Foreign-location runs cannot trigger publication or retention deletion. Acknowledged publication recovery replays evidence and cleanup without publishing again or replacing the recorded publication hash with a later target head. Cleanup is also conditional on the audited source hash, so a changed or recreated source branch is retained for review.
+
+### Review blocked or legacy runs
+
+Existing unbound `main` runs are **not** automatically upgraded or published. They remain blocked with `legacy_launch_context_missing`, and their branches and data are retained rather than expired. Newly launched, bound runs targeting `main` remain supported.
+
+1. Preserve the run report, immutable manifests, Dagster run origin and branch history before investigating. Do not edit tags or manifests to bypass the gate.
+2. For a missing physical registration, verify the authenticated launch response and the exact physical run's project, origin and tags. If that identity cannot be independently established, leave the branch retained and launch a new run. There is no automatic registration-repair command.
+3. For configuration drift, restore the reviewed original configuration if appropriate, then retry the same registered run. Otherwise launch a new run against the intended configured target. Do not retarget an old report.
+4. For `target_hash_drift`, audit a new run based on the current target. For `merge_outcome_unknown`, inspect authoritative catalog commit history and obtain an operator-reviewed merge receipt before any manual recovery; target movement alone is not proof that this run merged.
+5. For legacy runs, independently review their data and history, then relaunch with a new bound audit branch. Any manual publication or deletion requires a separately authorised operator procedure. Keep the old branch until that review and the applicable retention decision are complete.
+
+Deploy the launcher, workers and sensors together. Restarting a registered worker is safe because registration is durable. A WAP backfill resume also checks its saved environment context; legacy backfill state without routing proof requires review and a new backfill rather than automatic migration.

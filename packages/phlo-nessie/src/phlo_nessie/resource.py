@@ -99,6 +99,8 @@ class NessieResource:
         self,
         method: str,
         url: str,
+        *,
+        retry: bool = True,
         **kwargs: object,
     ) -> requests.Response:
         """Execute an HTTP request with retry logic.
@@ -111,10 +113,11 @@ class NessieResource:
         """
         request_fn = getattr(requests, method.lower())
         last_exc: Exception | None = None
-        for attempt in range(1, _MAX_RETRIES + 1):
+        attempts = _MAX_RETRIES if retry else 1
+        for attempt in range(1, attempts + 1):
             try:
                 response = request_fn(url, **kwargs)
-                if response.status_code >= 500 and attempt < _MAX_RETRIES:
+                if response.status_code >= 500 and attempt < attempts:
                     logger.warning(
                         "nessie_resource_request_retry",
                         method=method,
@@ -127,7 +130,7 @@ class NessieResource:
                 return response
             except RequestsConnectionError as exc:
                 last_exc = exc
-                if attempt < _MAX_RETRIES:
+                if attempt < attempts:
                     logger.warning(
                         "nessie_resource_request_connection_retry",
                         method=method,
@@ -231,7 +234,7 @@ class NessieResource:
         )
         return branch_hash
 
-    def delete_branch(self, name: str) -> bool:
+    def delete_branch(self, name: str, *, expected_hash: str | None = None) -> bool:
         """Delete a branch by name.
 
         Example:
@@ -244,7 +247,7 @@ class NessieResource:
             "nessie_resource_delete_branch_requested",
             branch_name=name,
         )
-        branch_hash = self.get_branch_hash(name)
+        branch_hash = expected_hash if expected_hash is not None else self.get_branch_hash(name)
         if not branch_hash:
             logger.info(
                 "nessie_resource_delete_branch_missing_hash",
@@ -318,7 +321,13 @@ class NessieResource:
         return new_hash
 
     def merge_branch(
-        self, source: str, target: str = "main", *, message: str | None = None
+        self,
+        source: str,
+        target: str = "main",
+        *,
+        message: str | None = None,
+        expected_target_hash: str | None = None,
+        expected_source_hash: str | None = None,
     ) -> bool:
         """Merge source branch into target branch.
 
@@ -341,7 +350,11 @@ class NessieResource:
             source=source,
             target=target,
         )
-        source_hash = self.get_branch_hash(source)
+        source_hash = expected_source_hash or self.get_branch_hash(source)
+        if expected_target_hash is not None:
+            if not source_hash or expected_source_hash is None:
+                return False
+            return self._publish_fast_forward(source, target, source_hash, expected_target_hash)
         target_hash = self.get_branch_hash(target)
         if not source_hash or not target_hash:
             logger.warning(
@@ -390,6 +403,64 @@ class NessieResource:
             merged=merged,
         )
         return merged
+
+    def _publish_fast_forward(
+        self, source: str, target: str, source_hash: str, target_hash: str
+    ) -> bool:
+        """Publish an immutable descendant with strict reference-pointer CAS.
+
+        Nessie merge's expected hash permits conflict-free rebasing, so WAP
+        must use assignment instead. Prove ancestry using pinned history,
+        including parent links for the no-ancestor sentinel; missing or
+        truncated history is not proof.
+        """
+        current_source = self.get_branch_hash(source)
+        if not current_source or not self._has_ancestor(source, current_source, source_hash):
+            return False
+        if not self._has_ancestor(source, source_hash, target_hash):
+            return False
+        response = self._request(
+            "PUT",
+            self._url(f"/api/v1/trees/branch/{target}"),
+            params={"expectedHash": target_hash},
+            json={"type": "BRANCH", "name": source, "hash": source_hash},
+            timeout=30,
+            retry=False,
+        )
+        # A transport/5xx outcome may have committed. Never retry publication
+        # or turn that uncertainty into a definitive rejection and expiry.
+        if self._status_code(response) >= 500:
+            response.raise_for_status()
+        return self._status_code(response) < 300
+
+    def _has_ancestor(self, source: str, tip: str, ancestor: str) -> bool:
+        """Prove first-parent ancestry from immutable hashes, not mutable HEAD."""
+        token = None
+        seen_tokens: set[str] = set()
+        while tip != ancestor:
+            response = self._request(
+                "GET",
+                self._url(f"/api/v2/trees/{source}@{tip}/history"),
+                params={"maxRecords": 100, **({"pageToken": token} if token else {})},
+                timeout=30,
+            )
+            if self._status_code(response) != 200:
+                return False
+            history = response.json()
+            entries = history.get("logEntries", [])
+            if any(
+                entry.get("commitMeta", {}).get("hash") == ancestor
+                or entry.get("parentCommitHash") == ancestor
+                for entry in entries
+            ):
+                return True
+            if not history.get("hasMore"):
+                return False
+            token = history.get("token")
+            if not token or token in seen_tokens:
+                return False
+            seen_tokens.add(token)
+        return True
 
 
 class BranchManagerResource:

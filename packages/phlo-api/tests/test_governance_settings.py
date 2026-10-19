@@ -809,10 +809,16 @@ def test_wap_review_required_is_actionable_and_retained_past_cleanup(
     monkeypatch.setattr(
         wap_sensors, "_verify_wap_launch_manifest", lambda *_args: ("one", {"strategy": strategy})
     )
+    # This test isolates governance; routing/identity are covered by WAP's
+    # environment tests rather than this synthetic run and catalog.
+    monkeypatch.setattr(wap_sensors, "_check_wap_run_context", lambda *_args: True)
+    monkeypatch.setattr(wap_sensors, "_publication_target", lambda *_args: "main")
     monkeypatch.setattr(wap_sensors, "_quality_evidence", lambda *_args, **_kwargs: ("quality", {}))
     monkeypatch.setattr(wap_sensors, "_all_checks_passed", lambda *_args: True)
     monkeypatch.setattr(wap_sensors, "_load_ref_query_catalog_manager", lambda: None)
-    wap_sensors.write_wap_report("one", strategy=strategy, branch=branch)
+    wap_sensors.write_wap_report(
+        "one", strategy=strategy, branch=branch, launch_target_hash_before="head"
+    )
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
     report = wap_sensors._read_wap_report("one")
     assert report["status"] == "promotion_blocked"
@@ -848,6 +854,8 @@ def test_wap_review_required_is_actionable_and_retained_past_cleanup(
             source=branch,
             target="main",
             message="Publish validated WAP run one: all required quality checks passed.",
+            expected_target_hash="head",
+            expected_source_hash="head",
         )
         report = wap_sensors._read_wap_report("one")
         assert report["status"] == "promoted"
