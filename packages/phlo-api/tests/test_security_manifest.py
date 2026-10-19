@@ -321,6 +321,36 @@ def test_authenticated_principal_without_permission_is_403(monkeypatch, tmp_path
     assert backend.calls and backend.calls[0][1] == "platform_metadata.read"
 
 
+@pytest.mark.parametrize("authenticated", [False, True])
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("GET", "/api/v1/admin/roles"),
+        (
+            "GET",
+            "/api/v1/admin/permissions?action=dataset.query&resource_type=dataset&resource_id=orders",
+        ),
+        ("PATCH", "/api/v1/admin/members/alice/roles"),
+    ],
+)
+def test_role_setup_is_admin_authorized_before_storage(
+    monkeypatch, authenticated, method, path
+) -> None:
+    auth, _canonical = _principal("viewer")
+    backend = _Backend(allowed=False)
+    monkeypatch.setattr(
+        "phlo_api.security_manifest.get_request_principal",
+        lambda _request: auth if authenticated else None,
+    )
+    monkeypatch.setattr("phlo_api.security_manifest.get_authorization_backend", lambda: backend)
+    response = TestClient(app).request(
+        method, path, json={"roles": ["admin"]} if method == "PATCH" else None
+    )
+    assert response.status_code == (403 if authenticated else 401)
+    if authenticated:
+        assert backend.calls[0][1] == ("admin.manage" if method == "PATCH" else "admin.read")
+
+
 def test_scoped_principal_is_allowed_and_resource_is_checked(monkeypatch, tmp_path) -> None:
     from phlo_api import main
 
