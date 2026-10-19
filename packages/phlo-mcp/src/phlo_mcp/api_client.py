@@ -10,22 +10,24 @@ traces, and use fixed timeouts (10s GET, 30s POST).
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+import re
+from typing import Any
 from urllib.parse import quote
 
 import httpx
 
+from phlo.config_schema import EnvironmentId
 from phlo_mcp.config import McpConfig
 from phlo_mcp.errors import map_httpx_error
 from phlo_mcp.tracing import CanonicalTracer, get_tracer
 
 
-Environment = Literal["prod", "staging"]
+Environment = EnvironmentId
 
 
 def _environment_params(env: Environment) -> dict[str, Any]:
-    if env not in ("prod", "staging"):
-        raise ValueError("env must be prod or staging")
+    if not isinstance(env, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,62}", env):
+        raise ValueError("env must be a configured environment ID")
     return {"env": env}
 
 

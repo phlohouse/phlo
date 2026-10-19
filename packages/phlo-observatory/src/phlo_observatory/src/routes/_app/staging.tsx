@@ -48,25 +48,27 @@ function operationKey(action: string, intent: string) {
 
 function StagingPage() {
   const data = Route.useLoaderData()
-  if (data.kind === 'prod')
+  if (data.kind === 'not_source')
     return (
       <>
         <PageHeader title="Staging" />
         <PageBody>
           <EmptyState
-            title="Staging controls are not available from prod"
+            title="Promotion controls are not available for this environment"
             action={
-              <Link
-                to="/staging"
-                search={{ env: 'staging' }}
-                className={buttonVariants()}
-              >
-                Switch to staging
-              </Link>
+              data.source ? (
+                <Link
+                  to="/staging"
+                  search={{ env: data.source }}
+                  className={buttonVariants()}
+                >
+                  Switch to {data.source}
+                </Link>
+              ) : undefined
             }
           >
-            Switch environment to inspect or operate on the staging candidate.
-            No staging request was made.
+            Configure explicit source and target environments to enable
+            promotion. No promotion request was made.
           </EmptyState>
         </PageBody>
       </>
@@ -129,6 +131,7 @@ function StagingOverview({
     setChecks(undefined)
     const result = await runStagingChecks({
       data: {
+        env: candidate.env,
         candidateId,
         idempotencyKey: operationKey('checks', candidateId),
       },
@@ -456,6 +459,7 @@ function StagingOverview({
           run('resync', async () => {
             await resyncStaging({
               data: {
+                env: candidate.env,
                 expectedProdHash: candidate.prod_hash,
                 expectedStagingHash: candidate.staging_hash,
                 confirm: true,
@@ -480,6 +484,7 @@ function StagingOverview({
           run('promote', async () => {
             await promoteStaging({
               data: {
+                env: candidate.env,
                 candidateId,
                 prodRef: candidate.prod_ref,
                 stagingRef: candidate.staging_ref,

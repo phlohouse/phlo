@@ -37,7 +37,10 @@ export const Route = createFileRoute('/_app/assets/')({
     filter: z.enum(['all', 'attention']).optional(),
     layer: z.enum(['bronze', 'silver', 'gold']).optional(),
     cursor: z.string().optional(),
-    cursorEnv: z.enum(['prod', 'staging']).optional(),
+    cursorEnv: z
+      .string()
+      .regex(/^[a-z][a-z0-9_-]{0,62}$/)
+      .optional(),
     previousCursors: z.array(z.string()).default([]),
   }),
   loaderDeps: ({ search }) => ({

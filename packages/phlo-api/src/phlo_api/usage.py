@@ -97,7 +97,7 @@ def _sources() -> dict[str, tuple[str, dict[tuple[str, str], tuple[Environment, 
                 or not subject
                 or subject in subjects
                 or not isinstance(catalogs, dict)
-                or set(catalogs) != {"prod", "staging"}
+                or set(catalogs) != set(targets)
             ):
                 raise ValueError
             subjects.add(subject)

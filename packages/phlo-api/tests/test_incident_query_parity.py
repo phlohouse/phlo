@@ -36,6 +36,15 @@ def database():
 def incident_db(database, monkeypatch, tmp_path):
     monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", database)
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "prod": {"dagster_location": "primary", "nessie_ref": "main"},
+                "staging": {"dagster_location": "candidate", "nessie_ref": "candidate"},
+            }
+        ),
+    )
     incidents.initialize_incidents()
     with incidents._transaction() as connection, connection.cursor() as cur:
         cur.execute("TRUNCATE phlo.incident,phlo.query_execution,phlo.incident_command CASCADE")

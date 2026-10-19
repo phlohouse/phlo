@@ -771,6 +771,14 @@ class TestAuthenticationProviderRegistration:
             providers = registry.list("authentication_provider")
             assert len(providers) == 0
 
+    @pytest.mark.parametrize("environment", ["prod", "production", "staging", "regulated"])
+    def test_production_deployment_disables_dev_admin(self, monkeypatch, environment):
+        monkeypatch.setenv("PHLO_ENVIRONMENT", environment)
+        monkeypatch.setenv("PHLO_REGULATED", "false")
+        monkeypatch.setenv("PHLO_AUTH_DEV_MODE", "true")
+        register_default_capability_providers()
+        assert get_capability_registry().list("authentication_provider") == []
+
     def test_regulated_mode_disables_dev_admin(self, monkeypatch):
         """Regulated mode cannot silently activate the anonymous dev principal."""
         monkeypatch.setenv("PHLO_REGULATED", "true")

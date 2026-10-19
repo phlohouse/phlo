@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from datetime import datetime, timezone
 from time import monotonic
 from typing import Annotated, Any
@@ -15,11 +14,10 @@ import httpx
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import ValidationError
 
 from phlo.capabilities import AuthPrincipal, Principal, ResourceRef
 from phlo.config.env import project_env_value
-from phlo.config.process import get_process_settings
+from phlo.config.project import get_default_environment, get_environment_targets, load_project_model
 from phlo.plugins.discovery import ServiceDiscovery
 from phlo.security import enforce, is_regulated
 from phlo.security.enforcement import EnforcementContext
@@ -87,26 +85,10 @@ _SERVICE_PROBE_DEADLINE_SECONDS = 5.0
 
 
 def _targets() -> dict[str, EnvironmentTarget]:
-    """Read the operator-owned allowlist, refusing partial or overlapping mappings."""
+    """Read the canonical operator-owned map, refusing overlapping targets."""
     try:
-        raw = json.loads(get_process_settings()["PHLO_V1_ENVIRONMENTS"])
-        if not isinstance(raw, dict) or set(raw) != {"prod", "staging"}:
-            raise ValueError("both environments must be configured")
-        targets = {name: EnvironmentTarget.model_validate(value) for name, value in raw.items()}
-        if (
-            len({target.dagster_location for target in targets.values()}) != 2
-            or len({target.nessie_ref for target in targets.values()}) != 2
-        ):
-            raise ValueError("environment targets must be distinct")
-        projects = [target.compose_project for target in targets.values() if target.compose_project]
-        if len(projects) != len(set(projects)):
-            raise ValueError("environment compose projects must be distinct")
-        if any(
-            not re.fullmatch(r"[A-Za-z0-9_.-]+", target.nessie_ref) for target in targets.values()
-        ):
-            raise ValueError("invalid Nessie reference")
-        return targets
-    except (KeyError, ValueError, TypeError, ValidationError) as exc:
+        return get_environment_targets()
+    except (OSError, ValueError, TypeError) as exc:
         raise BackendUnavailableError("Environment mapping is unavailable.") from exc
 
 
@@ -117,7 +99,10 @@ def _target(
         raise BadInputError("Only the env selector is accepted.")
     if request.query_params.getlist("env") != [env]:
         raise UnprocessableInputError("Provide exactly one environment selector.")
-    return _targets()[env]
+    targets = _targets()
+    if env not in targets:
+        raise UnprocessableInputError("Environment is not configured.")
+    return targets[env]
 
 
 def _source_data(payload: Any, field: str, typename: str) -> dict[str, Any]:
@@ -401,7 +386,7 @@ def _permissions(request: Request) -> dict[Environment, list[ReadPermission]]:
     canonical = _canonical(request, principal)
     permissions: dict[Environment, list[ReadPermission]] = {}
     backend = None if is_regulated() else get_authorization_backend()
-    environments: tuple[Environment, ...] = ("prod", "staging")
+    environments = _targets()
     actions: tuple[tuple[ReadPermission, str], ...] = (
         ("service.read", "service"),
         ("run.read", "run"),
@@ -463,7 +448,7 @@ async def v1_environments(request: Request) -> EnvironmentsResponse:
     targets = _targets()
     items = []
     permissions = _permissions(request)
-    for env in ("prod", "staging"):
+    for env in targets:
         if "service.read" not in permissions[env]:
             continue
         sources = {item.id: item.status for item in await _service_snapshots(targets[env])}
@@ -477,7 +462,18 @@ async def v1_environments(request: Request) -> EnvironmentsResponse:
         )
     if not items:
         raise HTTPException(status_code=403, detail="Access denied.")
-    return EnvironmentsResponse.model_validate({"items": items})
+    default = get_default_environment()
+    if not any(item["env"] == default for item in items):
+        default = items[0]["env"]
+    promotion = load_project_model().promotion
+    source = promotion.source_environment if promotion else None
+    if source is None and {"prod", "staging"} <= targets.keys():
+        source = "staging"  # Compatibility for the existing opt-in promotion deployment.
+    if not any(item["env"] == source for item in items):
+        source = None
+    return EnvironmentsResponse.model_validate(
+        {"items": items, "default_environment": default, "promotion_source_environment": source}
+    )
 
 
 @router.get("/services", response_model=ServicesResponse)

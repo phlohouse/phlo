@@ -182,7 +182,12 @@ def test_identity_and_environment_scoped_services(client):
     }
     environments = http.get("/api/v1/environments")
     assert environments.json() == {
-        "items": [{"env": "prod", "status": "available"}, {"env": "staging", "status": "available"}]
+        "default_environment": "prod",
+        "promotion_source_environment": "staging",
+        "items": [
+            {"env": "prod", "status": "available"},
+            {"env": "staging", "status": "available"},
+        ],
     }
     for env, ref in (("prod", "main"), ("staging", "candidate")):
         response = http.get(f"/api/v1/services?env={env}")
@@ -349,10 +354,12 @@ def test_missing_sources_do_not_report_healthy_or_empty(client):
     monkeypatch.setattr(v1, "project_env_value", lambda name: None)
     response = http.get("/api/v1/environments")
     assert response.json() == {
+        "default_environment": "prod",
+        "promotion_source_environment": "staging",
         "items": [
             {"env": "prod", "status": "unavailable"},
             {"env": "staging", "status": "unavailable"},
-        ]
+        ],
     }
     for env in ("prod", "staging"):
         response = http.get(f"/api/v1/services?env={env}")
@@ -380,6 +387,28 @@ def test_missing_staging_location_does_not_fall_back_to_prod(client):
         "dagster"
     ] == "unhealthy"
     assert http.get("/api/v1/events?env=staging").status_code == 503
+
+
+def test_single_configured_environment_keeps_unavailable_default_and_denies_unknown(client):
+    http, _, _, monkeypatch, _ = client
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "sandbox": {"dagster_location": "sandbox_code", "nessie_ref": "development"},
+            }
+        ),
+    )
+    response = http.get("/api/v1/environments")
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [{"env": "sandbox", "status": "unavailable"}],
+        "default_environment": "sandbox",
+        "promotion_source_environment": None,
+    }
+    assert set(http.get("/api/v1/me").json()["permissions"]) == {"sandbox"}
+    assert http.get("/api/v1/services?env=prod").status_code == 422
+    assert http.get("/api/v1/services?env=sandbox").status_code == 200
 
 
 def test_policy_filters_environments_and_denies_cross_environment_read(client):

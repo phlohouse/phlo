@@ -243,6 +243,37 @@ def test_candidate_requires_opt_in_and_denies_target_overrides(
     assert context["remote_calls"] == []
 
 
+def test_configured_promotion_roles_bind_custom_ids_without_changing_refs(
+    staging_api, monkeypatch, tmp_path
+) -> None:
+    import yaml
+
+    from phlo.config.project import clear_config_cache
+
+    client, _ = staging_api
+    project = tmp_path / "project"
+    (project / "phlo.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "environments": {
+                    "sandbox": {"dagster_location": "stage_loc", "nessie_ref": "candidate"},
+                    "warehouse": {"dagster_location": "prod_loc", "nessie_ref": "main"},
+                },
+                "promotion": {"source_environment": "sandbox", "target_environment": "warehouse"},
+            }
+        )
+    )
+    monkeypatch.delenv("PHLO_V1_ENVIRONMENTS")
+    clear_config_cache()
+    response = client.get("/api/v1/staging/promotions/candidate?env=sandbox")
+    assert response.status_code == 200, response.text
+    state = response.json()
+    assert (state["source_environment"], state["target_environment"]) == ("sandbox", "warehouse")
+    assert (state["staging_ref"], state["prod_ref"]) == ("candidate", "main")
+    assert client.get("/api/v1/staging/promotions/candidate?env=warehouse").status_code == 422
+    assert client.get("/api/v1/staging/promotions/candidate?env=staging").status_code == 422
+
+
 def test_candidate_is_opt_in_and_reports_mapped_asymmetric_inventory(staging_api) -> None:
     client, context = staging_api
     state = _candidate(client)

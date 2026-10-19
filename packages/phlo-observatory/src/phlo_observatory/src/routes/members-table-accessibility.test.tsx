@@ -52,6 +52,11 @@ vi.mock('@/lib/data/api/admin', () => ({
 }))
 
 vi.mock('@tanstack/react-router', () => ({
+  getRouteApi: () => ({
+    useRouteContext: () => ({
+      environments: [{ env: 'sandbox', status: 'available' }],
+    }),
+  }),
   createFileRoute: () => (options: { component?: React.ComponentType }) => ({
     options,
     useLoaderData: () => state,

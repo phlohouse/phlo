@@ -26,7 +26,7 @@ export function NewBranchDialog({
   onCreate,
 }: {
   open: boolean
-  env: 'prod' | 'staging'
+  env: string
   refs: Array<BranchRef>
   busy: boolean
   error?: string
