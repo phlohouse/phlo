@@ -72,7 +72,7 @@ def test_preview_provision_is_opt_in_private_and_ref_pinned(tmp_path, monkeypatc
     assert "iceberg.rest-catalog.prefix=release_42\n" in catalog
     assert "iceberg.security=READ_ONLY\n" in catalog
     compose = yaml.safe_load((output / "compose.yaml").read_text())
-    assert set(compose["services"]) == {"trino-preview"}
+    assert set(compose["services"]) == {"trino-preview", "trino-preview-init"}
     assert compose["services"]["trino-preview"]["ports"] == ["127.0.0.1:10025:8443"]
     api = json.loads((output / "api-settings.json").read_text())
     assert not any("ASSERT" in key or "SINGLE" in key or "LIMITS" in key for key in api)

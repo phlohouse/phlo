@@ -70,6 +70,7 @@ export function startApiFixture() {
           { env: 'prod', status: 'available' },
         ],
         default_environment: 'staging',
+        promotion_source_environment: null,
       },
       '/api/v1/readiness': {
         env,

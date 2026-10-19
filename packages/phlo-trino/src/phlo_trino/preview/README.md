@@ -71,8 +71,12 @@ the server keystore, an authenticated CA-verifying health check, and
 `api-settings.json`. Preserve file privacy when making files readable by the
 Trino container UID. Never make secrets world-readable to repair a mount.
 
-The generator preserves the invoking owner's UID; it does not run privileged
-ownership changes. Keep `trino/` and `secrets/` readable by the actual Trino UID.
+The generator preserves the invoking owner's UID and private host permissions.
+At deployment, a networkless, read-only-root init container uses the same pinned
+image to copy server inputs into dedicated named volumes. It assigns only those
+volume copies to the image's Trino user, retaining private permissions. The
+nonroot coordinator mounts the copies read-only and cannot start if init fails.
+No host ownership changes or world-readable credentials are needed for Trino.
 Mount only `api-secrets/` into the API, with ownership assigned to its actual UID
 by your deployment or secret-store tooling. The API needs neither the server
 keystore nor the password database. These separate private directories allow
@@ -128,8 +132,18 @@ multi-worker support. Keep the explicit schema migration process for existing
 deployments; generation does not migrate a database.
 
 For password or certificate renewal, generate a new directory with the renewed
-inputs. Review and replace the server configuration through the approved
-deployment process, then update the API's mounted credentials and trust bundle.
+inputs. Review and use the new bundle's complete Compose manifest with the same
+approved project name. Each generated manifest carries a new init revision;
+Compose refreshes the private volume copies and restarts the dependent server.
+An ordinary server restart does not import edited host inputs. During the
+approved renewal window, stop the coordinator before applying the new manifest:
+
+```bash
+docker compose -p phlo-preview -f .phlo/preview-new/compose.yaml stop trino-preview
+docker compose -p phlo-preview -f .phlo/preview-renewed/compose.yaml up -d
+```
+
+Then update the API's mounted credentials and trust bundle.
 The API rereads password files and CA trust on new queries. Verify new
 credentials succeed and revoked credentials fail after server reload or restart.
 Verify hostname and CA rejection as well as a successful renewed connection.
