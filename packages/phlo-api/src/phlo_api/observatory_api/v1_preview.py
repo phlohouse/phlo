@@ -185,6 +185,14 @@ def preview_preflight(env: str | None = None) -> list[dict[str, str]]:
         )
         return checks
     opted = {key for key, target in targets.items() if target.preview is not None}
+    if env is not None and env not in targets:
+        add(
+            "unavailable",
+            "configuration_invalid",
+            "Environment is not configured.",
+            "Select an authorised environment from the configured target list.",
+        )
+        return checks
     if (
         not settings.phlo_v1_preview_catalogs
         and not settings.phlo_v1_preview_trino_url
@@ -209,7 +217,16 @@ def preview_preflight(env: str | None = None) -> list[dict[str, str]]:
                 f"{name} is missing.",
                 f"Configure {name} for the dedicated preview deployment, not the ingestion coordinator.",
             )
-    deployment = get_deployment_settings()
+    try:
+        deployment = get_deployment_settings()
+    except ValueError:
+        add(
+            "unavailable",
+            "configuration_invalid",
+            "Deployment process settings are invalid.",
+            "Review process-only assertions and require WEB_CONCURRENCY=1.",
+        )
+        return checks
     for name, asserted in (
         ("single API replica", deployment.query_single_replica),
         ("single API process", deployment.query_single_process and deployment.web_concurrency == 1),

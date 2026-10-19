@@ -1,5 +1,5 @@
 {
-  "field_count": 316,
+  "field_count": 321,
   "model_count": 52,
   "models": [
     {
@@ -1463,6 +1463,17 @@
           "required": false
         },
         {
+          "alias": "PHLO_V1_QUERY_SINGLE_PROCESS",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Explicit single API process assertion; active query sessions are process-local.",
+          "environment_names": [
+            "PHLO_V1_QUERY_SINGLE_PROCESS"
+          ],
+          "name": "query_single_process",
+          "required": false
+        },
+        {
           "alias": "PHLO_V1_QUERY_SINGLE_REPLICA",
           "annotation": "<class 'bool'>",
           "default": false,
@@ -1482,6 +1493,17 @@
             "PHLO_STAGING_SINGLE_REPLICA"
           ],
           "name": "staging_single_replica",
+          "required": false
+        },
+        {
+          "alias": "WEB_CONCURRENCY",
+          "annotation": "<class 'int'>",
+          "default": 1,
+          "description": null,
+          "environment_names": [
+            "WEB_CONCURRENCY"
+          ],
+          "name": "web_concurrency",
           "required": false
         },
         {
@@ -1704,6 +1726,28 @@
           "required": false
         },
         {
+          "alias": "PHLO_V1_PREVIEW_TRINO_CA_FILE",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Preview trusted PEM CA bundle; absent uses platform trust, never disables verification.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_TRINO_CA_FILE"
+          ],
+          "name": "phlo_v1_preview_trino_ca_file",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES",
+          "annotation": "str | None",
+          "default": null,
+          "description": "JSON configured-environment to private password file map, reread for rotation.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES"
+          ],
+          "name": "phlo_v1_preview_trino_password_files",
+          "required": false
+        },
+        {
           "alias": "PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD",
           "annotation": "str | None",
           "default": null,
@@ -1723,6 +1767,17 @@
             "PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING"
           ],
           "name": "phlo_v1_preview_trino_password_staging",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_TRINO_URL",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Dedicated authenticated HTTPS preview coordinator, never the ingestion URL fallback.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_TRINO_URL"
+          ],
+          "name": "phlo_v1_preview_trino_url",
           "required": false
         },
         {
