@@ -455,7 +455,9 @@ def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch
         },
     ]
 
-    async def graphql(url, query):
+    async def graphql(url, query, variables=None):
+        assert variables == {"filter": {"tags": [{"key": "phlo/ref", "value": "main"}]}}
+        assert "RunsFilter!" in query
         return {"data": {"runsOrError": {"__typename": "Runs", "results": rows}}}
 
     monkeypatch.setattr(v1, "graphql_request", graphql)
@@ -463,6 +465,38 @@ def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch
     rows[1]["tags"] = []
     monkeypatch.setattr(v1_assets, "_assets", lambda *args, **kwargs: asyncio.sleep(0, result=[]))
     assert http.get("/api/v1/overview?env=prod").status_code == 503
+
+
+def test_overview_ref_filter_excludes_legacy_history_before_validation(client, monkeypatch):
+    old_runs = [
+        {"runId": f"legacy-{index}", "status": "SUCCESS", "tags": [], "repositoryOrigin": None}
+        for index in range(105)
+    ]
+    selected = {
+        "runId": "selected",
+        "status": "STARTED",
+        "tags": [{"key": "phlo/ref", "value": "main"}],
+        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+    }
+
+    async def graphql(_url, query, variables=None):
+        assert "RunsFilter!" in query
+        assert variables == {"filter": {"tags": [{"key": "phlo/ref", "value": "main"}]}}
+        return {
+            "data": {
+                "runsOrError": {
+                    "__typename": "Runs",
+                    "results": [row for row in old_runs + [selected] if row["tags"]],
+                }
+            }
+        }
+
+    monkeypatch.setattr(v1, "graphql_request", graphql)
+    assert asyncio.run(v1._runs("production_jobs", "main")) == {"selected": "STARTED"}
+
+    selected["repositoryOrigin"] = None
+    with pytest.raises(v1.BadGatewayError, match="location identity"):
+        asyncio.run(v1._runs("production_jobs", "main"))
 
 
 def test_events_openapi_advertises_sse():

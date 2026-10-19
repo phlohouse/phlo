@@ -11,7 +11,7 @@ MutationSucceededAuditFailed rather than reporting failure.
 from __future__ import annotations
 
 import asyncio
-import fcntl
+import errno
 import hashlib
 import json
 import logging
@@ -260,13 +260,39 @@ def audit_operation(
 def _audit_write_lock(audit_dir: Path):
     """Acquire the project-owned cross-process lock for the audit writer."""
     lock_path = audit_dir / "operations.lock"
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        yield
-    finally:
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
+    if os.name == "nt":
+        import msvcrt
+
+        with lock_path.open("a+b") as handle:
+            handle.seek(0)
+            if not handle.read(1):
+                handle.seek(0)
+                handle.write(b"\0")
+                handle.flush()
+            while True:
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EDEADLK}:
+                        raise
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
 
 def _append_audit_record(path: Path, record: dict[str, Any]) -> None:
@@ -331,11 +357,12 @@ def _rotate_audit_log(path: Path) -> None:
         if candidate.exists():
             candidate.replace(path.with_name(f"{path.name}.{index + 1}"))
     path.replace(path.with_name(f"{path.name}.1"))
-    directory_descriptor = os.open(path.parent, os.O_RDONLY)
-    try:
-        os.fsync(directory_descriptor)
-    finally:
-        os.close(directory_descriptor)
+    if os.name != "nt":
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
 
 
 def replay_or_execute(
