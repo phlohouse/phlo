@@ -88,8 +88,8 @@ Queue and full-fallback selection use shallow checkouts because they select the
 complete contract without examining history. Pull-request selection retains the
 ancestry needed for changed-path detection. Core tests and coverage also use
 shallow checkouts; their Git-history tests create isolated repositories. Quality
-and dependency checks retain the history needed for release baselines and
-reviewed dependency exceptions.
+and dependency checks retain the history needed for the pinned header baseline,
+release versions and reviewed dependency exceptions.
 
 The checked-in [ruleset](../../security/release-candidate-ruleset.json) sets build
 concurrency to two, with one pull request merged at a time. GitHub can validate a
