@@ -191,7 +191,24 @@ async def _preview_readiness(request: Request, env: str, ref: str) -> list[Readi
 
 @router.get("/readiness", response_model=FeatureReadiness)
 async def v1_readiness(request: Request, env: Annotated[Environment, Query()]) -> FeatureReadiness:
-    target = _target(request, env)
+    try:
+        target = _target(request, env)
+    except BackendUnavailableError:
+        return FeatureReadiness(
+            env=env,
+            observed_at=datetime.now(UTC),
+            correlation_id=request.state.request_id,
+            capabilities={
+                "environment": [
+                    ReadinessCheck(
+                        state="unavailable",
+                        reason_code="configuration_invalid",
+                        message="Environment configuration is missing or invalid.",
+                        remediation="Configure environments and default_environment in phlo.yaml, then check again. A runtime override must contain the configured default.",
+                    )
+                ]
+            },
+        )
     orchestration, storage, preview = await asyncio.gather(
         _orchestration_readiness(target.dagster_location),
         asyncio.to_thread(_storage_readiness),

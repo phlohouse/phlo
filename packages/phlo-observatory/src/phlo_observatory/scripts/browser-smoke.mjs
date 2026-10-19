@@ -159,6 +159,21 @@ try {
   )
   await capture('04-schema-failure-independent-data')
 
+  fixture.controls.overrides.set('/api/v1/environments', {
+    body: {
+      items: [
+        { env: 'staging', status: 'unavailable' },
+        { env: 'prod', status: 'available' },
+      ],
+      default_environment: 'staging',
+    },
+  })
+  await browser('open', `${base}/`)
+  await browser('wait', '--text', 'Partial observations')
+  assert.match((await browser('get', 'url')).url, /env=staging/)
+  assert.match((await browser('get', 'text', 'main')).text, /warehouse_orders/)
+  await capture('04b-unavailable-default-retained')
+
   const catalogRequests = () =>
     fixture.requests.filter(
       (request) => request.path === '/api/v1/query/catalog',

@@ -709,7 +709,10 @@ function QueryPage() {
   const actor = JSON.stringify([me.principal_type, me.subject])
   const cacheKey = queryWorkspaceKey(env, actor)
   if (result.state === 'unavailable') {
-    const checks = result.readiness.capabilities.query_preview ?? []
+    const checks =
+      result.readiness.capabilities.query_preview ??
+      result.readiness.capabilities.environment ??
+      []
     return (
       <div className="min-h-0 overflow-y-auto p-4 lg:p-7">
         <h1 className="mb-4 text-xl font-semibold">Query setup</h1>

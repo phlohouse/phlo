@@ -72,6 +72,25 @@ def test_readiness_distinguishes_missing_configuration_location_and_outage(
         client.get("/api/v1/readiness?env=prod", headers={"x-test-principal": ""}).status_code
         == 401
     )
+    assert client.get("/api/v1/readiness?env=removed").status_code == 422
+    monkeypatch.setenv("PHLO_V1_ENVIRONMENTS", "not-json")
+    invalid = client.get("/api/v1/readiness?env=prod")
+    assert invalid.status_code == 200
+    check = invalid.json()["capabilities"]["environment"][0]
+    assert check["reason_code"] == "configuration_invalid"
+    assert "phlo.yaml" in check["remediation"]
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps({"analytics": {"dagster_location": "jobs", "nessie_ref": "main"}}),
+    )
+
+    async def recovered_locations():
+        return {"jobs"}
+
+    monkeypatch.setattr(v1_readiness, "_locations", recovered_locations)
+    recovered = client.get("/api/v1/readiness?env=analytics")
+    assert recovered.status_code == 200
+    assert recovered.json()["capabilities"]["orchestration"][0]["state"] == "ready"
 
 
 def test_preview_probe_never_promotes_configuration_to_ready(readiness_client, monkeypatch):

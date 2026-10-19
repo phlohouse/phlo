@@ -2,13 +2,31 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  PhloApiError,
   environmentServices,
+  optionalRead,
   parseApiResponse,
   serviceHealthLabel,
   servicesSchema,
 } from './client'
 
 describe('Phlo API response boundary', () => {
+  it('isolates optional dependency failures but never identity or permission failures', async () => {
+    expect(await optionalRead(Promise.resolve({ count: 3 }))).toEqual({
+      state: 'available',
+      data: { count: 3 },
+    })
+    expect(await optionalRead(Promise.reject(new PhloApiError(503)))).toEqual({
+      state: 'unavailable',
+      error: 'Phlo API request failed (503).',
+    })
+    for (const status of [401, 403]) {
+      await expect(
+        optionalRead(Promise.reject(new PhloApiError(status))),
+      ).rejects.toMatchObject({ status })
+    }
+  })
+
   const snapshot = z.object({
     env: z.enum(['prod', 'staging']),
     snapshot_id: z.string(),
