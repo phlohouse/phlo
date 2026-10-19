@@ -343,8 +343,9 @@ def _workspace_acceptance(monkeypatch, tmp_path, port, descriptors, events):
     from phlo_api.errors import PhloApiError, error_envelope
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.setenv("PHLO_QUERY_ENGINE_URL", f"https://127.0.0.1:{port}")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_URL", f"https://127.0.0.1:{port}")
     monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_PROCESS", "1")
     monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
     for env in ("PROD", "STAGING"):
         monkeypatch.setenv(f"PHLO_V1_PREVIEW_TRINO_PASSWORD_{env}", "disposable-test")

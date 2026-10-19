@@ -44,6 +44,11 @@ export function startApiFixture() {
       },
     }
     const responses = {
+      '/api/v1/environments': {
+        items: [{ env: 'staging', status: 'available' }],
+        default_environment: 'staging',
+        promotion_source_environment: null,
+      },
       '/api/v1/me': {
         subject: 'browser-smoke',
         email: null,

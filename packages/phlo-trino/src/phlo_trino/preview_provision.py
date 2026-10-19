@@ -180,12 +180,47 @@ def _write_bundle(
     image = yaml.safe_load((package / "service.yaml").read_text(encoding="utf-8"))["image"]
     compose = {
         "services": {
+            "trino-preview-init": {
+                "image": image,
+                "user": "0:0",
+                "network_mode": "none",
+                "read_only": True,
+                "cap_drop": ["ALL"],
+                "cap_add": ["CHOWN", "DAC_OVERRIDE", "FOWNER"],
+                "entrypoint": ["/bin/bash", "-euc"],
+                "labels": {"phlo.preview.config-revision": secrets.token_hex(16)},
+                "command": [
+                    "test -s /source/trino/jvm.config; "
+                    "test -s /source/secrets/preview-keystore.jks; "
+                    "test -s /source/secrets/preview-password.db; "
+                    "rm -rf /target/trino/* /target/secrets/*; "
+                    "cp -a /source/trino/. /target/trino/; "
+                    "cp -a /source/secrets/. /target/secrets/; "
+                    "chown -R trino:trino /target/trino /target/secrets; "
+                    "chmod -R go-rwx /target/trino /target/secrets"
+                ],
+                "volumes": [
+                    "./trino:/source/trino:ro",
+                    "./secrets:/source/secrets:ro",
+                    "preview-config:/target/trino",
+                    "preview-secrets:/target/secrets",
+                ],
+            },
             "trino-preview": {
                 "image": image,
                 "restart": "unless-stopped",
                 "ports": [f"127.0.0.1:{config.port}:8443"],
                 "mem_limit": "2g",
-                "volumes": ["./trino:/etc/trino:ro", "./secrets:/etc/trino/secrets:ro"],
+                "depends_on": {
+                    "trino-preview-init": {
+                        "condition": "service_completed_successfully",
+                        "restart": True,
+                    }
+                },
+                "volumes": [
+                    "preview-config:/etc/trino:ro",
+                    "preview-secrets:/etc/trino/secrets:ro",
+                ],
                 "networks": ["preview"],
                 "healthcheck": {
                     "test": [
@@ -197,9 +232,10 @@ def _write_bundle(
                     "retries": 10,
                     "start_period": "90s",
                 },
-            }
+            },
         },
         "networks": {"preview": {"external": True, "name": config.network}},
+        "volumes": {"preview-config": {}, "preview-secrets": {}},
     }
     write("compose.yaml", yaml.safe_dump(compose, sort_keys=False))
     api = {

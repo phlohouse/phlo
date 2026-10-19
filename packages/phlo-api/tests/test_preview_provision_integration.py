@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
-import shutil
+import os
 import ssl
 import subprocess
 import time
@@ -35,6 +36,30 @@ from phlo_trino.cli import trino_group
 @pytest.fixture
 def mock_dns() -> None:
     """Use real DNS for disposable containers and the asynchronous HTTP client."""
+
+
+def _server_owner(output: Path, image: str, owner: str) -> None:
+    """Simulate a different operator UID without changing file permissions."""
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            "0:0",
+            "--entrypoint",
+            "chown",
+            "-v",
+            f"{output}:/inputs",
+            image,
+            "-R",
+            owner,
+            "/inputs/trino",
+            "/inputs/secrets",
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def _ready(url: str, **kwargs) -> None:
@@ -233,9 +258,99 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                 str(output / "compose.yaml"),
             ]
             subprocess.run([*compose, "config", "--quiet"], check=True)
+            manifest = yaml.safe_load((output / "compose.yaml").read_text())
+            image = manifest["services"]["trino-preview"]["image"]
+            host_owner = f"{os.getuid()}:{os.getgid()}"
+            original = {
+                str(path.relative_to(output)): (
+                    path.stat().st_mode,
+                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                )
+                for directory in ("trino", "secrets")
+                for path in (output / directory).rglob("*")
+                if path.is_file()
+            }
+            _server_owner(output, image, "12345:12345")
+            denied = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--entrypoint",
+                    "test",
+                    "-v",
+                    f"{output / 'trino'}:/etc/trino:ro",
+                    image,
+                    "-r",
+                    "/etc/trino/jvm.config",
+                ],
+                capture_output=True,
+            )
+            assert denied.returncode != 0  # A direct private bind is not portable.
             try:
+                # A real missing-input failure must prevent coordinator startup.
+                failed = yaml.safe_load((output / "compose.yaml").read_text())
+                failed["services"]["trino-preview-init"]["volumes"][1] = (
+                    "./empty:/source/secrets:ro"
+                )
+                failed_file = output / "failed.yaml"
+                failed_file.write_text(yaml.safe_dump(failed))
+                failure_compose = compose[:3] + [
+                    "phlo-preview-init-failure",
+                    "-f",
+                    str(failed_file),
+                ]
+                try:
+                    failed_start = subprocess.run(
+                        [*failure_compose, "up", "-d"], capture_output=True
+                    )
+                    assert failed_start.returncode != 0
+                    running = subprocess.run(
+                        [*failure_compose, "ps", "--status", "running", "--services"],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    assert "trino-preview" not in running.stdout
+                finally:
+                    subprocess.run(
+                        [*failure_compose, "down", "--volumes"], check=True, capture_output=True
+                    )
                 started = subprocess.run([*compose, "up", "-d"], capture_output=True, text=True)
                 assert started.returncode == 0, started.stderr
+                subprocess.run([*compose, "up", "-d"], check=True, capture_output=True)
+                ownership = subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "--user",
+                        "0:0",
+                        "--entrypoint",
+                        "find",
+                        "-v",
+                        f"{output}:/inputs:ro",
+                        image,
+                        "/inputs/trino",
+                        "/inputs/secrets",
+                        "-printf",
+                        "%U:%G\\n",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                assert set(ownership.stdout.splitlines()) == {"12345:12345"}
+                _server_owner(output, image, host_owner)
+                assert original == {
+                    str(path.relative_to(output)): (
+                        path.stat().st_mode,
+                        hashlib.sha256(path.read_bytes()).hexdigest(),
+                    )
+                    for directory in ("trino", "secrets")
+                    for path in (output / directory).rglob("*")
+                    if path.is_file()
+                }
                 ca = str(tmp_path / "ca.pem")
                 tls = ssl.create_default_context(cafile=ca)
                 auth = ("phlo_api_preview_analytics", "disposable-preview-password")
@@ -246,6 +361,23 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                         [*compose, "logs", "--no-color"], capture_output=True, text=True
                     )
                     raise AssertionError(logs.stdout[-15000:]) from None
+                subprocess.run(
+                    [
+                        *compose,
+                        "exec",
+                        "-T",
+                        "trino-preview",
+                        "/bin/sh",
+                        "-c",
+                        'test "$(id -u)" -ne 0 && '
+                        'test "$(stat -c %a /etc/trino/secrets)" = 700 && '
+                        'test "$(stat -c %a /etc/trino/secrets/preview-keystore.jks)" = 600 && '
+                        "test -r /etc/trino/secrets/preview-password.db && "
+                        "! test -e /etc/trino/secrets/password-analytics",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
                 connection = connect(
                     host="localhost",
                     port=10025,
@@ -370,10 +502,12 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                     ["preview", "provision", "--config", str(inputs), "--output", str(renewed)],
                 )
                 assert generated.exit_code == 0, generated.output
-                shutil.copytree(renewed / "trino", output / "trino", dirs_exist_ok=True)
-                shutil.copytree(renewed / "secrets", output / "secrets", dirs_exist_ok=True)
-                shutil.copytree(renewed / "api-secrets", output / "api-secrets", dirs_exist_ok=True)
-                subprocess.run([*compose, "restart"], check=True, capture_output=True)
+                subprocess.run([*compose, "stop", "trino-preview"], check=True, capture_output=True)
+                compose[-1] = str(renewed / "compose.yaml")
+                subprocess.run([*compose, "up", "-d"], check=True, capture_output=True)
+                for key, value in json.loads((renewed / "api-settings.json").read_text()).items():
+                    if key != "PHLO_V1_PREVIEW_TRINO_URL":
+                        monkeypatch.setenv(key, value)
                 renewed_tls = ssl.create_default_context(cafile=ca)
                 renewed_auth = (auth[0], "renewed-disposable-password")
                 _ready("https://localhost:10025/v1/info", verify=renewed_tls, auth=renewed_auth)
@@ -400,3 +534,4 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
                 assert result["rows"] == [{"id": 7}, {"id": 19}, {"id": 31}]
             finally:
                 subprocess.run([*compose, "down", "--volumes"], check=True, capture_output=True)
+                _server_owner(output, image, host_owner)
