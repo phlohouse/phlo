@@ -157,6 +157,12 @@ jobs:
           "PHLO=$((Join-Path $venv 'Scripts\phlo.exe'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Verify API imports and audit locking on native Windows
+        shell: pwsh
+        run: |
+          uv pip install --python $env:PYTHON pytest
+          & $env:PYTHON -m pytest packages/phlo-api/tests/test_operation_controls.py -q -k "operation_controls_import_does_not_require_posix_lock_module or audit_rotation_preserves_barrier_synchronised_process_writes"
+
       - name: Regenerate host state without replacing shared files
         shell: pwsh
         run: |

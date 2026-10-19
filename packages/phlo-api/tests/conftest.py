@@ -35,7 +35,8 @@ def fail_on_fork_from_multithreaded_process(monkeypatch) -> None:
             "os.fork() called during a phlo-api test; spawn a clean interpreter instead"
         )
 
-    monkeypatch.setattr(os, "fork", guarded_fork)
+    if hasattr(os, "fork"):
+        monkeypatch.setattr(os, "fork", guarded_fork)
     yield
 
 

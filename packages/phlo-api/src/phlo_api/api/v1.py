@@ -61,8 +61,8 @@ _LOCATION_QUERY = """query Locations {
     ... on RepositoryConnection { nodes { location { name } } }
   }
 }"""
-_RUN_QUERY = """query RecentRuns {
-  runsOrError(limit: 100) {
+_RUN_QUERY = """query RecentRuns($filter: RunsFilter!) {
+  runsOrError(limit: 100, filter: $filter) {
     __typename
     ... on Runs {
       results { runId status tags { key value } repositoryOrigin { repositoryLocationName } }
@@ -167,7 +167,11 @@ def _run_on_ref(run: dict[str, Any], ref: str, *, required: bool = False) -> boo
 
 async def _runs(location: str, ref: str) -> dict[str, str]:
     try:
-        payload = await graphql_request(resolve_dagster_url(), _RUN_QUERY)
+        payload = await graphql_request(
+            resolve_dagster_url(),
+            _RUN_QUERY,
+            {"filter": {"tags": [{"key": "phlo/ref", "value": ref}]}},
+        )
     except (httpx.HTTPError, OSError, RuntimeError) as exc:
         raise BackendUnavailableError("Dagster is unavailable.") from exc
     value = _source_data(payload, "runsOrError", "Runs")

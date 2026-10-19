@@ -6,9 +6,9 @@ Iceberg REST catalogs or route existing clients to new catalogs.
 
 To enable observed usage for selected clients:
 
-1. Apply `packages/phlo-api/src/phlo_api/sql/002_query_usage.sql` explicitly to
-   the installation's own `PHLO_RUN_EVIDENCE_DB_URL` PostgreSQL database.
-   Do not apply it to another installation.
+1. Set `PHLO_RUN_EVIDENCE_DB_URL` for the API. API startup applies the query-usage
+   schema to that PostgreSQL database before serving requests. Do not reuse a
+   different installation's database.
 2. Create direct Nessie Iceberg catalogs for the selected environments. The
    two `catalog/` files are examples. Replace their refs, Nessie URI, warehouse,
    storage, and catalog names for this installation. Keep an explicit literal
