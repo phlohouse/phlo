@@ -35,9 +35,11 @@ def _register_commands() -> click.Group:
     from phlo.cli.commands.services.start import start_cmd
     from phlo.cli.commands.services.status import status_cmd
     from phlo.cli.commands.services.stop import stop_cmd
+    from phlo.cli.commands.services.upgrade import upgrade_cmd
 
     services_group.add_command(init_cmd)
     services_group.add_command(migrate_cmd)
+    services_group.add_command(upgrade_cmd)
     services_group.add_command(list_cmd)
     services_group.add_command(ports_cmd)
     services_group.add_command(preflight_cmd)

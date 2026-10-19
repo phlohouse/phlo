@@ -33,6 +33,7 @@ from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.cli.output import user_error
 from phlo.config.layout import SHARED_LAYOUT_MARKER, env_defaults_path, env_secrets_path
+from phlo.operations.generated_stack import BASELINE, generation_baseline
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
 from phlo.plugins.compose.generator import ComposeGenerator
 from phlo.plugins.compose.service_files import prepare_service_files
@@ -363,6 +364,10 @@ def init_cmd(
     for f in copied_files:
         click.echo(f"Created: .phlo/{f}")
 
+    # Never adopt existing customized files during a preserving re-init.
+    if new_layout or force:
+        _record_initial_generation(phlo_dir, copied_files, allow_insecure=allow_insecure)
+
     # Summary
     click.echo("")
     click.echo("Phlo infrastructure initialized.")
@@ -384,6 +389,19 @@ def init_cmd(
     click.echo(f"  2. Set secrets in {env_local_file.relative_to(Path.cwd())}")
     click.echo("  3. Run: phlo services start")
     click.echo("  4. Inspect services with: phlo services list")
+
+
+def _record_initial_generation(
+    phlo_dir: Path, copied_files: list[str], *, allow_insecure: bool
+) -> None:
+    generated = [".phlo/docker-compose.yml", *(f".phlo/{name}" for name in copied_files)]
+    if (phlo_dir / "overrides/compose.host.yaml").is_file():
+        generated.append(".phlo/overrides/compose.host.yaml")
+    write_sensitive_file(
+        phlo_dir / BASELINE,
+        generation_baseline(Path.cwd(), generated),
+        allow_insecure=allow_insecure,
+    )
 
 
 def _select_initial_services(

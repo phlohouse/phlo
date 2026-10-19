@@ -208,6 +208,7 @@ class TestMutationCommandLists:
             "services.logs",
             "services.ports",
             "services.init",
+            "services.upgrade",
             "services.restart",
         }
         classified = READ_COMMANDS | MUTATION_COMMANDS
@@ -273,6 +274,7 @@ class TestResourceActionMapping:
             "services.stop",
             "services.add",
             "services.init",
+            "services.upgrade",
             "services.remove",
             "services.reset",
             "services.exec",
