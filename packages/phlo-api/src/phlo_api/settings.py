@@ -133,6 +133,12 @@ class ApiDeploymentSettings(BaseSettings):
         validation_alias="PHLO_V1_QUERY_SINGLE_REPLICA",
         description="Process-only single API replica assertion for query workspace. Only '1' enables.",
     )
+    query_single_process: bool = Field(
+        False,
+        validation_alias="PHLO_V1_QUERY_SINGLE_PROCESS",
+        description="Explicit single API process assertion; active query sessions are process-local.",
+    )
+    web_concurrency: int = Field(1, validation_alias="WEB_CONCURRENCY", ge=1)
     preview_server_limits_configured: bool = Field(
         False,
         validation_alias="PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
@@ -149,6 +155,7 @@ class ApiDeploymentSettings(BaseSettings):
         "actions_single_process",
         "actions_ref_tag_contract",
         "query_single_replica",
+        "query_single_process",
         "preview_server_limits_configured",
         mode="before",
     )
@@ -264,6 +271,21 @@ class ApiProcessSettings(ProcessOverrides):
         None,
         validation_alias="PHLO_V1_PREVIEW_CATALOGS",
         description="Required JSON environment-to-preview catalog map; validated at use.",
+    )
+    phlo_v1_preview_trino_url: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_PREVIEW_TRINO_URL",
+        description="Dedicated authenticated HTTPS preview coordinator, never the ingestion URL fallback.",
+    )
+    phlo_v1_preview_trino_ca_file: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_PREVIEW_TRINO_CA_FILE",
+        description="Preview trusted PEM CA bundle; absent uses platform trust, never disables verification.",
+    )
+    phlo_v1_preview_trino_password_files: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES",
+        description="JSON configured-environment to private password file map, reread for rotation.",
     )
     phlo_v1_preview_trino_password_prod: str | None = Field(
         None,

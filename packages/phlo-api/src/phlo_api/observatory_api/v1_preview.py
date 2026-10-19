@@ -6,22 +6,23 @@ import asyncio
 import base64
 import json
 import re
-from collections.abc import Awaitable, Callable
-from contextlib import suppress
+import ssl
+from pathlib import Path
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
 
-from phlo_api.observatory_api.http_client import backend_client
-from phlo_api.observatory_api.trino import resolve_trino_url
+from phlo.config.env import resolve_project_root
+from phlo.config.project import get_environment_targets
 from phlo_api.settings import get_deployment_settings, get_process_settings
 
 _MAX_ROWS = 100
 _MAX_RESPONSE_BYTES = 1_048_576
 _MAX_TRINO_PAGE_BYTES = 8_388_608
 _ADMISSION = asyncio.Semaphore(2)
-_PREVIEW_USERS = {"prod": "phlo_api_preview_prod", "staging": "phlo_api_preview_staging"}
 
 
 class PreviewUnavailable(RuntimeError):
@@ -40,41 +41,210 @@ class PreviewLimitExceeded(RuntimeError):
     """The preview exceeded its response or execution budget."""
 
 
+def resolve_trino_url() -> str:
+    """Use only the explicitly selected preview server, never ingestion discovery."""
+    value = get_process_settings().phlo_v1_preview_trino_url or ""
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise PreviewUnavailable("Preview requires an HTTPS Trino connection.")
+    return value.rstrip("/")
+
+
+def _preview_tls() -> ssl.SSLContext:
+    try:
+        return ssl.create_default_context(
+            cafile=get_process_settings().phlo_v1_preview_trino_ca_file
+        )
+    except (OSError, ValueError) as exc:
+        raise PreviewUnavailable("Preview trusted CA configuration is invalid.") from exc
+
+
+@asynccontextmanager
+async def backend_client() -> AsyncIterator[httpx.AsyncClient]:
+    # A separate client prevents preview CA/auth changes from altering ingestion reads.
+    # Recreate trust for each query so a mounted CA bundle can be renewed without restart.
+    async with httpx.AsyncClient(verify=_preview_tls(), follow_redirects=False) as client:
+        yield client
+
+
+def _preview_password(env: str) -> str:
+    settings = get_process_settings()
+    try:
+        if settings.phlo_v1_preview_trino_password_files is not None:
+            mapping = json.loads(settings.phlo_v1_preview_trino_password_files)
+            targets = get_environment_targets()
+            opted = {key for key, target in targets.items() if target.preview is not None}
+            if not isinstance(mapping, dict) or set(mapping) != (opted or set(targets)):
+                raise ValueError
+            path = Path(mapping[env])
+            if path.stat().st_mode & 0o077:
+                raise ValueError
+            password = path.read_text(encoding="utf-8").rstrip("\n")
+        elif (
+            target := get_environment_targets().get(env)
+        ) is not None and target.preview is not None:
+            path = resolve_project_root() / target.preview.password_file
+            if path.stat().st_mode & 0o077:
+                raise ValueError
+            password = path.read_text(encoding="utf-8").rstrip("\n")
+        else:
+            # Preserve installed prod/staging secrets, but new IDs use the explicit file map.
+            password = {
+                "prod": settings.phlo_v1_preview_trino_password_prod,
+                "staging": settings.phlo_v1_preview_trino_password_staging,
+            }.get(env)
+        if not password or any(char in password for char in "\r\n\x00"):
+            raise ValueError
+        return password
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        raise PreviewUnavailable(
+            "Environment-scoped private preview credential is unavailable."
+        ) from exc
+
+
 def _preview_configuration() -> dict[str, dict[str, str]]:
     try:
         if not get_deployment_settings().preview_server_limits_configured:
             raise ValueError
-        mapping = json.loads(get_process_settings()["PHLO_V1_PREVIEW_CATALOGS"])
-        if not isinstance(mapping, dict) or set(mapping) != {"prod", "staging"}:
+        targets = get_environment_targets()
+        opted = {env: target for env, target in targets.items() if target.preview is not None}
+        override = get_process_settings().phlo_v1_preview_catalogs
+        mapping = (
+            json.loads(override)
+            if override
+            else {
+                env: {"catalog": target.preview.catalog, "nessie_ref": target.nessie_ref}
+                for env, target in opted.items()
+                if target.preview is not None
+            }
+        )
+        if (
+            not targets
+            or not mapping
+            or not isinstance(mapping, dict)
+            or set(mapping) != set(opted or targets)
+        ):
             raise ValueError
         catalogs: set[str] = set()
         validated: dict[str, dict[str, str]] = {}
         for env, target in mapping.items():
+            if not re.fullmatch(r"[a-z][a-z0-9_-]{0,62}", env):
+                raise ValueError
             if not isinstance(target, dict) or set(target) != {"catalog", "nessie_ref"}:
                 raise ValueError
             name = target["catalog"]
             ref = target["nessie_ref"]
-            settings = get_process_settings()
-            password = (
-                settings.phlo_v1_preview_trino_password_prod
-                if env == "prod"
-                else settings.phlo_v1_preview_trino_password_staging
-            )
             if (
                 not isinstance(name, str)
                 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", name)
                 or not isinstance(ref, str)
                 or not ref
-                or not password
+                or ref != targets[env].nessie_ref
             ):
                 raise ValueError
+            _preview_password(env)
             catalogs.add(name)
             validated[env] = {"catalog": name, "nessie_ref": ref}
-        if len(catalogs) != 2:
+        if len(catalogs) != len(mapping):
             raise ValueError
         return validated
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise PreviewUnavailable("Preview catalog and server limits are not configured.") from exc
+
+
+def preview_preflight(env: str | None = None) -> list[dict[str, str]]:
+    """Collect local prerequisites, never assert deployed enforcement or reachability.
+
+    Synchronous and read-only. Safe for readiness and CLI callers. An optional
+    environment must be in the explicit configuration, never a discovered ref.
+    """
+    settings = get_process_settings()
+    checks: list[dict[str, str]] = []
+
+    def add(state: str, code: str, message: str, remediation: str) -> None:
+        checks.append(
+            {"state": state, "reason_code": code, "message": message, "remediation": remediation}
+        )
+
+    try:
+        targets = get_environment_targets()
+    except ValueError:
+        add(
+            "unavailable",
+            "configuration_invalid",
+            "Environment configuration is invalid.",
+            "Review phlo.yaml environments and default_environment; never infer a target from a branch.",
+        )
+        return checks
+    opted = {key for key, target in targets.items() if target.preview is not None}
+    if (
+        not settings.phlo_v1_preview_catalogs
+        and not settings.phlo_v1_preview_trino_url
+        and not opted
+    ) or (env is not None and env in targets and opted and env not in opted):
+        add(
+            "disabled",
+            "intentionally_disabled",
+            "Query preview is not configured.",
+            "Provision a dedicated preview coordinator with phlo trino preview provision --config INPUT --output NEW_DIRECTORY; review the preview deployment guide.",
+        )
+        return checks
+    for name, present in (
+        ("preview catalog configuration", settings.phlo_v1_preview_catalogs or opted),
+        ("PHLO_V1_PREVIEW_TRINO_URL", settings.phlo_v1_preview_trino_url),
+        ("phlo.yaml environments", targets),
+    ):
+        if not present:
+            add(
+                "unavailable",
+                "configuration_missing",
+                f"{name} is missing.",
+                f"Configure {name} for the dedicated preview deployment, not the ingestion coordinator.",
+            )
+    deployment = get_deployment_settings()
+    for name, asserted in (
+        ("single API replica", deployment.query_single_replica),
+        ("single API process", deployment.query_single_process and deployment.web_concurrency == 1),
+        ("preview server limits", deployment.preview_server_limits_configured),
+    ):
+        if not asserted:
+            add(
+                "unavailable",
+                "enforcement_unverified",
+                f"Deployment assertion is absent or contradicted: {name}.",
+                f"Verify {name} in the actual runtime before asserting it. Active sessions are process-local and do not survive restart.",
+            )
+    for validate, label in (
+        (resolve_trino_url, "HTTPS endpoint"),
+        (_preview_tls, "trusted CA"),
+        (_preview_configuration, "catalog/ref mapping and private credentials"),
+    ):
+        try:
+            value = validate()
+            if isinstance(value, dict) and env is not None and env not in value:
+                raise PreviewUnavailable("Unconfigured environment")
+        except (PreviewUnavailable, ValueError, TypeError):
+            add(
+                "unavailable",
+                "configuration_invalid",
+                f"Preview {label} is invalid or unavailable.",
+                f"Review {label}; mappings must match configured environments and exact refs. Preserve certificate verification and private file permissions.",
+            )
+    add(
+        "configured" if not checks else "unavailable",
+        "enforcement_unverified",
+        "Local configuration is not proof of deployed preview enforcement.",
+        "Verify authenticated TLS, catalog reads, write/session denial, bounds, evidence, restart and secret/certificate renewal on the deployed coordinator.",
+    )
+    return checks
 
 
 def preview_catalog(env: str, nessie_ref: str) -> str:
@@ -180,7 +350,7 @@ def _preview_headers(catalog: str) -> dict[str, str]:
 def _preview_auth_headers(catalog: str) -> dict[str, str]:
     identity = next(
         (
-            (env, _PREVIEW_USERS[env])
+            (env, f"phlo_api_preview_{env}")
             for env, item in _preview_configuration().items()
             if item["catalog"] == catalog
         ),
@@ -189,14 +359,7 @@ def _preview_auth_headers(catalog: str) -> dict[str, str]:
     if identity is None:
         raise PreviewUnavailable("Preview catalog has no environment-scoped server identity.")
     env, user = identity
-    settings = get_process_settings()
-    password = (
-        settings.phlo_v1_preview_trino_password_prod
-        if env == "prod"
-        else settings.phlo_v1_preview_trino_password_staging
-    )
-    if not password:
-        raise PreviewUnavailable("Environment-scoped preview identity is not configured.")
+    password = _preview_password(env)
     credentials = f"{user}:{password}".encode("utf-8")
     return {
         "X-Trino-User": user,
