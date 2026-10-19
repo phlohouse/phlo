@@ -20,7 +20,6 @@ from pydantic import (
     model_validator,
 )
 
-
 EnvironmentId = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z][a-z0-9_-]{0,62}$")]
 
 
