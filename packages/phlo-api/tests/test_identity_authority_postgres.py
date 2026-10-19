@@ -10,6 +10,12 @@ from testcontainers.postgres import PostgresContainer
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRecord, SignatureRequest
 from phlo.identity.authority import IdentityAuthority, IdentityConflictError
 from phlo_postgres.settings_store import PostgresSettingsStore
+from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
+from phlo.cli.commands import authz_identity
+from phlo.security.enforcement import EnforcementContext
+from click.testing import CliRunner
+from test_v1_admin_identity import _client
+from phlo_api.api import v1_admin_identity
 
 
 @pytest.mark.integration
@@ -77,3 +83,92 @@ def test_shared_authorities_serialize_invitation_acceptance_and_signature_use(
             accounts = list(workers.map(create_service_account, authorities))
         assert sum(account is not None for account in accounts) == 1
         assert len(authorities[0].service_accounts()) == 1
+
+
+@pytest.mark.integration
+def test_cli_signed_assignment_changes_real_postgres_effective_access(monkeypatch) -> None:
+    """Public CLI/HTTP and real enforcement/storage; test session, not browser login proof."""
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
+        monkeypatch.setenv(
+            "PHLO_OBSERVATORY_SETTINGS_DB_URL", postgres.get_connection_url(driver=None)
+        )
+        authority = IdentityAuthority(PostgresSettingsStore())
+        authority.assign_roles(
+            subject="admin-id",
+            email="admin@example.com",
+            principal_type="user",
+            roles=["admin", "viewer"],
+            expected_version=0,
+        )
+        client = _client(monkeypatch, authority)
+        backend = DefaultAuthorizationPolicyBackend(
+            policies=[
+                {
+                    "policy_id": "analyst-query",
+                    "effect": "allow",
+                    "action": "dataset.query",
+                    "principal": {"roles": ["analyst"]},
+                    "resource": {"type": "dataset", "id_pattern": "sales.*"},
+                },
+                {
+                    "policy_id": "restricted-query",
+                    "effect": "deny",
+                    "action": "dataset.query",
+                    "principal": {"roles": ["analyst"]},
+                    "resource": {"type": "dataset", "id_pattern": "sales.restricted"},
+                },
+            ]
+        )
+        monkeypatch.setattr(v1_admin_identity, "get_authorization_backend", lambda: backend)
+        context = EnforcementContext()
+        monkeypatch.setattr(context, "_authorization_backend", backend)
+        monkeypatch.setattr(EnforcementContext, "get_instance", lambda: context)
+        monkeypatch.setattr("phlo.identity.authority.IdentityAuthority", lambda: authority)
+        monkeypatch.setattr(authz_identity, "_client", lambda _ctx: client)
+        params = {
+            "action": "dataset.query",
+            "resource_type": "dataset",
+            "resource_id": "sales.orders",
+        }
+        assert client.get("/api/v1/admin/permissions", params=params).json()["allowed"] is False
+        args = [
+            "--api-url",
+            "https://api.example",
+            "assign",
+            "admin-id",
+            "--role",
+            "admin",
+            "--role",
+            "analyst",
+            "--expected-version",
+            "1",
+            "--justification",
+            "Reviewed query access",
+            "--operation-id",
+            "postgres-role-change",
+            "--yes",
+        ]
+        result = CliRunner().invoke(
+            authz_identity.identity_group, args, env={"PHLO_AUTHZ_TOKEN": "test-session"}
+        )
+        assert result.exit_code == 0, result.output
+        assert IdentityAuthority(PostgresSettingsStore()).member("admin-id").roles == (
+            "admin",
+            "analyst",
+        )
+        assert client.get("/api/v1/admin/permissions", params=params).json()["allowed"] is True
+        denied = client.get(
+            "/api/v1/admin/permissions", params={**params, "resource_id": "sales.restricted"}
+        )
+        assert denied.json() == {"allowed": False, "reason_code": "explicit_deny"}
+        outside = client.get(
+            "/api/v1/admin/permissions", params={**params, "resource_id": "finance.orders"}
+        )
+        assert outside.json()["allowed"] is False
+        # Standalone router lacks operation middleware: consumed signatures reject a replay.
+        replay = CliRunner().invoke(
+            authz_identity.identity_group, args, env={"PHLO_AUTHZ_TOKEN": "test-session"}
+        )
+        assert replay.exit_code != 0
+        assert "409" in replay.output
+        assert IdentityAuthority(PostgresSettingsStore()).member("admin-id").version == 2

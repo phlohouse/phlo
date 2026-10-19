@@ -8,11 +8,13 @@ import math
 from collections.abc import Callable
 from typing import Annotated, Literal, TypeVar
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import Field, field_validator
 
 from phlo.audit.events import AuditEventType, CanonicalAuditEvent
 from phlo.capabilities.interfaces import AuthenticatedSession, AuthPrincipal
+from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
+from phlo.capabilities.interfaces import ResourceRef
 from phlo.compliance.audit.sealed import TamperEvidentAuditSink
 from phlo.compliance.signatures.service import SignatureService, SignatureServiceConfig
 from phlo.compliance.signatures.step_up import RecentMfaClaimsChallenge
@@ -23,8 +25,10 @@ from phlo.identity.authority import (
     IdentityConflictError,
     IdentityInvitation,
     IdentityMember,
+    IdentityRole,
     IdentityServiceAccount,
     StoredSignature,
+    SUPPORTED_ROLES,
     validate_roles,
 )
 from phlo.plugins.observatory_settings import (
@@ -34,6 +38,8 @@ from phlo.plugins.observatory_settings import (
     parse_operational_settings,
 )
 from phlo_api.api.authentication import authenticate_request, get_request_principal
+from phlo_api.api.authorization import create_decision_context, get_authorization_backend
+from phlo.security import enforce
 from phlo_api.api.operation_controls import MutationRejected
 from phlo_api.api.v1_admin_audit import _audit_store
 from phlo_api.errors import BackendUnavailableError
@@ -41,7 +47,7 @@ from phlo_api.v1_contract import WireModel
 
 router = APIRouter(tags=["v1 admin identity"])
 
-Role = Literal["admin", "operator", "developer", "analyst", "viewer", "service"]
+Role = IdentityRole
 SignedAction = Literal[
     "admin.member.roles.change",
     "admin.invitation.create",
@@ -70,6 +76,32 @@ class MemberView(WireModel):
 
 class MemberPage(WireModel):
     items: list[MemberView]
+
+
+class RolePolicyView(WireModel):
+    policy_id: str
+    effect: str
+    action: str
+    resource_type: str
+    resource_id_pattern: str
+    principal_attribute_names: list[str]
+    resource_attribute_names: list[str]
+
+
+class RoleView(WireModel):
+    name: Role
+    policies: list[RolePolicyView]
+
+
+class RoleCatalog(WireModel):
+    assignment_scope: Literal["installation"] = "installation"
+    policy_status: Literal["available", "unavailable"]
+    items: list[RoleView]
+
+
+class PermissionView(WireModel):
+    allowed: bool
+    reason_code: str | None
 
 
 class MemberRolesUpdate(WireModel):
@@ -452,6 +484,61 @@ def v1_admin_settings_put(payload: AdminSettingsUpdate, request: Request) -> Adm
         )
     )
     return result
+
+
+@router.get("/admin/roles", response_model=RoleCatalog)
+def v1_admin_roles() -> RoleCatalog:
+    """List supported assignments and loaded candidate rules, never inferred grants."""
+    backend = get_authorization_backend()
+    available = isinstance(backend, DefaultAuthorizationPolicyBackend)
+    rules = backend.policy_rules() if isinstance(backend, DefaultAuthorizationPolicyBackend) else ()
+    return RoleCatalog(
+        policy_status="available" if available else "unavailable",
+        items=[
+            RoleView(
+                name=role,
+                policies=[
+                    RolePolicyView(
+                        policy_id=rule.policy_id,
+                        effect=rule.effect,
+                        action=rule.action,
+                        resource_type=rule.resource_type,
+                        resource_id_pattern=rule.resource_id_pattern,
+                        principal_attribute_names=sorted(rule.principal_attributes),
+                        resource_attribute_names=sorted(rule.resource_attributes),
+                    )
+                    for rule in rules
+                    if not rule.principal_roles or role in rule.principal_roles
+                ],
+            )
+            for role in sorted(SUPPORTED_ROLES)
+        ],
+    )
+
+
+@router.get("/admin/permissions", response_model=PermissionView)
+def v1_admin_permissions(
+    request: Request,
+    action: Annotated[str, Query(min_length=1, max_length=120)],
+    resource_type: Annotated[str, Query(min_length=1, max_length=120)],
+    resource_id: Annotated[str, Query(min_length=1, max_length=512)],
+    environment: str | None = None,
+) -> PermissionView:
+    """Evaluate the caller through the same enforcement path as API operations.
+
+    This checks only the supplied resource identity, without resource attributes;
+    it does not authorize a mutation or bypass that operation's own checks.
+    """
+    result = enforce(
+        principal=_actor(request),
+        action=action,
+        resource=ResourceRef(resource_type=resource_type, resource_id=resource_id),
+        context=create_decision_context(request, environment),
+        surface="phlo-api",
+    )
+    if result.variant == "error":
+        raise BackendUnavailableError("Permission evaluation is unavailable.")
+    return PermissionView(allowed=result.allowed, reason_code=result.reason_code)
 
 
 @router.get("/admin/members", response_model=MemberPage)

@@ -185,6 +185,8 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/incident-policies",
         "/api/v1/activity",
         "/api/v1/admin/settings",
+        "/api/v1/admin/roles",
+        "/api/v1/admin/permissions",
         "/api/v1/admin/members",
         "/api/v1/admin/members/{subject}/roles",
         "/api/v1/admin/invitations",
