@@ -2,25 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from phlo.config.cache import project_root_cached
 from phlo.config.process import get_process_settings
 from phlo.config_schema import (
     ApiAuthorizationConfig,
-    EnvironmentId,
-    EnvironmentTarget,
     InfrastructureConfig,
     ProjectConfig,
     ServiceConfig,
     WapConfig,
-    validate_environment_targets,
 )
 from phlo.logging_context import get_logger
 
@@ -315,34 +311,6 @@ def get_configured_authentication_provider_name(project_root: Path | None = None
             "environment and phlo.yaml"
         )
     return selected[0][1] if selected else None
-
-
-def get_environment_targets(project_root: Path | None = None) -> dict[str, EnvironmentTarget]:
-    """Resolve deployed targets from YAML or a legacy runtime override, never merge.
-
-    A nonempty PHLO_V1_ENVIRONMENTS is an explicit full replacement. A YAML
-    default must still exist in that replacement. Empty/missing configuration
-    fails closed rather than inventing a target from a catalog branch.
-    """
-    project = load_project_model(project_root)
-    raw = get_process_settings().get("PHLO_V1_ENVIRONMENTS", "")
-    targets = (
-        TypeAdapter(dict[EnvironmentId, EnvironmentTarget]).validate_python(json.loads(raw))
-        if raw
-        else project.environments
-    )
-    if not targets:
-        raise ValueError("Configure environments in phlo.yaml")
-    validate_environment_targets(targets)
-    if project.default_environment is not None and project.default_environment not in targets:
-        raise ValueError("default_environment is absent from the runtime environment map")
-    return targets
-
-
-def get_default_environment(project_root: Path | None = None) -> str:
-    """Return the explicit default or the first configured target, even during outage."""
-    targets = get_environment_targets(project_root)
-    return load_project_model(project_root).default_environment or next(iter(targets))
 
 
 def get_configured_authorization_backend_name(project_root: Path | None = None) -> str | None:
