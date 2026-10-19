@@ -1,5 +1,5 @@
 {
-  "command_count": 176,
+  "command_count": 177,
   "commands": [
     {
       "capabilities": {
@@ -8986,6 +8986,130 @@
           "required": false,
           "secondary_options": [],
           "type": "choice"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": true,
+        "json": false
+      },
+      "command": "phlo services upgrade",
+      "description": "Reconcile installed templates, preserving secrets, volumes and personal overrides.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Compare only; this is also the default.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Save a private reviewable JSON plan.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Apply this reviewed plan, never regenerate blindly.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_path",
+          "nargs": 1,
+          "options": [
+            "--apply"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Exact plan token printed by the dry run.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "confirm",
+          "nargs": 1,
+          "options": [
+            "--confirm"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Pristine previous-release project for stacks without a generation baseline.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "previous_generated",
+          "nargs": 1,
+          "options": [
+            "--previous-generated"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Keep the production rendering profile.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "production",
+          "nargs": 1,
+          "options": [
+            "--production"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Explicitly accept platforms without POSIX private-file guarantees.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "allow_insecure",
+          "nargs": 1,
+          "options": [
+            "--allow-insecure"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
         }
       ]
     },
