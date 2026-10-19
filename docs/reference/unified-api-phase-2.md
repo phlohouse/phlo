@@ -4,7 +4,7 @@ This reference describes the phase-2 incident API slice. The routes use the Phas
 
 ## Storage
 
-Apply `packages/phlo-api/src/phlo_api/sql/001_incidents.sql` explicitly to the intended PostgreSQL database before enabling these routes. The API does not run schema migrations at startup. If durable incident storage is unavailable, requests fail with 503. The migration adds incident, timeline event, signal-deduplication, idempotency, subscription, follow-up, and asset policy tables in the existing `phlo` schema.
+When `PHLO_RUN_EVIDENCE_DB_URL` is configured, API startup applies the incident schema to that PostgreSQL database before serving requests. The additive migration is idempotent and serialized across concurrent API startups. If the database is not configured, incident requests remain unavailable and return 503. The migration adds incident, timeline event, signal-deduplication, idempotency, subscription, follow-up, and asset policy tables in the existing `phlo` schema.
 
 ## Routes
 
