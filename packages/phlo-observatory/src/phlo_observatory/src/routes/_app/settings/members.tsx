@@ -743,6 +743,7 @@ function ConfirmAction({
     >
       <DialogContent>
         <form
+          className="flex min-h-0 flex-col"
           onSubmit={async (event) => {
             event.preventDefault()
             if (busy) return
