@@ -32,7 +32,7 @@ from phlo_api.api.operation_controls import (
     require_scope,
     shared_operation_controls,
 )
-from phlo_api.api.v1 import _target
+from phlo_api.api.v1 import _target, _targets
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
 from phlo_api.observatory_api.http_client import backend_client
 from phlo_api.branch_schema_resolution import (
@@ -596,7 +596,7 @@ def _check_job_names(env: Environment) -> dict[str, str]:
         jobs = configured[env]
         if (
             not isinstance(configured, dict)
-            or set(configured) != {"prod", "staging"}
+            or set(configured) != set(_targets())
             or not isinstance(jobs, dict)
             or set(jobs) != {"tests", "contracts", "audits"}
             or any(

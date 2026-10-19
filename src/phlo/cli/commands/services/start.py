@@ -606,6 +606,11 @@ def _run_production_preflight(plan: StartPreflightPlan) -> None:
     default=None,
     help="Container backend for this command.",
 )
+@click.option(
+    "--observatory-dev",
+    is_flag=True,
+    help="Set up and start a loopback-only local Observatory, then wait for dashboard readiness.",
+)
 @require_mutation_authorization("services.start")
 def start_cmd(
     detach: bool,
@@ -614,6 +619,7 @@ def start_cmd(
     service: tuple[str, ...],
     native: bool,
     backend_name: str | None,
+    observatory_dev: bool = False,
 ):
     """Start Phlo infrastructure services.
 
@@ -624,6 +630,19 @@ def start_cmd(
         phlo services start --service postgres
         phlo services start --native
     """
+    from phlo.cli.commands.services.preflight import prepare_observatory_start
+
+    # A previous observation is not evidence about this startup attempt.
+    (Path.cwd() / ".phlo" / "observatory-ready.json").unlink(missing_ok=True)
+    service, observatory_urls = prepare_observatory_start(
+        project=_load_project_config(Path.cwd()),
+        opt_in=observatory_dev,
+        native=native,
+        profile=profile,
+        service=service,
+        detach=detach,
+        backend_name=backend_name,
+    )
     phlo_dir = ensure_phlo_dir()
     compose_file = phlo_dir / "docker-compose.yml"
     project_name = get_project_name()
@@ -764,6 +783,15 @@ def start_cmd(
                 project_name,
                 lifecycle_request_id,
                 native,
+                readiness_timeout=180 if observatory_urls else READINESS_TIMEOUT_SECONDS,
+            )
+            from phlo.cli.commands.services.preflight import report_observatory_start
+
+            report_observatory_start(
+                phlo_dir,
+                observatory_urls,
+                backend_name,
+                started_observatory="observatory" in docker_service_names,
             )
         else:
             _report_start_failure(
@@ -947,6 +975,8 @@ def _wait_and_report_start(
     project_name: str,
     lifecycle_request_id: str,
     native: bool,
+    *,
+    readiness_timeout: float = READINESS_TIMEOUT_SECONDS,
 ) -> None:
     """Wait for runtime readiness before publishing success and post-start hooks."""
     started_services: list[str] = []
@@ -967,6 +997,7 @@ def _wait_and_report_start(
             project_name=project_name,
             compose_file=compose_file,
             service_names=selected_services,
+            timeout_seconds=readiness_timeout,
         )
 
     _emit_service_lifecycle_events(

@@ -15,7 +15,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
 from phlo_api.observatory_api.observatory_durable_state import load_collection, mutate_collection
-from phlo_api.v1_contract import WireModel
+from phlo_api.v1_contract import Environment, WireModel
 
 ColumnName = Annotated[
     str,
@@ -68,7 +68,7 @@ class AssetAuditProposal(WireModel):
     """A source-only quality check proposal awaiting human Git review."""
 
     proposal_id: str
-    env: Literal["prod", "staging"]
+    env: Environment
     asset_id: str
     nessie_ref: str
     check_name: str
@@ -108,7 +108,7 @@ class AuditRuleResult(WireModel):
 class AssetAuditTestResult(WireModel):
     proposal_id: str
     source_digest: str
-    env: Literal["prod", "staging"]
+    env: Environment
     nessie_ref: str
     engine: Literal["trino"] = "trino"
     executed_at: AwareDatetime
@@ -165,7 +165,7 @@ _MAX_STORED_PROPOSALS = 200
 def create_audit_proposal(
     *,
     project_root: Path,
-    env: Literal["prod", "staging"],
+    env: Environment,
     asset_id: str,
     nessie_ref: str,
     check_name: str,

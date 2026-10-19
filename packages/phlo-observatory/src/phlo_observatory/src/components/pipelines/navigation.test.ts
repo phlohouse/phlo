@@ -8,6 +8,12 @@ import { getPipelineJob } from '@/lib/data/api/pipelines'
 
 vi.mock('@/lib/data/api/core', async (importOriginal) => ({
   ...(await importOriginal<typeof CoreApi>()),
+  getEnvironments: vi.fn(({ data }: { data: string }) =>
+    Promise.resolve({
+      selected: data,
+      items: [{ env: data, status: 'available' }],
+    }),
+  ),
   getShell: vi.fn(() => Promise.resolve({})),
 }))
 

@@ -304,8 +304,9 @@ def send_incident_notification(
     run_id and error_message for provider deduplication, not exactly-once claims.
     QA uses an explicit qa capability, never the owner's route.
     """
-    if env not in {"prod", "staging"} or severity not in {"low", "medium", "high", "critical"}:
+    if severity not in {"low", "medium", "high", "critical"}:
         raise ValueError("Invalid notification environment or severity.")
+    operational_environment_target(env)
     if not incident_id or not effect_id:
         raise ValueError("Notification requires incident and effect identity.")
     settings = get_operational_settings()

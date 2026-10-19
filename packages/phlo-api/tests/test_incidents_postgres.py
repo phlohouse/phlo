@@ -407,3 +407,46 @@ def test_incident_transactions_group_concurrent_signals_and_isolate_environments
         decision_events = [event for event in timeline.items if event.kind == "schema_decision"]
         assert len(decision_events) == 1
         assert decision_events[0].payload["id"] == decision.id
+
+
+@pytest.mark.integration
+def test_explicit_environment_upgrade_checks_real_constraints_and_preserves_rows(monkeypatch):
+    import json
+
+    import psycopg2
+    from click.testing import CliRunner
+
+    from phlo_api import migrations, usage
+
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
+        dsn = postgres.get_connection_url(driver=None)
+        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", dsn)
+        incidents.initialize_incidents()
+        usage.initialize_usage()
+        runner = CliRunner()
+        fresh = runner.invoke(migrations.main, ["--check", "--json"])
+        assert fresh.exit_code == 0, fresh.output
+        assert json.loads(fresh.output)["state"] == "compatible"
+        with psycopg2.connect(dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO phlo.incident (incident_id, env, asset_id, kind, title, status) VALUES ('kept', 'prod', 'orders', 'quality', 'Existing incident', 'open')"
+            )
+            cursor.execute("ALTER TABLE phlo.incident DROP CONSTRAINT incident_env_check")
+            cursor.execute(
+                "ALTER TABLE phlo.incident ADD CONSTRAINT incident_env_check CHECK (env IN ('prod', 'staging'))"
+            )
+        required = runner.invoke(migrations.main, ["--check", "--json"])
+        assert required.exit_code == 1, required.output
+        assert json.loads(required.output)["state"] == "required"
+        assert runner.invoke(migrations.main, ["--apply"]).exit_code != 0
+        applied = runner.invoke(migrations.main, ["--apply", "--backup-confirmed", "--json"])
+        assert applied.exit_code == 0, applied.output
+        assert json.loads(applied.output)["state"] == "compatible"
+        with psycopg2.connect(dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT env FROM phlo.incident WHERE incident_id = 'kept'")
+            assert cursor.fetchone() == ("prod",)
+            cursor.execute(
+                "INSERT INTO phlo.incident (incident_id, env, asset_id, kind, title, status) VALUES ('new', 'sandbox', 'orders', 'quality', 'New incident', 'open')"
+            )
+        again = runner.invoke(migrations.main, ["--apply", "--backup-confirmed", "--json"])
+        assert again.exit_code == 0, again.output

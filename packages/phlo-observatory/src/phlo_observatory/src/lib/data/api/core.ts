@@ -16,6 +16,52 @@ const incidentsPageSchema = z.object({
   next_cursor: z.string().nullable(),
 })
 
+export const getEnvironments = createServerFn({ method: 'GET' })
+  .inputValidator(z.string())
+  .handler(async ({ data: selected }) => {
+    const [discovery, me] = await Promise.all([
+      phloApi(
+        'api/v1/environments',
+        z.object({
+          items: z
+            .array(
+              z.object({
+                env: environmentSchema,
+                status: z.enum(['available', 'unavailable']),
+              }),
+            )
+            .min(1),
+          default_environment: environmentSchema.nullable().optional(),
+        }),
+      ),
+      phloApi(
+        'api/v1/me',
+        z.object({
+          permissions: z.record(environmentSchema, z.array(z.string())),
+        }),
+      ),
+    ])
+    if (
+      Object.hasOwn(me.permissions, selected) &&
+      !discovery.items.some((item) => item.env === selected)
+    ) {
+      throw new Error(
+        'Phlo API access denied (403). This environment is configured but not permitted.',
+      )
+    }
+    const fallback =
+      discovery.items.find(
+        (item) => item.env === discovery.default_environment,
+      ) ?? discovery.items[0]
+    if (!fallback) throw new Error('No authorized environment is configured.')
+    return {
+      ...discovery,
+      selected: discovery.items.some((item) => item.env === selected)
+        ? selected
+        : fallback.env,
+    }
+  })
+
 export const getShell = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)
   .handler(async ({ data: env }) => {

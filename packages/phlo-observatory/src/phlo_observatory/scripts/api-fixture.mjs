@@ -1,7 +1,14 @@
 /** Controlled HTTP fixture for the built-app smoke, never live-service evidence. */
 import { createServer } from 'node:http'
 
-export function startApiFixture() {
+export function startApiFixture({
+  environments = [
+    { env: 'prod', status: 'available' },
+    { env: 'staging', status: 'available' },
+  ],
+  defaultEnvironment = environments[0].env,
+  deniedEnvironments = [],
+} = {}) {
   const requests = []
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture')
@@ -20,6 +27,13 @@ export function startApiFixture() {
       res
         .writeHead(401)
         .end(JSON.stringify({ detail: 'User identity required' }))
+      return
+    }
+    if (
+      url.pathname === '/api/v1/environments' &&
+      environments.every((item) => deniedEnvironments.includes(item.env))
+    ) {
+      res.writeHead(403).end(JSON.stringify({ detail: 'Access denied' }))
       return
     }
     const page = { env, items: [], next_cursor: null }
@@ -44,12 +58,26 @@ export function startApiFixture() {
       },
     }
     const responses = {
+      '/api/v1/environments': {
+        items: environments.filter(
+          (item) => !deniedEnvironments.includes(item.env),
+        ),
+        default_environment: defaultEnvironment,
+        promotion_source_environment: null,
+      },
       '/api/v1/me': {
         subject: 'browser-smoke',
         email: null,
         principal_type: 'user',
         roles: ['reader'],
-        permissions: { staging: ['service.read', 'run.read'] },
+        permissions: Object.fromEntries(
+          environments.map((item) => [
+            item.env,
+            deniedEnvironments.includes(item.env)
+              ? []
+              : ['service.read', 'run.read'],
+          ]),
+        ),
       },
       '/api/v1/overview': overview,
       '/api/v1/services': {

@@ -5,7 +5,7 @@ import * as React from 'react'
 import { getQueryHistory } from '@/lib/data/api/query'
 import { Button } from '@/components/ui/button'
 
-export function QueryHistory({ env }: { env: 'prod' | 'staging' }) {
+export function QueryHistory({ env }: { env: string }) {
   const [history, setHistory] =
     React.useState<Awaited<ReturnType<typeof getQueryHistory>>>()
   const [error, setError] = React.useState<string>()

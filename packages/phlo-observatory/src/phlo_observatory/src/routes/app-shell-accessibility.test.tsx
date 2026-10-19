@@ -8,6 +8,11 @@ import { Route } from './_app'
 import { ThemeProvider } from '@/lib/theme'
 
 vi.mock('@tanstack/react-router', () => ({
+  getRouteApi: () => ({
+    useRouteContext: () => ({
+      environments: [{ env: 'prod', status: 'available' }],
+    }),
+  }),
   createFileRoute: () => (options: { component?: React.ComponentType }) => ({
     options,
     useLoaderData: () => ({
