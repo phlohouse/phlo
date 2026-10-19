@@ -104,6 +104,7 @@ def test_integer_strings_keep_int_parsing(tmp_path, monkeypatch, value, expected
         ("PHLO_V1_ACTIONS_SINGLE_PROCESS", "actions_single_process", "1"),
         ("PHLO_V1_ACTIONS_REF_TAG_CONTRACT", "actions_ref_tag_contract", "1"),
         ("PHLO_V1_QUERY_SINGLE_REPLICA", "query_single_replica", "1"),
+        ("PHLO_V1_QUERY_SINGLE_PROCESS", "query_single_process", "1"),
         ("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "preview_server_limits_configured", "1"),
         ("PHLO_STAGING_SINGLE_REPLICA", "staging_single_replica", "true"),
     ],

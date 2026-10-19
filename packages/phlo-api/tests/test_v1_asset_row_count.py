@@ -44,6 +44,7 @@ def test_explicit_count_is_snapshot_pinned_bounded_and_zero_is_real(monkeypatch,
     monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD", "test-secret")
     monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING", "test-secret")
     monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_PROCESS", "1")
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setattr(
         v1_query,
