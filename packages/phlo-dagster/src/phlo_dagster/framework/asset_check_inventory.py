@@ -5,14 +5,45 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import dagster as dg
+from dagster._core.definitions.assets.definition.cacheable_assets_definition import (
+    AssetsDefinitionCacheableData,
+    CacheableAssetsDefinition,
+)
+from dagster._utils.warnings import disable_dagster_warnings
 
 INVENTORY_METADATA_KEY = "phlo/asset-check-inventory"
 INVENTORY_VERSION = 1
 MAX_CHECKS_PER_ASSET = 100
 MAX_INVENTORY_BYTES = 16_384
+
+
+class _InventoryCacheableAssetsDefinition(CacheableAssetsDefinition):
+    """Preserve cacheable asset loading while adding metadata to built specs."""
+
+    def __init__(
+        self,
+        wrapped: CacheableAssetsDefinition,
+        add_inventory: Callable[[dg.AssetSpec], dg.AssetSpec],
+    ) -> None:
+        """Retain the provider and its cache identity."""
+        super().__init__(wrapped.unique_id)
+        self._wrapped = wrapped
+        self._add_inventory = add_inventory
+
+    def compute_cacheable_data(self) -> Sequence[AssetsDefinitionCacheableData]:
+        """Delegate cache-data calculation to the wrapped asset provider."""
+        return list(self._wrapped.compute_cacheable_data())
+
+    def build_definitions(
+        self, data: Sequence[AssetsDefinitionCacheableData]
+    ) -> Sequence[dg.AssetsDefinition]:
+        """Attach inventory metadata after the wrapped provider builds assets."""
+        assets = self._wrapped.build_definitions(data)
+        return dg.map_asset_specs(self._add_inventory, assets)
 
 
 def add_asset_check_inventory(definitions: dg.Definitions) -> dg.Definitions:
@@ -49,7 +80,48 @@ def add_asset_check_inventory(definitions: dg.Definitions) -> dg.Definitions:
             metadata={INVENTORY_METADATA_KEY: inventory_for(tuple(spec.key.path))}
         )
 
-    assets = dg.map_asset_specs(add_inventory, asset_graph.assets_defs)
+    assets: list[Any] = []
+    known_asset_keys: set[dg.AssetKey] = set()
+    for asset in definitions.assets or []:
+        if isinstance(asset, dg.AssetsDefinition):
+            assets.append(asset.map_asset_specs(add_inventory))
+            known_asset_keys.update(asset.keys)
+        elif isinstance(asset, dg.AssetSpec):
+            assets.append(add_inventory(asset))
+            known_asset_keys.add(asset.key)
+        elif isinstance(asset, dg.SourceAsset):
+            source_options: dict[str, Any] = {
+                "key": asset.key,
+                "metadata": {
+                    **asset.raw_metadata,
+                    INVENTORY_METADATA_KEY: inventory_for(tuple(asset.key.path)),
+                },
+                "io_manager_key": asset.io_manager_key,
+                "io_manager_def": asset.io_manager_def,
+                "description": asset.description,
+                "partitions_def": asset.partitions_def,
+                "group_name": asset.group_name,
+                "resource_defs": asset.resource_defs,
+                "observe_fn": asset.observe_fn,
+                "op_tags": asset.op_tags,
+                "auto_observe_interval_minutes": asset.auto_observe_interval_minutes,
+                "legacy_freshness_policy": asset.legacy_freshness_policy,
+                "automation_condition": asset.automation_condition,
+                "tags": asset.tags,
+                "_required_resource_keys": asset.required_resource_keys,
+            }
+            with disable_dagster_warnings():
+                assets.append(dg.SourceAsset.dagster_internal_init(**source_options))
+            known_asset_keys.add(asset.key)
+        elif isinstance(asset, CacheableAssetsDefinition):
+            assets.append(_InventoryCacheableAssetsDefinition(asset, add_inventory))
+            for cacheable_data in asset.compute_cacheable_data():
+                if cacheable_data.keys_by_output_name is not None:
+                    known_asset_keys.update(cacheable_data.keys_by_output_name.values())
+
+    for key in asset_graph.get_all_asset_keys() - known_asset_keys:
+        assets.append(add_inventory(dg.AssetSpec(key)))
+
     return dg.Definitions(
         assets=assets,
         schedules=definitions.schedules,
@@ -60,4 +132,5 @@ def add_asset_check_inventory(definitions: dg.Definitions) -> dg.Definitions:
         loggers=definitions.loggers,
         metadata=definitions.metadata,
         component_tree=definitions.component_tree,
+        asset_checks=definitions.asset_checks,
     )

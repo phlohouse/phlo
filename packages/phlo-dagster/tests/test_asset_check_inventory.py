@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import dagster as dg
 from dagster._core.definitions.assets.definition.cacheable_assets_definition import (
@@ -12,7 +13,6 @@ from dagster._core.definitions.assets.definition.cacheable_assets_definition imp
 from dagster._core.workspace.context import WorkspaceProcessContext
 from dagster._core.workspace.load_target import CompositeTarget, PythonFileTarget
 from dagster_graphql.test.utils import execute_dagster_graphql
-from dagster_shared.utils.warnings import BetaWarning
 import pytest
 
 from phlo_dagster.framework.asset_check_inventory import (
@@ -20,9 +20,6 @@ from phlo_dagster.framework.asset_check_inventory import (
     MAX_CHECKS_PER_ASSET,
     add_asset_check_inventory,
 )
-
-# Dagster rebuilds check-only definitions with its beta execution_type parameter.
-_CHECK_GRAPH_WARNING = r"Parameter `execution_type` of function `AssetsDefinition\.__init__`"
 
 
 def _repository(check_name: str, *, include_check_only_target: bool = False) -> dg.Definitions:
@@ -51,12 +48,9 @@ def test_duplicate_key_repositories_keep_each_local_definition_complete() -> Non
     staging = _repository("shared_check")
     another_staging = _repository("staging_only")
 
-    with pytest.warns(BetaWarning, match=_CHECK_GRAPH_WARNING):
-        production_graph = production.get_repository_def().asset_graph
-    with pytest.warns(BetaWarning, match=_CHECK_GRAPH_WARNING):
-        staging_graph = staging.get_repository_def().asset_graph
-    with pytest.warns(BetaWarning, match=_CHECK_GRAPH_WARNING):
-        another_staging_graph = another_staging.get_repository_def().asset_graph
+    production_graph = production.get_repository_def().asset_graph
+    staging_graph = staging.get_repository_def().asset_graph
+    another_staging_graph = another_staging.get_repository_def().asset_graph
     assert {key.name for key in production_graph.asset_check_keys} == {"shared_check"}
     assert {key.name for key in staging_graph.asset_check_keys} == {"shared_check"}
     assert {key.name for key in another_staging_graph.asset_check_keys} == {"staging_only"}
@@ -157,10 +151,100 @@ defs = add_asset_check_inventory(dg.Definitions(assets=[shared]))
 
 def test_check_only_nonmaterializable_target_is_included() -> None:
     definitions = _repository("shared_check", include_check_only_target=True)
-    with pytest.warns(BetaWarning, match=_CHECK_GRAPH_WARNING):
-        graph = definitions.resolve_asset_graph()
+    graph = definitions.resolve_asset_graph()
     inventory = graph.get(dg.AssetKey("check_only")).metadata[INVENTORY_METADATA_KEY]
     assert inventory["checks"] == [{"name": "check_only_check", "description": None}]
+
+
+def test_inventory_preserves_resource_bindings_on_assets() -> None:
+    query_resource = object()
+
+    @dg.asset(required_resource_keys={"query"})
+    def example_asset(context):
+        return context.resources.query
+
+    @dg.asset(required_resource_keys={"query"})
+    def another_asset(context):
+        return context.resources.query
+
+    definitions = dg.Definitions(
+        assets=[example_asset, another_asset],
+        resources={"query": query_resource},
+        metadata={"owner": "data-platform"},
+    )
+    definitions.resolve_asset_graph()
+
+    with_inventory = add_asset_check_inventory(definitions)
+
+    asset_defs = with_inventory.resolve_asset_graph().assets_defs
+    assert len(asset_defs) == 2
+    assert all(
+        asset.resource_defs["query"].resource_fn(None) is query_resource for asset in asset_defs
+    )
+    assert with_inventory.resources["query"] is query_resource
+    assert with_inventory.metadata["owner"].value == "data-platform"
+
+
+def test_inventory_preserves_prebound_resource_definitions() -> None:
+    query_resource = object()
+
+    @dg.asset(required_resource_keys={"query"})
+    def example_asset(context):
+        return context.resources.query
+
+    definitions = dg.Definitions(
+        assets=[
+            example_asset.with_resources(
+                {
+                    "query": dg.ResourceDefinition.hardcoded_resource(query_resource),
+                    "io_manager": dg.mem_io_manager,
+                }
+            )
+        ]
+    )
+    with_inventory = add_asset_check_inventory(definitions)
+    asset = next(
+        asset for asset in with_inventory.resolve_asset_graph().assets_defs if asset.has_keys
+    )
+    assert asset.resource_defs["query"].resource_fn(None) is query_resource
+
+
+def test_definitions_builder_resolves_assets_with_shared_resources(monkeypatch, tmp_path) -> None:
+    from phlo_dagster.framework import definitions as builder
+
+    query_resource = object()
+
+    @dg.asset(required_resource_keys={"query"})
+    def example_asset(context):
+        return context.resources.query
+
+    user_definitions = dg.Definitions(assets=[example_asset], resources={"query": query_resource})
+    monkeypatch.setattr(builder, "setup_logging", lambda: None)
+    monkeypatch.setattr(builder, "get_settings", lambda: SimpleNamespace(workflows_path=tmp_path))
+    monkeypatch.setattr(
+        builder,
+        "get_process_settings",
+        lambda: SimpleNamespace(phlo_observatory_environment=None),
+    )
+    monkeypatch.setattr(
+        builder, "discover_user_workflows", lambda *_args, **_kwargs: user_definitions
+    )
+    monkeypatch.setattr(builder, "maybe_refresh_contracts", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(builder, "_collect_dagster_extension_definitions", lambda: None)
+    monkeypatch.setattr(builder, "_collect_wap_definitions", lambda: None)
+    monkeypatch.setattr(builder, "_ensure_core_resources", lambda definitions: definitions)
+    monkeypatch.setattr(builder, "_default_executor", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "merge_definitions_with_duplicate_diagnostics",
+        lambda *definitions: dg.Definitions.merge(*definitions),
+    )
+
+    definitions = builder.build_definitions()
+    graph = definitions.resolve_asset_graph()
+    asset = next(asset for asset in graph.assets_defs if asset.has_keys)
+
+    assert asset.resource_defs["query"].resource_fn(None) is query_resource
 
 
 def test_inline_asset_check_is_included_in_complete_inventory() -> None:
@@ -197,8 +281,7 @@ def test_resolved_cacheable_asset_checks_are_exported() -> None:
     definitions = add_asset_check_inventory(
         dg.Definitions(assets=[CacheableAssets()], asset_checks=[cached_quality])
     )
-    with pytest.warns(BetaWarning, match=_CHECK_GRAPH_WARNING):
-        graph = definitions.resolve_asset_graph()
+    graph = definitions.resolve_asset_graph()
     inventory = graph.get(dg.AssetKey("cached")).metadata[INVENTORY_METADATA_KEY]
     assert inventory["complete"] is True
     assert inventory["checks"] == [{"name": "cached_quality", "description": None}]
@@ -216,8 +299,7 @@ def test_source_asset_metadata_and_check_target_are_preserved() -> None:
     definitions = add_asset_check_inventory(
         dg.Definitions(assets=[source], asset_checks=[source_check])
     )
-    with pytest.warns(BetaWarning, match=_CHECK_GRAPH_WARNING):
-        graph = definitions.resolve_asset_graph()
+    graph = definitions.resolve_asset_graph()
     source_node = graph.get(dg.AssetKey("source"))
     assert source_node.is_external
     assert source_node.description == "external"
@@ -243,8 +325,7 @@ def test_inventory_marks_bounded_out_definitions_incomplete() -> None:
     definitions = add_asset_check_inventory(
         dg.Definitions(assets=[dg.AssetSpec(key)], asset_checks=checks)
     )
-    with pytest.warns(BetaWarning, match=_CHECK_GRAPH_WARNING):
-        graph = definitions.resolve_asset_graph()
+    graph = definitions.resolve_asset_graph()
     inventory = graph.get(dg.AssetKey("shared")).metadata[INVENTORY_METADATA_KEY]
     assert inventory["complete"] is False
     assert inventory["checks"] == []
