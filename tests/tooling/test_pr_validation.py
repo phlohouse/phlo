@@ -163,6 +163,25 @@ def test_required_gate_executes_fail_closed(bad_result) -> None:
         env[f"{lane}_SELECTED"] = "true"
 
 
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_python_only_changes_require_the_complete_integration_result(result) -> None:
+    """Python selection keeps the reusable integration workflow in the PR gate."""
+    step = workflow("pr.yml")["jobs"]["required"]["steps"][0]
+    assert step["env"]["INTEGRATION"] == "${{ needs.integration.result }}"
+    env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
+    env.update(
+        INTEGRATION=result,
+        INTEGRATION_SELECTED="false",
+        PYTHON_SELECTED="true",
+        DOCS="skipped",
+        DOCS_SELECTED="false",
+        MUTATION="skipped",
+        MUTATION_SELECTED="false",
+    )
+    actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
+    assert (actual.returncode == 0) == (result == "success")
+
+
 @pytest.mark.parametrize(
     "body",
     [

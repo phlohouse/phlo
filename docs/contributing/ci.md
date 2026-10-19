@@ -27,7 +27,7 @@ environments.
 | --- | --- |
 | Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job. Focused mutation checks remain required when selected. |
 | Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks share one Node job, with each consumer selected independently. |
-| Integration and portability | Storage/catalog suites, PostgreSQL concurrency, quickstart and recovery share one Linux workspace. Windows launcher and shared-layout checks share one native Windows job. |
+| Integration and portability | Storage/catalog contracts and three API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks share one native Windows job. |
 | Artifact and dependency safety | Preparation builds wheels once for provider shards and Windows acceptance. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 
 | Stage | Scope |
@@ -48,13 +48,26 @@ per-source floors. See [test and contract gates](testing-gates.md) for the sourc
 scope and local commands. Standalone Windows dispatch builds its own wheels;
 ordinary validation reuses the preparation artifact.
 
-Integration provisions disposable PostgreSQL, MinIO and Nessie. Storage/catalog
+Integration builds the checked-in MinIO image once, then transfers it to the
+storage/catalog job and three API groups. Each consumer verifies the loaded image
+ID before running tests. BuildKit imports the default-branch publisher's MinIO
+cache and the integration cache; the runtime stage still applies fresh operating
+system updates. A cache miss rebuilds the same sources.
+
+The API groups keep whole test modules together and provision their own services.
+PostgreSQL concurrency, quickstart and recovery run independently of the image
+build. The final integration result requires every producer to succeed and
+retains the combined `integration-results` artifact.
+
+Integration provisions disposable PostgreSQL, MinIO and Nessie. Named contract
 suites reject missing tests, skips and expected failures through
 `scripts/ci_required.py`; PostgreSQL guards require exactly three passes without
 skips. Local tests can still skip unavailable services without this opt-in
 plugin. Reproduce the storage/catalog suites with
 `uv run --locked python scripts/run_integration.py`;
 Docker is required and provisioned containers are removed afterwards.
+See [parallel integration contracts](testing-gates.md#parallel-integration-contracts)
+for individual group commands and timing diagnostics.
 
 Package-specific test environments and their coverage reports remain separate
 from the full-workspace measurement. The workspace shards also include

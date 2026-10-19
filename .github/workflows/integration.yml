@@ -16,10 +16,173 @@ permissions:
   contents: read
 
 jobs:
-  integration:
-    name: integration / required suites
+  minio-image:
+    name: integration / MinIO source image
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
+    outputs:
+      image_id: ${{ steps.export.outputs.image_id }}
+    env:
+      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.1
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/docker-mirror
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
+      - name: Build MinIO from checked-in sources
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: packages/phlo-minio/src/phlo_minio
+          file: packages/phlo-minio/src/phlo_minio/Dockerfile
+          platforms: linux/amd64
+          tags: ${{ env.MINIO_IMAGE }}
+          load: true
+          push: false
+          # Reuse source compilation while retaining fresh runtime OS upgrades.
+          no-cache-filters: runtime
+          cache-from: |
+            type=gha,scope=minio-amd64
+            type=gha,scope=integration-minio-amd64
+          cache-to: type=gha,scope=integration-minio-amd64,mode=max,ignore-error=true
+      - name: Export the checkout-built MinIO image
+        id: export
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_id="$(docker image inspect --format '{{.Id}}' "$MINIO_IMAGE")"
+          test -n "$image_id"
+          docker image save --output "$RUNNER_TEMP/integration-minio.tar" "$MINIO_IMAGE"
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+      - name: Upload the checkout-built MinIO image
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: integration-minio-image
+          path: ${{ runner.temp }}/integration-minio.tar
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  contracts:
+    name: integration / storage contracts
+    needs: minio-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON: "3.12"
+      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.1
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/docker-mirror
+      - name: Download the checkout-built MinIO image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: integration-minio-image
+          path: ${{ runner.temp }}
+      - name: Load and verify the checkout-built MinIO image
+        id: minio
+        env:
+          EXPECTED_MINIO_ID: ${{ needs.minio-image.outputs.image_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED_MINIO_ID"
+          docker image load --input "$RUNNER_TEMP/integration-minio.tar"
+          actual_id="$(docker image inspect --format '{{.Id}}' "$MINIO_IMAGE")"
+          test "$actual_id" = "$EXPECTED_MINIO_ID"
+      - name: Install uv
+        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Install Python 3.12
+        run: uv python install 3.12
+      - name: Sync complete workspace
+        id: workspace
+        run: uv sync --all-packages --dev --locked
+      - name: Run named behavioral contracts
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' && steps.minio.outcome == 'success' }}
+        run: uv run --locked python scripts/run_integration.py --group storage
+      - name: Publish designated suite execution and skip reasons
+        if: always()
+        run: python3 scripts/test_summary.py test-results/integration >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload required suite results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: integration-results-storage
+          path: test-results/integration/
+          if-no-files-found: error
+
+  api:
+    name: integration / ${{ matrix.group }}
+    needs: minio-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [api-contracts, api-query-journey, api-branch-journey]
+    env:
+      UV_PYTHON: "3.12"
+      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.1
+      CONTRACT_GROUP: ${{ matrix.group }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/docker-mirror
+      - name: Download the checkout-built MinIO image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: integration-minio-image
+          path: ${{ runner.temp }}
+      - name: Load and verify the checkout-built MinIO image
+        id: minio
+        env:
+          EXPECTED_MINIO_ID: ${{ needs.minio-image.outputs.image_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED_MINIO_ID"
+          docker image load --input "$RUNNER_TEMP/integration-minio.tar"
+          actual_id="$(docker image inspect --format '{{.Id}}' "$MINIO_IMAGE")"
+          test "$actual_id" = "$EXPECTED_MINIO_ID"
+      - name: Install uv
+        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Install Python 3.12
+        run: uv python install 3.12
+      - name: Sync complete workspace
+        id: workspace
+        run: uv sync --all-packages --dev --locked
+      - name: Run named behavioral contracts
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' && steps.minio.outcome == 'success' }}
+        run: uv run --locked python scripts/run_integration.py --group "$CONTRACT_GROUP"
+      - name: Publish designated suite execution and skip reasons
+        if: always()
+        run: python3 scripts/test_summary.py test-results/integration >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload required suite results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: integration-results-${{ matrix.group }}
+          path: test-results/integration/
+          if-no-files-found: error
+
+  operations:
+    name: integration / operations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
@@ -52,21 +215,6 @@ jobs:
       - name: Sync complete workspace
         id: workspace
         run: uv sync --all-packages --dev --locked
-      - name: Build MinIO from checked-in sources
-        run: docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.1 packages/phlo-minio/src/phlo_minio
-      - name: Run named behavioral contracts
-        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
-        run: uv run --locked python scripts/run_integration.py
-      - name: Publish designated suite execution and skip reasons
-        if: always()
-        run: python3 scripts/test_summary.py test-results/integration >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload required suite results
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: integration-results
-          path: test-results/integration/
-          if-no-files-found: error
       - name: Preflight PostgreSQL gate dependencies
         if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
         id: postgres_preflight
@@ -204,3 +352,41 @@ jobs:
           name: recovery-continuity-drill
           path: recovery-artifacts/recovery-drill.json
           if-no-files-found: warn
+
+  integration:
+    name: integration / required suites
+    if: always()
+    needs: [minio-image, contracts, api, operations]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every integration producer
+        env:
+          MINIO_IMAGE: ${{ needs.minio-image.result }}
+          CONTRACTS: ${{ needs.contracts.result }}
+          API: ${{ needs.api.result }}
+          OPERATIONS: ${{ needs.operations.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$MINIO_IMAGE" = success
+          test "$CONTRACTS" = success
+          test "$API" = success
+          test "$OPERATIONS" = success
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Collect every named contract report
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: integration-results-*
+          path: test-results/integration/
+          merge-multiple: true
+      - name: Publish designated suite execution and skip reasons
+        run: python3 scripts/test_summary.py test-results/integration >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload required suite results
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: integration-results
+          path: test-results/integration/
+          if-no-files-found: error

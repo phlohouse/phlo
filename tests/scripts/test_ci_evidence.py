@@ -16,6 +16,15 @@ evidence = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evidence)
 SHA = "a" * 40
 NOW = datetime(2026, 10, 6, 12, tzinfo=UTC)
+INTEGRATION_JOBS = {
+    "integration / integration / MinIO source image",
+    "integration / integration / storage contracts",
+    "integration / integration / api-contracts",
+    "integration / integration / api-query-journey",
+    "integration / integration / api-branch-journey",
+    "integration / integration / operations",
+    "integration / integration / required suites",
+}
 
 
 def example():
@@ -152,7 +161,34 @@ def test_full_graph_has_every_matrix_entry_and_new_required_lane():
         "ci / python / PostgreSQL coverage",
         "ci / python / measured coverage floors",
     } <= jobs
+    assert {name for name in jobs if name.startswith("integration / ")} == INTEGRATION_JOBS
     assert not any("${{" in name for name in jobs)
+
+
+@pytest.mark.parametrize("job_name", sorted(INTEGRATION_JOBS))
+@pytest.mark.parametrize("result", ["missing", "failure", "skipped", "cancelled"])
+def test_queue_evidence_requires_each_parallel_integration_job(job_name, result):
+    """A green integration aggregate cannot replace any producer or matrix member."""
+    run, _, _, manifest = example()
+    expected = evidence.expected_jobs()
+    assert expected >= INTEGRATION_JOBS
+    jobs = [
+        {"name": name, "status": "completed", "conclusion": "success", "head_sha": SHA}
+        for name in sorted(expected)
+    ]
+    manifest.update(
+        expected_jobs=sorted(expected),
+        jobs={name: "success" for name in expected if name != evidence.AGGREGATE},
+    )
+    evidence.validate_manifest(manifest, run, jobs, expected, "digest", now=NOW)
+
+    if result == "missing":
+        jobs = [job for job in jobs if job["name"] != job_name]
+    else:
+        next(job for job in jobs if job["name"] == job_name)["conclusion"] = result
+
+    with pytest.raises(ValueError, match="Missing or duplicate|Required job did not complete"):
+        evidence.validate_manifest(manifest, run, jobs, expected, "digest", now=NOW)
 
 
 def test_emitted_queue_manifest_round_trips_through_the_consumer(tmp_path, monkeypatch):
