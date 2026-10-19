@@ -198,24 +198,42 @@ def family_compose():
     }
 
 
-def test_image_families_form_complete_disjoint_shards(family_compose):
+@pytest.mark.parametrize(
+    "shard_count,expected",
+    [
+        (1, [["minio", "minio-setup", "api", "observatory", "dagster", "dagster-daemon"]]),
+        (2, [["minio", "minio-setup", "api"], ["observatory", "dagster", "dagster-daemon"]]),
+        (3, [["minio", "minio-setup", "api"], ["observatory"], ["dagster", "dagster-daemon"]]),
+        (4, [["minio", "minio-setup"], ["api"], ["observatory"], ["dagster", "dagster-daemon"]]),
+        (
+            5,
+            [["minio", "minio-setup"], ["api"], ["observatory"], ["dagster", "dagster-daemon"], []],
+        ),
+    ],
+)
+def test_image_families_form_complete_disjoint_shards(family_compose, shard_count, expected):
     selected = [
-        HARNESS.select_buildable_services(family_compose, shard_index=index, shard_count=4)
-        for index in range(4)
+        HARNESS.select_buildable_services(
+            family_compose, shard_index=index, shard_count=shard_count
+        )
+        for index in range(shard_count)
     ]
     names = [[name for name, _config in shard] for shard in selected]
 
-    assert names == [
-        ["minio", "minio-setup"],
-        ["api"],
-        ["observatory"],
-        ["dagster", "dagster-daemon"],
-    ]
+    assert names == expected
     flattened = [name for shard in names for name in shard]
     assert len(flattened) == len(set(flattened))
     assert set(flattened) == {
         name for name, config in family_compose["services"].items() if config.get("build")
     }
+
+
+@pytest.mark.parametrize("shard_index,shard_count", [(-1, 2), (2, 2), (0, 0), (0, -1)])
+def test_image_family_selection_rejects_invalid_shards(family_compose, shard_index, shard_count):
+    with pytest.raises(ValueError, match="docker shard index must be within docker shard count"):
+        HARNESS.select_buildable_services(
+            family_compose, shard_index=shard_index, shard_count=shard_count
+        )
 
 
 @pytest.mark.parametrize(
@@ -257,8 +275,9 @@ def test_same_image_with_different_build_inputs_keeps_separate_families(differen
     assert selected == [["first", "alias"], ["second"], ["other-image"]]
 
 
+@pytest.mark.parametrize("shard_count", [1, 2, 4, 5])
 def test_family_shards_retain_every_build_and_health_result_after_failures(
-    tmp_path, monkeypatch, family_compose
+    tmp_path, monkeypatch, family_compose, shard_count
 ):
     import json
     import subprocess
@@ -281,12 +300,12 @@ def test_family_shards_retain_every_build_and_health_result_after_failures(
     monkeypatch.setattr(HARNESS.subprocess, "run", run_container)
     builds = []
     health = []
-    for index in range(4):
+    for index in range(shard_count):
         arguments = {
             "consumer": tmp_path,
             "environment": tmp_path / "environment",
             "shard_index": index,
-            "shard_count": 4,
+            "shard_count": shard_count,
             "env": {},
         }
         builds.extend(HARNESS.build_shard(family_compose, **arguments))

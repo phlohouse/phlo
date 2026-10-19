@@ -105,7 +105,7 @@ test-coverage-postgres:
 		--junitxml="$(COVERAGE_INPUTS_DIR)/postgres/results.xml" --tb=short -ra
 
 test-coverage-combine:
-	uv run --locked python -m scripts.ci_coverage --inputs "$(COVERAGE_INPUTS_DIR)" \
+	uv run --locked --only-group coverage-report python -m scripts.ci_coverage --inputs "$(COVERAGE_INPUTS_DIR)" \
 		--shards $(COVERAGE_SHARD_COUNT) --output "$(COVERAGE_DIR)"
 	python3 scripts/coverage_report.py $(COVERAGE_DIR)/coverage.json --output $(COVERAGE_DIR)/totals.json
 

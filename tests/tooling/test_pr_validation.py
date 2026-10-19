@@ -421,8 +421,9 @@ def test_measured_coverage_requires_every_successful_producer(producer, result):
     assert (actual.returncode == 0) == (result == "success")
 
 
-@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped"])
-def test_ci_status_rejects_missing_authoritative_coverage(tmp_path, result):
+@pytest.mark.parametrize("lane", ["PYTHON_COVERAGE", "INSTALLED_PROVIDER_ARTIFACTS"])
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_ci_status_rejects_missing_required_python_lanes(tmp_path, lane, result):
     step = workflow("ci.yml")["jobs"]["ci-status"]["steps"][0]
     env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
     env.update(
@@ -433,9 +434,9 @@ def test_ci_status_rejects_missing_authoritative_coverage(tmp_path, result):
         SELECT_PLUGIN="false",
         PYTHON_PACKAGE_TESTS="skipped",
         FRONTEND="skipped",
-        PYTHON_COVERAGE=result,
         GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
     )
+    env[lane] = result
     actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
     assert (actual.returncode == 0) == (result == "success")
 

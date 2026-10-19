@@ -25,6 +25,7 @@ INTEGRATION_JOBS = {
     "integration / integration / operations",
     "integration / integration / required suites",
 }
+PROVIDER_JOBS = {f"ci / python / installed provider artifacts ({index})" for index in range(2)}
 
 
 def example():
@@ -151,7 +152,7 @@ def test_missing_queue_artifact_uses_full_fallback(tmp_path, monkeypatch):
 def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     jobs = evidence.expected_jobs()
     assert {f"ci / python / core tests (3.12, shard {i})" for i in range(3)} <= jobs
-    assert {f"ci / python / installed provider artifacts ({i})" for i in range(4)} <= jobs
+    assert {name for name in jobs if "installed provider artifacts" in name} == PROVIDER_JOBS
     assert {f"ci / python / workspace coverage (shard {i})" for i in range(4)} <= jobs
     assert {
         "docs / docs / build",
@@ -165,13 +166,13 @@ def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     assert not any("${{" in name for name in jobs)
 
 
-@pytest.mark.parametrize("job_name", sorted(INTEGRATION_JOBS))
+@pytest.mark.parametrize("job_name", sorted(INTEGRATION_JOBS | PROVIDER_JOBS))
 @pytest.mark.parametrize("result", ["missing", "failure", "skipped", "cancelled"])
-def test_queue_evidence_requires_each_parallel_integration_job(job_name, result):
-    """A green integration aggregate cannot replace any producer or matrix member."""
+def test_queue_evidence_requires_each_parallel_integration_and_provider_job(job_name, result):
+    """A green aggregate cannot replace any integration producer or provider shard."""
     run, _, _, manifest = example()
     expected = evidence.expected_jobs()
-    assert expected >= INTEGRATION_JOBS
+    assert expected >= INTEGRATION_JOBS | PROVIDER_JOBS
     jobs = [
         {"name": name, "status": "completed", "conclusion": "success", "head_sha": SHA}
         for name in sorted(expected)

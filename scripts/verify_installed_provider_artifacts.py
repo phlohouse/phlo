@@ -345,7 +345,7 @@ print(json.dumps(container_backend._compose_base_cmd(
 def select_buildable_services(
     compose: dict[str, Any], *, shard_index: int, shard_count: int
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Select whole image/build families, preserving Compose order within each family."""
+    """Split ordered image/build families into contiguous, evenly sized shards."""
     if not 0 <= shard_index < shard_count:
         raise ValueError("docker shard index must be within docker shard count")
     families: dict[str, list[tuple[str, dict[str, Any]]]] = {}
@@ -355,11 +355,13 @@ def select_buildable_services(
                 {"image": config.get("image"), "build": config["build"]}, sort_keys=True
             )
             families.setdefault(key, []).append((name, config))
-    return [
-        service
-        for family in list(families.values())[shard_index::shard_count]
-        for service in family
-    ]
+    # Keep complete families together, including aliases separated in Compose.
+    # Contiguous groups pair the expensive MinIO family with the small API
+    # family in CI, leaving Observatory and Dagster on the second runner.
+    size, extra = divmod(len(families), shard_count)
+    start = shard_index * size + min(shard_index, extra)
+    stop = start + size + (shard_index < extra)
+    return [service for family in list(families.values())[start:stop] for service in family]
 
 
 def build_shard(

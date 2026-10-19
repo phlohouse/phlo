@@ -12,9 +12,11 @@ import runpy
 import shutil
 import subprocess
 import sys
+import venv
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import coverage
 import pytest
 from coverage import Coverage, CoverageData
 from coverage.exceptions import CoverageException
@@ -261,8 +263,38 @@ def _node_ids(path: Path) -> set[tuple[str, str]]:
     }
 
 
+@pytest.fixture
+def reporting_python(tmp_path: Path) -> Path:
+    """Report real data with coverage available but no application or test packages."""
+    directory = tmp_path / ".reporting-venv"
+    venv.EnvBuilder(with_pip=False).create(directory)
+    executable = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    site = subprocess.run(
+        [str(executable), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    shutil.copytree(Path(coverage.__file__).parent, Path(site) / "coverage")
+    result = subprocess.run(
+        [
+            str(executable),
+            "-I",
+            "-c",
+            "import coverage, importlib.util; "
+            "assert all(importlib.util.find_spec(name) is None "
+            "for name in ('phlo', 'pytest', 'yaml', 'dagster'))",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return executable
+
+
 def test_parallel_measurement_matches_serial_lines_branches_selection_and_floors(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reporting_python: Path
 ) -> None:
     shards = 4
     _write_workspace(tmp_path, shards)
@@ -326,18 +358,42 @@ def test_parallel_measurement_matches_serial_lines_branches_selection_and_floors
     serial_data.load()
     serial_data.json_report(outfile=str(serial / "coverage.json"))
     expected = json.loads((serial / "coverage.json").read_text())
-    actual = json.loads(combine(inputs, tmp_path / "combined", shards).read_text())
+    combined = tmp_path / "combined"
+    result = subprocess.run(
+        [
+            str(reporting_python),
+            "-I",
+            str(ROOT / "scripts/ci_coverage.py"),
+            "--inputs",
+            str(inputs),
+            "--output",
+            str(combined),
+            "--shards",
+            str(shards),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    actual = json.loads((combined / "coverage.json").read_text())
     assert actual["files"] == expected["files"]
     assert actual["totals"] == expected["totals"]
     assert actual["totals"]["num_branches"] > 0
     assert actual["files"]["src/phlo/unused.py"]["summary"]["covered_lines"] == 0
+    for producer in inputs.iterdir():
+        assert (combined / f"{producer.name}.xml").read_bytes() == (
+            producer / "results.xml"
+        ).read_bytes()
 
     floors = tmp_path / "floors.json"
     floors.write_text(
         json.dumps({name: {"line": 0, "branch": 0} for name in ("core", "scripts", "example")})
     )
     command = [
-        sys.executable,
+        str(reporting_python),
+        "-I",
         str(ROOT / "scripts/coverage_report.py"),
         str(tmp_path / "combined/coverage.json"),
         "--floors",

@@ -190,7 +190,7 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         run: |
           uv python install 3.12
-          uv sync --dev --locked
+          uv sync --locked --only-group coverage-report
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         if: needs.changes.outputs.python == 'true'
         with:
@@ -212,10 +212,10 @@ jobs:
           set -euo pipefail
           mapfile -t directories < <(find coverage-data -name '.coverage.*' -printf '%h\n' | sort -u)
           test "${#directories[@]}" -gt 0
-          uv run --locked coverage combine "${directories[@]}"
-          uv run --locked coverage xml -o coverage.xml
-          uv run --locked coverage json -o coverage.json
-          uv run --locked coverage report >> "$GITHUB_STEP_SUMMARY"
+          uv run --locked --only-group coverage-report coverage combine "${directories[@]}"
+          uv run --locked --only-group coverage-report coverage xml -o coverage.xml
+          uv run --locked --only-group coverage-report coverage json -o coverage.json
+          uv run --locked --only-group coverage-report coverage report >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: needs.changes.outputs.python == 'true'
         with:
