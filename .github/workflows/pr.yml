@@ -32,7 +32,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          fetch-depth: 0
+          # Only PR selection compares revisions; queue and fallback runs select all lanes.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
       - name: Select affected lanes
         id: select
         env:

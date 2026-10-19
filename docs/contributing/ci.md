@@ -39,11 +39,14 @@ environments.
 | Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
 | Release acceptance and promotion | Exercise staged bytes on required platforms and repeated runs, then publish through the authenticated promotion dispatch. Release merges coordinate these dispatches automatically. |
 
-`pr / required` collects combined coverage after both Python and service
-contracts finish, then records queue evidence. Coverage does not need its own
-runner. No test suite, dependency gate or release approval is removed by the
-consolidation. Standalone Windows dispatch builds its own wheels; ordinary
-validation reuses the preparation artifact.
+`pr / required` collects combined core, package and quickstart coverage after
+both Python and service contracts finish, then records queue evidence. The
+authoritative line and branch coverage gate runs the complete workspace in four
+module-preserving shards, alongside a required PostgreSQL coverage job. A final
+job verifies every producer and combines their data before enforcing the existing
+per-source floors. See [test and contract gates](testing-gates.md) for the source
+scope and local commands. Standalone Windows dispatch builds its own wheels;
+ordinary validation reuses the preparation artifact.
 
 Integration provisions disposable PostgreSQL, MinIO and Nessie. Storage/catalog
 suites reject missing tests, skips and expected failures through
@@ -53,10 +56,10 @@ plugin. Reproduce the storage/catalog suites with
 `uv run --locked python scripts/run_integration.py`;
 Docker is required and provisioned containers are removed afterwards.
 
-Core, regression, package and quickstart coverage is combined into one report.
-Quickstart runs once in its artifact-producing lane, not twice. Coverage is
-measurement, not an arbitrary global percentage gate. Establish changed-code
-budgets from the measured baseline before adding a threshold.
+Package-specific test environments and their coverage reports remain separate
+from the full-workspace measurement. The workspace shards also include
+quickstart; its integration-lane execution retains the smoke-test artifacts.
+Each measured source tree has independent line and branch coverage floors.
 
 Mutation checks use `scripts/check_mutation.py`, because `mutmut run` exits zero
 even with surviving mutants. Missing results, uncovered mutations, timeouts,
@@ -78,6 +81,29 @@ Main automatically reuses authenticated full queue evidence for the identical
 commit. No rollout variable or maintainer action is required. The full fallback
 still runs when evidence is missing, invalid or expired, including direct pushes
 and merges that produce a different SHA.
+
+## Queue throughput
+
+Queue and full-fallback selection use shallow checkouts because they select the
+complete contract without examining history. Pull-request selection retains the
+ancestry needed for changed-path detection. Core tests and coverage also use
+shallow checkouts; their Git-history tests create isolated repositories. Quality
+and dependency checks retain the history needed for release baselines and
+reviewed dependency exceptions.
+
+The checked-in [ruleset](../../security/release-candidate-ruleset.json) sets build
+concurrency to two, with one pull request merged at a time. GitHub can validate a
+later candidate while the preceding one runs. Watch runner waiting times before
+increasing concurrency further: additional builds still need available runners.
+
+Merging this file does not update GitHub's live ruleset. After the workflow change
+lands, a repository administrator must set **Build concurrency** to **2** in the
+existing **PR validation and merge queue** ruleset. Apply only that setting;
+importing the complete example can also change review requirements. Verify the
+live queue starts two candidate builds when at least two eligible pull requests
+are waiting. To restore serial builds, set Build concurrency back to **1**.
+GitHub's [merge queue documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)
+explains how build concurrency differs from merge limits.
 
 ## Dependencies and upstream ownership
 

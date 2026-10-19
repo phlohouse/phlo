@@ -14,6 +14,32 @@ checks each against `tests/coverage-floors.json`. A new source tree without a
 measurement or floor fails. The existing package-specific coverage collection
 remains in CI.
 
+CI measures the same workspace with four module-preserving shards and runs the
+required PostgreSQL coverage suite in a separate job. Every producer records
+branch coverage for the full source scope. The aggregate requires all four shards
+and the PostgreSQL producer, verifies their successful test reports and branch
+data, then combines them before enforcing the same floors. Missing producers,
+failed or empty test reports, and PostgreSQL skips fail the gate.
+
+After `make setup`, reproduce the CI producers from the repository root:
+
+```bash
+make test-coverage-workspace COVERAGE_SHARD_INDEX=0 COVERAGE_SHARD_COUNT=4
+make test-coverage-postgres
+```
+
+Run the workspace command for indices `0`, `1`, `2` and `3`; each writes its own
+directory beneath `test-results/coverage-inputs/`. The PostgreSQL command requires
+Docker. Once every producer succeeds, combine their results:
+
+```bash
+make test-coverage-combine COVERAGE_SHARD_COUNT=4
+```
+
+The complete `coverage.json`, `totals.json` and per-producer test reports are
+written to `test-results/coverage/`. `make test-coverage` remains the sequential
+local entry point for the complete measurement and coverage floors.
+
 The floors use a fresh workspace measurement, not the historical September
 aggregate. They are rounded down to one decimal place to avoid display-rounding
 failures. The JSON artifact contains the unrounded measurements. A floor is a

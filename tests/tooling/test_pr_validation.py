@@ -297,6 +297,35 @@ def test_required_result_collects_coverage_after_service_and_python_contracts():
     assert "coverage" not in workflow("ci.yml")["jobs"]
 
 
+@pytest.mark.parametrize("producer", ["WORKSPACE", "POSTGRES"])
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_measured_coverage_requires_every_successful_producer(producer, result):
+    step = workflow("ci.yml")["jobs"]["python-coverage"]["steps"][0]
+    env = dict(os.environ, WORKSPACE="success", POSTGRES="success")
+    env[producer] = result
+    actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
+    assert (actual.returncode == 0) == (result == "success")
+
+
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped"])
+def test_ci_status_rejects_missing_authoritative_coverage(tmp_path, result):
+    step = workflow("ci.yml")["jobs"]["ci-status"]["steps"][0]
+    env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
+    env.update(
+        SELECT_PYTHON="true",
+        SELECT_GROUPS="[]",
+        SELECT_FRONTEND="false",
+        SELECT_WRITER="false",
+        SELECT_PLUGIN="false",
+        PYTHON_PACKAGE_TESTS="skipped",
+        FRONTEND="skipped",
+        PYTHON_COVERAGE=result,
+        GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+    )
+    actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
+    assert (actual.returncode == 0) == (result == "success")
+
+
 @pytest.mark.parametrize("first_fails", [False, True])
 def test_container_lint_attempts_all_selected_files_and_preserves_failure(tmp_path, first_fails):
     job = workflow("container-security.yml")["jobs"]["checks"]
