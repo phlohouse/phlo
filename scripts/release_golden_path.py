@@ -1815,13 +1815,31 @@ _StepOutput = tuple[dict[str, object], list[dict[str, object]]]
 class _CandidateJourney:
     """The ordered candidate demonstrations and the state they hand to each other."""
 
-    def __init__(self, config: RunConfig, bundle: dict[str, object], bom_path: Path) -> None:
+    def __init__(
+        self,
+        config: RunConfig,
+        bundle: dict[str, object],
+        bom_path: Path,
+        previous_bom: Path | None = None,
+        observatory_artifacts: Path | None = None,
+    ) -> None:
         self.config = config
         self.bundle = bundle
         self.bom_path = bom_path
+        self.previous_bom = previous_bom
+        self.observatory_artifacts = (
+            observatory_artifacts or config.project_dir.parent / "observatory-evidence"
+        )
         self.stack_started = False
         self.promoted_wap_run: WapRun | None = None
         self.backup_set: Path | None = None
+
+    def observatory(self) -> _StepOutput:
+        from release_observatory_acceptance import run_journey
+
+        return run_journey(
+            self.config, previous_bom=self.previous_bom, artifacts=self.observatory_artifacts
+        )
 
     def bind_candidate(self) -> _StepOutput:
         bom = bom_module.load_bom(self.bom_path)
@@ -1941,6 +1959,11 @@ class _CandidateJourney:
                 lambda: install_operator_from_bom(config),
             ),
             (
+                "observatory_installed_journeys",
+                "Fresh and retained-volume installed Observatory journeys",
+                self.observatory,
+            ),
+            (
                 "project_scaffold",
                 "Project scaffold from installed artifacts",
                 self.scaffold_project,
@@ -2046,7 +2069,13 @@ def main_candidate(args: argparse.Namespace) -> int:
     )
     bundle = _candidate_bundle()
     recorder = EvidenceRecorder(bundle)
-    journey = _CandidateJourney(config, bundle, bom_path)
+    journey = _CandidateJourney(
+        config,
+        bundle,
+        bom_path,
+        previous_bom=getattr(args, "previous_candidate_bom", None),
+        observatory_artifacts=evidence_path.parent / f"{evidence_path.stem}-observatory",
+    )
     primary_error: Exception | None = None
     cleanup_errors: list[Exception] = []
     try:
@@ -2109,6 +2138,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--evidence-output",
         type=Path,
         help="Path for the canonical evidence bundle (required with --candidate-bom).",
+    )
+    parser.add_argument(
+        "--previous-candidate-bom",
+        type=Path,
+        help="Exact previous artifact BOM for the required retained-volume Observatory journey.",
     )
     return parser.parse_args(argv)
 
