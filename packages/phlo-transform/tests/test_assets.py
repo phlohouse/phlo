@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from phlo.capabilities import CheckResult, MaterializeResult
+from phlo.capabilities import AssetSpec, CheckResult, MaterializeResult
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.helpers.testing import FakeRuntimeContext
 from phlo_transform import assets as assets_module
@@ -235,3 +235,66 @@ def test_adapter_args_use_explicit_duckdb(
     args = adapter_args(None, transform_settings)
 
     assert args[:2] == ["--adapter", "duckdb"]
+
+
+def test_transform_assets_skip_the_workspace_when_dbt_is_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    declared = AssetSpec(key="declared", group=None, description=None)
+    called: list[bool] = []
+    monkeypatch.setattr(assets_module, "get_transform_assets", lambda: [declared])
+    monkeypatch.setattr(
+        assets_module,
+        "build_workspace_asset_specs",
+        lambda *args, **kwargs: called.append(True) or [],
+    )
+    monkeypatch.setenv("PHLO_TRANSFORMATION_PROVIDER", "dbt")
+
+    assert assets_module.build_transform_asset_specs(tmp_path) == [declared]
+    assert called == []
+
+
+def test_adapter_args_provision_the_runtime_ref_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    class CatalogManager:
+        def provision_ref_query_catalog(self, ref: str) -> str:
+            return "phlo_" + ref.replace("/", "_")
+
+        def drop_ref_query_catalog(self, ref: str) -> None:
+            """Match the query-engine ref catalog protocol."""
+
+    resolution = SimpleNamespace(
+        provider=CatalogManager(),
+        metadata={"host": "trino", "port": 8080, "default_catalog": "iceberg"},
+    )
+    monkeypatch.setattr(assets_module, "_query_engine_resolution", lambda runtime: resolution)
+    monkeypatch.setenv("PHLO_TRANSFORM_ADAPTER", "trino")
+    settings = TransformSettings(_project_root=tmp_path)
+    runtime = FakeRuntimeContext(tags={"phlo/ref": "ci/pr-1"})
+
+    args = adapter_args(runtime, settings)
+
+    assert "--catalog" in args
+    assert args[args.index("--catalog") + 1] == "phlo_ci_pr-1"
+    assert args[args.index("--environment") + 1] == "ci/pr-1"
+
+
+def test_adapter_args_use_the_engine_catalog_without_a_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    resolution = SimpleNamespace(
+        provider=object(), metadata={"host": "trino", "port": 8080, "default_catalog": "iceberg"}
+    )
+    monkeypatch.setattr(assets_module, "_query_engine_resolution", lambda runtime: resolution)
+    monkeypatch.setenv("PHLO_TRANSFORM_ADAPTER", "trino")
+    settings = TransformSettings(_project_root=tmp_path)
+
+    args = adapter_args(FakeRuntimeContext(), settings)
+
+    assert args[args.index("--catalog") + 1] == "iceberg"
+    assert "--environment" not in args

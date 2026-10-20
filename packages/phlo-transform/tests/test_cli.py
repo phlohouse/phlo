@@ -122,3 +122,48 @@ def test_status_reports_active_provider_and_counts(
     assert payload["workspace"].endswith("workspace")
     assert payload["binary_version"] == "phlo-transform 0.1.0"
     assert payload["models"] == 0
+
+
+def test_translate_check_forwards_to_the_engine(
+    monkeypatch: pytest.MonkeyPatch, cli_env: Path
+) -> None:
+    calls: list[dict] = []
+
+    def fake_translate(*args, **kwargs):
+        calls.append(kwargs)
+        return _invocation("dbt migration analysis\n")
+
+    monkeypatch.setattr(cli_plugin, "translate_dbt_project", fake_translate)
+
+    result = CliRunner().invoke(cli_plugin.transform_group, ["translate", "--check"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["check_only"] is True
+    assert "dbt migration analysis" in result.output
+
+
+def test_install_reports_the_installed_binary(
+    monkeypatch: pytest.MonkeyPatch, cli_env: Path
+) -> None:
+    binary = cli_env / "phlo-transform"
+    monkeypatch.setattr(cli_plugin, "install_binary", lambda *args, **kwargs: binary)
+    monkeypatch.setattr(
+        cli_plugin, "binary_version", lambda *args, **kwargs: "phlo-transform 0.1.0"
+    )
+
+    result = CliRunner().invoke(cli_plugin.transform_group, ["install"])
+
+    assert result.exit_code == 0, result.output
+    assert "Installed" in result.output
+    assert "phlo-transform 0.1.0" in result.output
+
+
+def test_use_unset_removes_the_marker(cli_env: Path) -> None:
+    marker = cli_env / ".phlo" / "transformation-provider"
+    marker.parent.mkdir()
+    marker.write_text("transform\n")
+
+    result = CliRunner().invoke(cli_plugin.transform_group, ["use", "--unset"])
+
+    assert result.exit_code == 0, result.output
+    assert not marker.exists()
