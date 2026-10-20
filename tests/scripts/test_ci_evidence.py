@@ -247,8 +247,16 @@ def test_emitted_queue_manifest_round_trips_through_the_consumer(tmp_path, monke
         "run_id": 71,
         "run_attempt": 2,
     }
+    # Replacing an assessment must invalidate the old checksum-bound manifest,
+    # even if both modes permit the same introduced-risk policy.
     report["mode"] = "delta"
     report.pop("unaccepted")
+    evidence.reuse(SHA, output)
+    assert json.loads(output.read_text())["reused"] is False
+    assert "Dependency evidence differs" in json.loads(output.read_text())["reason"]
+
+    # Fresh evidence for the delta assessment is reusable on the same SHA.
+    evidence.emit(manifest_path)
     evidence.reuse(SHA, output)
     assert json.loads(output.read_text())["reused"] is True
     report["inventory"]["uv.lock"][0][2] = "9.9"
