@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 import yaml
 
+from phlo.config.env import parse_project_env_file
 from phlo.plugins.compose.generator import ComposeGenerator
 from phlo.plugins.discovery import ServiceDiscovery
 
@@ -284,7 +285,13 @@ def _step_with_id(steps: list[dict[str, Any]], step_id: str) -> dict[str, Any]:
 
 
 @pytest.mark.integration
-def test_staging_renders_all_services_with_generated_credentials(tmp_path: Path) -> None:
+@pytest.mark.parametrize("inherited_password", ["", "unrelated-nightly-password"])
+def test_staging_renders_all_services_with_generated_credentials(
+    tmp_path: Path, monkeypatch, inherited_password: str
+) -> None:
+    passwords = ("POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD", "SUPERSET_ADMIN_PASSWORD")
+    for name in passwords:
+        monkeypatch.setenv(name, inherited_password)
     workflow = yaml.safe_load(
         (REPO_ROOT / ".github/workflows/build-core-services.yml").read_text(encoding="utf-8")
     )
@@ -304,7 +311,8 @@ def test_staging_renders_all_services_with_generated_credentials(tmp_path: Path)
         capture_output=True,
         text=True,
         env={
-            **os.environ,
+            # Exercise generated credentials, never inherited CI passwords.
+            **{name: value for name, value in os.environ.items() if name not in passwords},
             "GITHUB_WORKSPACE": str(REPO_ROOT),
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(output),
@@ -316,6 +324,15 @@ def test_staging_renders_all_services_with_generated_credentials(tmp_path: Path)
     assert {target["service"] for target in targets} == {"dagster", "observatory", "phlo-api"}
     assert all(target["image"].endswith(f"-development:{sha}") for target in targets)
     assert values["has_targets"] == "true"
+    credentials = parse_project_env_file(tmp_path / "generated-service-project/.phlo/secrets/.env")
+    services = json.loads((tmp_path / "generated-compose.json").read_text())["services"]
+    for service, name in (
+        ("postgres", "POSTGRES_PASSWORD"),
+        ("minio", "MINIO_ROOT_PASSWORD"),
+        ("superset", "SUPERSET_ADMIN_PASSWORD"),
+    ):
+        if not credentials[name] or services[service]["environment"][name] != credentials[name]:
+            raise AssertionError(f"{service} must use its generated private credential")
 
 
 def test_publication_workflow_publishes_attested_images_after_digest_scans() -> None:

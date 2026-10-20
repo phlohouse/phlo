@@ -688,32 +688,71 @@ def configure_wap(config: RunConfig) -> None:
     """Configure the generated project to use its owned Dagster deployment for WAP."""
     token = service_token("phlo-api", wap_service_secret(config))
     location_name, repository_name = discover_dagster_selector(config, token)
-    dagster_url = service_url(config, "dagster", 3000, "/graphql")
     with (config.project_dir / "phlo.yaml").open("a", encoding="utf-8") as stream:
         stream.write(
-            "\nwap:\n"
+            "\ndefault_environment: golden_path\n"
+            "environments:\n"
+            "  golden_path:\n"
+            f"    dagster_location: {location_name}\n"
+            "    nessie_ref: main\n"
+            "wap:\n"
             "  enabled: true\n"
             "  job_name: __ASSET_JOB\n"
             f"  repository_location_name: {location_name}\n"
             f"  repository_name: {repository_name}\n"
-            f"  dagster_url: {dagster_url}\n"
+            "  dagster_url: http://127.0.0.1:3000/graphql\n"
         )
+
+
+def dagster_runtime_user(config: RunConfig) -> str:
+    """Resolve the Dagster container's configured runtime UID and GID."""
+    result = run(
+        compose_command(config, "config", "--format", "json"),
+        cwd=config.project_dir,
+        capture_output=True,
+    )
+    try:
+        compose = json.loads(result.stdout)
+        environment = compose["services"]["dagster"]["environment"]
+        uid = environment["PHLO_RUNTIME_UID"]
+        gid = environment["PHLO_RUNTIME_GID"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise RuntimeError("resolved Compose config lacks Dagster runtime UID/GID") from exc
+    if (
+        not isinstance(uid, str)
+        or not uid.isdecimal()
+        or not isinstance(gid, str)
+        or not gid.isdecimal()
+    ):
+        raise RuntimeError("resolved Compose config has invalid Dagster runtime UID/GID")
+    return f"{uid}:{gid}"
 
 
 def materialize_wap(config: RunConfig) -> WapRun:
     """Launch the generated ingestion asset through the public WAP CLI path."""
     token = service_token("phlo-api", wap_service_secret(config))
-    nessie_url = service_url(config, "nessie", 19120)
-    environment = {
-        **os.environ,
-        "NESSIE_HOST": "127.0.0.1",
-        "NESSIE_PORT": nessie_url.rsplit(":", 1)[1],
-        "PHLO_DAGSTER_ACCESS_TOKEN": token,
-    }
+    runtime_user = dagster_runtime_user(config)
+    environment = dict(os.environ)
+    environment["PHLO_DAGSTER_ACCESS_TOKEN"] = token
+    environment["PHLO_LOG_FILE_TEMPLATE"] = f"/tmp/phlo-{config.project_name}-{{YMD}}.log"
     try:
         result = run(
             command(
-                str(config.operator_bin),
+                *compose_command(
+                    config,
+                    "exec",
+                    "--no-TTY",
+                    "--user",
+                    runtime_user,
+                    "--env",
+                    "PHLO_DAGSTER_ACCESS_TOKEN",
+                    "--env",
+                    "PHLO_LOG_FILE_TEMPLATE",
+                    "--workdir",
+                    "/app",
+                    "dagster",
+                ),
+                "phlo",
                 "materialize",
                 "dlt_events",
                 "--partition",

@@ -12,6 +12,7 @@ import io
 import json
 import sys
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -339,26 +340,28 @@ def test_service_url_uses_the_project_scoped_dynamic_port(tmp_path: Path, monkey
     assert commands == [release_golden_path.compose_command(config, "port", "dagster", "3000")]
 
 
-def test_wap_materialization_uses_live_selector_and_dynamic_urls(
+def test_wap_materialization_runs_as_dagster_user_in_local_container(
     tmp_path: Path, monkeypatch
 ) -> None:
     config = _config(tmp_path)
+    candidate_layer = config.project_dir / ".phlo" / "compose.candidate.json"
+    candidate_layer.parent.mkdir(parents=True)
+    candidate_layer.write_text("{}\n", encoding="utf-8")
+    config = replace(config, bom={})
     commands: list[tuple[list[str], dict]] = []
-    urls = {
-        ("dagster", 3000, "/graphql"): "http://127.0.0.1:3000/graphql",
-        ("nessie", 19120, ""): "http://127.0.0.1:19120",
-    }
-    monkeypatch.setattr(
-        release_golden_path,
-        "service_url",
-        lambda _config, service, port, path="": urls[(service, port, path)],
-    )
     monkeypatch.setattr(
         release_golden_path, "discover_dagster_selector", lambda *_: ("location", "repository")
     )
 
     def fake_run(args, **kwargs):
         commands.append((args, kwargs))
+        if args[-3:] == ["config", "--format", "json"]:
+            return release_golden_path.subprocess.CompletedProcess(
+                args,
+                0,
+                '{"services":{"dagster":{"environment":{"PHLO_RUNTIME_UID":"1001","PHLO_RUNTIME_GID":"1234"}}}}',
+                "",
+            )
         return release_golden_path.subprocess.CompletedProcess(
             args,
             0,
@@ -375,12 +378,23 @@ def test_wap_materialization_uses_live_selector_and_dynamic_urls(
     wap_run = release_golden_path.materialize_wap(config)
 
     assert wap_run == release_golden_path.WapRun("logical", "dagster-1")
-    args, kwargs = commands[0]
+    assert commands[0][0] == release_golden_path.compose_command(
+        config, "config", "--format", "json"
+    )
+    assert str(candidate_layer) in commands[0][0]
+    args, kwargs = commands[1]
     assert args[-4:] == ["materialize", "dlt_events", "--partition", config.partition]
+    assert args[args.index("dagster") + 1 : args.index("dagster") + 3] == ["phlo", "materialize"]
+    assert args[args.index("--workdir") + 1] == "/app"
+    assert args[args.index("--user") + 1] == "1001:1234"
+    assert args.count("--env") == 2
+    assert "PHLO_DAGSTER_ACCESS_TOKEN" in args
+    assert "PHLO_LOG_FILE_TEMPLATE" in args
     assert "--wap" not in args
-    assert kwargs["env"]["NESSIE_HOST"] == "127.0.0.1"
-    assert kwargs["env"]["NESSIE_PORT"] == "19120"
     assert kwargs["env"]["PHLO_DAGSTER_ACCESS_TOKEN"].startswith("phlo-api:")
+    assert kwargs["env"]["PHLO_LOG_FILE_TEMPLATE"] == (
+        f"/tmp/phlo-{config.project_name}-{{YMD}}.log"
+    )
 
 
 def test_configure_wap_writes_owned_dagster_endpoint_and_selector(
@@ -393,16 +407,15 @@ def test_configure_wap_writes_owned_dagster_endpoint_and_selector(
     monkeypatch.setattr(
         release_golden_path, "discover_dagster_selector", lambda *_: ("location", "repository")
     )
-    monkeypatch.setattr(
-        release_golden_path,
-        "service_url",
-        lambda *_args: "http://127.0.0.1:3000/graphql",
-    )
-
     release_golden_path.configure_wap(config)
 
     assert config.project_dir.joinpath("phlo.yaml").read_text(encoding="utf-8") == (
         "name: test\n\n"
+        "default_environment: golden_path\n"
+        "environments:\n"
+        "  golden_path:\n"
+        "    dagster_location: location\n"
+        "    nessie_ref: main\n"
         "wap:\n"
         "  enabled: true\n"
         "  job_name: __ASSET_JOB\n"
