@@ -136,7 +136,6 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
     with PostgresContainer("postgres:18-alpine", password="test") as postgres:
         _config(monkeypatch)
         monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
-        usage.initialize_usage()
         principal = AuthPrincipal(subject="trino_listener", principal_type="service")
         monkeypatch.setattr(security_manifest, "get_request_principal", lambda _request: principal)
         monkeypatch.setattr(usage, "get_request_principal", lambda _request: principal)
@@ -251,6 +250,10 @@ def test_verified_query_usage_postgres_http_contract(monkeypatch: pytest.MonkeyP
             assert ("service.manage", "source_id=cluster") in decisions
             assert ("asset.read", "env=prod|asset_id=order_current_state") in decisions
             assert ("asset.read", "env=prod|table_name=warehouse.orders") in decisions
+        with TestClient(app) as http:
+            restarted_stage = http.get(stage_url)
+            assert restarted_stage.status_code == 200, restarted_stage.text
+            assert [row["query_id"] for row in restarted_stage.json()["items"]] == ["q_stage"]
         with usage._transaction() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT * FROM phlo.asset_query_usage ORDER BY query_id")
             rows = cursor.fetchall()

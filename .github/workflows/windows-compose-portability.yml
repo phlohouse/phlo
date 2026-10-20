@@ -163,7 +163,7 @@ jobs:
         shell: pwsh
         run: |
           uv pip install --python $env:PYTHON pytest
-          & $env:PYTHON -m pytest packages/phlo-api/tests/test_operation_controls.py -q -k "operation_controls_import_does_not_require_posix_lock_module or audit_rotation_preserves_barrier_synchronised_process_writes"
+          & $env:PYTHON -m pytest packages/phlo-api/tests/test_windows_api_imports.py packages/phlo-api/tests/test_operation_controls.py -q -k "test_main_and_branch_router_import_without_posix_lock_module or test_native_windows_workflow_apply_fails_at_the_capability_boundary or operation_controls_import_does_not_require_posix_lock_module or audit_rotation_preserves_barrier_synchronised_process_writes"
 
       - name: Regenerate host state without replacing shared files
         shell: pwsh
