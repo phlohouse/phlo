@@ -119,6 +119,27 @@ def test_discovery_keeps_first_ids_and_partial_loader_results(monkeypatch):
     ]
 
 
+def test_workflow_apply_is_rejected_before_reading_or_mutating_on_unsupported_platform(
+    tmp_path, monkeypatch
+):
+    from phlo_api import errors
+
+    request = wizard.ObservatoryWorkflowActionRequest(action_id="action", proposal_id="proposal")
+
+    def must_not_load(*args, **kwargs):
+        raise AssertionError("unsupported workflow apply must stop before proposal access")
+
+    monkeypatch.setattr(wizard.os, "name", "nt")
+    monkeypatch.setattr(wizard, "_load_verified_workflow_proposal", must_not_load)
+    with pytest.raises(errors.UnsupportedCapabilityError) as caught:
+        wizard.apply_workflow_action(tmp_path, request, "operator")
+
+    assert caught.value.status_code == 501
+    assert caught.value.code == "unsupported_capability"
+    assert "Linux or WSL 2" in caught.value.message
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_missing_plugin_module_is_ignored(monkeypatch):
     from phlo.plugins import discovery
 

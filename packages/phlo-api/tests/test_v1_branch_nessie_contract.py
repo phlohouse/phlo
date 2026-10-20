@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
+import json
 import time
 from uuid import uuid4
 
 import httpx
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from testcontainers.core.container import DockerContainer
 
 from phlo_api.api import v1_branch_workflows as branches
@@ -35,7 +37,7 @@ def test_branch_history_and_diff_use_nessie_v2_paging_contract(
 
         main = httpx.get(f"{base_url}/api/v2/trees/main", timeout=5).json()["reference"]
         initial_hash = main["hash"]
-        name = f"api-contract-{uuid4().hex[:8]}"
+        name = f"prod-contract-{uuid4().hex[:8]}"
         created = httpx.post(
             f"{base_url}/api/v2/trees",
             params={"name": name, "type": "BRANCH"},
@@ -71,22 +73,41 @@ def test_branch_history_and_diff_use_nessie_v2_paging_contract(
             head_hash = response.json()["targetBranch"]["hash"]
 
         monkeypatch.setattr(branches, "project_env_value", lambda _name: base_url)
-        history = asyncio.run(branches._history(name, head_hash, limit=260))
-        assert len(history) == 260
-        assert len({commit.hash for commit in history}) == 260
-
-        source = branches.BranchReference(
-            env="prod", name=name, type="BRANCH", hash=head_hash, protected=False
+        monkeypatch.setenv(
+            "PHLO_V1_ENVIRONMENTS",
+            json.dumps({"prod": {"dagster_location": "unused", "nessie_ref": "main"}}),
         )
-        target = branches.BranchReference(
-            env="prod", name="main", type="BRANCH", hash=initial_hash, protected=True
+        monkeypatch.setattr(
+            branches,
+            "require_scope",
+            lambda _request, scope: {"subject": "contract-test", "scopes": [scope]},
         )
-        comparison = asyncio.run(branches._comparison(source, source, "prod"))
-        diff = asyncio.run(branches._diff(source, target, "prod"))
-
-        assert comparison.merge_base == head_hash
-        assert comparison.ahead == comparison.behind == 0
-        assert comparison.source_hash == comparison.target_hash == head_hash
-        assert len(diff.items) == 260
-        assert diff.source_hash == head_hash
-        assert diff.target_hash == initial_hash
+        api = FastAPI()
+        api.include_router(branches.router, prefix="/api/v1")
+        with TestClient(api) as client:
+            first = client.get(f"/api/v1/branches/{name}/commits?env=prod&limit=100")
+            assert first.status_code == 200, first.text
+            assert first.json()["next_cursor"]
+            second = client.get(
+                f"/api/v1/branches/{name}/commits?env=prod&limit=100&after={first.json()['next_cursor']}"
+            )
+            assert second.status_code == 200, second.text
+            assert second.json()["next_cursor"]
+            third = client.get(
+                f"/api/v1/branches/{name}/commits?env=prod&limit=100&after={second.json()['next_cursor']}"
+            )
+            assert third.status_code == 200, third.text
+            pages = [first.json()["items"], second.json()["items"], third.json()["items"]]
+            hashes = [commit["hash"] for page in pages for commit in page]
+            assert [len(page) for page in pages] == [100, 100, 60]
+            assert len(set(hashes)) == len(hashes) == 260
+            comparison = client.get(f"/api/v1/branches/{name}/compare?env=prod&target={name}")
+            assert comparison.status_code == 200, comparison.text
+            assert comparison.json()["merge_base"] == head_hash
+            assert comparison.json()["ahead"] == comparison.json()["behind"] == 0
+            assert comparison.json()["source_hash"] == comparison.json()["target_hash"] == head_hash
+            diff = client.get(f"/api/v1/branches/{name}/diff?env=prod&target=main")
+            assert diff.status_code == 200, diff.text
+            assert len(diff.json()["items"]) == 260
+            assert diff.json()["source_hash"] == head_hash
+            assert diff.json()["target_hash"] == initial_hash

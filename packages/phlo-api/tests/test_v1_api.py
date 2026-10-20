@@ -497,6 +497,11 @@ def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch
 
 
 def test_overview_ref_filter_excludes_legacy_history_before_validation(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from phlo_api import incidents
+
+    http, *_ = client
     old_runs = [
         {"runId": f"legacy-{index}", "status": "SUCCESS", "tags": [], "repositoryOrigin": None}
         for index in range(105)
@@ -507,6 +512,18 @@ def test_overview_ref_filter_excludes_legacy_history_before_validation(client, m
         "tags": [{"key": "phlo/ref", "value": "main"}],
         "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
     }
+    other_location = {
+        "runId": "other-location",
+        "status": "FAILURE",
+        "tags": [{"key": "phlo/ref", "value": "main"}],
+        "repositoryOrigin": {"repositoryLocationName": "testing_jobs"},
+    }
+    other_ref = {
+        "runId": "other-ref",
+        "status": "FAILURE",
+        "tags": [{"key": "phlo/ref", "value": "candidate"}],
+        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+    }
 
     async def graphql(_url, query, variables=None):
         assert "RunsFilter!" in query
@@ -515,13 +532,36 @@ def test_overview_ref_filter_excludes_legacy_history_before_validation(client, m
             "data": {
                 "runsOrError": {
                     "__typename": "Runs",
-                    "results": [row for row in old_runs + [selected] if row["tags"]],
+                    "results": [
+                        row
+                        for row in old_runs + [other_ref, other_location, selected]
+                        if any(tag.get("value") == "main" for tag in row["tags"])
+                    ],
                 }
             }
         }
 
     monkeypatch.setattr(v1, "graphql_request", graphql)
     assert asyncio.run(v1._runs("production_jobs", "main")) == {"selected": "STARTED"}
+
+    async def empty_assets(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(v1_assets, "_assets", empty_assets)
+    monkeypatch.setattr(
+        incidents,
+        "incident_stats",
+        lambda _request, env: IncidentStatsResponse(env=env, counts={}),
+    )
+    monkeypatch.setattr(
+        incidents,
+        "list_asset_incident_policies",
+        lambda *_args, **_kwargs: SimpleNamespace(items=[], next_cursor=None),
+    )
+    monkeypatch.setattr(v1_assets, "get_operational_settings", lambda: None)
+    overview = http.get("/api/v1/overview?env=prod")
+    assert overview.status_code == 200, overview.text
+    assert overview.json()["run_status_counts"] == {"STARTED": 1}
 
     selected["repositoryOrigin"] = None
     with pytest.raises(v1.BadGatewayError, match="location identity"):
