@@ -112,6 +112,16 @@ def ensure_compose_project() -> Path:
     return phlo_dir
 
 
+def prepare_api_runtime_directories(phlo_dir: Path) -> None:
+    """Create default API writable binds before Docker can create them as root.
+
+    Existing files, permissions and ownership are deliberately not changed.
+    The generated Linux API runs as the operator's UID/GID.
+    """
+    for name in ("logs", "audit", "state", "observatory"):
+        (phlo_dir / name).mkdir(mode=0o700, exist_ok=True)
+
+
 def stage_uv_lock_metadata(project_root: Path, phlo_dir: Path) -> bool:
     """Stage the project's uv lock metadata into the generated build context.
 

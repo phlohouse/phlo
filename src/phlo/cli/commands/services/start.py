@@ -47,6 +47,7 @@ from phlo.cli.commands.services.utils import (
     get_enabled_disabled_service_names,
     get_profile_service_names,
     inline_service_definitions,
+    prepare_api_runtime_directories,
     require_container_backend,
     stage_uv_lock_metadata,
     stale_generated_build_inputs,
@@ -704,6 +705,8 @@ def start_cmd(
     docker_service_names: list[str] = []
     if not skip_docker_compose:
         docker_service_names = docker_services_list or load_compose_service_names(compose_file)
+        if "phlo-api" in docker_service_names:
+            prepare_api_runtime_directories(phlo_dir)
         _emit_service_lifecycle_events(
             "pre_start",
             docker_service_names,
