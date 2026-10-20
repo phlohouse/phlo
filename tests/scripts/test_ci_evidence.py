@@ -247,6 +247,10 @@ def test_emitted_queue_manifest_round_trips_through_the_consumer(tmp_path, monke
         "run_id": 71,
         "run_attempt": 2,
     }
+    report["mode"] = "delta"
+    report.pop("unaccepted")
+    evidence.reuse(SHA, output)
+    assert json.loads(output.read_text())["reused"] is True
     report["inventory"]["uv.lock"][0][2] = "9.9"
     evidence.reuse(SHA, output)
     assert json.loads(output.read_text())["reused"] is False

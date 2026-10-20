@@ -167,10 +167,10 @@ def assessment_record(run: dict, destination: Path) -> dict:
     if (
         report.get("assessment") != "complete"
         or report.get("head") != run["head_sha"]
-        or report.get("mode") != "queue"
+        or report.get("mode") not in {"queue", "delta"}
         or report.get("inventory") != inventory
         or report.get("introduced") != []
-        or report.get("unaccepted") != []
+        or (report.get("mode") == "queue" and report.get("unaccepted") != [])
     ):
         raise ValueError("Queue assessment is incomplete, blocked or covers a different inventory")
     return {
