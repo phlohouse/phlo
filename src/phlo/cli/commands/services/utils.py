@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
 from typing import cast
@@ -112,12 +113,14 @@ def ensure_compose_project() -> Path:
     return phlo_dir
 
 
-def prepare_api_runtime_directories(phlo_dir: Path) -> None:
+def prepare_api_runtime_directories(phlo_dir: Path, service_names: Iterable[str]) -> None:
     """Create default API writable binds before Docker can create them as root.
 
     Existing files, permissions and ownership are deliberately not changed.
     The generated Linux API runs as the operator's UID/GID.
     """
+    if "phlo-api" not in service_names:
+        return
     for name in ("logs", "audit", "state", "observatory"):
         (phlo_dir / name).mkdir(mode=0o700, exist_ok=True)
 

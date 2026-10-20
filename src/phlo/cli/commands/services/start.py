@@ -705,8 +705,7 @@ def start_cmd(
     docker_service_names: list[str] = []
     if not skip_docker_compose:
         docker_service_names = docker_services_list or load_compose_service_names(compose_file)
-        if "phlo-api" in docker_service_names:
-            prepare_api_runtime_directories(phlo_dir)
+        prepare_api_runtime_directories(phlo_dir, docker_service_names)
         _emit_service_lifecycle_events(
             "pre_start",
             docker_service_names,

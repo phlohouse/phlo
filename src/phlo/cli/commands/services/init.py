@@ -369,8 +369,7 @@ def init_cmd(
     # Create volumes directory
     volumes_dir = phlo_dir / "volumes"
     volumes_dir.mkdir(exist_ok=True)
-    if any(service.name == "phlo-api" for service in services_to_install):
-        prepare_api_runtime_directories(phlo_dir)
+    prepare_api_runtime_directories(phlo_dir, (service.name for service in services_to_install))
 
     # Copy service files (Dockerfiles, configs, etc.)
     copied_files = service_files.write(overwrite=not preserve_shared)
