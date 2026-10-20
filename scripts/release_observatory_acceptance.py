@@ -1017,7 +1017,11 @@ def transition(
     retained = {
         path: path.read_bytes()
         for path in (
-            *golden.project_env_paths(previous.project_dir / ".phlo"),
+            *(
+                path
+                for path in golden.project_env_paths(previous.project_dir / ".phlo")
+                if path.exists()
+            ),
             previous.project_dir / "retained-jvm.config",
             previous.project_dir / "retained-dagster.yaml",
             previous.project_dir / ".phlo/retained-provider-note.txt",
@@ -1138,6 +1142,23 @@ print('{}')
     installed_start_pins(previous, remove=True)
     (candidate.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
     golden.pin_candidate_images(candidate)
+    # Previous installations may never have used the incident/usage stores.
+    # Delegate their additive bootstrap to the same installed owners as API
+    # startup, with writers still stopped, before checking old constraints.
+    compose(
+        candidate,
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "phlo-api",
+        "python",
+        "-c",
+        "from phlo_api.incidents import initialize_incidents; "
+        "from phlo_api.usage import initialize_usage; "
+        "initialize_incidents(); initialize_usage()",
+        capture=True,
+    )
     migration = subprocess.run(
         golden.compose_command(
             candidate,
