@@ -133,15 +133,11 @@ function BranchEvidence({
   const baseIndex = detail.commits.items.findIndex(
     (commit) => commit.hash === detail.comparison.merge_base,
   )
-  const graphKnown =
-    target.name === 'main' &&
-    baseIndex >= 0 &&
-    detail.comparison.merge_base !== null &&
-    detail.comparison.behind !== null
   return (
     <div>
       <div className="pt-5 pb-2">
-        {graphKnown &&
+        {target.name === 'main' &&
+        baseIndex >= 0 &&
         detail.comparison.merge_base !== null &&
         detail.comparison.behind !== null ? (
           <BranchGraph
