@@ -17,6 +17,19 @@ from phlo_api.observatory_api import v1_preview as preview
 @pytest.fixture(autouse=True)
 def preview_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
+    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_PROCESS", "1")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_URL", "https://trino:8443")
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "prod": {"dagster_location": "prod", "nessie_ref": "main"},
+                "staging": {"dagster_location": "staging", "nessie_ref": "dev"},
+            }
+        ),
+    )
+    monkeypatch.setattr(preview, "backend_client", http_client.backend_client)
     monkeypatch.setenv(
         "PHLO_V1_PREVIEW_CATALOGS",
         json.dumps(
@@ -36,6 +49,15 @@ def test_catalog_requires_exact_environment_ref_mapping(monkeypatch) -> None:
         preview.preview_catalog("prod", "release_a")
 
     monkeypatch.setenv("PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED", "1")
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "prod": {"dagster_location": "prod", "nessie_ref": "release_a"},
+                "staging": {"dagster_location": "staging", "nessie_ref": "review_b"},
+            }
+        ),
+    )
     monkeypatch.setenv(
         "PHLO_V1_PREVIEW_CATALOGS",
         json.dumps(
@@ -83,6 +105,66 @@ def test_quote_table_quotes_every_asset_key_segment() -> None:
     assert preview.quote_table("iceberg_prod", 'warehouse/orders"; DROP TABLE x') == (
         '"iceberg_prod"."warehouse"."orders""; DROP TABLE x"'
     )
+
+
+def test_configured_identity_files_are_private_exact_and_rotatable(tmp_path, monkeypatch) -> None:
+    password = tmp_path / "preview-password"
+    password.write_text("first-disposable-password", encoding="utf-8")
+    password.chmod(0o600)
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "analytics": {"dagster_location": "analytics", "nessie_ref": "release_42"},
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "PHLO_V1_PREVIEW_CATALOGS",
+        json.dumps(
+            {
+                "analytics": {"catalog": "preview_analytics", "nessie_ref": "release_42"},
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES", json.dumps({"analytics": str(password)})
+    )
+    assert preview.preview_catalog("analytics", "release_42") == "preview_analytics"
+    first = preview._preview_auth_headers("preview_analytics")
+    assert first["X-Trino-User"] == "phlo_api_preview_analytics"
+    password.write_text("renewed-disposable-password", encoding="utf-8")
+    assert (
+        preview._preview_auth_headers("preview_analytics")["Authorization"]
+        != first["Authorization"]
+    )
+    with pytest.raises(preview.PreviewUnavailable):
+        preview.preview_catalog("analytics", "main")
+    with pytest.raises(preview.PreviewUnavailable):
+        preview.preview_catalog("prod", "release_42")
+    password.chmod(0o644)
+    with pytest.raises(preview.PreviewUnavailable):
+        preview.preview_catalog("analytics", "release_42")
+
+
+def test_preflight_collects_prerequisites_without_claiming_deployed_readiness(monkeypatch) -> None:
+    checks = preview.preview_preflight("prod")
+    assert checks[-1]["state"] == "configured"
+    assert checks[-1]["reason_code"] == "enforcement_unverified"
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_URL", "http://ingestion:8080")
+    monkeypatch.delenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD")
+    checks = preview.preview_preflight("prod")
+    assert all(check["state"] == "unavailable" for check in checks)
+    assert {check["reason_code"] for check in checks} == {
+        "enforcement_unverified",
+        "configuration_invalid",
+    }
+    assert len(checks) >= 3
+    assert all(check["remediation"] for check in checks)
+    monkeypatch.delenv("PHLO_V1_PREVIEW_CATALOGS")
+    monkeypatch.delenv("PHLO_V1_PREVIEW_TRINO_URL")
+    assert preview.preview_preflight("prod")[0]["reason_code"] == "intentionally_disabled"
 
 
 def test_preview_uses_an_environment_specific_trino_identity() -> None:

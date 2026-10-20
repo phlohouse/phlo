@@ -1,51 +1,155 @@
-# Optional Observatory preview security bundle
+# Provision an optional Observatory preview coordinator
 
-This directory contains an optional example for a Phlo installation. The Trino
-service definition does not install or activate it. The repository does not
-identify a running Trino service. An installation must configure its own
-Nessie refs, storage, TLS, credentials, and policy before enabling API preview.
+Use `phlo trino preview provision` to generate a separate Trino 483 deployment.
+The command never starts services or changes the ingestion coordinator, its
+catalogs, or its budgets. Generated files are configuration evidence, not proof
+that deployment enforcement works. Keep production security readiness checks.
 
-The examples follow this repository's existing catalog convention only:
+## Configure the inputs
 
-| API environment | Example catalog | Example Nessie ref |
-| --- | --- | --- |
-| `prod` | `iceberg_preview_prod` | `main` |
-| `staging` | `iceberg_preview_staging` | `dev` |
+1. Add `preview` only to the environments that need query access in `phlo.yaml`.
+   Environment IDs are configuration-defined. No second target is required.
 
-These catalog names and refs are examples, not required API names or a deployed
-mapping. Replace them consistently in the catalog files, access rules, and API
-settings for each installation. The API uses separate fixed identities,
-`phlo_api_preview_prod` and `phlo_api_preview_staging`; each can read only its
-matching catalog. Configure their separate passwords in the API environment.
-The API requires two distinct catalog names and an exact match to its
-configured environment refs. Never select a ref with SQL or a session property.
+   ```yaml
+   environments:
+     analytics:
+       dagster_location: analytics
+       nessie_ref: release_42
+       preview:
+         catalog: preview_analytics
+         catalog_file: config/preview-analytics.properties
+         password_file: /run/secrets/preview-analytics-password
+   default_environment: analytics
+   ```
 
-## Install only after review
+   Target file paths resolve relative to the project directory. Use distinct
+   catalog names and passwords. The generated identity is
+   `phlo_api_preview_<environment-id>` and can read only its own catalog.
+   The parent target supplies the ref. Never select a ref through SQL.
 
-1. Use a dedicated preview coordinator for this Trino 483 bundle. Its server-level
-   query budgets apply to every identity. Do not copy them onto a shared coordinator
-   or replace existing client settings. Configure HTTPS and password authentication
-   from `config.properties.template`. Supply the keystore password and a random
-   internal communication secret through the installation's secret store.
-   Keep the HTTP discovery port private. With password authentication enabled,
-   Trino rejects external query requests over HTTP. Use authenticated HTTPS with a
-   trusted CA for the health check; do not use `curl -k`.
-2. Provision the two dedicated identities shown in the example, with different
-   strong passwords. Do not reuse an operator account for previews.
-3. Integrate the sample password authenticator, access-control, resource-group,
-   and server-level query budgets with the dedicated coordinator's configuration.
-   Trino uses one configuration manager of each type; copying these sample
-   files over existing ones can block clients. Adapt catalog names and
-   the matching user-specific catalog rules together; do not grant either
-   preview user access to the other environment. The preview catalogs set
-   `iceberg.security=READ_ONLY`. Confirm their Nessie refs and storage mapping.
-   Do not install a session-property configuration manager on this coordinator.
-4. Configure the API with the HTTPS endpoint, the two API identity passwords, and
-   exact `prod`/`staging` -> catalog/ref mapping. The API enforces small request
-   limits and cancels Trino queries when it times out, is disconnected, or
-   exceeds response caps.
-5. Apply configuration and restart services through the installation's own
-   deployment process. This PR starts and restarts no services.
+2. Supply an approved Iceberg REST catalog properties file. Its
+   `iceberg.rest-catalog.prefix` must equal the parent `nessie_ref` exactly.
+   Set the approved REST endpoint, warehouse, storage endpoint, authentication,
+   and storage credentials. The generator forces `iceberg.security=READ_ONLY`.
+   It rejects duplicate properties and Java property escapes rather than
+   interpreting ambiguous input. Do not put credentials in version control.
+
+3. Supply a trusted PEM CA bundle and a JKS or PKCS12 server keystore whose
+   certificate covers `trino-preview`. Use private password files with mode
+   `0600` or stricter and at least 16 characters. The keystore password accepts
+   alphanumeric characters plus `.`, `_`, and `-`. Import generated credentials
+   into your approved secret store or mount the private files. The command
+   does not modify an external secret store.
+
+4. Create a provider input file, such as `preview.json`:
+
+   ```json
+   {
+     "ca_file": "/run/secrets/preview-ca.pem",
+     "keystore_file": "/run/secrets/preview.p12",
+     "keystore_password_file": "/run/secrets/preview-keystore-password",
+     "network": "approved_phlo_network",
+     "port": 10025
+   }
+   ```
+
+   These paths resolve relative to the input file. The network must already
+   exist and permit access to the approved catalog and storage endpoints.
+
+## Generate and inspect the deployment
+
+From the project directory, run:
+
+```bash
+phlo trino preview provision --config preview.json --output .phlo/preview-new
+docker compose -p phlo-preview -f .phlo/preview-new/compose.yaml config --quiet
+```
+
+The output directory must not exist. The command creates private directories
+and mode `0600` files, including catalog credentials, a PBKDF2 password database,
+the server keystore, an authenticated CA-verifying health check, and
+`api-settings.json`. Preserve file privacy when making files readable by the
+Trino container UID. Never make secrets world-readable to repair a mount.
+
+The generator preserves the invoking owner's UID and private host permissions.
+At deployment, a networkless, read-only-root init container uses the same pinned
+image to copy server inputs into dedicated named volumes. It assigns only those
+volume copies to the image's Trino user, retaining private permissions. The
+nonroot coordinator mounts the copies read-only and cannot start if init fails.
+No host ownership changes or world-readable credentials are needed for Trino.
+Mount only `api-secrets/` into the API, with ownership assigned to its actual UID
+by your deployment or secret-store tooling. The API needs neither the server
+keystore nor the password database. These separate private directories allow
+different API and Trino UIDs without broadening permissions. Adapt paths in
+`api-settings.json` to that mount, and fail deployment checks if either service
+cannot read its private files. Do not mount the entire output into the API.
+
+Review the deployment through your normal approval process before starting it:
+
+```bash
+docker compose -p phlo-preview -f .phlo/preview-new/compose.yaml up -d
+```
+
+The service publishes HTTPS only on loopback port `10025` by default. Internal
+HTTP discovery remains private. The API must reach `https://trino-preview:8443`
+on the selected network. Adapt the output CA and credential paths to the API's
+mount namespace when applying `api-settings.json`. Do not replace `TRINO_URL`.
+Only `PHLO_V1_PREVIEW_TRINO_URL` selects the preview endpoint.
+`PHLO_V1_PREVIEW_TRINO_CA_FILE` selects its trusted CA bundle, otherwise platform
+trust applies. Certificate verification cannot be disabled.
+
+The API reads catalogs and credential paths from canonical `phlo.yaml` preview
+stanzas. Generated `PHLO_V1_PREVIEW_CATALOGS` and
+`PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES` are runtime overrides for mounted output.
+Their keys must match the opted-in targets exactly and refs must match the
+parent targets. Legacy complete environment maps without preview stanzas retain
+the `prod` and `staging` password variables for compatibility only.
+
+## Verify before asserting deployment controls
+
+Run `python -m phlo_api.preview_preflight --env analytics` inside the API configuration
+context with `phlo-api` installed. It collects missing or invalid prerequisites
+and reports setup guidance together. An intentionally unconfigured preview is
+disabled. A valid local configuration remains `enforcement_unverified`.
+The aggregate readiness and Query setup UI consume the same assessment.
+
+Verify one API replica and one worker in the actual deployment before setting
+`PHLO_V1_QUERY_SINGLE_REPLICA=1` and `PHLO_V1_QUERY_SINGLE_PROCESS=1` in the process
+environment. `WEB_CONCURRENCY` must equal `1`. Verify the installed coordinator
+limits before setting `PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED=1`.
+Generation intentionally sets none of these assertions.
+
+Verify catalog browsing and a real table read, completed query evidence in the
+configured PostgreSQL evidence store, rejection of DDL and DML, cross-catalog
+denial, and rejection of system and catalog session overrides. Verify row caps,
+timeouts, cancellation, and concurrent admission. A successful health check or
+`SELECT 1` alone does not prove those controls.
+
+Active sessions live in one API process and do not survive API restart.
+Completed evidence can be recovered only when the evidence database and its
+schema are configured. Do not claim durable active-session recovery or
+multi-worker support. Keep the explicit schema migration process for existing
+deployments; generation does not migrate a database.
+
+For password or certificate renewal, generate a new directory with the renewed
+inputs. Review and use the new bundle's complete Compose manifest with the same
+approved project name. Each generated manifest carries a new init revision;
+Compose refreshes the private volume copies and restarts the dependent server.
+An ordinary server restart does not import edited host inputs. During the
+approved renewal window, stop the coordinator before applying the new manifest:
+
+```bash
+docker compose -p phlo-preview -f .phlo/preview-new/compose.yaml stop trino-preview
+docker compose -p phlo-preview -f .phlo/preview-renewed/compose.yaml up -d
+```
+
+Then update the API's mounted credentials and trust bundle.
+The API rereads password files and CA trust on new queries. Verify new
+credentials succeed and revoked credentials fail after server reload or restart.
+Verify hostname and CA rejection as well as a successful renewed connection.
+Retain the previous approved deployment for rollback. Never use `curl -k`.
+
+## Understand the enforcement limits
 
 The coordinator sets `query.max-run-time=20s`, `query.max-planning-time=5s`, and
 `query.max-scan-physical-bytes=256MB`. System access control denies preview

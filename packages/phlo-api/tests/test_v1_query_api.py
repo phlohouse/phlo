@@ -42,6 +42,7 @@ def query_api(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD", "test-prod-secret")
     monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING", "test-staging-secret")
     monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_REPLICA", "1")
+    monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_PROCESS", "1")
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setattr(
         v1_query,
@@ -196,7 +197,12 @@ def test_catalog_refs_and_engines_are_resolved_from_each_environment(query_api):
 
 
 @pytest.mark.parametrize(
-    "name", ["PHLO_V1_QUERY_SINGLE_REPLICA", "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED"]
+    "name",
+    [
+        "PHLO_V1_QUERY_SINGLE_REPLICA",
+        "PHLO_V1_QUERY_SINGLE_PROCESS",
+        "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
+    ],
 )
 def test_query_deployment_gates_are_exact_and_read_per_request(query_api, monkeypatch, name):
     client, calls = query_api
@@ -214,6 +220,13 @@ def test_query_deployment_gates_are_exact_and_read_per_request(query_api, monkey
     assert response.json()["catalogs"][0]["name"] == "warehouse_prod"
     monkeypatch.setenv(name, "0")
     assert client.get(endpoint).status_code == 503
+
+
+def test_query_rejects_multiple_workers_even_with_process_assertion(query_api, monkeypatch):
+    client, calls = query_api
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    assert client.get("/api/v1/query/catalog?env=prod").status_code == 503
+    assert calls == []
 
 
 @pytest.mark.parametrize("supported", [False, True])

@@ -45,6 +45,7 @@ from phlo.cli.output import missing_query_error
 from phlo.cli.sql import is_mutating_sql
 from phlo.plugins.observatory_settings import StorageUnavailableError, get_operational_settings
 from phlo_trino.authorization import get_trino_cli_adapter
+from phlo_trino.preview_provision import provision_preview
 from phlo_trino.sql_policy import require_governed_sql
 
 
@@ -90,6 +91,11 @@ def _trino_exec_base(*, tty: bool) -> list[str]:
 @click.pass_context
 def trino_group(ctx: click.Context, trino_args: tuple[str, ...]) -> None:
     """Run the Trino shell or a Trino-specific helper command."""
+    if trino_args and trino_args[0] == "preview":
+        preview_group.main(
+            args=list(trino_args[1:]), prog_name="phlo trino preview", standalone_mode=False
+        )
+        return
     if trino_args and trino_args[0] == "query":
         trino_query.main(
             args=list(trino_args[1:]),
@@ -167,3 +173,31 @@ def trino_query(
 
     if result.stdout:
         click.echo(result.stdout, nl=False)
+
+
+@click.group(name="preview")
+def preview_group() -> None:
+    """Provision an isolated, opt-in query preview deployment."""
+
+
+@preview_group.command(name="provision")
+@click.option(
+    "--config",
+    "config_file",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option("--output", required=True, type=click.Path(path_type=Path))
+@click.option("--project-root", type=click.Path(exists=True, file_okay=False, path_type=Path))
+def preview_provision(config_file: Path, output: Path, project_root: Path | None) -> None:
+    """Generate private configuration only; never start or replace services."""
+    try:
+        provision_preview(config_file, output, project_root)
+    except (OSError, ValueError) as exc:
+        # Validation errors can contain credential inputs. Do not echo their values.
+        raise click.ClickException(
+            "Preview provisioning failed. Check the schema, private input permissions, CA, exact catalog refs and new output directory."
+        ) from exc
+    click.echo(
+        f"Generated preview configuration in {output}. Deployment enforcement remains unverified."
+    )

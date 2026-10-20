@@ -231,9 +231,17 @@ def _remember_session(session: QuerySession) -> None:
 
 def _mapped_catalog(request: Request, env: Environment) -> tuple[str, str]:
     target = _target(request, env)
-    if not get_deployment_settings().query_single_replica:
+    try:
+        deployment = get_deployment_settings()
+    except ValueError as exc:
+        raise BackendUnavailableError("Query deployment process configuration is invalid.") from exc
+    if not deployment.query_single_replica:
         raise BackendUnavailableError(
             "Query workspace requires an explicitly single-replica API deployment."
+        )
+    if not deployment.query_single_process or deployment.web_concurrency != 1:
+        raise BackendUnavailableError(
+            "Query workspace requires one explicitly asserted API process; active sessions are process-local."
         )
     try:
         catalog = preview_catalog(env, target.nessie_ref)
