@@ -9,7 +9,14 @@ This module contains tests for the provider module, covering:
 
 from __future__ import annotations
 
+import json
+from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import Mock
+
+from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+from opentelemetry.sdk.metrics.export import ConsoleMetricExporter
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from phlo_otel import provider
 
@@ -115,7 +122,7 @@ def test_build_resource_attributes_uses_phlo_observability_settings(monkeypatch)
 
 def test_get_log_emitter_uses_cached_logger_provider(monkeypatch):
     """Test get_log_emitter returns cached logger when available."""
-    provider._initialized = True
+    monkeypatch.setattr(provider, "_initialized", True)
     fake_logger = object()
     fake_provider = SimpleNamespace(get_logger=lambda name, version: fake_logger)
     monkeypatch.setattr(provider, "_logger_provider", fake_provider)
@@ -152,6 +159,78 @@ def test_signal_export_enabled_uses_endpoint_when_exporter_unset(monkeypatch):
     monkeypatch.delenv("OTEL_TRACES_EXPORTER", raising=False)
 
     assert provider._traces_export_enabled() is True
+
+
+def test_enabled_providers_export_and_reuse_one_initialisation(monkeypatch):
+    """Enabled signals export real SDK records and keep their initial providers."""
+    for signal in ("TRACES", "METRICS", "LOGS"):
+        monkeypatch.setenv(f"OTEL_{signal}_EXPORTER", "otlp")
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    monkeypatch.setenv("OTEL_TRACES_SAMPLER", "always_on")
+    monkeypatch.setenv("OTEL_METRIC_EXPORT_INTERVAL", "3600000")
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "provider-lifecycle-test")
+    monkeypatch.setattr(provider, "logger", Mock())
+    monkeypatch.setattr(provider, "_initialized", False)
+    for name in ("_logger_provider", "_meter_provider", "_tracer_provider"):
+        monkeypatch.setattr(provider, name, None)
+
+    spans = InMemorySpanExporter()
+    logs = InMemoryLogRecordExporter()
+    metric_output = StringIO()
+    metric_exporter = ConsoleMetricExporter(out=metric_output)
+    monkeypatch.setattr(provider, "OTLPSpanExporter", lambda: spans)
+    monkeypatch.setattr(provider, "OTLPLogExporter", lambda: logs)
+    monkeypatch.setattr(provider, "OTLPMetricExporter", lambda: metric_exporter)
+    register_tracer = Mock()
+    register_meter = Mock()
+    # Keep the test's SDK providers out of the process-wide registries.
+    monkeypatch.setattr(provider.trace, "set_tracer_provider", register_tracer)
+    monkeypatch.setattr(provider.metrics, "set_meter_provider", register_meter)
+
+    try:
+        provider._ensure_initialized()
+        tracer_provider = provider._tracer_provider
+        meter_provider = provider._meter_provider
+        logger_provider = provider._logger_provider
+        register_tracer.assert_called_once_with(tracer_provider)
+        register_meter.assert_called_once_with(meter_provider)
+
+        with tracer_provider.get_tracer("provider-test").start_as_current_span("ingestion"):
+            provider.get_log_emitter().emit(body="ingestion completed")
+        meter_provider.get_meter("provider-test").create_counter("rows").add(7)
+        assert tracer_provider.force_flush()
+        assert logger_provider.force_flush()
+        assert meter_provider.force_flush()
+
+        (span,) = spans.get_finished_spans()
+        (record,) = logs.get_finished_logs()
+        assert span.name == "ingestion"
+        assert span.resource.attributes["service.name"] == "provider-lifecycle-test"
+        assert record.log_record.body == "ingestion completed"
+        assert record.log_record.trace_id == span.context.trace_id
+        assert record.resource.attributes["service.name"] == "provider-lifecycle-test"
+        (resource_metrics,) = json.loads(metric_output.getvalue())["resource_metrics"]
+        assert (
+            resource_metrics["resource"]["attributes"]["service.name"] == "provider-lifecycle-test"
+        )
+        (scope_metrics,) = resource_metrics["scope_metrics"]
+        (metric,) = scope_metrics["metrics"]
+        assert metric["name"] == "rows"
+        assert metric["data"]["data_points"][0]["value"] == 7
+
+        provider._ensure_initialized()
+        assert provider._tracer_provider is tracer_provider
+        assert provider._meter_provider is meter_provider
+        assert provider._logger_provider is logger_provider
+        assert register_tracer.call_count == 1
+        assert register_meter.call_count == 1
+    finally:
+        provider.shutdown_otel()
+
+    assert provider._initialized is False
+    assert provider._tracer_provider is None
+    assert provider._meter_provider is None
+    assert provider._logger_provider is None
 
 
 def test_shutdown_otel_resets_cached_providers(monkeypatch):

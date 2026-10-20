@@ -11,6 +11,45 @@ export const adminRoleSchema = z.enum([
   'viewer',
   'service',
 ])
+const roleCatalogSchema = z.object({
+  assignment_scope: z.literal('installation'),
+  policy_status: z.enum(['available', 'unavailable']),
+  items: z.array(
+    z.object({
+      name: adminRoleSchema,
+      policies: z.array(
+        z.object({
+          policy_id: z.string(),
+          effect: z.string(),
+          action: z.string(),
+          resource_type: z.string(),
+          resource_id_pattern: z.string(),
+          principal_attribute_names: z.array(z.string()),
+          resource_attribute_names: z.array(z.string()),
+        }),
+      ),
+    }),
+  ),
+})
+export type AdminRoleCatalog = z.infer<typeof roleCatalogSchema>
+export const checkMyPermission = createServerFn({ method: 'GET' })
+  .inputValidator(
+    z.object({
+      action: z.string().min(1).max(120),
+      resourceType: z.string().min(1).max(120),
+      resourceId: z.string().min(1).max(512),
+    }),
+  )
+  .handler(({ data }) =>
+    phloApi(
+      `api/v1/admin/permissions?${new URLSearchParams({
+        action: data.action,
+        resource_type: data.resourceType,
+        resource_id: data.resourceId,
+      })}`,
+      z.object({ allowed: z.boolean(), reason_code: z.string().nullable() }),
+    ),
+  )
 const memberSchema = z.object({
   subject: z.string(),
   email: z.string().nullable(),
@@ -181,15 +220,18 @@ async function sign(input: {
 
 export const getAdminIdentity = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [members, invitations, serviceAccounts] = await Promise.all([
-      phloApi('api/v1/admin/members', page(memberSchema)),
-      phloApi('api/v1/admin/invitations', page(invitationSchema)),
-      phloApi('api/v1/admin/service-accounts', page(serviceAccountSchema)),
-    ])
+    const [members, invitations, serviceAccounts, roleCatalog] =
+      await Promise.all([
+        phloApi('api/v1/admin/members', page(memberSchema)),
+        phloApi('api/v1/admin/invitations', page(invitationSchema)),
+        phloApi('api/v1/admin/service-accounts', page(serviceAccountSchema)),
+        phloApi('api/v1/admin/roles', roleCatalogSchema),
+      ])
     return {
       members: members.items,
       invitations: invitations.items,
       serviceAccounts: serviceAccounts.items,
+      roleCatalog,
     }
   },
 )

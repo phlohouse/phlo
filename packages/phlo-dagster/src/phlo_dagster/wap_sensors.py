@@ -3,12 +3,12 @@
 This module implements automated WAP pattern orchestration for versioned data
 catalogs (e.g., Nessie). The WAP pattern ensures data quality by isolating
 writes on branches, auditing with automated checks, and only publishing
-(promoting to main) after validation passes.
+(promoting to the bound environment ref) after validation passes.
 
 WAP Phases:
     1. Write: Data is written to an isolated branch (pipeline-run-{run_id})
     2. Audit: Asset checks validate data quality on the branch
-    3. Publish: Successful runs are merged to main, branches cleaned up
+    3. Publish: Successful runs advance their bound target, branches cleaned up
 
 Sensor Components:
     - wap_auto_promotion_sensor: Promotes explicitly prepared branches after successful audit
@@ -75,6 +75,7 @@ from phlo.run_evidence import (
 
 from phlo_dagster.run_evidence import DagsterRunEvidenceSource
 from phlo_dagster.settings import WapSensorSettings
+from phlo_dagster.wap_context import WAP_BINDING_TAG, validate_wap_context
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
@@ -235,6 +236,8 @@ def _cleanup_owned_wap_branch(
     catalog: VersionedCatalog,
     branch_name: str,
     query_catalog_manager: RefQueryCatalogManager | None,
+    *,
+    expected_hash: str | None = None,
 ) -> bool:
     """Clean up one owned WAP ref and its optional query catalog.
 
@@ -245,6 +248,8 @@ def _cleanup_owned_wap_branch(
     """
     if not _is_owned_wap_branch(branch_name):
         logger.warning("wap_branch_cleanup_rejected_unowned_ref", branch_name=branch_name)
+        return False
+    if expected_hash is not None and _branch_hash(catalog, branch_name) != expected_hash:
         return False
 
     if query_catalog_manager is not None:
@@ -259,7 +264,11 @@ def _cleanup_owned_wap_branch(
             return False
 
     try:
-        return catalog.delete_branch(branch_name)
+        return (
+            catalog.delete_branch(branch_name, expected_hash=expected_hash)
+            if expected_hash is not None
+            else catalog.delete_branch(branch_name)
+        )
     except Exception:
         logger.warning("wap_branch_cleanup_failed", branch_name=branch_name, exc_info=True)
         return False
@@ -291,7 +300,7 @@ def _attempt_for_run(run: Any) -> int | None:
 def _read_wap_report(run_id: str) -> dict[str, Any] | None:
     try:
         return json.loads(_report_path(run_id).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None
 
 
@@ -590,6 +599,9 @@ def _verify_wap_launch_manifest(run: Any, branch_name: str) -> tuple[str, dict[s
     catalog_system = tags.get(WAP_CATALOG_SYSTEM_TAG)
     if catalog_system:
         expected_tags[WAP_CATALOG_SYSTEM_TAG] = catalog_system
+    for key in ("environment", WAP_BINDING_TAG):
+        if key in tags:
+            expected_tags[key] = tags[key]
     if (
         not logical_run_id
         or not dagster_run_id
@@ -624,25 +636,63 @@ def _verify_wap_launch_manifest(run: Any, branch_name: str) -> tuple[str, dict[s
     else:
         launch_source_hash = manifest["launch_source_hash"]
         launch_target_hash_before = manifest["launch_target_hash_before"]
+    context = binding.get("context")
+    if context is not None and not isinstance(context, dict):
+        return None
+    context_fields = {"context": context} if context else {}
+    target_ref = context.get("target_ref") if context else "main"
     if (
         manifest.get("run_id") != logical_run_id
         or manifest.get("branch") != branch_name
         or manifest.get("dagster_run_id") != dagster_run_id
         or manifest.get("launch_tags") != expected_tags
+        or (context and manifest.get("context") != context)
         or binding
         != {
-            "schema_version": "phlo.wap_launch_manifest.v1",
+            "schema_version": "phlo.wap_launch_manifest.v2"
+            if context
+            else "phlo.wap_launch_manifest.v1",
             "logical_run_id": logical_run_id,
             "dagster_run_id": dagster_run_id,
             "branch": branch_name,
             "tags": expected_tags,
             "source_hash": launch_source_hash,
-            "target_branch": "main",
+            "target_branch": target_ref,
             "target_hash_before": launch_target_hash_before,
+            **context_fields,
         }
     ):
         return None
     return logical_run_id, manifest
+
+
+def _check_wap_run_context(run: Any, branch: str, catalog: Any) -> bool:
+    """Guard promotion and retention, including legacy runs and foreign locations."""
+    verified = _verify_wap_launch_manifest(run, branch)
+    if verified is None:
+        return False
+    logical_run_id, report = verified
+    binding = read_wap_launch_manifest(logical_run_id, report["launch_manifest_checksum"])
+    try:
+        validate_wap_context(run, binding or {}, catalog)
+    except ValueError as exc:
+        write_wap_report(
+            logical_run_id,
+            status="promotion_blocked",
+            failure_reason="wap_launch_context_invalid",
+            context_error=str(exc),
+        )
+        return False
+    return True
+
+
+def _publication_target(run: Any) -> str:
+    """Read only verified immutable launch facts, never a tag or current default."""
+    report = _read_wap_report(_logical_run_id(run)) or {}
+    binding = read_wap_launch_manifest(_logical_run_id(run), report["launch_manifest_checksum"])
+    if not binding or not binding.get("context"):
+        raise ValueError("WAP publication context is missing")
+    return binding["context"]["target_ref"]
 
 
 def _reconcile_promoted_wap_run(run: Any, instance: Any) -> bool:
@@ -1034,7 +1084,7 @@ def _finalize_wap_promotion(
         merge_state="merged",
         branch=branch_name,
         source_hash=source_hash,
-        target_branch="main",
+        target_branch=_publication_target(run),
         target_hash_before=target_hash_before,
         target_hash_after=target_hash_after,
         source_deleted=source_deleted,
@@ -1080,18 +1130,18 @@ def _finalize_wap_promotion(
 
 @dg.sensor(
     name="wap_auto_promotion_sensor",
-    description="Merges WAP branches to main when all asset checks pass (WAP publish phase)",
+    description="Publishes WAP branches to their bound environment ref after asset checks pass",
     minimum_interval_seconds=DEFAULT_PROMOTION_INTERVAL_SECONDS,
     default_status=dg.DefaultSensorStatus.RUNNING,
 )
 def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
-    """Merge pipeline branches whose runs succeeded with all checks passing.
+    """Publish pipeline branches whose runs succeeded with all checks passing.
 
     Scans terminal runs tagged with a WAP branch. Failed and cancelled runs
     are terminalized in their durable reports but retain their branches and
     optional query catalogs for audit until the cleanup sensor's retention
     policy applies. For successful runs, verifies that no asset checks failed,
-    then merges the branch to main and cleans up. Failures are logged as
+    then advances the bound environment ref and cleans up. Failures are logged as
     warnings.
 
     """
@@ -1136,9 +1186,13 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
     blocked = 0
 
     for run in terminal_runs:
-        run_promoted, run_blocked = _promote_terminal_run(
-            run, instance, configured_strategy, catalog, query_catalog_manager
-        )
+        try:
+            run_promoted, run_blocked = _promote_terminal_run(
+                run, instance, configured_strategy, catalog, query_catalog_manager
+            )
+        except Exception:
+            logger.warning("wap_run_processing_failed", run_id=run.run_id, exc_info=True)
+            continue
         promoted += run_promoted
         blocked += run_blocked
 
@@ -1292,6 +1346,9 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
 
         # Exactly one exact match: use its physical ID only for Dagster status.
         selected_run = exact_matches[0]
+        if not _check_wap_run_context(selected_run, branch.name, catalog):
+            skipped += 1
+            continue
         run_status = _normalized_dagster_status(selected_run)
 
         # Active: the matched run has not reached a terminal state.
@@ -1347,6 +1404,9 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
             catalog,
             branch.name,
             query_catalog_manager,
+            expected_hash=report.get("source_hash")
+            if report and report.get("merge_state") == "merged"
+            else None,
         )
         write_wap_report(
             logical_run_id,
@@ -1471,6 +1531,9 @@ def wap_candidate_cleanup_sensor(context: dg.SensorEvaluationContext):
             continue
 
         selected_run = exact_matches[0]
+        if not _check_wap_run_context(selected_run, str(namespace), catalog):
+            skipped += 1
+            continue
         run_status = _normalized_dagster_status(selected_run)
         if run_status is None:
             skipped += 1
@@ -1588,6 +1651,9 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
         return (promoted, blocked)
 
     manifest_logical_run_id, manifest_payload = manifest
+    if not _check_wap_run_context(run, branch_name, catalog):
+        return (promoted, blocked + 1)
+    target_ref = _publication_target(run)
     # Fail closed on configuration drift: a run launched under a different
     # strategy must never be advanced with the wrong catalog contract.
     report_strategy = manifest_payload.get("strategy", WAP_STRATEGY_BRANCH)
@@ -1644,7 +1710,7 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
                 _logical_run_id(run),
                 status="promotion_blocked",
                 branch=branch_name,
-                target_branch="main",
+                target_branch=target_ref,
                 failure_reason="quality_evidence_unavailable",
             )
             _emit_wap_observation(
@@ -1652,9 +1718,9 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
                 status="incomplete",
                 run_status="success",
                 operation="promotion",
-                catalog_ref="main",
+                catalog_ref=target_ref,
                 source_hash=_branch_hash(catalog, branch_name),
-                target_hash=_branch_hash(catalog, "main"),
+                target_hash=_branch_hash(catalog, target_ref),
                 merge_outcome="skipped_quality_evidence_unavailable",
                 metadata={
                     **quality_metadata,
@@ -1668,8 +1734,8 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
             status="promotion_blocked",
             branch=branch_name,
             source_hash=_branch_hash(catalog, branch_name),
-            target_branch="main",
-            target_hash_before=_branch_hash(catalog, "main"),
+            target_branch=target_ref,
+            target_hash_before=_branch_hash(catalog, target_ref),
             failure_reason="asset_checks_failed",
         )
         _emit_wap_observation(
@@ -1677,9 +1743,9 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
             status="rejected",
             run_status="success",
             operation="promotion",
-            catalog_ref="main",
+            catalog_ref=target_ref,
             source_hash=_branch_hash(catalog, branch_name),
-            target_hash=_branch_hash(catalog, "main"),
+            target_hash=_branch_hash(catalog, target_ref),
             merge_outcome="rejected_quality",
             quality_decision_id=quality_decision_id,
             metadata={
@@ -1707,7 +1773,7 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
             _logical_run_id(run),
             status="promotion_blocked",
             branch=branch_name,
-            target_branch="main",
+            target_branch=target_ref,
             failure_reason="quality_evidence_unavailable",
         )
         _emit_wap_observation(
@@ -1715,9 +1781,9 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
             status="incomplete",
             run_status="success",
             operation="promotion",
-            catalog_ref="main",
+            catalog_ref=target_ref,
             source_hash=_branch_hash(catalog, branch_name),
-            target_hash=_branch_hash(catalog, "main"),
+            target_hash=_branch_hash(catalog, target_ref),
             merge_outcome="skipped_quality_evidence_unavailable",
             metadata={**quality_metadata, "changed_content_keys": {"status": "unavailable"}},
         )
@@ -1855,8 +1921,9 @@ def _promote_branch(
     merge_message,
 ):
     promoted = blocked = 0
+    target_ref = _publication_target(run)
     source_hash = _branch_hash(catalog, branch_name)
-    target_hash_before = _branch_hash(catalog, "main")
+    target_hash_before = _branch_hash(catalog, target_ref)
     already_merged = prior_report is not None and prior_report.get("merge_state") == "merged"
     merge_started = prior_report is not None and prior_report.get("merge_state") == "merge_started"
     if already_merged and prior_report is not None:
@@ -1879,6 +1946,19 @@ def _promote_branch(
         )
         return (promoted, blocked)
     else:
+        if not source_hash or not target_hash_before:
+            write_wap_report(
+                logical_run_id,
+                status="promotion_pending",
+                failure_reason="catalog_hash_unavailable",
+            )
+            return (promoted, blocked)
+        expected_hash = (prior_report or {}).get("launch_target_hash_before")
+        if not expected_hash or target_hash_before != expected_hash:
+            write_wap_report(
+                logical_run_id, status="promotion_blocked", failure_reason="target_hash_drift"
+            )
+            return (promoted, blocked + 1)
         # Persist intent before crossing the catalog boundary.  This is a
         # retry record, not a terminal promotion marker.
         if not write_wap_report(
@@ -1887,18 +1967,21 @@ def _promote_branch(
             merge_state="merge_started",
             branch=branch_name,
             source_hash=source_hash,
-            target_branch="main",
+            target_branch=target_ref,
             target_hash_before=target_hash_before,
+            publication_method="ref_fast_forward",
+            publication_reason=merge_message,
         ):
             logger.warning("wap_promotion_outbox_write_failed", run_id=run.run_id)
             return (promoted, blocked)
         try:
-            if merge_message is not None:
-                merged = catalog.merge_branch(
-                    source=branch_name, target="main", message=merge_message
-                )
-            else:
-                merged = catalog.merge_branch(source=branch_name, target="main")
+            merged = catalog.merge_branch(
+                source=branch_name,
+                target=target_ref,
+                message=merge_message,
+                expected_target_hash=expected_hash,
+                expected_source_hash=source_hash,
+            )
         except IndependentReviewRequired as exc:
             write_wap_report(
                 logical_run_id,
@@ -1918,7 +2001,7 @@ def _promote_branch(
             merge_state="merge_failed",
             branch=branch_name,
             source_hash=source_hash,
-            target_branch="main",
+            target_branch=target_ref,
             target_hash_before=target_hash_before,
             failure_reason="merge_branch_returned_false",
         )
@@ -1934,7 +2017,7 @@ def _promote_branch(
             status="failed",
             run_status="success",
             operation="promotion",
-            catalog_ref="main",
+            catalog_ref=target_ref,
             source_hash=source_hash,
             target_hash=target_hash_before,
             merge_outcome="failed",
@@ -1978,7 +2061,10 @@ def _finish_branch_promotion(
 ):
     promoted = blocked = 0
 
-    target_hash_after = _branch_hash(catalog, "main")
+    target_ref = _publication_target(run)
+    target_hash_after = (
+        prior_report.get("target_hash_after") if already_merged and prior_report else source_hash
+    )
     # This acknowledged transition is what makes a subsequent sensor
     # evaluation replay evidence/cleanup rather than invoke merge again.
     if not already_merged and not write_wap_report(
@@ -1987,7 +2073,7 @@ def _finish_branch_promotion(
         merge_state="merged",
         branch=branch_name,
         source_hash=source_hash,
-        target_branch="main",
+        target_branch=target_ref,
         target_hash_before=target_hash_before,
         target_hash_after=target_hash_after,
     ):
@@ -2004,6 +2090,7 @@ def _finish_branch_promotion(
             catalog,
             branch_name,
             query_catalog_manager,
+            expected_hash=source_hash,
         )
     if not source_deleted:
         write_wap_report(
@@ -2012,7 +2099,7 @@ def _finish_branch_promotion(
             merge_state="merged",
             branch=branch_name,
             source_hash=source_hash,
-            target_branch="main",
+            target_branch=target_ref,
             target_hash_before=target_hash_before,
             target_hash_after=target_hash_after,
             source_deleted=False,
@@ -2027,7 +2114,7 @@ def _finish_branch_promotion(
         merge_state="merged",
         branch=branch_name,
         source_hash=source_hash,
-        target_branch="main",
+        target_branch=target_ref,
         target_hash_before=target_hash_before,
         target_hash_after=target_hash_after,
         source_deleted=True,
@@ -2046,7 +2133,7 @@ def _finish_branch_promotion(
         target_hash_before=target_hash_before,
         target_hash_after=target_hash_after,
         source_deleted=source_deleted,
-        target_catalog_ref="main",
+        target_catalog_ref=target_ref,
     ):
         promoted += 1
         logger.info(

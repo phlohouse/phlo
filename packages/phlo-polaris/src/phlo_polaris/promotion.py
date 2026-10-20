@@ -205,6 +205,19 @@ class PolarisSnapshotPromotionCatalog:
     ) -> None:
         self._store = store
         self._table_opener = table_opener
+        self._injected_backend = store is not None or table_opener is not None
+
+    def wap_backend_identity(self) -> dict[str, str]:
+        """Expose the production catalog route without OAuth credentials."""
+        from phlo_polaris.settings import get_settings
+
+        if self._injected_backend:
+            raise ValueError("WAP cannot bind an injected snapshot catalog backend")
+        settings = get_settings()
+        return {
+            "endpoint": settings.polaris_rest_catalog_uri(),
+            "warehouse": settings.polaris_catalog,
+        }
 
     @property
     def store(self) -> Any:

@@ -465,6 +465,52 @@ def stage_to_parquet(
     return parquet_paths, elapsed
 
 
+def apply_validation_schema_hints(dlt_source: Any, schema_class: type[Any] | None) -> Any:
+    """Apply declared string types as DLT staging hints, preserving caller hints.
+
+    A resource's existing ``data_type`` hint takes precedence over the
+    validation schema. Unhinted string fields are forced to DLT ``text`` so
+    ISO-looking values and leading-zero identifiers remain exact strings in
+    staged Parquet. Timestamp fields are left to DLT's timestamp inference.
+    """
+    if schema_class is None:
+        return dlt_source
+    to_schema = getattr(schema_class, "to_schema", None)
+    if not callable(to_schema):
+        return dlt_source
+    schema = to_schema()
+    string_columns = {
+        name
+        for name, column in schema.columns.items()
+        if pd.api.types.is_string_dtype(getattr(column.dtype, "type", column.dtype))
+    }
+    if not string_columns:
+        return dlt_source
+
+    resources = getattr(dlt_source, "resources", None)
+    if isinstance(resources, Mapping):
+        source_resources = resources.values()
+    elif callable(getattr(dlt_source, "apply_hints", None)):
+        source_resources = (dlt_source,)
+    else:
+        return dlt_source
+
+    for resource in source_resources:
+        apply_hints = getattr(resource, "apply_hints", None)
+        compute_table_schema = getattr(resource, "compute_table_schema", None)
+        if not callable(apply_hints) or not callable(compute_table_schema):
+            continue
+        current_columns = compute_table_schema().get("columns", {})
+        hints = {
+            name: {"data_type": "text"}
+            for name in string_columns
+            if current_columns.get(name, {}).get("data_type") is None
+        }
+        if hints:
+            apply_hints(columns=hints)
+    return dlt_source
+
+
 def _coerce_parquet_to_table_schema(parquet_file: Path, table_schema: Any, table_name: str) -> Path:
     """Project staged columns for providers that do not own schema alignment."""
     import tempfile

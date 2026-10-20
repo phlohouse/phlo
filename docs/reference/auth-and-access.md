@@ -207,6 +207,86 @@ Phlo's canonical RBAC control plane lives under `.phlo/authorization/` and provi
 
 The canonical RBAC files and commands are part of the authorisation control plane.
 
+## Managed role setup
+
+Observatory **Settings → Members and access** and `phlo authz identity` use the
+same durable identity authority and signed admin API. Supported assignment roles
+are `admin`, `operator`, `developer`, `analyst`, `viewer`, and `service`. These
+names do not define fixed permission bundles. The active authorisation backend
+determines access.
+
+The role catalog shows candidate rules from the loaded default backend, including
+resource patterns and the presence of attribute conditions. It omits attribute
+values. A candidate rule is not an effective allow. Conditions must match, and
+the runtime backend applies deny precedence and default deny. External backends
+without a catalog report `unavailable`; existing assignment actions remain usable.
+Canonical policy validation still rejects deny rules, as described above.
+
+Members edits start with every assigned role selected. The review shows the
+complete replacement set and expected version. Approval requires confirmation,
+a justification, an authenticated administrator, and recent verified MFA.
+Invitations and service accounts remain on the same page.
+
+The CLI requires an existing provider-accepted bearer access token in
+`PHLO_AUTHZ_TOKEN`. It does not sign in, mint tokens, or persist credentials.
+`--api-url` names the trusted deployment API, not an environment data endpoint.
+HTTPS is required except on loopback; redirects are not followed.
+
+```bash
+phlo authz identity --api-url https://api.example.com roles
+phlo authz identity --api-url https://api.example.com members
+phlo authz identity --api-url https://api.example.com assign user-subject
+```
+
+`assign` prompts for a comma-separated complete role set, defaulting to all current
+roles, then requests confirmation and a justification. Repeated `--role` options
+select the complete replacement non-interactively. `--yes` also requires an
+explicit role set and `--justification`. The command displays the operation ID
+and expected version before it writes.
+
+```bash
+phlo authz identity --api-url https://api.example.com assign user-subject \
+  --role analyst --role viewer --expected-version 3 \
+  --operation-id reviewed-access-change-4 \
+  --justification 'Approved analytical access' --yes
+```
+
+An uncertain write is not automatically retried. Reuse its operation ID, expected
+version, and exact payload only for the same attempt. HTTP 409 requires inspection
+of the current member and approval state before a new operation. Unknown roles
+are rejected. Storage outages fail closed.
+
+**Check my effective access** evaluates the current administrator session for a
+specific action and resource identity through the runtime enforcement path.
+The CLI equivalent is:
+
+```bash
+phlo authz identity --api-url https://api.example.com \
+  permissions dataset.query dataset sales.orders
+```
+
+This check supplies no resource attributes and is not another member's access
+report. An operation still evaluates its full resource context, signatures, and
+workflow controls. Neither the catalog nor this check grants permission.
+
+Assignments are installation-wide and replace upstream group-derived roles.
+Managed role names do not expand through canonical role inheritance. Service
+principals also receive the existing `service` role. The selected Observatory
+environment does not scope an assignment or select an authentication provider.
+Separate deployments can configure different providers; data targets on one API
+share that deployment's authentication boundary.
+
+Role setup is not first-admin bootstrap. A deployment operator must establish
+the first authorised administrator through the existing canonical subject
+assignments and policies under protected configuration management. Identity
+authority requires enabled shared PostgreSQL storage. Neither interface enables
+it, changes deployment authentication, nor grants onboarding query or admin access.
+Ordinary service starts use saved project configuration. An explicit local static
+development identity is not proof of an authenticated deployment or recent MFA.
+Protected deployments also require their configured issuer, TLS, trusted ingress,
+and blocked direct-port access. Missing authentication never enables development
+access.
+
 ## Current configuration model
 
 The core authorisation model is represented by `ApiAuthorizationConfig`. Its fields are `backend` and `mode`. `mode` accepts `optional` and `required`. An API route guard uses the configured backend when present. Required mode treats a missing backend as unavailable authorisation configuration.

@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (214)
+## Endpoints (216)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -127,6 +127,8 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `POST` | `/api/v1/admin/invitations` | V1 Admin Invitation Create | `v1 admin identity` |
 | `GET` | `/api/v1/admin/members` | V1 Admin Members | `v1 admin identity` |
 | `PATCH` | `/api/v1/admin/members/{subject}/roles` | V1 Admin Member Roles | `v1 admin identity` |
+| `GET` | `/api/v1/admin/permissions` | V1 Admin Permissions | `v1 admin identity` |
+| `GET` | `/api/v1/admin/roles` | V1 Admin Roles | `v1 admin identity` |
 | `GET` | `/api/v1/admin/service-accounts` | V1 Admin Service Accounts | `v1 admin identity` |
 | `POST` | `/api/v1/admin/service-accounts` | V1 Admin Service Account Create | `v1 admin identity` |
 | `DELETE` | `/api/v1/admin/service-accounts/{subject}` | V1 Admin Service Account Revoke | `v1 admin identity` |

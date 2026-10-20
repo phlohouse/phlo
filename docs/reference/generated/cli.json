@@ -1,5 +1,5 @@
 {
-  "command_count": 176,
+  "command_count": 181,
   "commands": [
     {
       "capabilities": {
@@ -338,6 +338,232 @@
       "command": "phlo authz",
       "description": "Manage RBAC authorization policies and backend synchronization.",
       "kind": "group",
+      "parameters": []
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo authz identity",
+      "description": "Inspect roles and assign members using an existing administrator session.",
+      "kind": "group",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Trusted deployment API URL, not a data environment.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "api_url",
+          "nargs": 1,
+          "options": [
+            "--api-url"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": "PHLO_AUTHZ_TOKEN",
+          "help": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "token",
+          "nargs": 1,
+          "options": [
+            "--token"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": true,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo authz identity assign",
+      "description": "Review and sign a member's complete role set, preserving identity metadata.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "subject",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Complete replacement set; repeat for each role.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "role_names",
+          "nargs": 1,
+          "options": [
+            "--role"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "expected_version",
+          "nargs": 1,
+          "options": [
+            "--expected-version"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer range"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "justification",
+          "nargs": 1,
+          "options": [
+            "--justification"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Reuse only for an exact retry of this operation.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "operation_id",
+          "nargs": 1,
+          "options": [
+            "--operation-id"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Confirm the displayed complete role replacement.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "yes",
+          "nargs": 1,
+          "options": [
+            "--yes"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo authz identity members",
+      "description": "List installation-wide managed assignments and current versions.",
+      "kind": "command",
+      "parameters": []
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo authz identity permissions",
+      "description": "Evaluate your session for a resource identity with no resource attributes.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "action",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "resource_type",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "resource_id",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Decision context, never authentication selection.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo authz identity roles",
+      "description": "List supported assignments and candidate policy rules, not guaranteed grants.",
+      "kind": "command",
       "parameters": []
     },
     {
@@ -781,6 +1007,22 @@
           "required": false,
           "secondary_options": [],
           "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Configured WAP environment, otherwise default_environment.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
         }
       ]
     },
@@ -4079,6 +4321,22 @@
           "required": false,
           "secondary_options": [],
           "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Configured WAP environment, otherwise default_environment.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
         }
       ]
     },

@@ -26,7 +26,8 @@ from security_test_support import authenticated_client  # noqa: F401
 
 @pytest.fixture()
 def _declared_orders():
-    """Register one fully declared gold.orders contract, cleaned up after."""
+    """Isolate one fully declared gold.orders contract from other test modules."""
+    phlo.clear_flow_declarations()
 
     @phlo.contract(
         table="gold.orders",

@@ -155,6 +155,8 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
     *_specs(
         (
             "v1_admin_settings_get",
+            "v1_admin_roles",
+            "v1_admin_permissions",
             "v1_admin_members",
             "v1_admin_invitations",
             "v1_admin_service_accounts",

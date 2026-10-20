@@ -483,6 +483,16 @@ def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterab
     # Dagster's local event log.
     setup_logging(force=True)
     runtime = DagsterRuntime(context, asset_capability_overrides=dict(spec.capability_overrides))
+    from phlo.infrastructure import load_wap_config
+
+    if (
+        load_wap_config().enabled
+        or runtime.tags.get("phlo/wap_branch")
+        or runtime.tags.get("phlo/ref", "").startswith("pipeline-run-")
+    ):
+        from phlo_dagster.wap_launch import verify_wap_execution
+
+        verify_wap_execution(context.run, capability_overrides=dict(spec.capability_overrides))
     results: list[Any] = []
     deferred_failure: dg.Failure | None = None
     # Bind the physical Dagster run id so nested emissions (ingestion,
