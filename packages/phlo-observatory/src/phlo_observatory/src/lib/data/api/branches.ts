@@ -118,6 +118,7 @@ const envInput = z.object({ env: environmentSchema })
 const detailInput = envInput.extend({
   branch: z.string().min(1),
   target: z.string().min(1),
+  after: z.string().min(1).optional(),
 })
 const mutationInput = z.object({
   env: environmentSchema,
@@ -156,7 +157,7 @@ export const getBranchDetail = createServerFn({ method: 'GET' })
         env: data.env,
       }),
       phloApi(
-        `/api/v1/branches/${branch}/commits?env=${data.env}&limit=100`,
+        `/api/v1/branches/${branch}/commits?env=${data.env}&limit=100${data.after ? `&after=${encodeURIComponent(data.after)}` : ''}`,
         commitsSchema,
         { env: data.env },
       ),

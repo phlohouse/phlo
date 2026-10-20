@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 const searchSchema = z.object({
   dialog: z.enum(['new-branch', 'merge']).optional(),
   branch: z.string().optional(),
+  after: z.string().min(1).optional(),
   view: z.enum(['references', 'wap']).default('references'),
 })
 export const Route = createFileRoute('/_app/branches')({
@@ -118,25 +119,25 @@ function BranchEvidence({
   detail,
   target,
   selected,
+  env,
+  after,
 }: {
   detail?: BranchDetail
   target: Branch
   selected: Branch
+  env: Env
+  after?: string
 }) {
   if (!detail)
     return <p className="text-sm text-muted-foreground">Loading branch data…</p>
   const baseIndex = detail.commits.items.findIndex(
     (commit) => commit.hash === detail.comparison.merge_base,
   )
-  const graphKnown =
-    target.name === 'main' &&
-    baseIndex >= 0 &&
-    detail.comparison.merge_base !== null &&
-    detail.comparison.behind !== null
   return (
     <div>
       <div className="pt-5 pb-2">
-        {graphKnown &&
+        {target.name === 'main' &&
+        baseIndex >= 0 &&
         detail.comparison.merge_base !== null &&
         detail.comparison.behind !== null ? (
           <BranchGraph
@@ -199,14 +200,16 @@ function BranchEvidence({
           )}
         </div>
         <div className="min-w-0">
-          <Eyebrow>
-            Commit history{detail.commits.next_cursor ? ' (first 100)' : ''}
-          </Eyebrow>
+          <Eyebrow>Commit history</Eyebrow>
           {detail.commits.items.length ? (
-            <div className="mt-2 overflow-hidden rounded-[10px] border border-border-card">
+            <div
+              aria-label="Commit history"
+              className="mt-2 overflow-hidden rounded-[10px] border border-border-card"
+            >
               {detail.commits.items.map((commit) => (
                 <div
                   key={commit.hash}
+                  data-commit-hash={commit.hash}
                   className="grid min-w-0 gap-1 border-b border-line-soft px-3.5 py-3 last:border-0 sm:grid-cols-[112px_minmax(0,1fr)] sm:gap-x-3"
                 >
                   <Mono className="block truncate text-xs text-branch">
@@ -230,6 +233,30 @@ function BranchEvidence({
               No commits were returned.
             </EmptyState>
           )}
+          <nav aria-label="Commit history pages" className="mt-3 flex gap-3">
+            {after ? (
+              <Link
+                to="/branches"
+                search={{ env, branch: selected.name }}
+                className={buttonVariants({ variant: 'outline' })}
+              >
+                First history page
+              </Link>
+            ) : null}
+            {detail.commits.next_cursor ? (
+              <Link
+                to="/branches"
+                search={{
+                  env,
+                  branch: selected.name,
+                  after: detail.commits.next_cursor,
+                }}
+                className={buttonVariants({ variant: 'outline' })}
+              >
+                Next history page
+              </Link>
+            ) : null}
+          </nav>
         </div>
       </div>
     </div>
@@ -359,7 +386,7 @@ function BranchHeader({
 
 function BranchesPage() {
   const data = Route.useLoaderData(),
-    { env, dialog, view, branch: selectedName } = Route.useSearch(),
+    { env, dialog, view, branch: selectedName, after } = Route.useSearch(),
     navigate = Route.useNavigate(),
     router = useRouter()
   const target = data.branches.find((branch) => branch.protected)
@@ -381,7 +408,7 @@ function BranchesPage() {
     setError(undefined)
     if (selected && target)
       getBranchDetail({
-        data: { env, branch: selected.name, target: target.name },
+        data: { env, branch: selected.name, target: target.name, after },
       })
         .then((value) => {
           if (current) setDetail(value)
@@ -397,7 +424,7 @@ function BranchesPage() {
     return () => {
       current = false
     }
-  }, [env, selected?.name, selected?.hash, target?.name, target?.hash])
+  }, [env, selected?.name, selected?.hash, target?.name, target?.hash, after])
   const close = () =>
     navigate({
       search: (current) => ({ ...current, dialog: undefined }),
@@ -512,6 +539,8 @@ function BranchesPage() {
                     detail={detail}
                     target={target}
                     selected={selected}
+                    env={env}
+                    after={after}
                   />
                 </div>
                 {error && dialog !== 'merge' ? (

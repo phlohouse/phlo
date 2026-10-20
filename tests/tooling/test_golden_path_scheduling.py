@@ -198,9 +198,23 @@ def test_artifact_acceptance_requires_authenticated_staging_without_missing_bom_
     ]
     assert shlex.split(scripts[1]["run"]) == [
         "python3",
+        "scripts/release_provenance.py",
+        "collect",
+        "--candidate-sha",
+        "$PREVIOUS_CANDIDATE_SHA",
+        "--stage-run",
+        "$PREVIOUS_STAGE_RUN",
+        "--output",
+        "previous-inputs",
+    ]
+    acceptance = next(step for step in scripts if "scripts/release_golden_path.py" in step["run"])
+    assert shlex.split(acceptance["run"]) == [
+        "python3",
         "scripts/release_golden_path.py",
         "--candidate-bom",
         "inputs/candidate-$CANDIDATE_SHA/bom.json",
+        "--previous-candidate-bom",
+        "previous-inputs/candidate-$PREVIOUS_CANDIDATE_SHA/bom.json",
         "--evidence-output",
         "$RUNNER_TEMP/evidence.json",
     ]

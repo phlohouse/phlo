@@ -177,6 +177,40 @@ jobs:
           git status --short --ignored
           Pop-Location
 
+      - name: Verify installed upgrade planning and private-file refusal on Windows
+        shell: pwsh
+        run: |
+          Push-Location $env:PROJECT
+          try {
+            $state = Join-Path $env:PROJECT '.phlo'
+            $before = @(Get-ChildItem $state -File -Recurse -Force | Sort-Object FullName |
+              ForEach-Object { "$($_.FullName):$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" })
+            $plan = Join-Path $env:RUNNER_TEMP 'windows-upgrade-review.json'
+            $log = Join-Path $env:RUNNER_TEMP 'windows-upgrade-private.log'
+            & $env:PHLO services upgrade --dry-run --output $plan *> $log
+            if ($LASTEXITCODE -eq 0 -or (Test-Path $plan)) {
+              throw 'Windows upgrade planning must refuse private output without explicit consent'
+            }
+            $hashes = @()
+            foreach ($seed in @('1', '2')) {
+              $env:PYTHONHASHSEED = $seed
+              & $env:PHLO services upgrade --dry-run --output $plan --allow-insecure *> $log
+              if ($LASTEXITCODE -ne 0) { throw 'Installed Windows upgrade planning failed; inspect private runner diagnostics' }
+              $review = Get-Content $plan -Raw | ConvertFrom-Json
+              if (-not $review.distributions.phlo -or $review.files.Count -eq 0 -or $review.restart_order.Count -eq 0) {
+                throw 'Upgrade plan must contain installed distributions, generated files, and restart order'
+              }
+              $hashes += (Get-FileHash $plan -Algorithm SHA256).Hash
+            }
+            if ($hashes[0] -ne $hashes[1]) { throw 'Upgrade plan changed across independent Windows CLI processes' }
+            $after = @(Get-ChildItem $state -File -Recurse -Force | Sort-Object FullName |
+              ForEach-Object { "$($_.FullName):$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" })
+            if (Compare-Object $before $after) { throw 'Upgrade dry run changed existing generated files or credentials' }
+          } finally {
+            Remove-Item Env:PYTHONHASHSEED -ErrorAction SilentlyContinue
+            Pop-Location
+          }
+
       - name: Check generated files stay LF encoded
         shell: pwsh
         run: |
@@ -246,7 +280,7 @@ jobs:
           @"
           ### Native Windows acceptance boundary
 
-          This job proves that an installed Windows CLI can reuse the Linux-generated shared layout from a native PowerShell checkout, including a path with spaces and LF text files.
+          This job proves that an installed Windows CLI can reuse the Linux-generated shared layout from a native PowerShell checkout, including a path with spaces and LF text files. Upgrade planning refuses private output without explicit consent, preserves existing files and credentials, and produces the same reviewed plan across independent processes.
 
           GitHub-hosted `windows-latest` does not provide Docker Desktop/Hyper-V, so this job does not start containers or prove bind mounts, persistence, or service health. Those remain a manual or self-hosted Windows Docker Desktop acceptance step. Compose syntax is still validated with the runner's Docker CLI or the pinned standalone Compose CLI installed above.
           "@ | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

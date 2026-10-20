@@ -1780,6 +1780,11 @@ def test_saved_local_configuration_starts_without_repeated_flag(
     monkeypatch.delenv("PHLO_AUTHZ_TOKEN", raising=False)
     generated = CliRunner().invoke(init_cmd, ["--observatory-dev"])
     assert generated.exit_code == 0, generated.output
+    for name in ("audit", "state", "observatory"):
+        (tmp_path / ".phlo" / name).rmdir()
+    retained = tmp_path / ".phlo/logs/retained.log"
+    retained.write_text("existing operator data")
+    retained_stat = retained.stat()
     if provider == "jwt":
         project_path = tmp_path / "phlo.yaml"
         project = yaml.safe_load(project_path.read_text())
@@ -1843,6 +1848,11 @@ def test_saved_local_configuration_starts_without_repeated_flag(
     result = CliRunner().invoke(start.start_cmd, [])
     success = provider == "jwt" or (capability_state == "ready" and auth_status == 200)
     assert (result.exit_code == 0) is success, result.output
+    assert all((tmp_path / ".phlo" / name).is_dir() for name in ("audit", "state", "observatory"))
+    assert retained.read_text() == "existing operator data"
+    assert retained.stat().st_mode == retained_stat.st_mode
+    if os.name == "posix":
+        assert retained.stat().st_uid == retained_stat.st_uid
     assert report.exists() is success
     if success:
         receipt = json.loads(report.read_text())

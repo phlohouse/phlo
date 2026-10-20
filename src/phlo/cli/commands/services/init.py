@@ -27,6 +27,7 @@ from phlo.cli.commands.services.utils import (
     detect_phlo_source_path,
     expand_service_dependencies,
     get_phlo_dir,
+    prepare_api_runtime_directories,
     resolve_phlo_package_dir,
 )
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
@@ -236,6 +237,7 @@ def init_cmd(
     shared_layout = marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text(encoding="utf-8")
     new_layout = not phlo_dir.exists() or _is_uninitialized_phlo_dir(phlo_dir)
     preserve_shared = shared_layout and not force
+    preserve_generation = preserve_shared and (phlo_dir / "docker-compose.yml").exists()
     if (
         phlo_dir.exists()
         and not force
@@ -367,6 +369,7 @@ def init_cmd(
     # Create volumes directory
     volumes_dir = phlo_dir / "volumes"
     volumes_dir.mkdir(exist_ok=True)
+    prepare_api_runtime_directories(phlo_dir, (service.name for service in services_to_install))
 
     # Copy service files (Dockerfiles, configs, etc.)
     copied_files = service_files.write(overwrite=not preserve_shared)
@@ -375,7 +378,7 @@ def init_cmd(
 
     # Never adopt existing customized files during a preserving re-init.
     _record_initial_generation(
-        phlo_dir, copied_files, preserve_existing=preserve_shared, allow_insecure=allow_insecure
+        phlo_dir, copied_files, preserve_existing=preserve_generation, allow_insecure=allow_insecure
     )
 
     # Summary
@@ -417,8 +420,13 @@ def _record_initial_generation(
 
 
 def _configure_observatory_dev(
-    config: dict, project_name: str, phlo_dir: Path, config_file: Path
-) -> None:
+    config: dict,
+    project_name: str,
+    phlo_dir: Path,
+    config_file: Path,
+    *,
+    write: bool = True,
+) -> dict[Path, str]:
     """Add a development-only read contract through the existing project config."""
     from phlo.config.env import load_project_env
     from phlo.security.mode import is_regulated
@@ -496,12 +504,6 @@ def _configure_observatory_dev(
             raise click.ClickException(
                 "Review custom UI/API port overrides before development onboarding."
             )
-    config_file.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-    authorization.mkdir(parents=True, exist_ok=True)
-    (authorization / "roles.yaml").write_text(
-        yaml.safe_dump({"roles": {"admin": {}}, "subjects": {"users": {"dev_user": ["admin"]}}}),
-        encoding="utf-8",
-    )
     policies = [
         {
             "policy_id": "observatory-dev-discovery",
@@ -521,13 +523,22 @@ def _configure_observatory_dev(
         for environment in config["environments"]
         for index, pattern in enumerate((f"env={environment}", f"env={environment}|*"))
     ]
-    (authorization / "policies.yaml").write_text(
-        yaml.safe_dump({"policies": policies}), encoding="utf-8"
-    )
-    from phlo.config.project import clear_config_cache
+    files = {
+        config_file: yaml.safe_dump(config, sort_keys=False),
+        authorization / "roles.yaml": yaml.safe_dump(
+            {"roles": {"admin": {}}, "subjects": {"users": {"dev_user": ["admin"]}}}
+        ),
+        authorization / "policies.yaml": yaml.safe_dump({"policies": policies}),
+    }
+    if write:
+        authorization.mkdir(parents=True, exist_ok=True)
+        for path, content in files.items():
+            path.write_text(content, encoding="utf-8")
+        from phlo.config.project import clear_config_cache
 
-    clear_config_cache()
-    click.echo("Configured dev_user with environment-scoped reads. V1 mutations remain denied.")
+        clear_config_cache()
+        click.echo("Configured dev_user with environment-scoped reads. V1 mutations remain denied.")
+    return files
 
 
 def _select_initial_services(

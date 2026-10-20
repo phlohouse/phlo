@@ -15,6 +15,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from phlo.operations.api_runtime import ApiRuntimeDirectory
+
 BASELINE = "upgrade-baseline.json"
 
 
@@ -78,6 +80,7 @@ class GeneratedStackPlan(BaseModel):
     new_companions: tuple[str, ...]
     restart_order: tuple[str, ...]
     migrations: tuple[str, ...]
+    api_runtime_ownership: tuple[ApiRuntimeDirectory, ...] = ()
 
     def token(self) -> str:
         return digest(self.model_dump_json().encode())

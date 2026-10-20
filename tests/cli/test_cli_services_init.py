@@ -1731,6 +1731,13 @@ def test_observatory_dev_generates_loopback_scoped_read_contract(tmp_path, monke
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(init_cmd, ["--observatory-dev", "--no-dev"])
     assert result.exit_code == 0, result.output
+    for name in ("logs", "audit", "state", "observatory"):
+        path = tmp_path / ".phlo" / name
+        assert path.is_dir()
+        if os.name == "posix":
+            assert path.stat().st_uid == os.getuid()
+            if name != "logs":
+                assert path.stat().st_mode & 0o077 == 0
     config = yaml.safe_load((tmp_path / "phlo.yaml").read_text())
     assert list(config["environments"]) == ["sandbox"]
     assert config["default_environment"] == "sandbox"
