@@ -17,6 +17,7 @@ from click.testing import CliRunner
 from phlo.cli.commands.services import upgrade as upgrade_module
 from phlo.cli.commands.services.init import init_cmd
 from phlo.cli.commands.services.upgrade import build_plan, upgrade_cmd
+from phlo.infrastructure.container_backend import PodmanBackend
 from phlo.operations.generated_stack import BASELINE, GeneratedStackPlan, generation_baseline
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
@@ -331,6 +332,9 @@ def test_unwritable_api_bind_requires_review_without_changing_custom_data(tmp_pa
         assert retained.read_text() == '{"retained":true}\n'
         assert audit.stat().st_mode & 0o777 == 0o500
         assert not (tmp_path / ".phlo/upgrade-backups").exists()
+        monkeypatch.setattr(upgrade_module, "select_project_container_backend", PodmanBackend)
+        result = CliRunner().invoke(upgrade_cmd, ["--repair-empty-api-binds", "--dry-run"])
+        assert result.exit_code != 0 and "requires the Docker backend" in result.output
     finally:
         audit.chmod(0o700)
 

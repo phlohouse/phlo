@@ -192,6 +192,8 @@ def build_plan(
     files, companions, order, migrations, images = _candidate(root, production, observatory_dev)
     runtime_ownership = ()
     if repair_empty_api_binds:
+        if select_project_container_backend().name != "docker":
+            raise ValueError("Empty API bind ownership repair requires the Docker backend")
         document = _validate_compose(root, files, allow_insecure=False)
         runtime_ownership = plan_api_runtime(root, document)
     else:
