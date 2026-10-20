@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from golden_path_common import project_env_paths, read_env_file  # noqa: E402
 
+# reason: this repo import follows the script-directory path setup above.
 from phlo.exceptions import redact_sensitive_text  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
