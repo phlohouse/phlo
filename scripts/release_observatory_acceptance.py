@@ -16,6 +16,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -1081,12 +1082,14 @@ print('{}')
         json.dumps(binding),
     )
     plan_file = candidate.project_dir.parent / "reviewed-upgrade.json"
+    ownership_options = ("--repair-empty-api-binds",) if sys.platform == "linux" else ()
     golden.run(
         golden.command(
             str(candidate.operator_bin),
             "services",
             "upgrade",
             "--observatory-dev",
+            *ownership_options,
             "--previous-generated",
             str(pristine),
             "--dry-run",
@@ -1116,6 +1119,7 @@ print(json.dumps({'value':plan.token()}))
         "services",
         "upgrade",
         "--observatory-dev",
+        *ownership_options,
         "--previous-generated",
         str(pristine),
         "--apply",

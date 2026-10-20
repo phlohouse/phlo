@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from copy import deepcopy
@@ -308,3 +309,107 @@ def test_upgrade_validates_resolved_personal_layers_before_mutation(tmp_path, mo
     assert (root / ".phlo/docker-compose.yml").read_bytes() == before
     assert not (root / ".phlo/upgrade-backups").exists()
     assert not (root / ".phlo/upgrade.lock").exists()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux API host identity boundary")
+def test_unwritable_api_bind_requires_review_without_changing_custom_data(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"]).exit_code == 0
+    audit = tmp_path / ".phlo/audit"
+    retained = audit / "retained.jsonl"
+    retained.write_text('{"retained":true}\n')
+    audit.chmod(0o500)
+    try:
+        plan = _review(tmp_path)
+        assert any("--repair-empty-api-binds" in migration for migration in plan.migrations)
+        assert _apply(tmp_path, plan).exit_code != 0
+        document = yaml.safe_load((tmp_path / ".phlo/docker-compose.yml").read_text())
+        document["services"]["phlo-api"]["user"] = f"{os.getuid()}:{os.getgid()}"
+        monkeypatch.setattr(upgrade_module, "_validate_compose", lambda *args, **kwargs: document)
+        result = CliRunner().invoke(upgrade_cmd, ["--repair-empty-api-binds", "--dry-run"])
+        assert result.exit_code != 0 and "retain custom data" in result.output
+        assert retained.read_text() == '{"retained":true}\n'
+        assert audit.stat().st_mode & 0o777 == 0o500
+        assert not (tmp_path / ".phlo/upgrade-backups").exists()
+    finally:
+        audit.chmod(0o700)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(sys.platform != "linux" or os.getuid() == 0, reason="Non-root Linux operator")
+def test_reviewed_empty_api_bind_repair_and_failure_recovery(tmp_path, monkeypatch):
+    """Real Docker ownership changes; not an installed-candidate qualification."""
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(init_cmd, ["--no-dev", "--profile", "api"]).exit_code == 0
+    image = (
+        "python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4"
+    )
+    (tmp_path / ".phlo/compose.local.yaml").write_text(
+        yaml.safe_dump({"services": {"phlo-api": {"image": image}}})
+    )
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network=none",
+            "--user=0:0",
+            "--entrypoint=python",
+            "--mount",
+            f"type=bind,source={tmp_path / '.phlo'},target=/state",
+            image,
+            "-c",
+            "import os; os.chown('/state/audit',0,0); os.chmod('/state/audit',0o755)",
+        ],
+        capture_output=True,
+        check=True,
+    )
+    audit = tmp_path / ".phlo/audit"
+    identity = (audit.stat().st_dev, audit.stat().st_ino)
+    default = _review(tmp_path)
+    assert any("ownership review" in migration for migration in default.migrations)
+    options = ["--repair-empty-api-binds"]
+    result = runner.invoke(upgrade_cmd, [*options, "--dry-run", "--output", "repair.json"])
+    assert result.exit_code == 0, result.output
+    plan = GeneratedStackPlan.model_validate_json((tmp_path / "repair.json").read_text())
+    assert [change.name for change in plan.api_runtime_ownership] == ["audit"]
+    assert audit.stat().st_uid == 0
+    command = [*options, "--apply", "repair.json", "--confirm", plan.token()]
+    write = upgrade_module.write_sensitive_file
+
+    def fail_receipt(path, content, **kwargs):
+        if Path(path).name == "receipt.json":
+            raise OSError("synthetic disk failure")
+        write(path, content, **kwargs)
+
+    monkeypatch.setattr(upgrade_module, "write_sensitive_file", fail_receipt)
+    result = runner.invoke(upgrade_cmd, command)
+    assert result.exit_code != 0 and "Upgrade failed (OSError)" in result.output
+    assert audit.stat().st_uid == 0 and (audit.stat().st_dev, audit.stat().st_ino) == identity
+    backup = tmp_path / ".phlo/upgrade-backups" / plan.token()
+    assert (backup / "plan.json").stat().st_mode & 0o777 == 0o600
+    assert not (backup / "receipt.json").exists()
+    # Recovery is explicit: verified original ownership, then clear only this
+    # test's lock and failed backup, before creating a newly reviewed plan.
+    shutil.rmtree(backup)
+    (tmp_path / ".phlo/upgrade.lock").rmdir()
+    monkeypatch.setattr(upgrade_module, "write_sensitive_file", write)
+    result = runner.invoke(upgrade_cmd, command)
+    assert result.exit_code == 0, result.output
+    assert (audit.stat().st_uid, audit.stat().st_gid) == (os.getuid(), os.getgid())
+    assert (audit.stat().st_dev, audit.stat().st_ino) == identity
+    assert audit.stat().st_mode & 0o777 == 0o755
+    (audit / "retained.jsonl").write_text("preserve after restart\n")
+    assert runner.invoke(upgrade_cmd, command).exit_code == 0
+    assert (audit / "retained.jsonl").read_text() == "preserve after restart\n"
+    saved = audit.with_name("audit-retained")
+    audit.rename(saved)
+    audit.mkdir(mode=0o755)
+    result = runner.invoke(upgrade_cmd, command)
+    assert result.exit_code != 0 and "changed after review" in result.output
+    audit.rmdir()
+    audit.symlink_to(saved)
+    result = runner.invoke(upgrade_cmd, command)
+    assert result.exit_code != 0 and "symlink" in result.output
+    assert (saved / "retained.jsonl").read_text() == "preserve after restart\n"

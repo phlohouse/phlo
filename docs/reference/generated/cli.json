@@ -9420,6 +9420,22 @@
         {
           "default": false,
           "envvar": null,
+          "help": "Review ownership-only repair of empty root-owned default API binds on Linux; requires a stopped API and local image.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "repair_empty_api_binds",
+          "nargs": 1,
+          "options": [
+            "--repair-empty-api-binds"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
           "help": "Explicitly accept platforms without POSIX private-file guarantees.",
           "is_flag": true,
           "kind": "option",

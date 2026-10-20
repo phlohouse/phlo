@@ -1950,6 +1950,7 @@ Capabilities: `json=false`, `dry_run=true`, `confirmation_flag=false`
 | `previous_generated` | option | `--previous-generated` | `directory` | false | `Sentinel.UNSET` | none |
 | `production` | option | `--production` | `boolean` | false | `false` | flag |
 | `observatory_dev` | option | `--observatory-dev` | `boolean` | false | `false` | flag |
+| `repair_empty_api_binds` | option | `--repair-empty-api-binds` | `boolean` | false | `false` | flag |
 | `allow_insecure` | option | `--allow-insecure` | `boolean` | false | `false` | flag |
 
 ## `phlo sling`
