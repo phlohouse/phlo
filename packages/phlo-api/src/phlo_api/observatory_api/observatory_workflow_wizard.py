@@ -36,6 +36,7 @@ from phlo.capabilities import (
 from pydantic import BaseModel, Field
 
 from phlo_api.api.operation_controls import operation_exclusion
+from phlo_api.errors import UnsupportedCapabilityError
 from phlo_api.settings import get_process_settings
 
 _fcntl: Any = None
@@ -502,6 +503,11 @@ def apply_workflow_action(
     project_root: Path, request: ObservatoryWorkflowActionRequest, issuer_subject: str
 ) -> ObservatoryWorkflowActionResult:
     """Apply a server-issued workflow action within the project workflow root."""
+
+    if os.name == "nt":
+        raise UnsupportedCapabilityError(
+            "Workflow apply is not supported on native Windows; use Linux or WSL 2."
+        )
 
     proposal_id = request.proposal_id
     proposal, proposal_digest = _load_verified_workflow_proposal(

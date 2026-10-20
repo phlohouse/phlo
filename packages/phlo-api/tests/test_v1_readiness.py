@@ -160,10 +160,9 @@ def test_storage_schema_outage_and_recovery_without_api_restart(readiness_client
                 "PHLO_RUN_EVIDENCE_DB_URL", "postgresql://private:secret@127.0.0.1:1/missing"
             )
             unavailable = client.get(path)
-            assert (
-                unavailable.json()["capabilities"]["incidents"][0]["reason_code"]
-                == "backend_unavailable"
-            )
+            incident_check = unavailable.json()["capabilities"]["incidents"][0]
+            assert incident_check["reason_code"] == "backend_unavailable"
+            assert incident_check["remediation"]
             assert "secret" not in unavailable.text
             assert "postgresql" not in unavailable.text
             monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", dsn)

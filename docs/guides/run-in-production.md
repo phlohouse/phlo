@@ -116,6 +116,13 @@ provider effect reports `mutation_succeeded_audit_failed` and blocks automatic
 re-execution. This implementation chooses the issue's documented synchronous
 audit option, not an asynchronous queue or a cross-replica audit archive.
 
+The API package can be imported on native Windows, and its audit-operation lock
+has a Windows implementation. The Observatory workflow-wizard apply operation
+is intentionally unsupported on native Windows: it returns HTTP 501 with
+`unsupported_capability` before reading a proposal or changing project files.
+Use Linux or WSL 2 for that operation. This boundary does not apply to
+read-only API routes.
+
 To verify shared control guarantees on a disposable database, with Docker running:
 
 ```bash

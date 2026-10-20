@@ -82,6 +82,14 @@ class BackendUnavailableError(PhloApiError):
     default_message = "A required backend is unavailable."
 
 
+class UnsupportedCapabilityError(PhloApiError):
+    """A requested capability is not supported on this platform (501)."""
+
+    status_code = 501
+    code = "unsupported_capability"
+    default_message = "This capability is not supported on this platform."
+
+
 def error_envelope(exc: PhloApiError) -> dict[str, Any]:
     """Serialize a typed error into the shared ``{"error": {...}}`` body."""
     return {"error": {"code": exc.code, "message": exc.message}}
