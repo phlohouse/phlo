@@ -1,6 +1,7 @@
 -- translated from dbt model `stg_consent_events` (../../marketing/models/stg_consent_events.sql)
 -- @not-null event_key
 
+-- Marketing consent events with canonical emails resolved from case and plus-suffix variants.
 select
     event_key,
     email as observed_email,

@@ -158,6 +158,7 @@ def run_cli(
     command.extend(args)
     env = {**os.environ}
     try:
+        # reason: the executable path is resolved from settings or PATH, not shell input.
         completed = subprocess.run(  # noqa: S603 - the executable path is resolved locally
             command,
             capture_output=True,
@@ -209,6 +210,7 @@ def run_json(
 
 
 def _download(url: str, timeout: float) -> bytes:
+    # reason: the URL is a fixed GitHub release asset built by this package.
     with urlopen(url, timeout=timeout) as response:  # noqa: S310 - fixed GitHub release URL
         return response.read()
 

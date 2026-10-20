@@ -1,3 +1,4 @@
+-- Commerce orders with canonical emails resolved from case and plus-suffix variants.
 select
     order_id,
     email as observed_email,

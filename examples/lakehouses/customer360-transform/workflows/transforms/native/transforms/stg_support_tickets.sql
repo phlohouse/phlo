@@ -3,6 +3,7 @@
 -- @not-null ticket_id
 -- @not-null canonical_email
 
+-- Support tickets with canonical emails resolved; open tickets keep a null resolved_at.
 select
     ticket_id,
     email as observed_email,

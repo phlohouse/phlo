@@ -1,3 +1,4 @@
+-- Marketing consent events with canonical emails resolved from case and plus-suffix variants.
 select
     event_key,
     email as observed_email,

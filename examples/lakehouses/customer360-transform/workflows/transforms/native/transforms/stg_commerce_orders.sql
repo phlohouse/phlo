@@ -1,5 +1,6 @@
 -- translated from dbt model `stg_commerce_orders` (../../commerce/models/stg_commerce_orders.sql)
 
+-- Commerce orders with canonical emails resolved from case and plus-suffix variants.
 select
     order_id,
     email as observed_email,

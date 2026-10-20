@@ -34,6 +34,7 @@ def settings():
 def binary(settings):
     found = find_binary(PROJECT_ROOT, settings)
     if found is None:
+        # reason: the integration proof needs the real engine, not a stub.
         pytest.skip("phlo-transform binary not installed; run: phlo transform install")
     return found
 
@@ -42,6 +43,7 @@ def binary(settings):
 def dbt_executable():
     found = shutil.which("dbt")
     if found is None:
+        # reason: the graph comparison needs dbt's manifest.
         pytest.skip("dbt executable not installed; run: uv sync --group dev")
     return found
 
@@ -57,6 +59,7 @@ def test_committed_native_workspace_matches_a_fresh_translation(
     settings, binary, tmp_path: Path
 ) -> None:
     from scripts.dbt_sources import apply_source_assets, source_asset_map
+    from scripts.generate_native_workspace import add_generated_headers
 
     generated = tmp_path / "native"
     invocation = translate_dbt_project(
@@ -70,6 +73,7 @@ def test_committed_native_workspace_matches_a_fresh_translation(
     assert invocation.returncode == 0, invocation.stderr
     assert "check passed" in invocation.stdout
     apply_source_assets(generated / "phlo.toml", source_asset_map(DBT_ROOT))
+    add_generated_headers(generated)
     for relative in [
         *sorted(path.relative_to(generated) for path in (generated / "transforms").glob("*.sql")),
         *sorted(path.relative_to(generated) for path in (generated / "tests").glob("**/*.sql")),
@@ -89,6 +93,7 @@ def test_native_asset_graph_matches_the_dbt_manifest(
     (profiles / "profiles.yml").write_text(
         (DBT_ROOT / "profiles" / "profiles.yml").read_text(), encoding="utf-8"
     )
+    # reason: the command is the dbt executable resolved from PATH, not shell input.
     completed = subprocess.run(  # noqa: S603 - dbt resolved above
         [
             dbt_executable,
@@ -145,6 +150,7 @@ def test_phlo_asset_graph_is_identical_under_either_provider(
     from phlo_transform.assets import build_transform_asset_specs
 
     profiles = DBT_ROOT / "profiles"
+    # reason: the command is the dbt executable resolved from PATH, not shell input.
     completed = subprocess.run(  # noqa: S603 - dbt resolved above
         [
             dbt_executable,

@@ -19,10 +19,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# reason: the project root must be importable before the scripts package resolves.
 from scripts.dbt_sources import apply_source_assets, source_asset_map  # noqa: E402
 
 NATIVE_ROOT = PROJECT_ROOT / "workflows" / "transforms" / "native"
 DBT_ROOT = PROJECT_ROOT / "workflows" / "transforms" / "dbt"
+GENERATED_TEST_HEADER = "-- Generated from the dbt project by phlo-transform; do not edit.\n"
+
+
+def add_generated_headers(directory: Path) -> None:
+    """Give generated singular tests the repository's SQL header."""
+
+    for path in (directory / "tests").rglob("*.sql"):
+        text = path.read_text(encoding="utf-8")
+        if not text.lstrip().startswith("--"):
+            path.write_text(GENERATED_TEST_HEADER + text, encoding="utf-8")
 
 
 def _sync_generated(source: Path, destination: Path, source_assets: dict[str, str]) -> None:
@@ -36,6 +47,7 @@ def _sync_generated(source: Path, destination: Path, source_assets: dict[str, st
             shutil.rmtree(directory)
     shutil.copytree(source / "transforms", transforms)
     shutil.copytree(source / "tests" / "generated", tests)
+    add_generated_headers(destination)
     shutil.copyfile(source / "phlo.toml", destination / "phlo.toml")
     apply_source_assets(destination / "phlo.toml", source_assets)
     manifest = source / ".phlo" / "migration" / "dbt-translation.json"

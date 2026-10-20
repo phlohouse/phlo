@@ -20,6 +20,7 @@ class ReplayHandler(BaseHTTPRequestHandler):
 
     data_dir: Path = DEFAULT_DATA_DIR
 
+    # reason: the method name is the http.server callback the base class dispatches.
     def do_GET(self) -> None:  # noqa: N802 - http.server API
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
@@ -47,6 +48,7 @@ class ReplayHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # reason: the parameter name must match the stdlib signature it overrides.
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - stdlib signature
         print(f"{self.address_string()} - {format % args}")
 

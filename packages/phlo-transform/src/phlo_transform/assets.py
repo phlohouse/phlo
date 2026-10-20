@@ -117,6 +117,7 @@ def _query_engine_resolution(runtime: RuntimeContext | None):
         return None
     try:
         return resolve_capability("query_engine", runtime=runtime)
+    # reason: capability lookup must not break discovery; settings fallback follows.
     except Exception:  # noqa: BLE001 - adapter resolution failure falls back to settings
         logger.warning("phlo_transform_query_engine_resolution_failed", exc_info=True)
         return None

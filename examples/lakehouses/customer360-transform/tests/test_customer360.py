@@ -13,6 +13,7 @@ from phlo_sling import get_sling_assets
 
 from scripts.generate_fixtures import build_update_set, generate, write_failure_fixtures
 from workflows.commerce import (
+    # reason: importing the module registers its ingestion assets with Phlo.
     ingestion as commerce_ingestion,  # noqa: F401 - registers sling assets
 )
 from workflows.commerce.quality import (
@@ -21,6 +22,7 @@ from workflows.commerce.quality import (
     canonicalize_series,
 )
 from workflows.marketing import (
+    # reason: importing the module registers its ingestion assets with Phlo.
     ingestion as marketing_ingestion,  # noqa: F401 - registers dlt assets
 )
 from workflows.marketing.quality import (
@@ -28,6 +30,8 @@ from workflows.marketing.quality import (
     assert_contacts_reference_known_identities,
 )
 from workflows.schedules import customer360 as customer360_schedules
+
+# reason: importing the module registers its ingestion assets with Phlo.
 from workflows.support import ingestion as support_ingestion  # noqa: F401 - registers dlt assets
 from workflows.support.quality import assert_resolved_after_created
 

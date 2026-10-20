@@ -23,6 +23,7 @@ pytestmark = pytest.mark.integration
 def _binary() -> str:
     found = os.environ.get("PHLO_TRANSFORM_BIN") or shutil.which("phlo-transform")
     if not found or not Path(found).is_file():
+        # reason: a real engine binary is required; the unit suite covers stubs.
         pytest.skip("phlo-transform binary not available")
     return found
 

@@ -97,6 +97,7 @@ def _run_engine(database: Path) -> dict:
         "run",
     ]
     print(f"\n$ {' '.join(command)}")
+    # reason: the command is the locally resolved phlo-transform binary, not shell input.
     completed = subprocess.run(  # noqa: S603 - local executable resolved above
         command, capture_output=True, text=True, check=False
     )
@@ -159,6 +160,7 @@ def _run_dbt(database: Path, work_dir: Path) -> None:
             "parity",
         ]
         print(f"\n$ {' '.join(command)}")
+        # reason: the command is the dbt executable resolved from PATH, not shell input.
         completed = subprocess.run(  # noqa: S603 - dbt resolved above
             command, capture_output=True, text=True, check=False
         )

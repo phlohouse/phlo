@@ -25,6 +25,7 @@ API_URL = os.environ.get("SUPPORT_API_URL", "http://127.0.0.1:8093/v1")
 
 def fetch_tickets(url: str = API_URL) -> list[dict[str, object]]:
     """Fetch every ticket from the replay API (single deterministic page)."""
+    # reason: the URL is the project-configured replay endpoint, not user input.
     with urlopen(f"{url}/tickets?{urlencode({'scope': 'all'})}", timeout=10) as response:  # noqa: S310 - replay endpoint
         payload = json.load(response)
     return payload["data"]

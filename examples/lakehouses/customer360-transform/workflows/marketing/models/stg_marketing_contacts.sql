@@ -1,3 +1,4 @@
+-- Marketing contacts with canonical emails resolved from case and plus-suffix variants.
 select
     email as observed_email,
     concat(
