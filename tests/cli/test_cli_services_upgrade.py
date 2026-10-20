@@ -24,6 +24,10 @@ from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 @pytest.fixture(autouse=True)
 def _compose_validation(request, monkeypatch):
+    # These disposable projects use generated credentials, not inherited CI
+    # passwords. An empty shell value overrides even a populated Compose env file.
+    for name in ("POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD", "SUPERSET_ADMIN_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
     # Portable planner contracts do not claim real Compose acceptance.
     if not request.node.get_closest_marker("integration"):
         monkeypatch.setattr(upgrade_module, "_validate_compose", lambda *args, **kwargs: None)
