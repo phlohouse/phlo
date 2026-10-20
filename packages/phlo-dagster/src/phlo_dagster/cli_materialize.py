@@ -134,6 +134,7 @@ def wait_for_dagster_runtime(
 )
 @click.option("--dry-run", is_flag=True, help="Show command without executing")
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
+@click.option("--environment", help="Configured WAP environment, otherwise default_environment.")
 def materialize(
     asset_name: str | None,
     partition: Optional[str],
@@ -142,6 +143,7 @@ def materialize(
     no_contract_refresh: bool,
     dry_run: bool,
     output_json: bool = False,
+    environment: str | None = None,
 ) -> None:
     """Materialize Dagster assets via the configured container backend.
 
@@ -161,8 +163,12 @@ def materialize(
 
     wap_config = load_wap_config()
     if wap_config.enabled:
-        _materialize_wap(wap_config, asset_name, select, partition, dry_run, output_json)
+        _materialize_wap(
+            wap_config, asset_name, select, partition, dry_run, output_json, environment
+        )
         return
+    if environment is not None:
+        raise click.UsageError("--environment requires WAP to be enabled.")
     _materialize_container(asset_name, select, partition, no_contract_refresh, dry_run, output_json)
 
 
@@ -173,12 +179,16 @@ def _materialize_wap(
     partition: str | None,
     dry_run: bool,
     output_json: bool,
+    environment: str | None = None,
 ) -> None:
     if wap_config.enabled:
         if not asset_name or select:
             raise click.UsageError(
                 "WAP is enabled in phlo.yaml and requires one ASSET_NAME; --select is not supported."
             )
+        from phlo_dagster.wap_context import select_wap_target
+
+        select_wap_target(environment)
         dagster_url = resolve_wap_dagster_url(wap_config)
         access_token = get_process_settings().phlo_dagster_access_token
         if getattr(wap_config, "requires_access_token", False) and not access_token:
@@ -212,7 +222,7 @@ def _materialize_wap(
         # server fails as ambiguous. Wait for HTTP first.
         asyncio.run(wait_for_dagster_http(dagster_url))
         discover_capabilities()
-        wap_launch = prepare_wap_launch(logical_run_id=logical_run_id)
+        wap_launch = prepare_wap_launch(logical_run_id=logical_run_id, environment=environment)
         try:
             result = asyncio.run(
                 launch_materialize(

@@ -272,12 +272,18 @@ class VersionedCatalog(Protocol):
         ...
 
     def merge_branch(
-        self, source: str, target: str = "main", *, message: str | None = None
+        self,
+        source: str,
+        target: str = "main",
+        *,
+        message: str | None = None,
+        expected_target_hash: str | None = None,
+        expected_source_hash: str | None = None,
     ) -> bool:
-        """Merge a source branch with an optional explicit governance reason."""
+        """Merge normally, or fast-forward pinned source/target hashes with strict CAS."""
         ...
 
-    def delete_branch(self, name: str) -> bool:
+    def delete_branch(self, name: str, *, expected_hash: str | None = None) -> bool:
         """Delete a branch reference."""
         ...
 

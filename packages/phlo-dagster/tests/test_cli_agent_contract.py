@@ -3,9 +3,12 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 from click.testing import CliRunner
 
 from phlo_dagster import cli_backfill, cli_materialize, cli_status
+
+pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
 
 
 async def _ready(*_args, **_kwargs) -> None:

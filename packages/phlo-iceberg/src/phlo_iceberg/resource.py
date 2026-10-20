@@ -626,6 +626,13 @@ class IcebergResource:
 
     ref: str = field(default_factory=lambda: get_settings().iceberg_default_ref)
 
+    def wap_backend_identity(self) -> dict[str, Any]:
+        """Expose routing configuration without storage credentials."""
+        config = get_settings().get_pyiceberg_catalog_config(ref="main")
+        return {
+            key: config[key] for key in ("type", "uri", "warehouse", "s3.endpoint", "s3.region")
+        }
+
     @property
     def support(self) -> TableStoreSupport:
         """Return Iceberg table-store support metadata."""

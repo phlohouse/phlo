@@ -19,6 +19,8 @@ import phlo.telemetry as phlo_observe
 from phlo._correlation import ProjectIdentity
 from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCatalog
 
+pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
+
 
 def _run(
     *,
@@ -117,6 +119,10 @@ def test_observation_survives_missing_tags(monkeypatch: pytest.MonkeyPatch) -> N
 def _patch_launch_deps(
     monkeypatch: pytest.MonkeyPatch, catalog: Any, *, system: str = "nessie"
 ) -> None:
+    if isinstance(catalog, VersionedCatalog):
+        catalog.get_branch_hash.side_effect = lambda ref: (
+            "h0" if ref == "main" or catalog.create_branch.called else None
+        )
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_project_identity",
         lambda **kw: ProjectIdentity(project_id="proj"),

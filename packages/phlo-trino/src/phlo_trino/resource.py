@@ -288,6 +288,14 @@ class TrinoResource:
     ref: str | None = None
     runtime: RuntimeContext | None = None
 
+    def wap_backend_identity(self) -> dict[str, Any]:
+        """Expose the effective process connection without credentials."""
+        return {
+            "host": self.host or config.trino_host,
+            "port": self.port or config.trino_port,
+            "catalog": self.catalog or config.trino_catalog,
+        }
+
     def _resolved_ref(self) -> str | None:
         """Resolve the effective ref for catalog routing, falling back to the default."""
         return resolve_runtime_ref(

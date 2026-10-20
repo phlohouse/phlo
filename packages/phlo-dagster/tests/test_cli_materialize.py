@@ -10,9 +10,12 @@ from subprocess import PIPE, STDOUT
 from unittest.mock import patch
 
 import httpx
+import pytest
 from click.testing import CliRunner
 
 from phlo_dagster.cli_materialize import materialize, wait_for_dagster_runtime
+
+pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
 
 
 class FakePodmanBackend:
