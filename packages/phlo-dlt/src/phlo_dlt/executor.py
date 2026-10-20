@@ -84,6 +84,7 @@ from phlo.capabilities.interfaces import TableStore
 from phlo.capabilities.runtime import routing_from_context
 
 from phlo_dlt.dlt_helpers import (
+    apply_validation_schema_hints,
     inject_metadata_columns,
     merge_to_table_store,
     setup_dlt_pipeline,
@@ -478,6 +479,7 @@ class DltIngester(BaseIngester):
 
         try:
             dlt_source = self.dlt_source_func(partition_date=partition_key)
+            dlt_source = apply_validation_schema_hints(dlt_source, self.validation_schema)
             source_identity = normalize_source_identity(
                 dlt_source, parameters.get("source_identity")
             )
