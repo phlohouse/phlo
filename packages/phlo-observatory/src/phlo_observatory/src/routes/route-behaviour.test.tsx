@@ -14,15 +14,22 @@ import { clearQueryWorkspaces } from '@/lib/query-workspace'
 const submit = vi.hoisted(() => vi.fn())
 const state = {
   loader: {
-    catalog: {
-      env: 'staging',
-      nessie_ref: 'candidate',
-      engine: 'trino',
-      catalogs: [],
+    state: 'available',
+    readiness: {
+      capabilities: { query_preview: [] },
+      correlation_id: 'test-readiness',
     },
-    refs: [{ name: 'candidate' }],
-    engines: [{ id: 'trino', status: 'configured' }],
-    saved: [],
+    data: {
+      catalog: {
+        env: 'staging',
+        nessie_ref: 'candidate',
+        engine: 'trino',
+        catalogs: [],
+      },
+      refs: [{ name: 'candidate' }],
+      engines: [{ id: 'trino', status: 'configured' }],
+      saved: [],
+    },
   },
 }
 vi.mock('@tanstack/react-router', () => ({

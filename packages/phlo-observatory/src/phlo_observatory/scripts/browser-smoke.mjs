@@ -73,11 +73,15 @@ try {
   assert.match((await browser('get', 'text', 'main')).text, /0 of 7 fresh/)
   await capture('01-startup')
   // Navigate through the real application link, not a direct route load.
+  fixture.controls.delayMs = 1_500
   await browser(
     'click',
     'nav[aria-label="Primary navigation"] a[href="/query?env=staging"]',
   )
+  await browser('wait', '[aria-label="Loading"][aria-busy="true"]')
+  await capture('01b-loading')
   await browser('wait', '.cm-content')
+  fixture.controls.delayMs = 0
   assert.match((await browser('get', 'url')).url, /\/query\?env=staging/)
   await browser('click', '.cm-content')
   await browser('press', 'Control+A')
@@ -128,6 +132,166 @@ try {
   )
   assert.equal(JSON.parse(mutations[0].body).sql, 'SELECT 7 AS answer')
   assert.equal(JSON.parse(mutations[1].body).sql, 'SELECT denied')
+
+  // These are controlled HTTP failures, not evidence about a deployed backend.
+  const storageFailure = {
+    status: 503,
+    body: {
+      error: {
+        code: 'backend_unavailable',
+        message:
+          'Incident storage schema is unavailable. Apply the API schema migrations, then check again.',
+      },
+    },
+  }
+  fixture.controls.overrides.set('/api/v1/incidents', storageFailure)
+  fixture.controls.overrides.set('/api/v1/overview', storageFailure)
+  await browser('open', `${base}/?env=staging`)
+  await browser('wait', '--text', 'Partial observations')
+  assert.match((await browser('get', 'text', 'main')).text, /warehouse_orders/)
+  assert.match(
+    (await browser('get', 'text', 'main')).text,
+    /Reference: fixture-readiness-1129/,
+  )
+  assert.match(
+    (await browser('get', 'text', 'nav[aria-label="Primary navigation"]')).text,
+    /Incident status is unavailable/,
+  )
+  await capture('04-schema-failure-independent-data')
+
+  fixture.controls.overrides.set('/api/v1/environments', {
+    body: {
+      items: [
+        { env: 'staging', status: 'unavailable' },
+        { env: 'prod', status: 'available' },
+      ],
+      default_environment: 'staging',
+    },
+  })
+  await browser('open', `${base}/`)
+  await browser('wait', '--text', 'Partial observations')
+  assert.match((await browser('get', 'url')).url, /env=staging/)
+  assert.match((await browser('get', 'text', 'main')).text, /warehouse_orders/)
+  await capture('04b-unavailable-default-retained')
+
+  const catalogRequests = () =>
+    fixture.requests.filter(
+      (request) => request.path === '/api/v1/query/catalog',
+    ).length
+  const beforeSetup = catalogRequests()
+  fixture.controls.overrides.set('/api/v1/readiness', {
+    body: {
+      env: 'staging',
+      observed_at: new Date().toISOString(),
+      correlation_id: 'fixture-readiness-1129',
+      capabilities: {
+        query_preview: [
+          {
+            state: 'disabled',
+            reason_code: 'intentionally_disabled',
+            message: 'Query preview is not configured.',
+            remediation:
+              'Provision a dedicated preview coordinator and check again.',
+          },
+        ],
+        orchestration: [
+          {
+            state: 'unavailable',
+            reason_code: 'code_location_unavailable',
+            message: 'Configured code location is not loaded.',
+            remediation:
+              'Load the configured Dagster code location, then check again.',
+          },
+        ],
+        incidents: [
+          {
+            state: 'unavailable',
+            reason_code: 'schema_missing',
+            message: 'Required storage schema is missing or outdated.',
+            remediation:
+              'Apply the documented API schema migrations, then check again.',
+          },
+        ],
+      },
+    },
+  })
+  await browser('open', `${base}/query?env=staging`)
+  await browser('wait', '--text', 'Query setup')
+  assert.equal(
+    catalogRequests(),
+    beforeSetup,
+    'Disabled preview must not request catalogs',
+  )
+  await capture('05-unconfigured-preview')
+  await browser('open', `${base}/settings?env=staging`)
+  await browser('wait', '--text', 'code_location_unavailable')
+  assert.match((await browser('get', 'text', 'main')).text, /schema_missing/)
+  await browser(
+    'eval',
+    `Array.from(document.querySelectorAll('h3')).find((element) => element.textContent === 'orchestration').scrollIntoView({block:'center'})`,
+  )
+  await capture('06-missing-location-readiness')
+
+  fixture.controls.overrides.clear()
+  fixture.controls.overrides.set('/api/v1/services', {
+    status: 502,
+    body: {
+      error: {
+        code: 'bad_gateway',
+        message: 'Service observations are unavailable.',
+      },
+    },
+  })
+  await browser('open', `${base}/?env=staging`)
+  await browser('wait', '--text', 'Services unavailable')
+  await browser('click', 'main > details > summary')
+  assert.match((await browser('get', 'text', 'main')).text, /0 of 7 fresh/)
+  await capture('07-backend-outage')
+  fixture.controls.overrides.clear()
+  await browser(
+    'find',
+    'role',
+    'button',
+    'click',
+    '--name',
+    'Check again',
+    '--exact',
+  )
+  await browser(
+    'wait',
+    '--fn',
+    `!document.querySelector('main').textContent.includes('Services unavailable')`,
+  )
+  assert.match((await browser('get', 'text', 'main')).text, /0 of 7 fresh/)
+  await capture('08-recovered-without-restart')
+  await browser('set', 'viewport', '390', '844', '2')
+  assert.equal(
+    (
+      await browser(
+        'eval',
+        'document.documentElement.scrollWidth <= innerWidth',
+      )
+    ).result,
+    true,
+  )
+  await capture('09-narrow-recovered')
+  for (const path of [
+    '/api/v1/overview',
+    '/api/v1/admin/settings',
+    '/api/v1/readiness',
+  ]) {
+    fixture.controls.overrides.set(path, {
+      status: 403,
+      body: { error: { code: 'authorization_denied', message: 'Denied.' } },
+    })
+    await browser('open', `${base}/settings?env=staging`)
+    await browser('wait', '--text', "Couldn't load this page")
+    assert.match(
+      (await browser('get', 'text', 'body')).text,
+      /Your account does not have permission/,
+    )
+    fixture.controls.overrides.clear()
+  }
   writeFileSync(
     resolve(artifactDir, 'results.json'),
     JSON.stringify(
@@ -139,6 +303,12 @@ try {
           'query result',
           'permission failure without stale results',
           'Node bearer identity',
+          'missing schema preserves independent data and navigation',
+          'disabled preview skips catalog calls',
+          'missing code location and schema readiness reasons',
+          'backend outage retries visibly without process restart',
+          'unavailable configured default retained without switching',
+          'optional reads preserve explicit authorization failures',
         ],
         requests: fixture.requests.map(
           ({ authorization: _token, ...rest }) => rest,

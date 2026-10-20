@@ -5,7 +5,9 @@ import { Loader2Icon } from 'lucide-react'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { Settings } from '@/lib/data/api/settings'
 import {
+  PhloApiError,
   environmentServices,
+  optionalRead,
   serviceHealthLabel,
   serviceHealthTone,
 } from '@/lib/data/api/client'
@@ -25,23 +27,33 @@ import { CheckLine } from '@/components/ui/checkbox'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { PanelUnavailable } from '@/components/phlo/states'
+import { getReadiness } from '@/lib/data/api/readiness'
 
 export const Route = createFileRoute('/_app/settings/')({
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: async ({ deps }) => {
-    const [health, configuration] = await Promise.all([
+    const [health, configuration, readiness] = await Promise.all([
       getShell({ data: deps.env }),
       getSettings()
         .then((value) => ({ value, error: null }))
-        .catch((error: unknown) => ({
-          value: null,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Settings could not be loaded.',
-        })),
+        .catch((error: unknown) => {
+          if (
+            error instanceof PhloApiError &&
+            [401, 403].includes(error.status)
+          )
+            throw error
+          return {
+            value: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Settings could not be loaded.',
+          }
+        }),
+      optionalRead(getReadiness({ data: deps.env })),
     ])
-    return { ...health, configuration }
+    return { ...health, configuration, readiness }
   },
   head: () => ({ meta: [{ title: 'Settings · phlo' }] }),
   component: SettingsPage,
@@ -72,7 +84,7 @@ function saveStatus(
 }
 
 function SettingsPage() {
-  const { overview, services, environmentBinding, configuration } =
+  const { env, services, environmentBinding, configuration, readiness } =
     Route.useLoaderData()
   const loaded = configuration.value
   const [s, setS] = React.useState<Settings>(loaded?.settings ?? emptySettings)
@@ -137,7 +149,7 @@ function SettingsPage() {
           title="Settings"
           meta={
             <>
-              Lakehouse · <Mono>{overview.env}</Mono>
+              Lakehouse · <Mono>{env}</Mono>
             </>
           }
           actions={
@@ -181,33 +193,9 @@ function SettingsPage() {
             {error}
           </div>
         ) : null}
-        <EnvironmentBindingCard
-          env={overview.env}
-          binding={environmentBinding}
-        />
-        <SettingsCard
-          title="Service health"
-          description="Environment-bound health checks. Connection strings and credentials stay on the server."
-          inline
-          className="gap-2"
-        >
-          <div className="flex flex-col">
-            {environmentServices(services).map((service) => {
-              return (
-                <ConnectionRow
-                  key={service.id}
-                  name={connectionNames[service.id] ?? service.id}
-                  service={service}
-                  detail={
-                    service.response_time_seconds == null
-                      ? undefined
-                      : `${service.response_time_seconds.toFixed(3)} s`
-                  }
-                />
-              )
-            })}
-          </div>
-        </SettingsCard>
+        <EnvironmentBindingCard env={env} binding={environmentBinding} />
+        <FeatureReadinessCard readiness={readiness} />
+        <ServiceHealthCard services={services} />
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <SettingsCard
@@ -372,11 +360,95 @@ function SettingsPage() {
   )
 }
 
+function ServiceHealthCard({
+  services,
+}: {
+  services: ObservatoryServiceList['items'] | null
+}) {
+  return (
+    <SettingsCard
+      title="Service health"
+      description="Environment-bound health checks. Connection strings and credentials stay on the server."
+      inline
+      className="gap-2"
+    >
+      <div className="flex flex-col">
+        {services === null ? (
+          <PanelUnavailable
+            title="Services"
+            message="Service observations could not be loaded."
+          />
+        ) : (
+          environmentServices(services).map((service) => (
+            <ConnectionRow
+              key={service.id}
+              name={connectionNames[service.id] ?? service.id}
+              service={service}
+              detail={
+                service.response_time_seconds == null
+                  ? undefined
+                  : `${service.response_time_seconds.toFixed(3)} s`
+              }
+            />
+          ))
+        )}
+      </div>
+    </SettingsCard>
+  )
+}
+
+function FeatureReadinessCard({
+  readiness,
+}: {
+  readiness: Awaited<
+    ReturnType<typeof optionalRead<Awaited<ReturnType<typeof getReadiness>>>>
+  >
+}) {
+  return (
+    <SettingsCard
+      title="Feature readiness"
+      description="Read-only dependency observations. This is not production deployment attestation or proof that mutations are authorised."
+    >
+      {readiness.state === 'unavailable' ? (
+        <PanelUnavailable title="Feature readiness" message={readiness.error} />
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Observed {readiness.data.observed_at} · Reference:{' '}
+            {readiness.data.correlation_id}
+          </p>
+          {Object.entries(readiness.data.capabilities).map(([name, checks]) => (
+            <div key={name} className="border-t border-border py-3">
+              <h3 className="text-sm font-medium">
+                {name.replaceAll('_', ' ')}
+              </h3>
+              {checks.map((check, index) =>
+                check.state === 'ready' ? (
+                  <p key={index} className="text-xs">
+                    {check.message} Reason: {check.reason_code}.
+                  </p>
+                ) : (
+                  <PanelUnavailable
+                    key={index}
+                    title={name.replaceAll('_', ' ')}
+                    status={check.state}
+                    message={`${check.message} ${check.remediation}\nReason: ${check.reason_code}.`}
+                  />
+                ),
+              )}
+            </div>
+          ))}
+        </>
+      )}
+    </SettingsCard>
+  )
+}
+
 function EnvironmentBindingCard({
   env,
   binding,
 }: {
-  env: Awaited<ReturnType<typeof getShell>>['overview']['env']
+  env: Awaited<ReturnType<typeof getShell>>['env']
   binding: Awaited<ReturnType<typeof getShell>>['environmentBinding']
 }) {
   return (
