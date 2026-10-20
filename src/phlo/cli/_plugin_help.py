@@ -18,6 +18,9 @@ _HELP = {
         "postgrest": "PostgREST API management commands."
     },
     "phlo_dbt.cli_plugin:DbtCliPlugin": {"dbt": "Dbt commands (compile, run, test, publishing)."},
+    "phlo_transform.cli_plugin:TransformCliPlugin": {
+        "transform": "Phlo Transform workspace commands (check, plan, run, test, lineage)."
+    },
     "phlo_polaris.cli_plugin:PolarisCliPlugin": {
         "polaris": "Manage the Polaris catalog service (status, bootstrap, migration)."
     },

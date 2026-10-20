@@ -1,6 +1,6 @@
 {
-  "field_count": 322,
-  "model_count": 52,
+  "field_count": 335,
+  "model_count": 53,
   "models": [
     {
       "class": "BaseConfig",
@@ -4015,6 +4015,159 @@
       "module": "phlo_superset.settings",
       "package": "phlo-superset",
       "source": "packages/phlo-superset/src/phlo_superset/settings.py",
+      "status": "introspected"
+    },
+    {
+      "class": "TransformSettings",
+      "fields": [
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_ADAPTER'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Execution adapter (trino or duckdb); inferred from the query engine when unset.",
+          "environment_names": [
+            "PHLO_TRANSFORM_ADAPTER"
+          ],
+          "name": "adapter",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_ASSET_KEY'])",
+          "annotation": "<class 'str'>",
+          "default": "leaf",
+          "description": "Asset key shape for workspace models: leaf uses the last dotted name segment (dbt-compatible); logical keeps the namespace prefix.",
+          "environment_names": [
+            "PHLO_TRANSFORM_ASSET_KEY"
+          ],
+          "name": "asset_key",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_BIN'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Path to the phlo-transform executable; overrides project and PATH lookup.",
+          "environment_names": [
+            "PHLO_TRANSFORM_BIN"
+          ],
+          "name": "binary",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_DUCKDB_PATH'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "DuckDB database file used when the adapter is duckdb.",
+          "environment_names": [
+            "PHLO_TRANSFORM_DUCKDB_PATH"
+          ],
+          "name": "duckdb_path",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_JOBS'])",
+          "annotation": "<class 'int'>",
+          "default": 4,
+          "description": "Maximum concurrent model builds.",
+          "environment_names": [
+            "PHLO_TRANSFORM_JOBS"
+          ],
+          "name": "jobs",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_RELEASE_VERSION'])",
+          "annotation": "<class 'str'>",
+          "default": "0.1.0",
+          "description": "Release whose portable binary phlo transform install downloads.",
+          "environment_names": [
+            "PHLO_TRANSFORM_RELEASE_VERSION"
+          ],
+          "name": "release_version",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_ROOT'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Transform workspace containing phlo.toml; auto-discovered when unset.",
+          "environment_names": [
+            "PHLO_TRANSFORM_ROOT"
+          ],
+          "name": "root",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_TIMEOUT_SECONDS'])",
+          "annotation": "<class 'float'>",
+          "default": 900.0,
+          "description": "Upper bound for one phlo-transform command.",
+          "environment_names": [
+            "PHLO_TRANSFORM_TIMEOUT_SECONDS"
+          ],
+          "name": "timeout_seconds",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_TRINO_CATALOG'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Trino catalog for model targets; defaults to the query engine catalog.",
+          "environment_names": [
+            "PHLO_TRANSFORM_TRINO_CATALOG"
+          ],
+          "name": "trino_catalog",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_TRINO_ENDPOINT'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Trino HTTP endpoint; defaults to the resolved query engine.",
+          "environment_names": [
+            "PHLO_TRANSFORM_TRINO_ENDPOINT"
+          ],
+          "name": "trino_endpoint",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_TRINO_PASSWORD'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Trino password; prefer the environment over checked-in files.",
+          "environment_names": [
+            "PHLO_TRANSFORM_TRINO_PASSWORD"
+          ],
+          "name": "trino_password",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_TRINO_SCHEMA'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Trino session schema.",
+          "environment_names": [
+            "PHLO_TRANSFORM_TRINO_SCHEMA"
+          ],
+          "name": "trino_schema",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_TRINO_USER'])",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Trino user name.",
+          "environment_names": [
+            "PHLO_TRANSFORM_TRINO_USER"
+          ],
+          "name": "trino_user",
+          "required": false
+        }
+      ],
+      "inherited_fields": {},
+      "module": "phlo_transform.settings",
+      "package": "phlo-transform",
+      "source": "packages/phlo-transform/src/phlo_transform/settings.py",
       "status": "introspected"
     },
     {

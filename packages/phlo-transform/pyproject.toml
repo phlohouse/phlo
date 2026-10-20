@@ -6,10 +6,12 @@ requires = [
 ]
 
 [project]
-dependencies = ["phlo>=0.16.2,<0.17"]
-description = "SQL transform capability provider for Phlo"
+dependencies = [
+    "phlo>=0.18.0,<0.19",
+]
+description = "SQL transformation capability provider for Phlo, backed by the Phlo Transform engine"
 name = "phlo-transform"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 version = "0.1.0"
 
 [[project.authors]]
@@ -18,6 +20,9 @@ name = "Phlo Team"
 
 [project.entry-points."phlo.plugins.assets"]
 transform = "phlo_transform.plugin:TransformAssetProvider"
+
+[project.entry-points."phlo.plugins.cli"]
+transform = "phlo_transform.cli_plugin:TransformCliPlugin"
 
 [project.entry-points."phlo.plugins.transformation_providers"]
 transform = "phlo_transform.plugin:TransformProvider"
@@ -37,7 +42,7 @@ file = "README.md"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.setuptools.package-dir]
 "" = "src"

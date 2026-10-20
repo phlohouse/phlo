@@ -616,7 +616,7 @@
       "scope": "outside_v1",
       "target_status": "development_only",
       "current_maturity": "development_only",
-      "reason": "The package exposes provider-neutral SQL transform declarations to orchestrators. It is not part of the tested v1 support contract.",
+      "reason": "The package exposes provider-neutral SQL transform declarations and native Phlo Transform workspaces to orchestrators, and provides the phlo transform CLI. It is not part of the tested v1 support contract.",
       "evidence": [
         "packages/phlo-transform/pyproject.toml",
         "packages/phlo-transform/tests"

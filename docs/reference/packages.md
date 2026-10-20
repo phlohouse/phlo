@@ -109,7 +109,7 @@ Provides Postgres resources and service metadata. Install with `pip install phlo
 
 ## phlo-transform
 
-Provides asset and transformation-provider plugins for declarations created with `phlo.transform.sql`. Install with `pip install phlo-transform`. It defines no service or settings.
+Provides the `transform` asset and transformation providers, the `phlo transform` CLI, and typed access to native Phlo Transform workspaces. Materialises compiled models through the `phlo-transform` engine binary, which `phlo transform install` downloads into `.phlo/bin`. Install with `pip install phlo-transform`. Settings class: `TransformSettings`; environment names use the `PHLO_TRANSFORM_*` prefix.
 
 ## phlo-trino
 

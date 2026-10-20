@@ -28,6 +28,7 @@ from phlo.capabilities import (
 )
 from phlo.capabilities.external_refs import EXTERNAL_DEPS_METADATA_KEY
 from phlo.capabilities.runtime import RuntimeContext
+from phlo.config.transformation import active_transformation_provider
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.logging import get_logger
 from phlo_dbt.discovery import read_dbt_project_name
@@ -340,6 +341,11 @@ def build_dbt_asset_specs() -> list[AssetSpec]:
     complete asset graph by the capability aggregation point (see
     ``phlo.capabilities.external_refs``).
     """
+    active_provider = active_transformation_provider()
+    if active_provider not in (None, "dbt"):
+        logger.info("dbt_asset_specs_skipped_inactive_provider", active_provider=active_provider)
+        return []
+
     settings = get_settings()
     project_paths = settings.dbt_project_paths
     namespaced = settings.dbt_namespaced_asset_keys
