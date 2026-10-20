@@ -91,6 +91,28 @@ def test_main_drift_fails_but_still_reports_and_cleans_up(monkeypatch, tmp_path,
     assert calls[-1] == "teardown"
 
 
+def test_main_prints_redacted_step_error_and_actions_annotation(
+    monkeypatch, tmp_path, project, capsys
+):
+    def fail_readiness(_project):
+        raise nightly_evidence.StepError("stack failed: password=fixture-secret")
+
+    _stub_pipeline(
+        monkeypatch,
+        project,
+        wait_stack_ready=fail_readiness,
+    )
+
+    code, report = _run_main(monkeypatch, tmp_path)
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "ERROR: stack failed: password=<redacted>" in captured.err
+    assert "::error::stack failed: password=<redacted>" in captured.out
+    assert "fixture-secret" not in captured.out + captured.err
+    assert report["error"] == "stack failed: password=<redacted>"
+
+
 def test_journaled_maintenance_rejects_unaccepted_apply(monkeypatch, tmp_path, project):
     journal_dir = tmp_path / "journal"
     journal_dir.mkdir()
@@ -207,6 +229,9 @@ def test_compose_includes_override_layer(monkeypatch, tmp_path, project):
     override = project / ".phlo" / "overrides" / "compose.yaml"
     override.parent.mkdir(parents=True)
     override.write_text("services: {}\n", encoding="utf-8")
+    env_file = project / ".phlo" / "secrets" / ".env"
+    env_file.parent.mkdir(parents=True)
+    env_file.write_text("POSTGRES_PASSWORD=fixture-secret\n", encoding="utf-8")
     seen: list[list[str]] = []
 
     class _Done:
@@ -218,5 +243,7 @@ def test_compose_includes_override_layer(monkeypatch, tmp_path, project):
 
     cmd = seen[0]
     compose_files = [cmd[i + 1] for i, flag in enumerate(cmd) if flag == "-f"]
+    env_files = [cmd[i + 1] for i, flag in enumerate(cmd) if flag == "--env-file"]
     assert str(override) in compose_files
     assert str(project / ".phlo" / "docker-compose.yml") in compose_files
+    assert str(env_file) in env_files
