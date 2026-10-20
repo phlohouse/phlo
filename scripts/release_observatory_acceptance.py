@@ -25,7 +25,14 @@ from pathlib import Path
 import release_candidate_bom as bom_module
 import release_golden_path as golden
 
-ROUTES = ("", "assets", "incidents", "pipelines", "query", "branches")
+ROUTES = {
+    "": "Overview",
+    "assets": "Assets",
+    "incidents": "Incidents",
+    "pipelines": "Jobs",
+    "query": "Query",
+    "branches": "Branches",
+}
 SEED_COMMITS = 251
 ROWS = [
     {"id": 7, "label": "retained", "active": True},
@@ -78,7 +85,13 @@ def compose(config: golden.RunConfig, *args: str, capture: bool = False):
 
 
 def initialize(config: golden.RunConfig, *, legacy: bool = False) -> None:
-    config.project_dir.mkdir()
+    if config.project_dir.name != config.project_name:
+        raise golden.CandidateError(
+            "Acceptance project path must match its explicit Compose identity"
+        )
+    # A services-only directory has no installed asset job to seed. Reuse the
+    # installed project template, never inject framework modules into an image.
+    golden.create_project(config)
     options = ("--profile", "api", "--no-dev") if legacy else ("--observatory-dev",)
     golden.run(
         golden.command(str(config.operator_bin), "services", "init", *options),
@@ -94,9 +107,8 @@ def initialize(config: golden.RunConfig, *, legacy: bool = False) -> None:
 
 def private_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with path.open(
-        "x", encoding="utf-8", opener=lambda name, flags: os.open(name, flags, 0o600)
-    ) as stream:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         stream.write(content)
 
 
@@ -382,6 +394,89 @@ def verify_data(config: golden.RunConfig) -> None:
         raise golden.CandidateError("Retained typed data changed")
 
 
+def database_snapshot(config: golden.RunConfig, database: str | None = None) -> dict:
+    """Hash all synthetic table rows without returning credentials or row content."""
+    address = urllib.parse.urlsplit(golden.service_url(config, "postgres", 5432))
+    return installed(
+        config,
+        """
+import json, sys, psycopg2
+from pathlib import Path
+from psycopg2 import sql
+from phlo.config.layout import project_env_paths
+from phlo.infrastructure.utils import parse_env_file
+values={}
+for path in project_env_paths(Path.cwd()/'.phlo'):
+    values.update(parse_env_file(path))
+with psycopg2.connect(host=sys.argv[1],port=int(sys.argv[2]),
+        user=values.get('POSTGRES_USER','phlo'),password=values['POSTGRES_PASSWORD'],
+        dbname=sys.argv[3] or values.get('POSTGRES_DB','phlo')) as connection:
+    connection.set_session(readonly=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
+        tables=cursor.fetchall(); result={}
+        for schema,table in tables:
+            cursor.execute(sql.SQL("SELECT count(*),md5(coalesce(string_agg(row_to_json(t)::text,chr(10) ORDER BY row_to_json(t)::text),'')) FROM {}.{} t").format(sql.Identifier(schema),sql.Identifier(table)))
+            count,digest=cursor.fetchone(); result[schema+'.'+table]={'rows':count,'digest':digest}
+print(json.dumps(result))
+""",
+        address.hostname or "127.0.0.1",
+        str(address.port),
+        database or "",
+    )
+
+
+def verify_database_restore(config: golden.RunConfig, backup: Path) -> dict:
+    """Restore the archive into a new owned database and compare every table."""
+    before = database_snapshot(config)
+    if not before:
+        raise golden.CandidateError("Database backup contains no application tables to verify")
+    restored = "phlo_acceptance_restore_" + secrets.token_hex(8)
+    compose(
+        config,
+        "exec",
+        "-T",
+        "postgres",
+        "sh",
+        "-c",
+        'createdb -U "$POSTGRES_USER" "$1"',
+        "sh",
+        restored,
+    )
+    try:
+        subprocess.run(
+            golden.compose_command(
+                config,
+                "exec",
+                "-T",
+                "postgres",
+                "sh",
+                "-c",
+                'pg_restore --exit-on-error --no-owner -U "$POSTGRES_USER" -d "$1"',
+                "sh",
+                restored,
+            ),
+            input=backup.read_bytes(),
+            capture_output=True,
+            check=True,
+        )
+        if database_snapshot(config, restored) != before:
+            raise golden.CandidateError("Restored database does not match retained table rows")
+        return {"restored_and_compared": True, "tables": len(before)}
+    finally:
+        compose(
+            config,
+            "exec",
+            "-T",
+            "postgres",
+            "sh",
+            "-c",
+            'dropdb -U "$POSTGRES_USER" "$1"',
+            "sh",
+            restored,
+        )
+
+
 def _browser(session: str, *args: str) -> dict:
     result = subprocess.run(
         ["agent-browser", "--session", session, *args, "--json"],
@@ -405,7 +500,7 @@ def browser_journey(config: golden.RunConfig, binding: dict, artifacts: Path) ->
     try:
         _browser(session, "open", f"{base}/?env={env}")
         _browser(session, "set", "viewport", "1280", "800", "2")
-        for route in ROUTES:
+        for route, title in ROUTES.items():
             detail = (
                 "&" + urllib.parse.urlencode({"branch": binding["nessie_ref"]})
                 if route == "branches"
@@ -418,17 +513,19 @@ def browser_journey(config: golden.RunConfig, binding: dict, artifacts: Path) ->
                 "eval",
                 "({title:document.querySelector('h1')?.textContent, text:document.querySelector('main')?.textContent})",
             ).get("result", {})
-            if not state.get("title") or any(
+            _browser(session, "screenshot", str(artifacts / f"{route or 'overview'}.png"))
+            if state.get("title", "").strip() != title or any(
                 message in state.get("text", "").lower()
                 for message in (
                     "internal server error",
                     "something went wrong",
                     "unauthorized",
                     "failed to load",
+                    "couldn't load this page",
+                    "sign in to access phlo",
                 )
             ):
                 raise golden.CandidateError(f"Packaged Observatory route failed: /{route}")
-            _browser(session, "screenshot", str(artifacts / f"{route or 'overview'}.png"))
             visited.append(route or "overview")
         # The packaged UI initiates asynchronous branch detail requests. Require
         # their visible result, then advance the real public API cursor as well.
@@ -542,10 +639,19 @@ def query_contract(api: str, binding: dict) -> dict:
 
 def verify_readiness(api: str, binding: dict) -> dict:
     report = request(f"{api}/api/v1/readiness?" + urllib.parse.urlencode({"env": binding["env"]}))
-    for name in ("orchestration", "incidents", "query_usage", "query_preview"):
+    for name in ("orchestration", "incidents", "query_usage"):
         checks = report["capabilities"][name]
         if not checks or any(check["state"] != "ready" for check in checks):
             raise golden.CandidateError(f"Feature readiness failed: {name}")
+    # The API intentionally never promotes preview configuration to deployed
+    # enforcement proof. Query/denial/runtime checks must supply that evidence.
+    preview = report["capabilities"]["query_preview"]
+    if (
+        not preview
+        or any(check["state"] != "configured" for check in preview)
+        or not any(check.get("reason_code") == "backend_reachable" for check in preview)
+    ):
+        raise golden.CandidateError("Feature readiness failed: query_preview")
     return report
 
 
@@ -629,6 +735,7 @@ def transition(previous: golden.RunConfig, candidate: golden.RunConfig) -> dict:
         capture_output=True,
         check=True,
     )
+    restore = verify_database_restore(previous, backup)
     golden.verify_candidate_bom(candidate)
     golden.install_operator_from_bom(candidate)
     plan_file = candidate.project_dir.parent / "reviewed-upgrade.json"
@@ -697,6 +804,7 @@ print(json.dumps({'value':plan.token()}))
     return {
         "reviewed_plan_applied_twice": True,
         "verified_database_backup": True,
+        "database_restore": restore,
         "retained_project": True,
         "schema": "compatible",
     }
@@ -798,13 +906,13 @@ def run_journey(
     temporary = Path(tempfile.mkdtemp(prefix="phlo-observatory-acceptance-"))
     fresh = replace(
         config,
-        project_dir=temporary / "fresh",
+        project_dir=temporary / f"{config.project_name}-fresh",
         operator_env=temporary / "fresh-operator",
         project_name=f"{config.project_name}-fresh",
     )
     old = replace(
         config,
-        project_dir=temporary / "upgrade",
+        project_dir=temporary / f"{config.project_name}-upgrade",
         operator_env=temporary / "old-operator",
         project_name=f"{config.project_name}-upgrade",
         bom=previous,

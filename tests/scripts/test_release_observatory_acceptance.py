@@ -5,6 +5,7 @@ golden-path portability harness intentionally needs only pytest and stdlib.
 """
 
 import json
+import os
 import sys
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,16 +36,33 @@ def config(tmp_path, observatory):
     )
 
 
+def test_private_acceptance_files_are_exclusive_and_private(tmp_path, observatory):
+    path = tmp_path / "private" / "backup"
+    observatory.private_file(path, "original")
+    with pytest.raises(FileExistsError):
+        observatory.private_file(path, "replacement")
+    assert path.read_text() == "original"
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert path.parent.stat().st_mode & 0o777 == 0o700
+
+
 def test_initialize_runs_real_cli_and_persists_onboarding_and_upgrade_contract(
     config, observatory, monkeypatch
 ):
     """Prove workspace CLI compatibility, not released-artifact qualification."""
-    config = replace(config, operator_env=Path(sys.executable).parent.parent)
+    config = replace(
+        config,
+        operator_env=Path(sys.executable).parent.parent,
+        project_dir=config.project_dir.parent / config.project_name,
+    )
     monkeypatch.setattr(observatory.golden, "pin_candidate_images", lambda config: None)
 
     observatory.initialize(config)
 
     project = yaml.safe_load((config.project_dir / "phlo.yaml").read_text())
+    assert project["name"] == config.project_name
+    assert any((config.project_dir / "workflows").rglob("*.py"))
     assert project["authentication"]["provider"] == "static"
     assert project["authentication"]["static"]["enabled"] is True
     assert project["authentication"]["static"]["dev_mode"] is True
@@ -54,6 +72,30 @@ def test_initialize_runs_real_cli_and_persists_onboarding_and_upgrade_contract(
     assert project["default_environment"] in project["environments"]
     baseline = json.loads((config.project_dir / ".phlo/upgrade-baseline.json").read_text())
     assert ".phlo/docker-compose.yml" in baseline["files"]
+
+
+@pytest.mark.parametrize(
+    ("title", "text"),
+    [
+        ("Couldn't load this page", "Sign in to access Phlo."),
+        ("Overview", "Couldn't load this page"),
+        ("Overview", "Sign in to access Phlo."),
+    ],
+)
+def test_browser_rejects_packaged_error_and_sign_in_pages(
+    config, observatory, monkeypatch, tmp_path, title, text
+):
+    """A rendered heading is not proof of a usable route or actual sign-in."""
+    monkeypatch.setattr(observatory.golden, "service_url", lambda *args: "http://synthetic.invalid")
+    monkeypatch.setattr(
+        observatory,
+        "_browser",
+        lambda session, *args: {"result": {"title": title, "text": text}},
+    )
+    with pytest.raises(observatory.golden.CandidateError, match="route failed"):
+        observatory.browser_journey(
+            config, {"env": "analytics", "nessie_ref": "main"}, tmp_path / "screenshots"
+        )
 
 
 def test_preview_layer_preserves_provider_private_volumes(config, observatory, monkeypatch):
@@ -173,21 +215,47 @@ def test_http_request_handles_json_denials_and_redacts_errors(observatory):
             worker.join()
 
 
-@pytest.mark.parametrize("state", ["ready", "disabled", "configured", "unavailable", "empty"])
-def test_readiness_requires_every_capability_ready(state, observatory, monkeypatch):
+@pytest.mark.parametrize(
+    ("capability", "state"),
+    [
+        ("query_preview", "configured"),
+        ("query_preview", "ready"),
+        ("query_preview", "disabled"),
+        ("query_preview", "unavailable"),
+        ("query_preview", "empty"),
+        ("query_preview", "unprobed"),
+        ("orchestration", "configured"),
+        ("incidents", "unavailable"),
+        ("query_usage", "disabled"),
+    ],
+)
+def test_readiness_separates_mandatory_health_from_preview_configuration(
+    capability, state, observatory, monkeypatch
+):
     capabilities = {
-        name: [{"state": "ready"}]
-        for name in ("orchestration", "incidents", "query_usage", "query_preview")
+        name: [{"state": "ready"}] for name in ("orchestration", "incidents", "query_usage")
     }
-    capabilities["query_preview"] = [] if state == "empty" else [{"state": state}]
+    capabilities["query_preview"] = [{"state": "configured", "reason_code": "backend_reachable"}]
+    capabilities[capability] = (
+        []
+        if state == "empty"
+        else [
+            {
+                "state": "configured" if state == "unprobed" else state,
+                "reason_code": "enforcement_unverified"
+                if state == "unprobed"
+                else "backend_reachable",
+            }
+        ]
+    )
     report = {"capabilities": capabilities}
     monkeypatch.setattr(observatory, "request", lambda *_: report)
-    if state == "ready":
+    if (capability, state) == ("query_preview", "configured"):
         assert (
             observatory.verify_readiness("http://synthetic.invalid", {"env": "analytics"}) == report
         )
     else:
-        with pytest.raises(observatory.golden.CandidateError, match="query_preview"):
+        with pytest.raises(observatory.golden.CandidateError, match=capability):
             observatory.verify_readiness("http://synthetic.invalid", {"env": "analytics"})
 
 

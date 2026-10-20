@@ -236,6 +236,7 @@ def init_cmd(
     shared_layout = marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text(encoding="utf-8")
     new_layout = not phlo_dir.exists() or _is_uninitialized_phlo_dir(phlo_dir)
     preserve_shared = shared_layout and not force
+    preserve_generation = preserve_shared and (phlo_dir / "docker-compose.yml").exists()
     if (
         phlo_dir.exists()
         and not force
@@ -375,7 +376,7 @@ def init_cmd(
 
     # Never adopt existing customized files during a preserving re-init.
     _record_initial_generation(
-        phlo_dir, copied_files, preserve_existing=preserve_shared, allow_insecure=allow_insecure
+        phlo_dir, copied_files, preserve_existing=preserve_generation, allow_insecure=allow_insecure
     )
 
     # Summary
