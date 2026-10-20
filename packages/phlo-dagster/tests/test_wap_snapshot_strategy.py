@@ -19,6 +19,7 @@ import pytest
 import phlo.infrastructure
 from phlo.capabilities.interfaces import CandidateSnapshot
 from phlo.config_schema import WapConfig
+from phlo_dagster.wap_context import WapContext
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
@@ -38,6 +39,9 @@ from phlo_dagster.wap_sensors import (
 from phlo_dagster.wap_launch import (
     _write_launch_manifest as _write_immutable_launch_manifest,
 )
+
+pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
+TEST_CONTEXT = WapContext("test", "main", "phlo_dagster", "test-backend")
 
 
 class _PromotionCatalog:
@@ -130,6 +134,7 @@ def _write_snapshot_launch(
         tags=tags,
         source_hash=revision,
         target_hash_before=revision,
+        context=TEST_CONTEXT,
     )
     assert checksum is not None
     write_wap_report(
@@ -142,6 +147,7 @@ def _write_snapshot_launch(
         launch_manifest_checksum=checksum,
         launch_source_hash=revision,
         launch_target_hash_before=revision,
+        context=TEST_CONTEXT.to_dict(),
     )
 
 

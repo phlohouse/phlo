@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
@@ -18,6 +19,8 @@ from phlo_dagster.wap_launch import (
     WAP_RUN_ID_TAG,
     prepare_wap_launch,
 )
+
+pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
 
 
 class _Catalog:
@@ -34,8 +37,8 @@ class _Catalog:
 
     def create_branch(self, name: str, from_ref: str = "main") -> str:
         self.created.append((name, from_ref))
-        self.branches[name] = "branch-hash"
-        return "branch-hash"
+        self.branches[name] = self.branches[from_ref]
+        return self.branches[name]
 
     def delete_branch(self, name: str) -> bool:
         self.deleted.append(name)
@@ -72,6 +75,8 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
         WAP_REF_TAG: "pipeline-run-request-42",
         WAP_PROJECT_ID_TAG: "warehouse",
         WAP_ATTEMPT_TAG: "1",
+        "environment": "test",
+        "phlo/wap_binding": launch.binding_checksum,
     }
     assert catalog.created == [("pipeline-run-request-42", "main")]
     report = json.loads(
@@ -80,7 +85,7 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
     assert report["status"] == "branch_created"
     assert report["branch"] == "pipeline-run-request-42"
     assert report["launch_tags"] == launch.tags
-    assert report["launch_source_hash"] == "branch-hash"
+    assert report["launch_source_hash"] == "main-hash"
     assert report["launch_target_hash_before"] == "main-hash"
 
     launch.record_launch_result(status="launch_ambiguous", error="response lost")

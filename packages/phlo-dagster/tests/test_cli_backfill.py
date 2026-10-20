@@ -23,6 +23,8 @@ from phlo_dagster.cli_backfill import (
     backfill,
 )
 
+pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
+
 
 async def _ready(*_args, **_kwargs) -> None:
     """Stub the Dagster HTTP readiness wait: the backfill behaviour is under test."""

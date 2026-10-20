@@ -11,11 +11,13 @@ Dagster work begins.
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
+import re
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,12 @@ from phlo.config.process import get_process_settings
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 import phlo.telemetry as phlo_observe
+from phlo_dagster.wap_context import (
+    WAP_BINDING_TAG,
+    WapContext,
+    resolve_wap_context,
+    validate_wap_context,
+)
 
 WAP_BRANCH_TAG = "phlo/wap_branch"
 WAP_REF_TAG = "phlo/ref"
@@ -43,6 +51,8 @@ logger = get_logger(__name__)
 
 
 def _report_path(logical_run_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", logical_run_id):
+        raise ValueError("Invalid WAP logical run ID")
     root = Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
     return root / ".phlo" / "wap-reports" / f"{logical_run_id}.json"
 
@@ -77,6 +87,7 @@ def _write_launch_manifest(
     tags: dict[str, str],
     source_hash: str | None,
     target_hash_before: str | None,
+    context: WapContext | None = None,
 ) -> str | None:
     """Write the immutable, content-addressed binding used for promotion."""
     payload = {
@@ -86,9 +97,12 @@ def _write_launch_manifest(
         "branch": branch,
         "tags": tags,
         "source_hash": source_hash,
-        "target_branch": "main",
+        "target_branch": context.target_ref if context else "main",
         "target_hash_before": target_hash_before,
     }
+    if context:
+        payload["schema_version"] = "phlo.wap_launch_manifest.v2"
+        payload["context"] = context.to_dict()
     serialized = json.dumps(payload, indent=2, sort_keys=True)
     checksum = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
     path = _launch_manifest_path(logical_run_id, checksum)
@@ -112,6 +126,8 @@ def _write_launch_manifest(
 
 def read_wap_launch_manifest(logical_run_id: str, checksum: str) -> dict[str, Any] | None:
     """Read a launch binding only when its content matches the recorded digest."""
+    if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        return None
     try:
         raw = _launch_manifest_path(logical_run_id, checksum).read_bytes()
         if hashlib.sha256(raw).hexdigest() != checksum:
@@ -128,7 +144,10 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
     The logical ID is created before GraphQL submission, so this record exists
     even when Dagster rejects a run or a response is lost in transit.
     """
-    path = _report_path(logical_run_id)
+    try:
+        path = _report_path(logical_run_id)
+    except ValueError:
+        return False
     try:
         payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -182,7 +201,7 @@ def read_wap_report(logical_run_id: str) -> dict[str, Any] | None:
     """Read the latest durable WAP lifecycle record for a logical run."""
     try:
         payload = json.loads(_report_path(logical_run_id).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None
     if not isinstance(payload, dict):
         return None
@@ -216,6 +235,8 @@ class WapLaunch:
     # telemetry build branch://<system>/<ref> entities against the right
     # owner instead of assuming Nessie.
     catalog_system: str | None = None
+    context: WapContext | None = None
+    binding_checksum: str | None = None
 
     @property
     def tags(self) -> dict[str, str]:
@@ -229,7 +250,26 @@ class WapLaunch:
         }
         if self.catalog_system:
             tags[WAP_CATALOG_SYSTEM_TAG] = str(self.catalog_system)
+        if self.context:
+            tags["environment"] = self.context.environment
+        if self.binding_checksum:
+            tags[WAP_BINDING_TAG] = self.binding_checksum
         return tags
+
+    def seal(self) -> WapLaunch:
+        """Persist routing proof before GraphQL can schedule execution."""
+        checksum = _write_launch_manifest(
+            logical_run_id=self.logical_run_id,
+            dagster_run_id="",
+            branch=self.branch,
+            tags=self.tags,
+            source_hash=self.source_hash,
+            target_hash_before=self.target_hash_before,
+            context=self.context,
+        )
+        if checksum is None:
+            raise PhloConfigError(message="Cannot persist WAP execution binding; branch retained")
+        return replace(self, binding_checksum=checksum)
 
     def cleanup_if_created(self) -> None:
         """Remove only the staging ref created by this launch attempt.
@@ -264,14 +304,16 @@ class WapLaunch:
             "launch_source_hash": self.source_hash,
             "launch_target_hash_before": self.target_hash_before,
             "source_hash": self.source_hash,
-            "target_branch": "main",
+            "target_branch": self.context.target_ref if self.context else "main",
             "target_hash_before": self.target_hash_before,
         }
         if dagster_run_id is not None:
             updates["dagster_run_id"] = dagster_run_id
         if error is not None:
             updates["launch_error"] = error
-        if status == "launched" and dagster_run_id is not None:
+        if self.context:
+            updates["context"] = self.context.to_dict()
+        if dagster_run_id is not None:
             checksum = _write_launch_manifest(
                 logical_run_id=self.logical_run_id,
                 dagster_run_id=dagster_run_id,
@@ -279,6 +321,7 @@ class WapLaunch:
                 tags=self.tags,
                 source_hash=self.source_hash,
                 target_hash_before=self.target_hash_before,
+                context=self.context,
             )
             if checksum is None:
                 return False
@@ -287,7 +330,7 @@ class WapLaunch:
 
 
 def _prepare_snapshot_wap_launch(
-    *, logical_run_id: str, project_id: str, attempt: int
+    *, logical_run_id: str, project_id: str, attempt: int, environment: str | None = None
 ) -> WapLaunch:
     """Open a run-scoped candidate namespace on a snapshot-promotion catalog."""
     resolution = resolve_capability("catalog")
@@ -313,6 +356,7 @@ def _prepare_snapshot_wap_launch(
 
     catalog_system = str(getattr(resolution, "name", None) or "catalog")
     namespace = f"{WAP_BRANCH_PREFIX}{logical_run_id}"
+    context = resolve_wap_context(environment, resolution=resolution)
     revision = int(catalog.release_revision())
     phlo_observe.emit(
         "wap.branch.create",
@@ -342,7 +386,8 @@ def _prepare_snapshot_wap_launch(
         attempt=attempt,
         strategy=WAP_STRATEGY_SNAPSHOT,
         catalog_system=catalog_system,
-    )
+        context=context,
+    ).seal()
     if not launch.record_launch_result(status="branch_created"):
         raise PhloConfigError(
             message=f"Could not persist the WAP launch report for namespace {namespace!r}.",
@@ -354,7 +399,7 @@ def _prepare_snapshot_wap_launch(
     return launch
 
 
-def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
+def prepare_wap_launch(*, logical_run_id: str, environment: str | None = None) -> WapLaunch:
     """Create a WAP staging ref and tags before asking Dagster to start work."""
     from phlo.infrastructure import load_wap_config
 
@@ -368,7 +413,10 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
     strategy = load_wap_config().strategy
     if strategy == WAP_STRATEGY_SNAPSHOT:
         return _prepare_snapshot_wap_launch(
-            logical_run_id=logical_run_id, project_id=project.project_id, attempt=attempt
+            logical_run_id=logical_run_id,
+            project_id=project.project_id,
+            attempt=attempt,
+            environment=environment,
         )
 
     resolution = resolve_capability("catalog")
@@ -387,6 +435,7 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
             suggestions=["Configure a VersionedCatalog-compatible provider before using --wap."],
         )
 
+    context = resolve_wap_context(environment, resolution=resolution)
     branch = f"{WAP_BRANCH_PREFIX}{logical_run_id}"
     if catalog.get_branch_hash(branch):
         raise PhloConfigError(
@@ -395,12 +444,16 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
         )
 
     catalog_system = str(getattr(resolution, "name", "") or "") or None
-    target_hash_before = catalog.get_branch_hash("main")
-    with phlo_observe.wap_branch_create(branch=branch, base_branch="main") as branch_op:
-        if catalog.create_branch(branch, from_ref="main") is None:
+    target_hash_before = catalog.get_branch_hash(context.target_ref)
+    if not target_hash_before:
+        raise PhloConfigError(
+            message="Configured WAP target ref is missing or unavailable; no fallback"
+        )
+    with phlo_observe.wap_branch_create(branch=branch, base_branch=context.target_ref) as branch_op:
+        if catalog.create_branch(branch, from_ref=context.target_ref) is None:
             raise PhloConfigError(
-                message=f"Could not create WAP branch {branch!r} from main.",
-                suggestions=["Confirm the configured catalog can create branches from main."],
+                message=f"Could not create WAP branch {branch!r} from {context.target_ref!r}.",
+                suggestions=["Confirm the configured catalog can create branches from the target."],
             )
         # wap_branch_create pins the branch entity to nessie; restamp it with
         # the resolved catalog system so a non-Nessie VersionedCatalog owns its
@@ -416,6 +469,8 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
         )
 
     source_hash = catalog.get_branch_hash(branch)
+    if source_hash != target_hash_before:
+        raise PhloConfigError(message="WAP target moved during branch creation; branch retained")
     launch = WapLaunch(
         logical_run_id=logical_run_id,
         branch=branch,
@@ -426,7 +481,8 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
         project_id=project.project_id,
         attempt=attempt,
         catalog_system=catalog_system,
-    )
+        context=context,
+    ).seal()
     if not launch.record_launch_result(status="branch_created"):
         raise PhloConfigError(
             message=f"Could not persist the WAP launch report for branch {branch!r}.",
@@ -435,3 +491,59 @@ def prepare_wap_launch(*, logical_run_id: str) -> WapLaunch:
             ],
         )
     return launch
+
+
+def verify_wap_execution(run: Any, *, capability_overrides: dict[str, str] | None = None) -> None:
+    """Wait for trusted launch acknowledgement before allowing any asset writes."""
+    tags = run.tags or {}
+    logical_run_id = tags.get(WAP_RUN_ID_TAG, "")
+    checksum = tags.get(WAP_BINDING_TAG, "")
+    binding = read_wap_launch_manifest(logical_run_id, checksum) if checksum else None
+    if not binding or not binding.get("context"):
+        raise PhloConfigError(
+            message="legacy_launch_context_missing: retain branch; review and relaunch"
+        )
+    expected_tags = binding.get("tags", {})
+    project = resolve_project_identity(tags, get_settings().phlo_project)
+    if (
+        binding.get("dagster_run_id") != ""
+        or binding.get("logical_run_id") != logical_run_id
+        or binding.get("branch") != f"{WAP_BRANCH_PREFIX}{logical_run_id}"
+        or any(tags.get(key) != value for key, value in expected_tags.items())
+        or not project.project_id
+        or project.project_id != expected_tags.get(WAP_PROJECT_ID_TAG)
+        or capability_overrides
+    ):
+        raise PhloConfigError(message="WAP execution binding or capability routing is invalid")
+    validate_wap_context(run, binding)
+    # GraphQL assigns physical IDs. A first-claim-wins file would let a run
+    # carrying copied tags win a race against the intended run. Only the
+    # launcher's acknowledgement may register that identity. Lost responses
+    # block execution and retain the branch instead of guessing ownership.
+    deadline = time.monotonic() + 30
+    while True:
+        report = read_wap_report(logical_run_id) or {}
+        if report.get("dagster_run_id"):
+            registered = read_wap_launch_manifest(
+                logical_run_id, str(report.get("launch_manifest_checksum", ""))
+            )
+            expected = {
+                **binding,
+                "dagster_run_id": run.run_id,
+                "tags": {**expected_tags, WAP_BINDING_TAG: checksum},
+            }
+            if (
+                report["dagster_run_id"] != run.run_id
+                or registered != expected
+                or report.get("context") != binding["context"]
+            ):
+                raise PhloConfigError(
+                    message="WAP physical run does not match trusted launch registration"
+                )
+            validate_wap_context(run, binding)
+            return
+        if time.monotonic() >= deadline:
+            raise PhloConfigError(
+                message="WAP launch registration unavailable; branch retained; review launch response"
+            )
+        time.sleep(0.1)
