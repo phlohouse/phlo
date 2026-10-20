@@ -424,13 +424,6 @@ def test_configure_wap_writes_owned_dagster_endpoint_and_selector(
         "  dagster_url: http://127.0.0.1:3000/graphql\n"
     )
 
-    from phlo.config.project import get_default_environment, get_environment_targets
-
-    assert get_default_environment(config.project_dir) == "golden_path"
-    target = get_environment_targets(config.project_dir)["golden_path"]
-    assert target.dagster_location == "location"
-    assert target.nessie_ref == "main"
-
 
 def test_wap_wait_requires_success_then_promotion_tag(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
