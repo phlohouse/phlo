@@ -1,14 +1,18 @@
 """Smoke-test API imports on the native Windows portability runner."""
 
 import os
+from importlib import import_module
 
 import pytest
 
 
 def test_main_and_branch_router_import_without_posix_lock_module():
-    import phlo_api.api.operation_controls  # noqa: F401
-    import phlo_api.api.v1_branch_workflows  # noqa: F401
-    import phlo_api.main  # noqa: F401
+    for module in (
+        "phlo_api.api.operation_controls",
+        "phlo_api.api.v1_branch_workflows",
+        "phlo_api.main",
+    ):
+        import_module(module)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="requires a native Windows runner")
