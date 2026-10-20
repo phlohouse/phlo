@@ -17,6 +17,30 @@ permissions:
   contents: read
 
 jobs:
+  minio-cache:
+    name: nightly / MinIO build cache
+    if: >-
+      github.repository == 'phlohouse/phlo' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Cache maintenance is optional; report its outcome independently below.
+    continue-on-error: true
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.build.outcome }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Refresh default-branch MinIO build cache
+        id: build
+        uses: ./.github/actions/build-minio-image
+        with:
+          image: ghcr.io/phlohouse/phlo-minio:0.17.1
+
   upstream-compatibility:
     name: nightly / fresh provider dependencies
     if: github.event_name == 'schedule'
@@ -132,6 +156,7 @@ jobs:
     name: nightly / status
     if: always()
     needs:
+      - minio-cache
       - upstream-compatibility
       - full-integration
       - release-golden-path
@@ -142,6 +167,7 @@ jobs:
     steps:
       - name: Require every nightly check to succeed
         env:
+          MINIO_CACHE: ${{ needs.minio-cache.outputs.result || needs.minio-cache.result }}
           UPSTREAM_COMPATIBILITY: ${{ needs.upstream-compatibility.result }}
           EVENT_NAME: ${{ github.event_name }}
           FULL_INTEGRATION: ${{ needs.full-integration.result }}
@@ -151,6 +177,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Fresh dependency resolution: $UPSTREAM_COMPATIBILITY" >> "$GITHUB_STEP_SUMMARY"
+          echo "Optional MinIO cache build: $MINIO_CACHE (cache export is best effort; not qualification evidence)." >> "$GITHUB_STEP_SUMMARY"
           if [ "$EVENT_NAME" = schedule ] && [ "$UPSTREAM_COMPATIBILITY" != success ]; then
             echo "::error::Scheduled fresh resolution failed: $UPSTREAM_COMPATIBILITY"
             exit 1

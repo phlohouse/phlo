@@ -3028,6 +3028,9 @@ runtime = [
 ]
 
 [package.dev-dependencies]
+coverage-report = [
+    { name = "coverage" },
+]
 dev = [
     { name = "asyncpg" },
     { name = "dagster" },
@@ -3134,6 +3137,7 @@ requires-dist = [
 provides-extras = ["codemods", "core-services", "defaults", "observe", "openmetadata", "runtime"]
 
 [package.metadata.requires-dev]
+coverage-report = [{ name = "coverage", specifier = "==7.13.5" }]
 dev = [
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "dagster", specifier = ">=1.13,<1.14" },
