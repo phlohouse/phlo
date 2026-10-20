@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Verify provider wheels work only from an installed external consumer
-environment.
+"""Verify provider wheels from an installed external consumer environment.
 
-Builds all workspace wheels, installs them into a clean uv environment with
-repository sources stripped from the path, renders services from the
-installed CLI, and checks that declared entry points and modules resolve
-from installed distributions only.
+Install workspace wheels without repository-source fallbacks and render all
+services in one installed CLI batch. Docker shards keep identical image builds
+together while retaining build and health evidence for every service.
 """
 
 from __future__ import annotations
@@ -21,6 +19,7 @@ import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 
@@ -250,32 +249,35 @@ def render_services(
     consumer: Path,
     services: list[dict[str, Any]],
     env: dict[str, str],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Render each service into the consumer project, capturing files and compose output."""
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Render all services together, attributing newly created files to the whole batch."""
     _run([str(phlo), "services", "init", "--no-dev"], cwd=consumer, env=env)
-    rendered: list[dict[str, Any]] = []
-    for service in services:
-        before = set(consumer.rglob("*"))
+    before = set(consumer.rglob("*"))
+    if services:
         _run(
-            [str(phlo), "services", "add", "--service", service["name"], "--no-start"],
+            [
+                str(phlo),
+                "services",
+                "add",
+                *(argument for service in services for argument in ("--service", service["name"])),
+                "--no-start",
+            ],
             cwd=consumer,
             env=env,
-        )
-        compose = read_yaml(
-            environment, consumer / ".phlo" / "docker-compose.yml", cwd=consumer, env=env
-        )
-        rendered.append(
-            {
-                "service": service["name"],
-                "generated_files": files_changed(consumer, before),
-                "compose_service": (compose.get("services") or {}).get(service["name"]),
-            }
         )
     compose_path = consumer / ".phlo" / "docker-compose.yml"
     compose = (
         read_yaml(environment, compose_path, cwd=consumer, env=env) if compose_path.exists() else {}
     )
-    return rendered, compose or {}
+    rendered = [
+        {
+            "service": service["name"],
+            "compose_service": (compose.get("services") or {}).get(service["name"]),
+        }
+        for service in services
+    ]
+    rendering = {"scope": "batch_service_add", "generated_files": files_changed(consumer, before)}
+    return rendered, compose, rendering
 
 
 def module_locations(environment: Path) -> dict[str, str]:
@@ -341,6 +343,28 @@ print(json.dumps(container_backend._compose_base_cmd(
     return command
 
 
+def select_buildable_services(
+    compose: dict[str, Any], *, shard_index: int, shard_count: int
+) -> list[tuple[str, dict[str, Any]]]:
+    """Split ordered image/build families into contiguous, evenly sized shards."""
+    if not 0 <= shard_index < shard_count:
+        raise ValueError("docker shard index must be within docker shard count")
+    families: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for name, config in (compose.get("services") or {}).items():
+        if config.get("build"):
+            key = json.dumps(
+                {"image": config.get("image"), "build": config["build"]}, sort_keys=True
+            )
+            families.setdefault(key, []).append((name, config))
+    # Keep complete families together, including aliases separated in Compose.
+    # Contiguous groups pair the expensive MinIO family with the small API
+    # family in CI, leaving Observatory and Dagster on the second runner.
+    size, extra = divmod(len(families), shard_count)
+    start = shard_index * size + min(shard_index, extra)
+    stop = start + size + (shard_index < extra)
+    return [service for family in list(families.values())[start:stop] for service in family]
+
+
 def build_shard(
     compose: dict[str, Any],
     *,
@@ -351,12 +375,7 @@ def build_shard(
     env: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Docker-compose-build this shard's buildable services and report pass/fail per service."""
-    buildable = [
-        (name, config)
-        for name, config in (compose.get("services") or {}).items()
-        if config.get("build")
-    ]
-    selected = buildable[shard_index::shard_count]
+    selected = select_buildable_services(compose, shard_index=shard_index, shard_count=shard_count)
     results = []
     command = (
         installed_compose_command(environment=environment, consumer=consumer, env=env)
@@ -364,6 +383,7 @@ def build_shard(
         else []
     )
     for name, config in selected:
+        started = monotonic()
         completed = subprocess.run(
             [*command, "build", name],
             cwd=consumer,
@@ -371,12 +391,16 @@ def build_shard(
             text=True,
             capture_output=True,
         )
+        elapsed_seconds = monotonic() - started
         results.append(
             {
                 "service": name,
                 "build": config["build"],
                 "status": "passed" if completed.returncode == 0 else "failed",
                 "detail": completed.stderr[-4000:],
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "elapsed_seconds": elapsed_seconds,
             }
         )
     return results
@@ -392,14 +416,10 @@ def health_shard(
     env: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Exercise declared container health checks without treating them as runtime acceptance."""
-    buildable = [
-        (name, config)
-        for name, config in (compose.get("services") or {}).items()
-        if config.get("build")
-    ]
+    selected = select_buildable_services(compose, shard_index=shard_index, shard_count=shard_count)
     results = []
     command = None
-    for name, config in buildable[shard_index::shard_count]:
+    for name, config in selected:
         if not config.get("healthcheck"):
             results.append(
                 {"service": name, "status": "not_applicable", "detail": "no healthcheck"}
@@ -481,7 +501,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         services = parse_phlo_json_command(
             [str(phlo), "services", "list", "--all", "--json"], cwd=consumer, env=env
         )
-        rendered, compose = render_services(phlo, environment, consumer, services, env)
+        rendered, compose, rendering = render_services(phlo, environment, consumer, services, env)
         container_env = prepare_container_wheelhouse(temporary / "wheelhouse", consumer)
         expected_services = {entry["name"] for entry in services}
         rendered_services = {entry["service"] for entry in rendered}
@@ -542,6 +562,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             ],
             "services": services,
             "plugin_check": plugin_check,
+            "rendering": rendering,
             "rendered_services": rendered,
             "images": images,
             "builds": builds,

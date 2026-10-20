@@ -696,7 +696,7 @@ def test_compose_generator_production_profile_hides_core_host_ports_and_requires
                 },
             },
         )
-        for name in ("postgres", "minio", "nessie", "trino", "dagster")
+        for name in ("postgres", "minio", "nessie", "trino", "dagster", "phlo-api", "observatory")
     ]
 
     generator = ComposeGenerator(cast(ServiceDiscovery, MinimalFakeDiscovery()))
@@ -708,7 +708,7 @@ def test_compose_generator_production_profile_hides_core_host_ports_and_requires
         )
     )
 
-    for name in ("postgres", "minio", "nessie", "trino"):
+    for name in ("postgres", "minio", "nessie", "trino", "phlo-api", "observatory"):
         assert "ports" not in data["services"][name]
         environment = data["services"][name]["environment"]
         assert (
@@ -754,6 +754,9 @@ def test_compose_published_ports_default_to_loopback_with_explicit_opt_in(tmp_pa
     public = yaml.safe_load(
         generator.generate_compose(services, output_dir=tmp_path, publish_all_interfaces=True)
     )["services"]
+    protected = yaml.safe_load(
+        generator.generate_compose(services, output_dir=tmp_path, deployment_profile="production")
+    )["services"]
 
     assert local["postgres"]["ports"] == ["127.0.0.1:${POSTGRES_PORT:-10000}:5432"]
     assert local["phlo-api"]["ports"] == ["127.0.0.1:${PHLO_API_PORT:-4000}:4000"]
@@ -762,6 +765,11 @@ def test_compose_published_ports_default_to_loopback_with_explicit_opt_in(tmp_pa
     assert public["phlo-api"]["ports"] == ["${PHLO_API_PORT:-4000}:4000"]
     assert public["observatory"]["ports"] == ["${OBSERVATORY_PORT:-3001}:3000"]
     assert local["phlo-api"]["environment"]["HOST"] == "0.0.0.0"
+    for name in ("phlo-api", "observatory"):
+        assert "ports" not in protected[name]
+        assert protected[name]["labels"][f"traefik.http.routers.{name}.middlewares"] == (
+            "phlo-api-login,phlo-api-auth"
+        )
 
 
 def test_compose_does_not_rewrite_explicit_host_binding(tmp_path) -> None:
@@ -1712,6 +1720,52 @@ def test_services_init_writes_env_defaults_as_utf8_with_non_ascii_descriptions(
     defaults = env_defaults_path(phlo_dir).read_bytes().decode("utf-8")
     assert "—" in defaults
     env_secrets_path(phlo_dir).read_bytes().decode("utf-8")
+
+
+def test_observatory_dev_generates_loopback_scoped_read_contract(tmp_path, monkeypatch):
+    from phlo.capabilities import Principal, ResourceRef
+    from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
+    from phlo.cli.commands.services.init import init_cmd
+    from phlo.cli.commands.services.preflight import preflight_cmd
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(init_cmd, ["--observatory-dev", "--no-dev"])
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load((tmp_path / "phlo.yaml").read_text())
+    assert list(config["environments"]) == ["sandbox"]
+    assert config["default_environment"] == "sandbox"
+    compose = yaml.safe_load((tmp_path / ".phlo/docker-compose.yml").read_text())
+    for service in ("phlo-api", "observatory"):
+        assert all(port.startswith("127.0.0.1:") for port in compose["services"][service]["ports"])
+    policy = yaml.safe_load((tmp_path / ".phlo/authorization/policies.yaml").read_text())
+    backend = DefaultAuthorizationPolicyBackend(policies=policy["policies"])
+    actor = Principal(subject="dev_user", principal_type="user", roles=("admin",))
+    from phlo.capabilities import DecisionContext
+
+    context = DecisionContext(environment="sandbox")
+    for action, resource, allowed in (
+        ("service.read", ResourceRef(resource_type="service", resource_id="env=sandbox"), True),
+        (
+            "platform_metadata.read",
+            ResourceRef(resource_type="platform_metadata", resource_id="project"),
+            True,
+        ),
+        ("service.read", ResourceRef(resource_type="service", resource_id="env=other"), False),
+        ("service.manage", ResourceRef(resource_type="service", resource_id="env=sandbox"), False),
+    ):
+        assert backend.explain_decision(actor, action, resource, context).allowed is allowed
+    checked = CliRunner().invoke(preflight_cmd, ["--observatory-dev", "--json"])
+    assert checked.exit_code == 0, checked.output
+
+
+@pytest.mark.parametrize("flag", ["--production", "--publish-all-interfaces"])
+def test_observatory_dev_rejects_exposed_profiles_before_writing(tmp_path, monkeypatch, flag):
+    from phlo.cli.commands.services.init import init_cmd
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(init_cmd, ["--observatory-dev", "--no-dev", flag])
+    assert result.exit_code != 0
+    assert not (tmp_path / "phlo.yaml").exists()
 
 
 @pytest.mark.parametrize(

@@ -75,7 +75,7 @@ const evidenceValue = (
 
 function linkedIncidentEvidence(
   timeline: Array<IncidentTimelineEvent>,
-  env: 'prod' | 'staging',
+  env: string,
 ) {
   const branch = evidenceValue(timeline, ['branch', 'branch_name', 'ref'])
   const job = evidenceValue(timeline, ['job', 'job_name', 'pipeline'])
@@ -135,7 +135,7 @@ function IncidentSummary({
   onSaveOwner,
   onAddComment,
 }: {
-  env: 'prod' | 'staging'
+  env: string
   incident: IncidentRecord
   timeline: Array<IncidentTimelineEvent>
   followUps: Array<IncidentFollowUp>
@@ -343,7 +343,7 @@ function IncidentInvestigation({
 }: Pick<
   Awaited<ReturnType<typeof getIncidentDetail>>,
   'incident' | 'timeline' | 'investigation'
-> & { env: 'prod' | 'staging' }) {
+> & { env: string }) {
   const kind = incident.kind.toLowerCase()
   const heading = kind.includes('freshness')
     ? 'Freshness investigation'
@@ -539,7 +539,7 @@ function IncidentRuns({
   env,
   runs,
 }: Pick<Awaited<ReturnType<typeof getIncidentDetail>>, 'runs'> & {
-  env: 'prod' | 'staging'
+  env: string
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -627,7 +627,7 @@ export function IncidentDetail({
   runs,
   investigation,
 }: Awaited<ReturnType<typeof getIncidentDetail>> & {
-  env: 'prod' | 'staging'
+  env: string
 }) {
   const router = useRouter()
   const [comment, setComment] = React.useState('')

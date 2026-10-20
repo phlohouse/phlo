@@ -129,6 +129,56 @@ def test_nightly_release_golden_path_keeps_dispatch_and_schedule() -> None:
     assert {"cron": "0 3 * * *"} in triggers["schedule"]
 
 
+def test_nightly_minio_cache_uses_the_shared_build_only_on_trusted_main() -> None:
+    nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text())
+    job = nightly["jobs"]["minio-cache"]
+    assert job["if"] == (
+        "github.repository == 'phlohouse/phlo' && "
+        "github.ref == 'refs/heads/main' && "
+        "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')"
+    )
+    assert job["permissions"] == {"contents": "read"}
+    assert job["continue-on-error"] is True
+    assert not job.get("needs")
+    checkout, build = job["steps"]
+    assert checkout["uses"] == ("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    assert checkout["with"] == {"persist-credentials": False}
+    assert build["uses"] == "./.github/actions/build-minio-image"
+    assert build["with"] == {"image": "ghcr.io/phlohouse/phlo-minio:0.17.1"}
+    assert job["outputs"]["result"] == "${{ steps.build.outcome }}"
+    assert build["id"] == "build"
+    summary = nightly["jobs"]["nightly-status"]
+    assert "minio-cache" in summary["needs"]
+    assert summary["steps"][0]["env"]["MINIO_CACHE"] == (
+        "${{ needs.minio-cache.outputs.result || needs.minio-cache.result }}"
+    )
+
+
+@pytest.mark.parametrize("cache_result", ["success", "failure", "cancelled", "skipped", ""])
+def test_optional_minio_cache_result_is_reported_without_replacing_nightly_gates(
+    tmp_path, cache_result
+) -> None:
+    nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text())
+    step = nightly["jobs"]["nightly-status"]["steps"][0]
+    for correctness_result in ("success", "failure"):
+        summary = tmp_path / f"summary-{correctness_result}"
+        env = dict.fromkeys(step["env"], "success")
+        env.update(
+            EVENT_NAME="schedule",
+            MINIO_CACHE=cache_result,
+            FULL_INTEGRATION=correctness_result,
+            GITHUB_STEP_SUMMARY=str(summary),
+        )
+        result = subprocess.run(
+            ["bash", "-c", step["run"]], env=env, capture_output=True, text=True
+        )
+        assert (result.returncode == 0) == (correctness_result == "success")
+        assert (
+            f"Optional MinIO cache build: {cache_result} "
+            "(cache export is best effort; not qualification evidence)."
+        ) in summary.read_text().splitlines()
+
+
 def test_artifact_acceptance_requires_authenticated_staging_without_missing_bom_escape() -> None:
     workflow = yaml.safe_load(
         (WORKFLOW_ROOT / "release-artifact-acceptance.yml").read_text(encoding="utf-8")

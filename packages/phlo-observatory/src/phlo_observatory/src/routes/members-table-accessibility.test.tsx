@@ -4,20 +4,59 @@ import * as React from 'react'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { axe } from 'vitest-axe'
+import userEvent from '@testing-library/user-event'
 import { Route } from './_app/settings/members'
 import type {
   AdminInvitation,
   AdminMember,
+  AdminRoleCatalog,
   AdminServiceAccount,
 } from '@/lib/data/api/admin'
+import { changeMemberRoles } from '@/lib/data/api/admin'
 
 const state: {
   members: Array<AdminMember>
   invitations: Array<AdminInvitation>
   serviceAccounts: Array<AdminServiceAccount>
-} = { members: [], invitations: [], serviceAccounts: [] }
+  roleCatalog: AdminRoleCatalog
+} = {
+  members: [],
+  invitations: [],
+  serviceAccounts: [],
+  roleCatalog: {
+    assignment_scope: 'installation',
+    policy_status: 'available',
+    items: (
+      [
+        'admin',
+        'analyst',
+        'developer',
+        'operator',
+        'service',
+        'viewer',
+      ] satisfies Array<AdminRoleCatalog['items'][number]['name']>
+    ).map((name) => ({
+      name,
+      policies: [],
+    })),
+  },
+}
+
+vi.mock('@/lib/data/api/admin', () => ({
+  changeMemberRoles: vi.fn(),
+  getAdminIdentity: vi.fn(),
+  createInvitation: vi.fn(),
+  createServiceAccount: vi.fn(),
+  revokeServiceAccount: vi.fn(),
+  checkMyPermission: vi.fn(),
+}))
 
 vi.mock('@tanstack/react-router', () => ({
+  getRouteApi: () => ({
+    useRouteContext: () => ({
+      environments: [{ env: 'sandbox', status: 'available' }],
+    }),
+  }),
   createFileRoute: () => (options: { component?: React.ComponentType }) => ({
     options,
     useLoaderData: () => state,
@@ -138,5 +177,76 @@ describe('the members tables', () => {
       'No service accounts.',
     )
     expect(await axe(document.body)).toHaveProperty('violations', [])
+  })
+
+  it('preserves the complete selected set through review and a recoverable error', async () => {
+    const user = userEvent.setup()
+    state.members = [
+      {
+        subject: 'alice-id',
+        email: 'alice@example.com',
+        principal_type: 'user',
+        roles: ['analyst', 'viewer'],
+        active: true,
+        version: 7,
+        created_at: '2026-10-01T00:00:00Z',
+        updated_at: '2026-10-02T00:00:00Z',
+      },
+    ]
+    vi.mocked(changeMemberRoles).mockRejectedValueOnce(
+      new Error('This record changed. Refresh and try again.'),
+    )
+    renderPage()
+    await user.click(
+      screen.getByRole('button', { name: 'Edit roles for alice@example.com' }),
+    )
+    expect(
+      screen
+        .getByRole('checkbox', { name: 'Analyst' })
+        .getAttribute('aria-checked'),
+    ).toBe('true')
+    expect(
+      screen
+        .getByRole('checkbox', { name: 'Viewer' })
+        .getAttribute('aria-checked'),
+    ).toBe('true')
+    await user.click(screen.getByRole('checkbox', { name: 'Operator' }))
+    await user.click(screen.getByRole('button', { name: 'Review assignment' }))
+    expect(
+      screen.getByText('Before: analyst, viewer', { exact: false }),
+    ).toBeTruthy()
+    expect(
+      screen.getByText('After: analyst, viewer, operator', { exact: false }),
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByRole('button', { name: 'Approve change' })
+        .hasAttribute('disabled'),
+    ).toBe(true)
+    await user.type(
+      screen.getByRole('textbox', { name: 'Justification' }),
+      'Reviewed operations access',
+    )
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: /I confirm this administrative action/,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Approve change' }))
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'This record changed. Refresh and try again.',
+    )
+    expect(changeMemberRoles).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        subject: 'alice-id',
+        roles: ['analyst', 'viewer', 'operator'],
+        expectedVersion: 7,
+        confirmed: true,
+      }),
+    })
+    expect(
+      screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled'),
+    ).toBe(false)
   })
 })

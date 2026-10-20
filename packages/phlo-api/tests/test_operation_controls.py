@@ -30,8 +30,13 @@ from phlo_api.api.operation_controls import (
     replay_or_execute_async,
     resolve_idempotency_claim,
 )
+from phlo_api.api import operation_controls
 
 from process_test_support import process_audit_writer, process_idempotency_resolution
+
+
+def test_operation_controls_import_does_not_require_posix_lock_module() -> None:
+    assert "fcntl" not in operation_controls.__dict__
 
 
 def _audit_records(audit_dir: Path) -> list[dict[str, Any]]:

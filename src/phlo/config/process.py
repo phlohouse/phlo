@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import AliasChoices, Field, ValidationInfo, field_validator
+from pydantic import AliasChoices, Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from phlo.config.process_base import ProcessOverrides as ProcessOverrides
@@ -19,6 +19,12 @@ from phlo.config.process_base import ProjectRootProcessSettings, process_overrid
 
 class CoreProcessSettings(ProjectRootProcessSettings):
     """Read core process overrides without replacing contextual consumer fallbacks."""
+
+    phlo_authz_token: SecretStr | None = Field(
+        None,
+        validation_alias="PHLO_AUTHZ_TOKEN",
+        description="Caller bearer credential for explicit trusted-endpoint CLI verification; never persisted.",
+    )
 
     @property
     def phlo_environment(self) -> str | None:

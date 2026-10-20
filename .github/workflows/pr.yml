@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Select affected lanes
         id: select
         env:
@@ -40,7 +40,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           if [ "$EVENT_NAME" = pull_request ]; then
+            # The event base can precede the merge commit's parent. Fetch both
+            # exact endpoints without changing the checked-out merge result.
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+            git cat-file -e "$BASE_SHA^{commit}"
+            git cat-file -e "$HEAD_SHA^{commit}"
             selection="$(python3 scripts/select_ci.py --base "$BASE_SHA" --head "$HEAD_SHA")"
           else
             selection="$(python3 scripts/select_ci.py --base HEAD --head HEAD)"
@@ -90,9 +96,11 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          filter: blob:none
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
+          enable-cache: false
       - name: Inventory new suppressions and skips
         env:
           BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || github.sha }}
@@ -107,8 +115,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mode='queue'
-          if [ "$EVENT_NAME" = pull_request ]; then mode='delta'; fi
+          # Existing findings belong to nightly Security and agent triage.
+          # Both PR and merge-group checks block newly introduced vulnerable versions.
+          mode='delta'
           ledger="$RUNNER_TEMP/dependency-risks.json"
           if git cat-file -e "$BASE_SHA:security/dependency-risks.json" 2>/dev/null; then
             git show "$BASE_SHA:security/dependency-risks.json" > "$ledger"
@@ -179,11 +188,12 @@ jobs:
         if: needs.changes.outputs.python == 'true' || github.event_name == 'merge_group'
         with:
           version: "0.12.1"
+          enable-cache: false
       - name: Install locked coverage tools
         if: needs.changes.outputs.python == 'true'
         run: |
           uv python install 3.12
-          uv sync --dev --locked
+          uv sync --locked --only-group coverage-report
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         if: needs.changes.outputs.python == 'true'
         with:
@@ -205,10 +215,10 @@ jobs:
           set -euo pipefail
           mapfile -t directories < <(find coverage-data -name '.coverage.*' -printf '%h\n' | sort -u)
           test "${#directories[@]}" -gt 0
-          uv run --locked coverage combine "${directories[@]}"
-          uv run --locked coverage xml -o coverage.xml
-          uv run --locked coverage json -o coverage.json
-          uv run --locked coverage report >> "$GITHUB_STEP_SUMMARY"
+          uv run --locked --only-group coverage-report coverage combine "${directories[@]}"
+          uv run --locked --only-group coverage-report coverage xml -o coverage.xml
+          uv run --locked --only-group coverage-report coverage json -o coverage.json
+          uv run --locked --only-group coverage-report coverage report >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: needs.changes.outputs.python == 'true'
         with:

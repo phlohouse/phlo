@@ -3,7 +3,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
 
-const stagingEnvironmentSchema = z.literal('staging')
+const stagingEnvironmentSchema = environmentSchema
 const candidateSchema = z.object({
   env: stagingEnvironmentSchema,
   candidate_id: z.string(),
@@ -94,6 +94,7 @@ export function stagingChecksPassed(
 
 const envInput = z.object({ env: environmentSchema })
 const mutationInput = z.object({
+  env: environmentSchema,
   candidateId: z.string().min(1),
   idempotencyKey: z.string().min(1),
 })
@@ -102,15 +103,26 @@ const timeoutMs = 120_000
 export const getStagingOverview = createServerFn({ method: 'GET' })
   .validator(envInput)
   .handler(async ({ data }) => {
-    if (data.env !== 'staging') return { kind: 'prod' as const, env: data.env }
+    const discovery = await phloApi(
+      '/api/v1/environments',
+      z.object({
+        promotion_source_environment: environmentSchema.nullable().optional(),
+      }),
+    )
+    if (data.env !== discovery.promotion_source_environment)
+      return {
+        kind: 'not_source' as const,
+        env: data.env,
+        source: discovery.promotion_source_environment,
+      }
     const [candidate, history] = await Promise.all([
       phloApi(
-        '/api/v1/staging/promotions/candidate?env=staging',
+        `/api/v1/staging/promotions/candidate?env=${data.env}`,
         candidateSchema,
-        { env: 'staging' },
+        { env: data.env },
       ),
-      phloApi('/api/v1/staging/promotions?env=staging', historySchema, {
-        env: 'staging',
+      phloApi(`/api/v1/staging/promotions?env=${data.env}`, historySchema, {
+        env: data.env,
       }),
     ])
     return { kind: 'staging' as const, env: data.env, candidate, history }
@@ -120,10 +132,10 @@ export const runStagingChecks = createServerFn({ method: 'POST' })
   .validator(mutationInput)
   .handler(({ data }) =>
     phloApi(
-      '/api/v1/staging/promotions/candidate/checks?env=staging',
+      `/api/v1/staging/promotions/candidate/checks?env=${data.env}`,
       checksSchema,
       {
-        env: 'staging',
+        env: data.env,
         method: 'POST',
         idempotencyKey: data.idempotencyKey,
         timeoutMs,
@@ -135,6 +147,7 @@ export const runStagingChecks = createServerFn({ method: 'POST' })
 export const resyncStaging = createServerFn({ method: 'POST' })
   .validator(
     z.object({
+      env: environmentSchema,
       expectedProdHash: z.string().min(1),
       expectedStagingHash: z.string().min(1),
       idempotencyKey: z.string().min(1),
@@ -142,8 +155,8 @@ export const resyncStaging = createServerFn({ method: 'POST' })
     }),
   )
   .handler(({ data }) =>
-    phloApi('/api/v1/staging/resync?env=staging', actionSchema, {
-      env: 'staging',
+    phloApi(`/api/v1/staging/resync?env=${data.env}`, actionSchema, {
+      env: data.env,
       method: 'POST',
       idempotencyKey: data.idempotencyKey,
       body: {
@@ -177,8 +190,8 @@ export const promoteStaging = createServerFn({ method: 'POST' })
         justification: data.justification,
       },
     })
-    return phloApi('/api/v1/staging/promotions?env=staging', actionSchema, {
-      env: 'staging',
+    return phloApi(`/api/v1/staging/promotions?env=${data.env}`, actionSchema, {
+      env: data.env,
       method: 'POST',
       idempotencyKey: data.idempotencyKey,
       timeoutMs,

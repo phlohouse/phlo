@@ -491,6 +491,14 @@ class ProjectServices(BaseModel):
         return result
 
 
+class PromotionEnvironments(BaseModel):
+    """Cross-environment promotion roles, independent of environment names."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_environment: EnvironmentId
+    target_environment: EnvironmentId
+
+
 class ProjectConfig(BaseModel):
     """One parse of core-owned phlo.yaml fields; extension blocks remain opaque."""
 
@@ -506,6 +514,7 @@ class ProjectConfig(BaseModel):
     regulated_mode: bool | None = Field(default=None, strict=True)
     environments: dict[EnvironmentId, EnvironmentTarget] = Field(default_factory=dict)
     default_environment: EnvironmentId | None = None
+    promotion: PromotionEnvironments | None = None
 
     @model_validator(mode="after")
     def validate_environments(self) -> ProjectConfig:
@@ -516,6 +525,10 @@ class ProjectConfig(BaseModel):
             and self.default_environment not in self.environments
         ):
             raise ValueError("default_environment must name a configured environment")
+        if self.promotion is not None:
+            source, target = self.promotion.source_environment, self.promotion.target_environment
+            if source == target or not {source, target} <= self.environments.keys():
+                raise ValueError("promotion requires two distinct configured environments")
         return self
 
     @field_validator("wap", mode="before")

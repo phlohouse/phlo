@@ -21,7 +21,7 @@ export function KpiCard({
   qualifierTone?: 'bad' | 'muted'
   footer?: React.ReactNode
   to?: '/assets' | '/incidents' | '/pipelines/timeline'
-  env?: 'prod' | 'staging'
+  env?: string
   className?: string
 }) {
   const content = (
