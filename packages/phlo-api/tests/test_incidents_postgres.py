@@ -10,7 +10,91 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from testcontainers.postgres import PostgresContainer
 
-from phlo_api import incidents
+from phlo.capabilities import AuthPrincipal, AuthorizationDecision, Principal
+from phlo_api import incidents, usage
+from phlo_api import security_manifest
+from phlo_api.main import app
+
+
+@pytest.mark.integration
+def test_api_startup_initializes_incident_and_usage_routes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
+        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
+        monkeypatch.setenv("PHLO_ENVIRONMENT", "dev")
+        monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+        principal = AuthPrincipal(subject="operator", principal_type="user", groups=("operator",))
+        monkeypatch.setattr(incidents, "get_request_principal", lambda _request: principal)
+        monkeypatch.setattr(security_manifest, "get_request_principal", lambda _request: principal)
+        monkeypatch.setattr(
+            security_manifest,
+            "resolve_request_principal",
+            lambda *_args, **_kwargs: Principal(
+                subject="operator", principal_type="user", roles=("operator",)
+            ),
+        )
+        monkeypatch.setattr(security_manifest, "is_regulated", lambda: False)
+
+        class AllowAll:
+            def explain_decision(self, *_args, **_kwargs):
+                return AuthorizationDecision(allowed=True, reason_code="explicit_allow")
+
+        monkeypatch.setattr(security_manifest, "get_authorization_backend", AllowAll)
+
+        with TestClient(app) as client:
+            response = client.get("/api/v1/incidents?env=prod")
+            assert response.status_code == 200, response.text
+            assert response.json()["items"] == []
+
+        incidents.initialize_incidents()
+        with incidents._transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO phlo.incident (incident_id, env, asset_id, kind, title, status)
+                VALUES ('retained', 'prod', 'orders', 'audit', 'Existing incident', 'open')
+                """
+            )
+
+        with TestClient(app) as client:
+            response = client.get("/api/v1/incidents?env=prod")
+            assert response.status_code == 200, response.text
+            assert [item["id"] for item in response.json()["items"]] == ["retained"]
+
+
+@pytest.mark.integration
+def test_incident_and_usage_initializers_are_concurrent_and_preserve_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with PostgresContainer("postgres:18-alpine", password="test") as postgres:
+        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
+
+        initializers = [incidents.initialize_incidents, usage.initialize_usage] * 2
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            list(workers.map(lambda initialize: initialize(), initializers))
+
+        with incidents._transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO phlo.incident (incident_id, env, asset_id, kind, title, status)
+                VALUES ('kept', 'prod', 'orders', 'audit', 'Existing incident', 'open')
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO phlo.query_usage_event (source_id, query_id, event_digest)
+                VALUES ('listener', 'query-1', 'digest')
+                """
+            )
+
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            list(workers.map(lambda initialize: initialize(), initializers))
+
+        with incidents._transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT incident_id FROM phlo.incident WHERE incident_id = 'kept'")
+            assert cursor.fetchone() == ("kept",)
+            cursor.execute("SELECT query_id FROM phlo.query_usage_event WHERE query_id = 'query-1'")
+            assert cursor.fetchone() == ("query-1",)
 
 
 @pytest.mark.integration

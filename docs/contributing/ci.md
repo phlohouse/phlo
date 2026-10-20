@@ -27,7 +27,7 @@ environments.
 | --- | --- |
 | Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job. Focused mutation checks remain required when selected. |
 | Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks share one Node job, with each consumer selected independently. |
-| Integration and portability | Storage/catalog suites, PostgreSQL concurrency, quickstart and recovery share one Linux workspace. Windows launcher and shared-layout checks share one native Windows job. |
+| Integration and portability | Storage/catalog contracts and three API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks share one native Windows job. |
 | Artifact and dependency safety | Preparation builds wheels once for provider shards and Windows acceptance. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 
 | Stage | Scope |
@@ -39,24 +39,70 @@ environments.
 | Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
 | Release acceptance and promotion | Exercise staged bytes on required platforms and repeated runs, then publish through the authenticated promotion dispatch. Release merges coordinate these dispatches automatically. |
 
-`pr / required` collects combined coverage after both Python and service
-contracts finish, then records queue evidence. Coverage does not need its own
-runner. No test suite, dependency gate or release approval is removed by the
-consolidation. Standalone Windows dispatch builds its own wheels; ordinary
-validation reuses the preparation artifact.
+`pr / required` collects combined core, package and quickstart coverage after
+both Python and service contracts finish, then records queue evidence. The
+authoritative line and branch coverage gate runs the complete workspace in four
+module-preserving shards, alongside a required PostgreSQL coverage job. A final
+job verifies every producer and combines their data before enforcing the existing
+per-source floors. Both reporting jobs install only the locked `coverage-report`
+dependency group. Their commands retain that group when running, so report
+generation does not trigger a full workspace installation. See
+[test and contract gates](testing-gates.md) for the source scope and local
+commands. Standalone Windows dispatch builds its own wheels; ordinary validation
+reuses the preparation artifact.
 
-Integration provisions disposable PostgreSQL, MinIO and Nessie. Storage/catalog
+Python dependency caches use separate keys for each environment purpose. Full
+workspace jobs share a cache; wheel preparation, provider installation and
+individual package groups use their own keys. Reporting and dependency-risk jobs
+do not restore or save Python dependency caches. This prevents a small, early job
+from reserving the cache key needed to retain the full workspace's built
+dependency wheels.
+
+Installed-provider verification renders the complete service inventory in one
+installed-CLI invocation. Its report records the generated files for that batch
+and the final Compose configuration for each service. Two Docker shards divide
+the image build families into consecutive groups, keeping services with identical
+image and build settings together. A second service using the same image can
+reuse its runner's build cache. This limits concurrent provider runners while
+retaining a build result and applicable health check for every buildable service.
+Local image scans use the resulting image IDs. Uploaded build evidence retains
+complete standard output, standard error and elapsed time for each service.
+
+Integration builds the checked-in MinIO image once, then transfers it to the
+storage/catalog job and three API groups. Each consumer verifies the loaded image
+ID before running tests. BuildKit imports the default-branch publisher's MinIO
+cache and the integration cache. A separate artifact stage caches the finished
+binaries, licences and source bundle for the runtime image to copy. Intermediate
+compilation caching is retained, and the runtime stage still applies fresh
+operating system updates. A cache miss rebuilds the same sources. To measure
+remote-cache performance, first populate the artifact stage's cache, then run
+another build on a fresh runner. Scheduled and manual Nightly runs on
+`phlohouse/phlo`'s `main` branch refresh the integration cache
+through the same build-only action, making it available to other PR and queue
+refs. This optional maintenance result is reported separately from the required
+nightly checks and release qualification.
+
+The API groups keep whole test modules together and provision their own services.
+PostgreSQL concurrency, quickstart and recovery run independently of the image
+build. The final integration result requires every producer to succeed and
+retains the combined `integration-results` artifact.
+
+Integration provisions disposable PostgreSQL, MinIO and Nessie. Named contract
 suites reject missing tests, skips and expected failures through
 `scripts/ci_required.py`; PostgreSQL guards require exactly three passes without
 skips. Local tests can still skip unavailable services without this opt-in
 plugin. Reproduce the storage/catalog suites with
 `uv run --locked python scripts/run_integration.py`;
 Docker is required and provisioned containers are removed afterwards.
+See [parallel integration contracts](testing-gates.md#parallel-integration-contracts)
+for individual group commands and timing diagnostics.
 
-Core, regression, package and quickstart coverage is combined into one report.
-Quickstart runs once in its artifact-producing lane, not twice. Coverage is
-measurement, not an arbitrary global percentage gate. Establish changed-code
-budgets from the measured baseline before adding a threshold.
+Package-specific test environments and their coverage reports remain separate
+from the full-workspace measurement. The four package groups place the API and
+Dagster tests in different jobs while retaining each package's own dependency
+environment. The workspace shards also include
+quickstart; its integration-lane execution retains the smoke-test artifacts.
+Each measured source tree has independent line and branch coverage floors.
 
 Mutation checks use `scripts/check_mutation.py`, because `mutmut run` exits zero
 even with surviving mutants. Missing results, uncovered mutations, timeouts,
@@ -78,6 +124,33 @@ Main automatically reuses authenticated full queue evidence for the identical
 commit. No rollout variable or maintainer action is required. The full fallback
 still runs when evidence is missing, invalid or expired, including direct pushes
 and merges that produce a different SHA.
+
+## Queue throughput
+
+Lane selection uses a shallow checkout. For pull requests, it fetches the exact
+event base and head commits before comparing their trees; it does not assume the
+event base is the test merge's first parent. Queue and full-fallback runs select
+the complete contract without fetching comparison commits. Core tests and coverage
+also use shallow checkouts; their Git-history tests create isolated repositories.
+Quality and dependency checks retain the history needed for the pinned header
+baseline, release versions and reviewed dependency exceptions. Those checkouts
+and PR container selection use `filter: blob:none`: they retain commit ancestry
+and tags while fetching historical file contents only when needed. Container
+selection still uses a full history for its PR merge-base comparison.
+
+The checked-in [ruleset](../../security/release-candidate-ruleset.json) sets build
+concurrency to two, with one pull request merged at a time. GitHub can validate a
+later candidate while the preceding one runs. Watch runner waiting times before
+increasing concurrency further: additional builds still need available runners.
+
+Merging this file does not update GitHub's live ruleset. After the workflow change
+lands, a repository administrator must set **Build concurrency** to **2** in the
+existing **PR validation and merge queue** ruleset. Apply only that setting;
+importing the complete example can also change review requirements. Verify the
+live queue starts two candidate builds when at least two eligible pull requests
+are waiting. To restore serial builds, set Build concurrency back to **1**.
+GitHub's [merge queue documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)
+explains how build concurrency differs from merge limits.
 
 ## Dependencies and upstream ownership
 

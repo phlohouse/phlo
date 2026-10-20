@@ -54,6 +54,14 @@ RUN if [ -f /context/Dockerfile ]; then \
         'These are Phlo builds, not official MinIO binaries. See Dockerfile for the dependency changes.' \
         > /sources/PHLO-NOTICE
 
+# Cache distributable files separately so runtime refreshes need not restore the
+# compiler filesystem from the remote cache.
+FROM scratch AS artifacts
+
+COPY --from=build /out/ /out/
+COPY --from=build /licenses/ /licenses/
+COPY --from=build /sources/ /sources/
+
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/phlohouse/phlo" \
@@ -67,10 +75,10 @@ RUN apk upgrade --no-cache \
     && mkdir -p /bitnami/minio/data \
     && chown -R 1001:0 /bitnami/minio /home/minio
 
-COPY --from=build /out/ /usr/local/bin/
-COPY --from=build /licenses/ /usr/share/licenses/minio/
+COPY --from=artifacts /out/ /usr/local/bin/
+COPY --from=artifacts /licenses/ /usr/share/licenses/minio/
 # Include corresponding source with vendored dependencies alongside the binaries.
-COPY --from=build /sources/ /usr/share/minio-source/
+COPY --from=artifacts /sources/ /usr/share/minio-source/
 
 ENV HOME=/home/minio
 USER 1001:0

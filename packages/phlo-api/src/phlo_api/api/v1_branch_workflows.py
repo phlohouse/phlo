@@ -303,13 +303,15 @@ async def _scoped_reference(
 async def _history(name: str, head_hash: str, *, limit: int) -> list[BranchCommit]:
     cursor: str | None = None
     items: list[BranchCommit] = []
+    seen_cursors: set[str] = set()
+    seen_hashes: set[str] = set()
     while len(items) < limit:
         params: dict[str, str | int] = {
-            "maxRecords": min(_HISTORY_PAGE_SIZE, limit - len(items)),
+            "max-records": min(_HISTORY_PAGE_SIZE, limit - len(items)),
             "fetch": "ALL",
         }
         if cursor is not None:
-            params["pageToken"] = cursor
+            params["page-token"] = cursor
         value = await _nessie(
             "GET",
             f"/api/v2/trees/{quote(name, safe='')}@{quote(head_hash, safe='')}/history",
@@ -323,8 +325,9 @@ async def _history(name: str, head_hash: str, *, limit: int) -> list[BranchCommi
             entry = _object(row, "Nessie returned invalid commit history.")
             meta = _object(entry.get("commitMeta"), "Nessie returned invalid commit metadata.")
             commit_hash = meta.get("hash")
-            if not isinstance(commit_hash, str) or not commit_hash:
+            if not isinstance(commit_hash, str) or not commit_hash or commit_hash in seen_hashes:
                 raise BadGatewayError("Nessie returned invalid commit metadata.")
+            seen_hashes.add(commit_hash)
             parents = meta.get("parentCommitHashes")
             if parents is None:
                 parent = entry.get("parentCommitHash")
@@ -352,8 +355,14 @@ async def _history(name: str, head_hash: str, *, limit: int) -> list[BranchCommi
         if not payload.get("hasMore"):
             return items
         next_cursor = payload.get("token")
-        if not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor:
+        if (
+            not isinstance(next_cursor, str)
+            or not next_cursor
+            or len(next_cursor) > 4096
+            or next_cursor in seen_cursors
+        ):
             raise BadGatewayError("Nessie returned an invalid commit cursor.")
+        seen_cursors.add(next_cursor)
         cursor = next_cursor
     return items
 
@@ -408,7 +417,7 @@ async def _diff(source: BranchReference, target: BranchReference, env: Environme
     value = await _nessie(
         "GET",
         f"/api/v2/trees/{quote(source.name, safe='')}@{quote(source.hash, safe='')}/diff/{quote(target.name, safe='')}@{quote(target.hash, safe='')}",
-        params={"maxRecords": _REFERENCE_LIMIT + 1},
+        params={"max-records": _REFERENCE_LIMIT + 1},
     )
     payload = _object(value, "Nessie returned invalid branch differences.")
     rows = payload.get("diffs")

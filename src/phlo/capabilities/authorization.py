@@ -83,6 +83,14 @@ class DefaultAuthorizationPolicyBackend:
             ]
         self._policies = self._parse_policies(policies or [])
 
+    def policy_rules(self) -> tuple[PolicyRule, ...]:
+        """Return the loaded rules for administrative inspection, not grants.
+
+        Call explain_decision for an actual principal, action and resource;
+        role selectors alone do not satisfy attribute or resource conditions.
+        """
+        return tuple(self._policies)
+
     def _parse_policies(self, policy_configs: list[dict[str, Any]]) -> list[PolicyRule]:
         """Parse policy configuration into PolicyRule objects."""
         rules: list[PolicyRule] = []

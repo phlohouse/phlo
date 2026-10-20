@@ -60,6 +60,12 @@ async def _lifespan(application: FastAPI):
     try:
         initialize_operation_controls()
         store.initialize()
+        if get_process_settings().get("PHLO_RUN_EVIDENCE_DB_URL"):
+            from phlo_api.incidents import initialize_incidents
+            from phlo_api.usage import initialize_usage
+
+            initialize_incidents()
+            initialize_usage()
         application.state.run_evidence_store = store
         async with lifespan_client():
             yield
