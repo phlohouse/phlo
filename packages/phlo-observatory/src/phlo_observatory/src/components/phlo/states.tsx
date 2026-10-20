@@ -95,6 +95,45 @@ export function NotFound() {
   return inAppShell ? content : <main className="flex flex-1">{content}</main>
 }
 
+export function PanelUnavailable({
+  title,
+  message,
+  status = 'unavailable',
+}: {
+  title: string
+  message: string
+  status?: string
+}) {
+  const router = useRouter()
+  const [retrying, setRetrying] = React.useState(false)
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-warn bg-warn-soft p-3 text-sm"
+    >
+      <div className="font-medium">
+        {title} {status}
+      </div>
+      <p className="text-xs whitespace-pre-wrap">{message}</p>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={retrying}
+        onClick={async () => {
+          setRetrying(true)
+          try {
+            await router.invalidate()
+          } finally {
+            setRetrying(false)
+          }
+        }}
+      >
+        {retrying ? 'Checking…' : 'Check again'}
+      </Button>
+    </div>
+  )
+}
+
 export function RouteError({ error, reset }: ErrorComponentProps) {
   const router = useRouter()
   return (

@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (215)
+## Endpoints (216)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -204,6 +204,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/query/catalog` | V1 Query Catalog | `v1 query workspace` |
 | `GET` | `/api/v1/query/engines` | V1 Query Engines | `v1 query workspace` |
 | `GET` | `/api/v1/query/refs` | V1 Query Refs | `v1 query workspace` |
+| `GET` | `/api/v1/readiness` | V1 Readiness | `v1 readiness` |
 | `GET` | `/api/v1/runs` | V1 Runs | `v1 jobs and runs` |
 | `GET` | `/api/v1/runs/{run_id}` | V1 Run | `v1 jobs and runs` |
 | `POST` | `/api/v1/runs/{run_id}/cancel` | V1 Run Cancel | `v1 jobs and runs` |

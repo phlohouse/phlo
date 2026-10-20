@@ -165,6 +165,34 @@ Do not accept traffic until preflight returns `"passed": true`, doctor reports n
 
 Retain the preflight output, package versions, rendered Compose file, backup verification, restore-test result, and approval with the deployment record.
 
+### Diagnose an unavailable Observatory feature
+
+Open **Settings → Feature readiness** for the selected configured environment.
+The authenticated `GET /api/v1/readiness?env=<configured-id>` endpoint requires
+`service.read` for that environment. `/health` remains public process liveness.
+An HTTP 200 readiness response means the assessment completed, not that every
+capability is ready.
+
+Each capability contains checks with `state`, `reason_code`, `message`, and
+`remediation`. States distinguish `configured`, `ready`, `unavailable`,
+`degraded`, and intentionally `disabled` features. Common reasons are
+`configuration_missing`, `configuration_invalid`, `schema_missing`,
+`code_location_unavailable`, `backend_unavailable`, and `intentionally_disabled`.
+Use the remediation beside the failed check. Schema probes use read-only,
+zero-row statements, not incident or run counts. They never apply migrations.
+
+Preview preflight describes local configuration. When configured, readiness also
+runs a bounded authenticated constant query. `backend_reachable` does not remove
+`enforcement_unverified` or prove deployed catalogue restrictions, write denial,
+or production readiness. Feature readiness does not replace runtime attestation
+or authorise mutations.
+
+After correcting a dependency, select **Check again**. Independent navigation
+and successful observations remain usable when an optional panel fails. Query
+setup skips catalogue calls while preview is disabled or unavailable. Check the
+displayed observation time and use its reference identifier to correlate API
+logs. Do not restart unrelated services to refresh these observations.
+
 ## Release artifact support boundary
 
 The release workflow publishes versioned Python packages and builds images for `phlo-api` and Observatory when a GitHub Release is published. The support manifest records the accepted package set and compatibility boundary.

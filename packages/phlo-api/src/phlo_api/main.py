@@ -25,6 +25,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
@@ -96,6 +97,7 @@ app.add_middleware(
 # Auto-discover and register API routers
 _ROUTERS = [
     ("phlo_api.api.v1", "/api/v1"),
+    ("phlo_api.api.v1_readiness", "/api/v1"),
     ("phlo_api.api.v1_admin_audit", "/api/v1"),
     ("phlo_api.api.v1_admin_identity", "/api/v1"),
     ("phlo_api.api.v1_branch_workflows", "/api/v1"),
@@ -213,7 +215,8 @@ async def bind_request_logging_context(request: Request, call_next: Any) -> Any:
     Reuses an inbound x-request-id (generating one when absent) and honors
     traceparent/x-trace-id so logs correlate across the request lifecycle.
     """
-    request_id = request.headers.get("x-request-id") or str(uuid4())
+    incoming_id = request.headers.get("x-request-id", "")
+    request_id = incoming_id if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", incoming_id) else str(uuid4())
     trace_id = request.headers.get("traceparent") or request.headers.get("x-trace-id")
     request.state.request_id = request_id
     bind_context(

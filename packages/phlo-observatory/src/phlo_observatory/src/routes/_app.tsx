@@ -11,7 +11,11 @@ import { environmentSearchSchema } from '@/lib/data/api/client'
 import { Sidebar } from '@/components/phlo/sidebar'
 import { MobileTabBar, MobileTopBar } from '@/components/phlo/mobile-nav'
 import { CommandPaletteProvider } from '@/components/phlo/command-palette'
-import { PageSkeleton, RouteError } from '@/components/phlo/states'
+import {
+  PageSkeleton,
+  PanelUnavailable,
+  RouteError,
+} from '@/components/phlo/states'
 import {
   clearQueryWorkspaces,
   clearQueryWorkspacesForOtherActors,
@@ -43,7 +47,8 @@ export const Route = createFileRoute('/_app')({
 })
 
 function AppLayout() {
-  const { overview, services, me, incidents } = Route.useLoaderData()
+  const { env, overview, services, me, incidents, panelErrors } =
+    Route.useLoaderData()
   const actor = JSON.stringify([me.principal_type, me.subject])
   React.useEffect(() => {
     clearQueryWorkspacesForOtherActors(actor)
@@ -57,11 +62,11 @@ function AppLayout() {
   const apiUnavailable = useRouterState({
     select: (s) => s.matches.some((match) => match.status === 'error'),
   })
-  const env = overview.env
-  const openIncidentCount = apiUnavailable
-    ? null
-    : (overview.incident_counts.open ?? 0) +
-      (overview.incident_counts.acknowledged ?? 0)
+  const openIncidentCount =
+    apiUnavailable || !overview || !incidents
+      ? null
+      : (overview.incident_counts.open ?? 0) +
+        (overview.incident_counts.acknowledged ?? 0)
 
   return (
     <CommandPaletteProvider env={env}>
@@ -76,8 +81,8 @@ function AppLayout() {
           <Sidebar
             env={env}
             openIncidentCount={openIncidentCount}
-            incidents={apiUnavailable ? [] : incidents}
-            services={apiUnavailable ? [] : services}
+            incidents={incidents ?? []}
+            services={services}
             identity={me}
           />
         </div>
@@ -88,7 +93,25 @@ function AppLayout() {
             tabIndex={-1}
             className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card outline-none lg:my-2 lg:mr-2 lg:rounded-xl lg:border lg:border-border-card"
           >
-            {env === 'staging' ? <div className="env-stripe" /> : null}
+            {panelErrors.length ? (
+              <details className="shrink-0 border-b border-warn bg-warn-soft p-3 text-sm">
+                <summary className="cursor-pointer">
+                  {panelErrors
+                    .map(({ panel }) => `${panel} unavailable`)
+                    .join(' · ')}
+                  . Details and retry
+                </summary>
+                <div className="mt-2 grid max-h-[40vh] gap-2 overflow-auto lg:grid-cols-3">
+                  {panelErrors.map(({ panel, message }) => (
+                    <PanelUnavailable
+                      key={panel}
+                      title={panel}
+                      message={message}
+                    />
+                  ))}
+                </div>
+              </details>
+            ) : null}
             <Outlet key={actor} />
           </main>
           <MobileTabBar env={env} openIncidents={openIncidentCount} />

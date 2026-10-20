@@ -2,13 +2,31 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  PhloApiError,
   environmentServices,
+  optionalRead,
   parseApiResponse,
   serviceHealthLabel,
   servicesSchema,
 } from './client'
 
 describe('Phlo API response boundary', () => {
+  it('isolates optional dependency failures but never identity or permission failures', async () => {
+    expect(await optionalRead(Promise.resolve({ count: 3 }))).toEqual({
+      state: 'available',
+      data: { count: 3 },
+    })
+    expect(await optionalRead(Promise.reject(new PhloApiError(503)))).toEqual({
+      state: 'unavailable',
+      error: 'Phlo API request failed (503).',
+    })
+    for (const status of [401, 403]) {
+      await expect(
+        optionalRead(Promise.reject(new PhloApiError(status))),
+      ).rejects.toMatchObject({ status })
+    }
+  })
+
   const snapshot = z.object({
     env: z.enum(['prod', 'staging']),
     snapshot_id: z.string(),
@@ -121,6 +139,45 @@ describe('Phlo API response boundary', () => {
       env: 'staging',
       snapshot_id: '9007199254740993',
       rows: 7,
+    })
+  })
+
+  it('exposes safe reason and correlation identifiers but never SQL or unsafe IDs', async () => {
+    await expect(
+      parseApiResponse({
+        response: Response.json(
+          {
+            error: {
+              code: 'bad_gateway',
+              message: 'Dagster returned an invalid response.',
+            },
+          },
+          { status: 502, headers: { 'x-request-id': 'request-1129' } },
+        ),
+        schema: snapshot,
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      reasonCode: 'bad_gateway',
+      correlationId: 'request-1129',
+      message: expect.stringContaining('Reference: request-1129.'),
+    })
+    await expect(
+      parseApiResponse({
+        response: Response.json(
+          {
+            error: {
+              code: 'backend_unavailable',
+              message: 'SELECT confidential FROM table',
+            },
+          },
+          { status: 503, headers: { 'x-request-id': 'password=private' } },
+        ),
+        schema: snapshot,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Phlo API request failed (503).',
+      correlationId: undefined,
     })
   })
 
