@@ -3,6 +3,7 @@
   "examples": [
     {"name": "clickhouse-ops", "title": "ClickHouse operational lakehouse", "focus": ["clickhouse", "operational-analytics", "dbt"]},
     {"name": "customer360", "title": "Customer 360 lakehouse", "focus": ["multi-domain", "identity-resolution", "dbt"]},
+    {"name": "customer360-transform", "title": "Customer 360 transform migration", "focus": ["phlo-transform", "dbt-migration", "engine-switching"]},
     {"name": "delta-portability", "title": "Delta Portability lakehouse", "focus": ["delta", "portability", "iot"]},
     {"name": "ecommerce-replication", "title": "E-commerce Replication lakehouse", "focus": ["postgres", "replication", "dbt"]},
     {"name": "federated-domains", "title": "Federated domains lakehouse", "focus": ["federation", "multi-team", "dbt"]},

@@ -1,0 +1,10 @@
+[transform]
+default_namespace = "customer360"
+default_materialization = "table"
+
+[phlo_transform.sources]
+"raw.c360_customers" = "sling_c360_customers"
+"raw.c360_orders" = "sling_c360_orders"
+"raw.consent_events" = "dlt_consent_events"
+"raw.marketing_contacts" = "dlt_marketing_contacts"
+"raw.support_tickets" = "dlt_support_tickets"

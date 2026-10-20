@@ -1,0 +1,15 @@
+services:
+  commerce-postgres:
+    image: postgres:16-alpine
+    container_name: customer360-commerce-postgres
+    ports:
+      - "10432:5432"
+    environment:
+      POSTGRES_USER: commerce
+      POSTGRES_PASSWORD: commerce
+      POSTGRES_DB: commerce
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commerce -d commerce"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
