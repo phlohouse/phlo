@@ -3,6 +3,7 @@ build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [dependency-groups]
+coverage-report = ["coverage==7.13.5"]
 dev = [
     "phlo-alerting>=0.1.0",
     "phlo-alloy>=0.1.0",

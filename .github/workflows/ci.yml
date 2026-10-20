@@ -33,6 +33,7 @@ jobs:
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
+          cache-suffix: wheel-build
 
       - name: Validate workflow YAML
         run: ruby -e 'Dir[".github/workflows/*.yml"].each { |file| YAML.load_file(file) }' -r yaml
@@ -83,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        docker-shard: [0, 1, 2, 3]
+        docker-shard: [0, 1]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -95,6 +96,7 @@ jobs:
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
+          cache-suffix: installed-providers
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
@@ -112,7 +114,7 @@ jobs:
             --include-docker-builds \
             --include-docker-health \
             --docker-shard-index ${{ matrix.docker-shard }} \
-            --docker-shard-count 4 \
+            --docker-shard-count 2 \
             --output provider-artifacts/installed-provider-artifacts.json
 
       - name: Scan locally built first-party images without publishing
@@ -153,9 +155,11 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          filter: blob:none
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
+          cache-suffix: ${{ needs.ci-config.outputs.python == 'true' && 'workspace-dev-3.12' || 'source-contract-tools' }}
       - name: Install Python workspace
         if: needs.ci-config.outputs.python == 'true'
         run: |
@@ -236,7 +240,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          fetch-depth: 0
       - uses: ./.github/actions/python-workspace
         with:
           python-version: ${{ matrix.python-version }}
@@ -285,6 +288,7 @@ jobs:
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
+          cache-suffix: package-tests-${{ matrix.group }}-${{ matrix.python-version }}-${{ matrix.packages }}
 
       - name: Set up Python
         run: uv python install ${{ matrix.python-version }}
@@ -333,21 +337,88 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
-  python-coverage:
-    name: python / measured coverage floors
+  python-coverage-workspace:
+    name: python / workspace coverage (shard ${{ matrix.shard }})
     needs: ci-config
     if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          fetch-depth: 0
       - uses: ./.github/actions/docker-mirror
       - uses: ./.github/actions/python-workspace
-      - name: Measure workspace and required PostgreSQL controls and enforce floors
-        run: make test-coverage
+      - name: Measure the complete workspace with module-preserving shards
+        run: >-
+          make test-coverage-workspace
+          COVERAGE_SHARD_INDEX=${{ matrix.shard }}
+          COVERAGE_SHARD_COUNT=${{ strategy.job-total }}
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: measured-coverage-workspace-${{ matrix.shard }}
+          path: test-results/coverage-inputs/
+          if-no-files-found: error
+
+  python-coverage-postgres:
+    name: python / PostgreSQL coverage
+    needs: ci-config
+    if: needs.ci-config.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/docker-mirror
+      - uses: ./.github/actions/python-workspace
+      - name: Measure required PostgreSQL controls without skips
+        run: make test-coverage-postgres
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: measured-coverage-postgres
+          path: test-results/coverage-inputs/
+          if-no-files-found: error
+
+  python-coverage:
+    name: python / measured coverage floors
+    needs: [ci-config, python-coverage-workspace, python-coverage-postgres]
+    if: always() && needs.ci-config.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require every coverage producer
+        env:
+          WORKSPACE: ${{ needs.python-coverage-workspace.result }}
+          POSTGRES: ${{ needs.python-coverage-postgres.result }}
+        run: |
+          set -euo pipefail
+          test "$WORKSPACE" = success
+          test "$POSTGRES" = success
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+          enable-cache: false
+      - name: Install locked coverage tools
+        run: |
+          uv python install 3.12
+          uv sync --locked --only-group coverage-report
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: measured-coverage-*
+          path: test-results/coverage-inputs/
+          merge-multiple: true
+      - name: Combine complete branch data and enforce the existing floors
+        run: make test-coverage-combine COVERAGE_SHARD_COUNT=4
       - name: Publish per-source line/branch totals and skip reasons
         if: always()
         run: |

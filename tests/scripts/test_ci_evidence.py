@@ -16,6 +16,16 @@ evidence = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evidence)
 SHA = "a" * 40
 NOW = datetime(2026, 10, 6, 12, tzinfo=UTC)
+INTEGRATION_JOBS = {
+    "integration / integration / MinIO source image",
+    "integration / integration / storage contracts",
+    "integration / integration / api-contracts",
+    "integration / integration / api-query-journey",
+    "integration / integration / api-branch-journey",
+    "integration / integration / operations",
+    "integration / integration / required suites",
+}
+PROVIDER_JOBS = {f"ci / python / installed provider artifacts ({index})" for index in range(2)}
 
 
 def example():
@@ -142,14 +152,44 @@ def test_missing_queue_artifact_uses_full_fallback(tmp_path, monkeypatch):
 def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     jobs = evidence.expected_jobs()
     assert {f"ci / python / core tests (3.12, shard {i})" for i in range(3)} <= jobs
-    assert {f"ci / python / installed provider artifacts ({i})" for i in range(4)} <= jobs
+    assert {name for name in jobs if "installed provider artifacts" in name} == PROVIDER_JOBS
+    assert {f"ci / python / workspace coverage (shard {i})" for i in range(4)} <= jobs
     assert {
         "docs / docs / build",
         "ci / behaviour / JavaScript",
         "ci / quality / source and file contracts",
         "containers / safety / container contracts",
+        "ci / python / PostgreSQL coverage",
+        "ci / python / measured coverage floors",
     } <= jobs
+    assert {name for name in jobs if name.startswith("integration / ")} == INTEGRATION_JOBS
     assert not any("${{" in name for name in jobs)
+
+
+@pytest.mark.parametrize("job_name", sorted(INTEGRATION_JOBS | PROVIDER_JOBS))
+@pytest.mark.parametrize("result", ["missing", "failure", "skipped", "cancelled"])
+def test_queue_evidence_requires_each_parallel_integration_and_provider_job(job_name, result):
+    """A green aggregate cannot replace any integration producer or provider shard."""
+    run, _, _, manifest = example()
+    expected = evidence.expected_jobs()
+    assert expected >= INTEGRATION_JOBS | PROVIDER_JOBS
+    jobs = [
+        {"name": name, "status": "completed", "conclusion": "success", "head_sha": SHA}
+        for name in sorted(expected)
+    ]
+    manifest.update(
+        expected_jobs=sorted(expected),
+        jobs={name: "success" for name in expected if name != evidence.AGGREGATE},
+    )
+    evidence.validate_manifest(manifest, run, jobs, expected, "digest", now=NOW)
+
+    if result == "missing":
+        jobs = [job for job in jobs if job["name"] != job_name]
+    else:
+        next(job for job in jobs if job["name"] == job_name)["conclusion"] = result
+
+    with pytest.raises(ValueError, match="Missing or duplicate|Required job did not complete"):
+        evidence.validate_manifest(manifest, run, jobs, expected, "digest", now=NOW)
 
 
 def test_emitted_queue_manifest_round_trips_through_the_consumer(tmp_path, monkeypatch):
@@ -207,6 +247,18 @@ def test_emitted_queue_manifest_round_trips_through_the_consumer(tmp_path, monke
         "run_id": 71,
         "run_attempt": 2,
     }
+    # Replacing an assessment must invalidate the old checksum-bound manifest,
+    # even if both modes permit the same introduced-risk policy.
+    report["mode"] = "delta"
+    report.pop("unaccepted")
+    evidence.reuse(SHA, output)
+    assert json.loads(output.read_text())["reused"] is False
+    assert "Dependency evidence differs" in json.loads(output.read_text())["reason"]
+
+    # Fresh evidence for the delta assessment is reusable on the same SHA.
+    evidence.emit(manifest_path)
+    evidence.reuse(SHA, output)
+    assert json.loads(output.read_text())["reused"] is True
     report["inventory"]["uv.lock"][0][2] = "9.9"
     evidence.reuse(SHA, output)
     assert json.loads(output.read_text())["reused"] is False

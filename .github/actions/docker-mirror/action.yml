@@ -1,5 +1,5 @@
 name: Configure Docker Hub mirror
-description: Use Google's public Docker Hub mirror while preserving running containers
+description: Configure Docker mirror and verify host gateway with canonical-registry fallback
 runs:
   using: composite
   steps:
@@ -15,17 +15,22 @@ runs:
           echo '{}'
         fi | jq '."registry-mirrors" = ["https://mirror.gcr.io"] | ."live-restore" = true' > "$config"
         sudo install -m 0644 "$config" /etc/docker/daemon.json
-        # Enable live restore first so GitHub's service containers survive restart.
         sudo systemctl kill --kill-whom=main --signal=HUP docker.service
         for attempt in {1..10}; do
           if docker info --format '{{.LiveRestoreEnabled}}' | grep -qx true; then
-            # A reload alone corrupts netip.Addr values on older Docker versions.
-            # Restart re-derives host-gateway from the unchanged bridge network.
             sudo systemctl restart docker.service
             docker info --format '{{json .RegistryConfig.Mirrors}}' | jq -e 'any(.[]; rtrimstr("/") == "https://mirror.gcr.io")'
-            docker run --rm --add-host host.docker.internal:host-gateway \
-              mirror.gcr.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b \
-              getent hosts host.docker.internal
+            image='library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b'
+            if ! docker run --rm --add-host host.docker.internal:host-gateway \
+              "mirror.gcr.io/$image" getent hosts host.docker.internal; then
+              echo "::warning::Docker mirror unavailable; disabling mirror and retrying pinned Docker Hub image"
+              jq '."registry-mirrors" = []' "$config" > "${config}.fallback"
+              sudo install -m 0644 "${config}.fallback" /etc/docker/daemon.json
+              rm -f "${config}.fallback"
+              sudo systemctl restart docker.service
+              docker run --rm --add-host host.docker.internal:host-gateway \
+                "docker.io/$image" getent hosts host.docker.internal
+            fi
             exit 0
           fi
           sleep 1

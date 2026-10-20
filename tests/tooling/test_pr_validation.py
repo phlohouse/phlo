@@ -163,6 +163,25 @@ def test_required_gate_executes_fail_closed(bad_result) -> None:
         env[f"{lane}_SELECTED"] = "true"
 
 
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_python_only_changes_require_the_complete_integration_result(result) -> None:
+    """Python selection keeps the reusable integration workflow in the PR gate."""
+    step = workflow("pr.yml")["jobs"]["required"]["steps"][0]
+    assert step["env"]["INTEGRATION"] == "${{ needs.integration.result }}"
+    env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
+    env.update(
+        INTEGRATION=result,
+        INTEGRATION_SELECTED="false",
+        PYTHON_SELECTED="true",
+        DOCS="skipped",
+        DOCS_SELECTED="false",
+        MUTATION="skipped",
+        MUTATION_SELECTED="false",
+    )
+    actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
+    assert (actual.returncode == 0) == (result == "success")
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -217,6 +236,101 @@ def test_merge_queue_executes_full_selection(tmp_path) -> None:
         for lane in ("python", "frontend", "writer", "integration", "docs", "plugin", "mutation")
     )
     assert summary.read_text().strip()
+
+
+@pytest.mark.parametrize("missing", [None, "BASE_SHA", "HEAD_SHA"])
+def test_pr_selection_fetches_exact_endpoints_from_a_shallow_merge(tmp_path, missing) -> None:
+    """An older event base must not be replaced by the merge's newer first parent."""
+    source = tmp_path / "source"
+    source.mkdir()
+
+    def git(*args, cwd=source):
+        return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
+
+    def commit(message):
+        git("add", ".")
+        git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", message)
+        return git("rev-parse", "HEAD")
+
+    git("init", "-qb", "main")
+    for name, contents in {
+        "scripts/select_ci.py": (ROOT / "scripts/select_ci.py").read_text(),
+        ".github/ci-package-groups.json": json.dumps({"platform": "phlo-traefik"}),
+        "packages/phlo-traefik/pyproject.toml": '[project]\nname="phlo-traefik"\n',
+        "packages/phlo-traefik/src/plugin.py": '"""Original implementation."""\n',
+        "README.md": "Original documentation\n",
+    }.items():
+        path = source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents)
+    base = commit("event base")
+    git("checkout", "-qb", "pull-head")
+    (source / "README.md").write_text("Updated documentation\n")
+    head = commit("docs-only PR")
+    git("checkout", "-q", "main")
+    (source / "packages/phlo-traefik/src/plugin.py").write_text(
+        '"""Implementation added after the PR event."""\n'
+    )
+    later_base = commit("base advances before GitHub creates the merge")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--no-ff",
+        "-qm",
+        "test merge",
+        "pull-head",
+    )
+    merge = git("rev-parse", "HEAD")
+    assert git("rev-parse", "HEAD^") == later_base != base
+    expected = json.loads(
+        subprocess.check_output(
+            [sys.executable, "scripts/select_ci.py", "--base", base, "--head", head],
+            cwd=source,
+            text=True,
+        )
+    )
+    assert expected["docs"] is True and expected["python"] is False
+
+    checkout = tmp_path / "checkout"
+    git("clone", "-q", "--depth=1", source.as_uri(), str(checkout))
+    assert git("rev-list", "--count", "HEAD", cwd=checkout) == "1"
+    for sha in (base, head):
+        assert (
+            subprocess.run(
+                ["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=checkout, capture_output=True
+            ).returncode
+            != 0
+        )
+    job = workflow("pr.yml")["jobs"]["changes"]
+    assert job["steps"][0]["with"] == {"persist-credentials": False, "fetch-depth": 1}
+    step = job["steps"][-1]
+    output = tmp_path / "output"
+    env = dict(
+        os.environ,
+        EVENT_NAME="pull_request",
+        BASE_SHA=base,
+        HEAD_SHA=head,
+        GITHUB_OUTPUT=str(output),
+        GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+        GIT_TERMINAL_PROMPT="0",
+    )
+    if missing:
+        env[missing] = "f" * 40
+    actual = subprocess.run(
+        ["bash", "-c", step["run"]], cwd=checkout, env=env, capture_output=True, text=True
+    )
+    assert git("rev-parse", "HEAD", cwd=checkout) == merge
+    assert git("rev-parse", "--is-shallow-repository", cwd=checkout) == "true"
+    if missing:
+        assert actual.returncode != 0
+        assert not output.exists()
+    else:
+        assert actual.returncode == 0, actual.stderr
+        values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        assert json.loads(values["selection"]) == expected
 
 
 def test_local_skip_remains_successful_without_required_plugin(tmp_path) -> None:
@@ -295,6 +409,36 @@ def test_required_result_collects_coverage_after_service_and_python_contracts():
     emit = next(step for step in steps if "ci_evidence.py emit" in step.get("run", ""))
     assert steps.index(combine) < steps.index(emit)
     assert "coverage" not in workflow("ci.yml")["jobs"]
+
+
+@pytest.mark.parametrize("producer", ["WORKSPACE", "POSTGRES"])
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_measured_coverage_requires_every_successful_producer(producer, result):
+    step = workflow("ci.yml")["jobs"]["python-coverage"]["steps"][0]
+    env = dict(os.environ, WORKSPACE="success", POSTGRES="success")
+    env[producer] = result
+    actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
+    assert (actual.returncode == 0) == (result == "success")
+
+
+@pytest.mark.parametrize("lane", ["PYTHON_COVERAGE", "INSTALLED_PROVIDER_ARTIFACTS"])
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_ci_status_rejects_missing_required_python_lanes(tmp_path, lane, result):
+    step = workflow("ci.yml")["jobs"]["ci-status"]["steps"][0]
+    env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
+    env.update(
+        SELECT_PYTHON="true",
+        SELECT_GROUPS="[]",
+        SELECT_FRONTEND="false",
+        SELECT_WRITER="false",
+        SELECT_PLUGIN="false",
+        PYTHON_PACKAGE_TESTS="skipped",
+        FRONTEND="skipped",
+        GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+    )
+    env[lane] = result
+    actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
+    assert (actual.returncode == 0) == (result == "success")
 
 
 @pytest.mark.parametrize("first_fails", [False, True])
