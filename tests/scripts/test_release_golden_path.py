@@ -1490,3 +1490,54 @@ def test_production_preflight_reads_report_from_cli_envelope(tmp_path, monkeypat
     envelope["status"] = "error"
     with pytest.raises(release_golden_path.CandidateError, match="production preflight failed"):
         release_golden_path.production_preflight(_config(tmp_path))
+
+
+def test_observatory_acceptance_is_required_in_both_qualification_profiles():
+    for profile in ("artifact", "deployment"):
+        required = dict(release_golden_path.release_evidence.required_demonstrations(profile))
+        assert "observatory_installed_journeys" in required
+
+
+def test_observatory_acceptance_requires_previous_bom_before_running(tmp_path, monkeypatch):
+    """Synthetic contract check, not installed-consumer acceptance."""
+    import release_observatory_acceptance as observatory
+
+    monkeypatch.setattr(observatory.shutil, "which", lambda name: name)
+    with pytest.raises(release_golden_path.CandidateError, match="previous candidate BOM"):
+        observatory.run_journey(_config(tmp_path), previous_bom=None, artifacts=tmp_path)
+
+
+@pytest.mark.parametrize("repeat", [False, True])
+def test_observatory_history_contract_rejects_duplicate_pages(monkeypatch, repeat):
+    """Synthetic pages prove validator behavior, never real Nessie pagination."""
+    import release_observatory_acceptance as observatory
+
+    pages = iter(
+        [
+            {"items": [{"hash": str(i)} for i in range(100)], "next_cursor": "second"},
+            {
+                "items": [{"hash": str(i)} for i in range(0 if repeat else 100, 200)],
+                "next_cursor": "third",
+            },
+            {"items": [{"hash": str(i)} for i in range(200, 251)], "next_cursor": None},
+            {
+                "status": "compared",
+                "ahead": 0,
+                "behind": 0,
+                "source_hash": "pinned",
+                "target_hash": "pinned",
+            },
+            {"items": [], "truncated": False},
+        ]
+    )
+    monkeypatch.setattr(observatory, "request", lambda url: next(pages))
+    binding = {"env": "analytics", "nessie_ref": "release"}
+    if repeat:
+        with pytest.raises(release_golden_path.CandidateError, match="repeated a commit"):
+            observatory.verify_history("http://synthetic.invalid", binding)
+    else:
+        assert observatory.verify_history("http://synthetic.invalid", binding) == {
+            "commits": 251,
+            "cursor_advancements": 2,
+            "self_compare": "pinned",
+        }
