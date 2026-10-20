@@ -115,6 +115,52 @@ def download_artifact(run: dict, name: str, dest: Path) -> Path:
     return destination
 
 
+def collect_minio(producer_run: int, expected_digest: str, output: Path) -> None:
+    """Bind existing MinIO bytes to their successful publisher, without rebuilding."""
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_digest):
+        raise ValueError("expected MinIO digest must be a full sha256 digest")
+    if api(f"repos/{REPOSITORY}/branches/main").get("protected") is not True:
+        raise ValueError("default branch is not protected")
+    workflow = api(f"repos/{REPOSITORY}/actions/workflows/publish-minio.yml")
+    run = api(f"repos/{REPOSITORY}/actions/runs/{producer_run}")
+    if (
+        workflow.get("path") != ".github/workflows/publish-minio.yml"
+        or run.get("path", "").split("@")[0] != workflow["path"]
+        or run.get("workflow_id") != workflow.get("id")
+        or run.get("repository", {}).get("full_name") != REPOSITORY
+        or run.get("head_repository", {}).get("full_name") != REPOSITORY
+        or run.get("head_branch") != "main"
+        or run.get("event") != "workflow_dispatch"
+        or run.get("run_attempt") != 1
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+    ):
+        raise ValueError("MinIO requires a successful first-attempt publisher on main")
+    manifest = json.loads(Path("registry/support/v1.json").read_text(encoding="utf-8"))
+    images = [
+        service["image_reference"]
+        for service in manifest["release_set"]["services"]
+        if service["name"] == "minio"
+    ]
+    if len(images) != 1 or not re.fullmatch(
+        r"ghcr.io/phlohouse/phlo-minio:[0-9]+\.[0-9]+\.[0-9]+", images[0]
+    ):
+        raise ValueError("support manifest must identify one versioned MinIO image")
+    with tempfile.TemporaryDirectory() as temporary:
+        artifact = download_artifact(run, "generated-service-images", Path(temporary))
+        targets = json.loads(
+            (artifact / "generated-service-images.json").read_text(encoding="utf-8")
+        )
+    expected = [
+        {"image": images[0], "digest": expected_digest, "services": ["minio", "minio-setup"]}
+    ]
+    if targets != expected:
+        raise ValueError(
+            "producer MinIO image does not match the support manifest and expected digest"
+        )
+    output.write_text(json.dumps(expected, indent=2) + "\n", encoding="utf-8")
+
+
 def collect(sha: str, stage_run: int, output: Path, *, evidence: bool) -> None:
     """Fetch the immutable stage and every acceptance attempt for its identity."""
     if api(f"repos/{REPOSITORY}/branches/main").get("protected") is not True:
@@ -273,9 +319,11 @@ def authorize(bom_path: Path, evidence: Path, output: Path) -> None:
 def main() -> None:
     """Run authenticated collection or manual dispatch authorization."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("collect", "authorize"))
+    parser.add_argument("command", choices=("collect", "authorize", "collect-minio"))
     parser.add_argument("--candidate-sha")
     parser.add_argument("--stage-run", type=int)
+    parser.add_argument("--producer-run", type=int)
+    parser.add_argument("--expected-digest", default="")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--bom", type=Path)
@@ -284,6 +332,8 @@ def main() -> None:
         raise ValueError("repository is not allowlisted")
     if args.command == "collect":
         collect(args.candidate_sha, args.stage_run, args.output, evidence=args.evidence is not None)
+    elif args.command == "collect-minio":
+        collect_minio(args.producer_run, args.expected_digest, args.output)
     else:
         authorize(args.bom, args.evidence, args.output)
 

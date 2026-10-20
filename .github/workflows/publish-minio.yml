@@ -3,6 +3,15 @@ run-name: publish MinIO from ${{ github.sha }}
 
 on:
   workflow_dispatch:
+    inputs:
+      producer_run:
+        description: Successful original MinIO publisher run to sign without rebuilding. Leave blank to build.
+        type: string
+        default: ""
+      expected_digest:
+        description: Exact sha256 digest from that producer. Required with producer_run.
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -17,13 +26,42 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     outputs:
       targets: ${{ steps.matrix.outputs.targets }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
+      - name: Validate signing-only inputs
+        env:
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          EXPECTED_DIGEST: ${{ inputs.expected_digest }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$PRODUCER_RUN" || -n "$EXPECTED_DIGEST" ]]; then
+            [[ "$PRODUCER_RUN" =~ ^[1-9][0-9]*$ ]]
+            [[ "$EXPECTED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          fi
+      - name: Authenticate the existing MinIO publisher and digest
+        if: inputs.producer_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          EXPECTED_DIGEST: ${{ inputs.expected_digest }}
+        run: >-
+          python3 scripts/release_provenance.py collect-minio
+          --producer-run "$PRODUCER_RUN" --expected-digest "$EXPECTED_DIGEST"
+          --output generated-service-images.json
+      - name: Upload authenticated existing digest
+        if: inputs.producer_run != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: generated-service-images
+          path: generated-service-images.json
+          if-no-files-found: error
       - name: Prepare the independently versioned MinIO image
+        if: inputs.producer_run == ''
         id: matrix
         shell: bash
         run: |
@@ -38,6 +76,7 @@ jobs:
           }]')"
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
       - name: Upload MinIO build context
+        if: inputs.producer_run == ''
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: generated-service-build-contexts
@@ -45,6 +84,7 @@ jobs:
           if-no-files-found: error
 
   images:
+    if: inputs.producer_run == ''
     needs: prepare
     uses: ./.github/workflows/build-service-images.yml
     permissions:
@@ -56,7 +96,11 @@ jobs:
       immutable_tags: true
 
   sign:
-    needs: images
+    needs: [prepare, images]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.images.result == 'success' ||
+       (inputs.producer_run != '' && needs.images.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -84,6 +128,8 @@ jobs:
             digest="$(jq -r .digest <<< "$target")"
             [[ "$image" =~ ^ghcr.io/phlohouse/phlo-minio:[0-9]+\.[0-9]+\.[0-9]+$ ]]
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            actual="$(docker buildx imagetools inspect "$image" --format '{{json .Manifest.Digest}}' | jq -er .)"
+            [[ "$actual" == "$digest" ]]
             subject="${image%:*}@$digest"
             cosign sign --yes "$subject"
             cosign verify --certificate-identity \

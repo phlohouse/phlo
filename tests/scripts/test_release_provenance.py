@@ -265,6 +265,96 @@ def archive_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+@pytest.mark.parametrize(
+    "state",
+    [
+        "valid",
+        "foreign",
+        "failed",
+        "rerun",
+        "wrong_workflow",
+        "wrong_digest",
+        "wrong_image",
+        "tampered",
+    ],
+)
+def test_existing_minio_collection_requires_authenticated_exact_digest(
+    tmp_path: Path, monkeypatch, state: str
+) -> None:
+    image = "ghcr.io/phlohouse/phlo-minio:0.17.1"
+    digest = "sha256:" + "c" * 64
+    run = {**run_record(), "path": ".github/workflows/publish-minio.yml"}
+    if state == "foreign":
+        run["head_repository"] = {"full_name": "attacker/phlo"}
+    elif state == "failed":
+        run["conclusion"] = "failure"
+    elif state == "rerun":
+        run["run_attempt"] = 2
+    elif state == "wrong_workflow":
+        run["path"] = provenance.STAGE
+    target = {
+        "image": "ghcr.io/phlohouse/phlo-api:0.17.1" if state == "wrong_image" else image,
+        "digest": "sha256:" + "d" * 64 if state == "wrong_digest" else digest,
+        "services": ["minio", "minio-setup"],
+    }
+    payload = archive_bytes({"generated-service-images.json": json.dumps([target]).encode()})
+    artifact = artifact_record(run, "generated-service-images", payload)
+    if state == "tampered":
+        artifact["digest"] = "sha256:" + "e" * 64
+    responses = {
+        "branches/main": {"protected": True},
+        "actions/workflows/publish-minio.yml": {
+            "id": 1,
+            "path": ".github/workflows/publish-minio.yml",
+        },
+        "actions/runs/10": run,
+        "actions/runs/10/artifacts?per_page=100&page=1": {"artifacts": [artifact]},
+    }
+
+    def external(command, **kwargs):
+        assert command[:2] == ["gh", "api"]
+        path = command[2].removeprefix(f"repos/{provenance.REPOSITORY}/")
+        value = payload if path == "actions/artifacts/20/zip" else json.dumps(responses[path])
+        return subprocess.CompletedProcess(command, 0, value)
+
+    manifest = tmp_path / "registry/support/v1.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps({"release_set": {"services": [{"name": "minio", "image_reference": image}]}})
+    )
+    output = tmp_path / "result.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_REPOSITORY", provenance.REPOSITORY)
+    monkeypatch.setattr(provenance.subprocess, "run", external)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "release_provenance.py",
+            "collect-minio",
+            "--producer-run",
+            "10",
+            "--expected-digest",
+            digest,
+            "--output",
+            str(output),
+        ],
+    )
+    if state == "valid":
+        provenance.main()
+        assert json.loads(output.read_text()) == [
+            {
+                "image": image,
+                "digest": digest,
+                "services": ["minio", "minio-setup"],
+            }
+        ]
+    else:
+        with pytest.raises(ValueError):
+            provenance.main()
+        assert not output.exists()
+
+
 @pytest.mark.parametrize("name", ["file.json", "../../escape.json"])
 def test_download_checks_archive_hash_and_paths(tmp_path: Path, monkeypatch, name: str) -> None:
     payload = archive_bytes({name: b"{}"})

@@ -79,7 +79,8 @@ def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path
     assert "refs/heads/main" in publisher["jobs"]["prepare"]["if"]
     assert publisher["jobs"]["images"]["with"]["immutable_tags"] is True
     assert set(publisher["jobs"]) == {"prepare", "images", "sign"}
-    assert publisher["jobs"]["sign"]["needs"] == "images"
+    assert publisher["jobs"]["sign"]["needs"] == ["prepare", "images"]
+    assert publisher["jobs"]["images"]["if"] == "inputs.producer_run == ''"
     assert publisher["jobs"]["sign"]["permissions"]["id-token"] == "write"
     assert publisher["jobs"]["images"]["needs"] == "prepare"
     assert publisher["jobs"]["images"]["uses"] == "./.github/workflows/build-service-images.yml"
@@ -127,6 +128,46 @@ def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path
     assert targets[0]["services"] == ["minio", "minio-setup"]
     context = tmp_path / "generated-service-project" / targets[0]["context"]
     assert (context / "Dockerfile").read_bytes() == dockerfile.read_bytes()
+
+
+@pytest.mark.parametrize("registry_state", ["matched", "moved", "unreachable"])
+def test_minio_signs_only_the_existing_authenticated_registry_digest(
+    tmp_path: Path, monkeypatch, registry_state: str
+) -> None:
+    script = next(
+        step["run"]
+        for step in workflow("publish-minio.yml")["jobs"]["sign"]["steps"]
+        if step.get("name") == "Sign and verify the independently published immutable MinIO digest"
+    )
+    digest = "sha256:" + "a" * 64
+    (tmp_path / "generated-service-images.json").write_text(
+        json.dumps([{"image": "ghcr.io/phlohouse/phlo-minio:0.17.1", "digest": digest}])
+    )
+    docker = tmp_path / "docker"
+    docker.write_text(
+        "#!/bin/bash\nset -eu\n"
+        '[[ "$1 $2 $3 $4" = "buildx imagetools inspect ghcr.io/phlohouse/phlo-minio:0.17.1" ]]\n'
+        '[[ "$REGISTRY_STATE" != unreachable ]] || exit 1\n'
+        'if [[ "$REGISTRY_STATE" == moved ]]; then printf \'"sha256:%064d"\\n\' 7; '
+        "else echo '\"" + digest + "\"'; fi\n"
+    )
+    cosign = tmp_path / "cosign"
+    cosign.write_text(
+        "#!/bin/bash\nset -eu\n"
+        '[[ "${@: -1}" == "ghcr.io/phlohouse/phlo-minio@' + digest + '" ]]\n'
+        'echo "$1" >> signed\necho \'[{"verified":true}]\'\n'
+    )
+    docker.chmod(0o755)
+    cosign.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("REGISTRY_STATE", registry_state)
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True)
+    assert (result.returncode == 0) is (registry_state == "matched"), result.stderr
+    if registry_state == "matched":
+        assert (tmp_path / "signed").read_text().splitlines() == ["sign", "verify"]
+        assert json.loads((tmp_path / "minio-signatures.json").read_text()) == [{"verified": True}]
+    else:
+        assert not (tmp_path / "signed").exists()
 
 
 @pytest.mark.parametrize("registry_state", ["missing", "existing", "unauthorized", "unreachable"])
