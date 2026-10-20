@@ -1007,6 +1007,22 @@
           "required": false,
           "secondary_options": [],
           "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Configured WAP environment, otherwise default_environment.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
         }
       ]
     },
@@ -4305,6 +4321,22 @@
           "required": false,
           "secondary_options": [],
           "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Configured WAP environment, otherwise default_environment.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
         }
       ]
     },
