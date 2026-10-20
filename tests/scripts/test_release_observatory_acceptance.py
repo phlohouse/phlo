@@ -6,6 +6,7 @@ golden-path portability harness intentionally needs only pytest and stdlib.
 
 import json
 import sys
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -32,6 +33,27 @@ def config(tmp_path, observatory):
         operator_env=tmp_path / "operator-env",
         project_name="phlo-acceptance-contract",
     )
+
+
+def test_initialize_runs_real_cli_and_persists_onboarding_and_upgrade_contract(
+    config, observatory, monkeypatch
+):
+    """Prove workspace CLI compatibility, not released-artifact qualification."""
+    config = replace(config, operator_env=Path(sys.executable).parent.parent)
+    monkeypatch.setattr(observatory.golden, "pin_candidate_images", lambda config: None)
+
+    observatory.initialize(config)
+
+    project = yaml.safe_load((config.project_dir / "phlo.yaml").read_text())
+    assert project["authentication"]["provider"] == "static"
+    assert project["authentication"]["static"]["enabled"] is True
+    assert project["authentication"]["static"]["dev_mode"] is True
+    assert project["services"]["observatory"]["enabled"] is True
+    assert project["api"]["authorization"]["mode"] == "required"
+    assert project["api"]["authorization"]["backend"] == "default"
+    assert project["default_environment"] in project["environments"]
+    baseline = json.loads((config.project_dir / ".phlo/upgrade-baseline.json").read_text())
+    assert ".phlo/docker-compose.yml" in baseline["files"]
 
 
 def test_preview_layer_preserves_provider_private_volumes(config, observatory, monkeypatch):

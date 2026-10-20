@@ -79,9 +79,9 @@ def compose(config: golden.RunConfig, *args: str, capture: bool = False):
 
 def initialize(config: golden.RunConfig, *, legacy: bool = False) -> None:
     config.project_dir.mkdir()
-    options = ("--profile", "api") if legacy else ("--observatory-dev",)
+    options = ("--profile", "api", "--no-dev") if legacy else ("--observatory-dev",)
     golden.run(
-        golden.command(str(config.operator_bin), "services", "init", "--no-dev", *options),
+        golden.command(str(config.operator_bin), "services", "init", *options),
         cwd=config.project_dir,
     )
     secret_path = golden.env_secrets_path(config.project_dir / ".phlo")
