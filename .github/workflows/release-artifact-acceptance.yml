@@ -12,6 +12,14 @@ on:
         description: Successful release-stage workflow run ID, attempt 1
         required: true
         type: string
+      previous_candidate_sha:
+        description: Exact previous release commit bound by its immutable staging BOM
+        required: true
+        type: string
+      previous_stage_run:
+        description: Successful previous release-stage workflow run ID, attempt 1
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -47,12 +55,29 @@ jobs:
         run: >-
           python3 scripts/release_provenance.py collect --candidate-sha "$CANDIDATE_SHA"
           --stage-run "$STAGE_RUN" --output inputs
+      - name: Authenticate explicitly selected previous producer and BOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_CANDIDATE_SHA: ${{ inputs.previous_candidate_sha }}
+          PREVIOUS_STAGE_RUN: ${{ inputs.previous_stage_run }}
+        run: >-
+          python3 scripts/release_provenance.py collect --candidate-sha "$PREVIOUS_CANDIDATE_SHA"
+          --stage-run "$PREVIOUS_STAGE_RUN" --output previous-inputs
+      - name: Install pinned browser driver and Chromium
+        # Disposable acceptance tooling, not a product dependency.
+        run: | # zizmor: ignore[adhoc-packages]
+          sudo apt-get update
+          sudo apt-get install --yes libnss3-tools
+          npm install --global agent-browser@0.38.1
+          agent-browser install --with-deps
       - name: Accept exact staged artifacts, never source builds
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PREVIOUS_CANDIDATE_SHA: ${{ inputs.previous_candidate_sha }}
         run: >-
           python3 scripts/release_golden_path.py
           --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json"
+          --previous-candidate-bom "previous-inputs/candidate-$PREVIOUS_CANDIDATE_SHA/bom.json"
           --evidence-output "$RUNNER_TEMP/evidence.json"
       - name: Validate evidence
         env:
@@ -65,6 +90,8 @@ jobs:
         if: always()
         with:
           name: evidence-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host.label }}
-          path: ${{ runner.temp }}/evidence.json
+          path: |
+            ${{ runner.temp }}/evidence.json
+            ${{ runner.temp }}/evidence-observatory/
           if-no-files-found: error
           retention-days: 90

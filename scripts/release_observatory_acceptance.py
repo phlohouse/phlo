@@ -1,10 +1,11 @@
-"""Installed-consumer Observatory acceptance driver (incomplete, fail-closed).
+"""Installed-consumer Observatory acceptance driver (exact BOM, fail-closed).
 
 The caller supplies immutable candidate and previous BOMs. Every project and
 container belongs to this run. Failures remain acceptance failures, including
 missing browser tooling, unavailable prerequisites and unsupported migrations.
-Legacy activation and deployed preview enforcement still require completion;
-synthetic driver tests are not release qualification.
+Legacy activation is reviewed explicitly; deployed preview enforcement is
+observed before enabling safety assertions. Synthetic driver tests and local
+package builds are not released-candidate qualification.
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ import json
 import os
 import secrets
 import shutil
+import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -25,7 +28,14 @@ from pathlib import Path
 import release_candidate_bom as bom_module
 import release_golden_path as golden
 
-ROUTES = ("", "assets", "incidents", "pipelines", "query", "branches")
+ROUTES = {
+    "": "Overview",
+    "assets": "Assets",
+    "incidents": "Incidents",
+    "pipelines": "Jobs",
+    "query": "Query",
+    "branches": "Branches",
+}
 SEED_COMMITS = 251
 ROWS = [
     {"id": 7, "label": "retained", "active": True},
@@ -49,8 +59,16 @@ def request(url: str, *, payload: dict | None = None, expected: tuple[int, ...] 
 
 def installed(config: golden.RunConfig, source: str, *args: str) -> dict:
     """Run test-driver code against installed wheels with source imports disabled."""
+    # Provider imports can initialise console logging. Keep it on the private
+    # stderr boundary; only the driver's single JSON print is machine output.
+    wrapper = (
+        "import contextlib,sys\nrecords=[]\n"
+        "with contextlib.redirect_stdout(sys.stderr):\n"
+        f"    exec({source!r}, {{'print':lambda value: records.append(value)}})\n"
+        "assert len(records)==1\nprint(records[0])\n"
+    )
     result = golden.run(
-        golden.command(str(config.operator_python), "-I", "-c", source, *args),
+        golden.command(str(config.operator_python), "-I", "-c", wrapper, *args),
         cwd=config.project_dir,
         capture_output=True,
     )
@@ -71,14 +89,58 @@ print(json.dumps({'env':env, **get_environment_targets(root)[env].model_dump(mod
     )
 
 
-def compose(config: golden.RunConfig, *args: str, capture: bool = False):
+def legacy_target(config: golden.RunConfig) -> dict:
+    """Bind the owned legacy project to its running providers, not new APIs."""
+    location, _ = golden.discover_dagster_selector(config, "")
+    ref = installed(
+        config,
+        "import json; from phlo_nessie.settings import get_settings; print(json.dumps({'ref':get_settings().nessie_default_ref}))",
+    )["ref"]
+    request(
+        golden.service_url(config, "nessie", 19120)
+        + "/api/v2/trees/"
+        + urllib.parse.quote(ref, safe="")
+    )
+    return {
+        "env": "retained",
+        "dagster_location": location,
+        "nessie_ref": ref,
+        "compose_project": config.project_name,
+        "service_health_urls": {},
+        "preview": None,
+    }
+
+
+def compose(config: golden.RunConfig, *args: str, capture: bool = True):
     return golden.run(
         golden.compose_command(config, *args), cwd=config.project_dir, capture_output=capture
     )
 
 
 def initialize(config: golden.RunConfig, *, legacy: bool = False) -> None:
-    config.project_dir.mkdir()
+    if config.project_dir.name != config.project_name:
+        raise golden.CandidateError(
+            "Acceptance project path must match its explicit Compose identity"
+        )
+    # A services-only directory has no installed asset job to seed. Reuse the
+    # installed project template, never inject framework modules into an image.
+    golden.create_project(config)
+    installed(
+        config,
+        """
+import json,yaml
+from importlib.resources import files
+from pathlib import Path
+root=Path.cwd(); path=root/'phlo.yaml'; document=yaml.safe_load(path.read_text())
+(root/'retained-jvm.config').write_text(files('phlo_trino').joinpath('jvm.config').read_text()+'\\n-Dphlo.acceptance.retained=true\\n')
+(root/'retained-dagster.yaml').write_text('telemetry:\\n  enabled: false\\n')
+document.setdefault('infrastructure',{}).setdefault('services',{}).update({
+    'trino':{'files':{'trino/jvm.config':{'source':'retained-jvm.config','mode':'replace'}}},
+    'dagster':{'files':{'dagster/dagster.yaml':{'source':'retained-dagster.yaml','mode':'merge'}}}})
+path.write_text(yaml.safe_dump(document))
+print('{}')
+""",
+    )
     options = ("--profile", "api", "--no-dev") if legacy else ("--observatory-dev",)
     golden.run(
         golden.command(str(config.operator_bin), "services", "init", *options),
@@ -86,7 +148,18 @@ def initialize(config: golden.RunConfig, *, legacy: bool = False) -> None:
     )
     secret_path = golden.env_secrets_path(config.project_dir / ".phlo")
     with secret_path.open("a", encoding="utf-8") as stream:
-        stream.writelines(f"{name}=0\n" for name in (*golden.PORT_NAMES, "OBSERVATORY_PORT"))
+        for name in (*golden.PORT_NAMES, "OBSERVATORY_PORT"):
+            # The configured startup gate needs explicit API/UI URLs. Other
+            # providers can use Docker-assigned ephemeral ports and discovery.
+            port = 0
+            if name in {"PHLO_API_PORT", "OBSERVATORY_PORT"}:
+                with socket.socket() as connection:
+                    connection.bind(("127.0.0.1", 0))
+                    port = connection.getsockname()[1]
+            stream.write(f"{name}={port}\n")
+    private_file(
+        config.project_dir / ".phlo/retained-provider-note.txt", "retain unrelated files\n"
+    )
     # Use the previous version's real API profile, never a candidate-only flag.
     # Legacy environment activation remains an explicit compatibility boundary.
     golden.pin_candidate_images(config)
@@ -94,9 +167,8 @@ def initialize(config: golden.RunConfig, *, legacy: bool = False) -> None:
 
 def private_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with path.open(
-        "x", encoding="utf-8", opener=lambda name, flags: os.open(name, flags, 0o600)
-    ) as stream:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         stream.write(content)
 
 
@@ -227,7 +299,41 @@ def provision_preview(config: golden.RunConfig, binding: dict) -> list:
     )
     # Merge the provider's Compose into the same owned project. Existing BOM
     # pinning verifies this extra image too, before it is ever started.
-    compose_file = output / "compose.yaml"
+    preview_layer(config, output, document["services"]["phlo-api"])
+    installed_start_pins(config, remove=True)
+    (config.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
+    _, images = golden.pin_candidate_images(config)
+    probe_private_mounts(config, binding)
+    # This opt-in provider bundle is not a registered default stack service.
+    # Start it through its generated Compose contract, without a build fallback.
+    compose(config, "up", "--detach", "--no-build", "--wait", "trino-preview")
+    return images
+
+
+def preview_layer(config: golden.RunConfig, output: Path, api_definition: dict) -> None:
+    """Stage API secrets into a private volume owned by its actual image UID."""
+    if not (output / "compose.yaml").is_file():
+        raise golden.CandidateError("Preview provider did not generate Compose")
+    identity = golden.run(
+        golden.command(
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            *(("--user", api_definition["user"]) if api_definition.get("user") else ()),
+            "--entrypoint",
+            "python",
+            api_definition["image"],
+            "-c",
+            "import os,json; print(json.dumps([os.getuid(),os.getgid()]))",
+        ),
+        cwd=config.project_dir,
+        capture_output=True,
+    )
+    uid, gid = json.loads(identity.stdout)
+    if not isinstance(uid, int) or not isinstance(gid, int) or uid <= 0 or gid < 0:
+        raise golden.CandidateError("Acceptance requires a nonroot API image identity")
     installed(
         config,
         """
@@ -247,25 +353,46 @@ def mount_path(value): return value.replace(str(output),'/opt/phlo-preview')
 settings={key:mount_path(value) for key,value in settings.items()}
 settings.update({'PHLO_V1_PREVIEW_TRINO_URL':'https://trino-preview:8443','WEB_CONCURRENCY':'1'})
 # Do not assert deployment security merely because provider files exist.
-# Live process/replica/bounds verification is an unfinished acceptance seam.
+# Independent runtime verification enables these assertions later.
+uid,gid=json.loads(sys.argv[2]); image=sys.argv[3]
+layer['services']['phlo-api-preview-init']={
+    'image':image,'user':'0:0','network_mode':'none','read_only':True,
+    'cap_drop':['ALL'],'cap_add':['CHOWN','DAC_OVERRIDE','FOWNER'],
+    'entrypoint':['python','-c'],
+    'command':['import os,shutil; from pathlib import Path; '
+        'source=Path("/source"); target=Path("/target"); '
+        'shutil.copytree(source,target,dirs_exist_ok=True); '
+        +f'[(os.chown(p,{uid},{gid}),os.chmod(p,0o700 if p.is_dir() else 0o600)) '
+        'for p in [target,*target.rglob("*")]]'],
+    'volumes':[str(output/'api-secrets')+':/source:ro','preview-api-secrets:/target']}
 layer['services']['phlo-api']={'environment':settings,'deploy':{'replicas':1},
     'command':['python','-m','uvicorn','phlo_api.main:app','--host','0.0.0.0','--port','4000','--workers','1'],
-    'volumes':[str(output/'api-secrets')+':/opt/phlo-preview/api-secrets:ro']}
+    'depends_on':{'phlo-api-preview-init':{'condition':'service_completed_successfully'}},
+    'volumes':['preview-api-secrets:/opt/phlo-preview/api-secrets:ro']}
+layer.setdefault('volumes',{})['preview-api-secrets']={}
 path=root/'.phlo/overrides/compose.yaml'
 existing=yaml.safe_load(path.read_text()) if path.exists() else {}
 for name,definition in layer['services'].items():
-    existing.setdefault('services',{}).setdefault(name,{}).update(definition)
+    service=existing.setdefault('services',{}).setdefault(name,{})
+    for key,value in definition.items():
+        if key in ('environment','depends_on'):
+            service.setdefault(key,{}).update(value)
+        elif key=='volumes':
+            service.setdefault(key,[]).extend(value)
+        else:
+            service[key]=value
 existing.setdefault('volumes',{}).update(layer.get('volumes',{}))
 path.touch(mode=0o600); path.write_text(yaml.safe_dump(existing))
 print('{}')
 """,
         str(output),
+        json.dumps([uid, gid]),
+        api_definition["image"],
     )
-    # Retain provider output for private diagnosis. It never goes in evidence.
-    if not compose_file.is_file():
-        raise golden.CandidateError("Preview provider did not generate Compose")
-    (config.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
-    _, images = golden.pin_candidate_images(config)
+
+
+def probe_private_mounts(config: golden.RunConfig, binding: dict) -> None:
+    """Run image-identity reads, without widening any operator file permissions."""
     services = golden.compose_config_json(config)["services"]
     # Let the provider stage private server files into its owned volumes. The
     # nonroot coordinator must read the actual runtime mounts, not host binds.
@@ -283,34 +410,22 @@ print('{}')
         "-c",
         "test -r /etc/trino/config.properties && test -r /etc/trino/secrets/preview-keystore.jks",
     )
-    for service, directory, filename in (
-        ("phlo-api", "api-secrets", f"password-{binding['env']}"),
-    ):
-        definition = services[service]
-        command = ["docker", "run", "--rm", "--network", "none"]
-        if definition.get("user"):
-            command += ["--user", definition["user"]]
-        result = subprocess.run(
-            [
-                *command,
-                "--mount",
-                f"type=bind,src={output / directory},dst=/private,readonly",
-                "--entrypoint",
-                "sh",
-                definition["image"],
-                "-c",
-                'test -r "$1"',
-                "sh",
-                f"/private/{filename}",
-            ],
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode:
-            raise golden.CandidateError(
-                "Private API preview mount is unreadable by its exact image identity; provision API ownership without widening permissions"
-            )
-    return images
+    compose(config, "run", "--rm", "--no-deps", "-T", "phlo-api-preview-init")
+    compose(
+        config,
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "--entrypoint",
+        "python",
+        "phlo-api",
+        "-c",
+        "from pathlib import Path; import sys; "
+        "assert all((Path('/opt/phlo-preview/api-secrets')/p).read_bytes() "
+        "for p in ['ca.pem',sys.argv[1]])",
+        f"password-{binding['env']}",
+    )
 
 
 def trino(config: golden.RunConfig, statement: str) -> str:
@@ -326,6 +441,121 @@ def trino(config: golden.RunConfig, statement: str) -> str:
         statement,
         capture=True,
     ).stdout
+
+
+def verify_preview_runtime(config: golden.RunConfig, binding: dict) -> dict:
+    """Observe actual processes, private mounts and TLS server enforcement first."""
+    containers = compose(config, "ps", "-q", "phlo-api", capture=True).stdout.split()
+    if len(containers) != 1:
+        raise golden.CandidateError("Preview admission requires exactly one running API replica")
+    compose(
+        config,
+        "exec",
+        "-T",
+        "phlo-api",
+        "python",
+        "-c",
+        """
+import os
+from pathlib import Path
+command=Path('/proc/1/cmdline').read_bytes().split(b'\\0')
+assert b'uvicorn' in command and command.count(b'--workers')==1
+assert command[command.index(b'--workers')+1]==b'1'
+for path in Path('/proc').iterdir():
+    if path.name.isdigit() and int(path.name) not in (1,os.getpid()):
+        value=(path/'cmdline').read_bytes()
+        assert b'uvicorn' not in value and b'multiprocessing' not in value
+""",
+    )
+    properties = dict(
+        line.split("=", 1)
+        for line in compose(
+            config, "exec", "-T", "trino-preview", "cat", "/etc/trino/config.properties"
+        ).stdout.splitlines()
+        if "=" in line and not line.startswith("#")
+    )
+    expected = {
+        "query.max-run-time": "20s",
+        "query.max-planning-time": "5s",
+        "query.max-scan-physical-bytes": "256MB",
+        "http-server.authentication.type": "PASSWORD",
+    }
+    groups = json.loads(
+        compose(
+            config, "exec", "-T", "trino-preview", "cat", "/etc/trino/preview/resource-groups.json"
+        ).stdout
+    )
+    group = groups["rootGroups"][0]["subGroups"][0]["subGroups"][0]
+    if (
+        any(properties.get(key) != value for key, value in expected.items())
+        or groups["selectors"] != [{"group": "global.preview.api"}]
+        or any(
+            group.get(key) != value
+            for key, value in {
+                "name": "api",
+                "hardConcurrencyLimit": 2,
+                "maxQueued": 0,
+                "hardPhysicalDataScanLimit": "1GB",
+            }.items()
+        )
+    ):
+        raise golden.CandidateError("Running preview server lacks required bounded admission")
+    # Use credentials in the actual API mount, not operator-side host reads.
+    # Neither passwords nor error bodies cross the private subprocess boundary.
+    compose(
+        config,
+        "exec",
+        "-T",
+        "phlo-api",
+        "python",
+        "-c",
+        """
+import json,ssl,sys,time
+from pathlib import Path
+import httpx
+env=sys.argv[1]; root=Path('/opt/phlo-preview/api-secrets')
+assert (root/('password-'+env)).stat().st_mode & 0o077 == 0
+with httpx.Client(verify=ssl.create_default_context(cafile=str(root/'ca.pem')),
+        auth=('phlo_api_preview_'+env,(root/('password-'+env)).read_text()),
+        follow_redirects=False,timeout=30) as client:
+    def query(sql):
+        response=client.post('https://trino-preview:8443/v1/statement',content=sql,
+            headers={'X-Trino-User':'phlo_api_preview_'+env,'X-Trino-Catalog':'acceptance_preview'})
+        response.raise_for_status(); page=response.json(); rows=[]
+        for _ in range(120):
+            rows.extend(page.get('data',[]))
+            if 'nextUri' not in page: return page,rows
+            time.sleep(0.1); response=client.get(page['nextUri']); response.raise_for_status(); page=response.json()
+        raise AssertionError('Preview query exceeded bounded polling')
+    page,rows=query('SELECT id,label,active FROM release_acceptance.typed ORDER BY id')
+    assert 'error' not in page and rows==[[7,'retained',True],[19,'synthetic',False]]
+    for sql in ('DELETE FROM release_acceptance.typed',
+                "SET SESSION query_max_run_time = '1h'",'SELECT * FROM system.runtime.nodes'):
+        page,_=query(sql)
+        assert page.get('error',{}).get('errorName') in ('PERMISSION_DENIED','ACCESS_DENIED')
+""",
+        binding["env"],
+    )
+    installed(
+        config,
+        """
+import yaml
+from pathlib import Path
+path=Path.cwd()/'.phlo/overrides/compose.yaml'; document=yaml.safe_load(path.read_text())
+settings=document['services']['phlo-api']['environment']
+settings.update({'PHLO_V1_QUERY_SINGLE_REPLICA':'1','PHLO_V1_QUERY_SINGLE_PROCESS':'1',
+                 'PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED':'1'})
+path.write_text(yaml.safe_dump(document))
+print('{}')
+""",
+    )
+    return {
+        "api_replicas": 1,
+        "api_workers": 1,
+        "private_mount_readable": True,
+        "server_budgets_observed": True,
+        "tls_read_and_server_denials": True,
+    }
 
 
 def seed(config: golden.RunConfig, binding: dict) -> dict:
@@ -382,6 +612,89 @@ def verify_data(config: golden.RunConfig) -> None:
         raise golden.CandidateError("Retained typed data changed")
 
 
+def database_snapshot(config: golden.RunConfig, database: str | None = None) -> dict:
+    """Hash all synthetic table rows without returning credentials or row content."""
+    address = urllib.parse.urlsplit(golden.service_url(config, "postgres", 5432))
+    return installed(
+        config,
+        """
+import json, sys, psycopg2
+from pathlib import Path
+from psycopg2 import sql
+from phlo.config.layout import project_env_paths
+from phlo.infrastructure.utils import parse_env_file
+values={}
+for path in project_env_paths(Path.cwd()/'.phlo'):
+    values.update(parse_env_file(path))
+with psycopg2.connect(host=sys.argv[1],port=int(sys.argv[2]),
+        user=values.get('POSTGRES_USER','phlo'),password=values['POSTGRES_PASSWORD'],
+        dbname=sys.argv[3] or values.get('POSTGRES_DB','phlo')) as connection:
+    connection.set_session(readonly=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
+        tables=cursor.fetchall(); result={}
+        for schema,table in tables:
+            cursor.execute(sql.SQL("SELECT count(*),md5(coalesce(string_agg(row_to_json(t)::text,chr(10) ORDER BY row_to_json(t)::text),'')) FROM {}.{} t").format(sql.Identifier(schema),sql.Identifier(table)))
+            count,digest=cursor.fetchone(); result[schema+'.'+table]={'rows':count,'digest':digest}
+print(json.dumps(result))
+""",
+        address.hostname or "127.0.0.1",
+        str(address.port),
+        database or "",
+    )
+
+
+def verify_database_restore(config: golden.RunConfig, backup: Path) -> dict:
+    """Restore the archive into a new owned database and compare every table."""
+    before = database_snapshot(config)
+    if not before:
+        raise golden.CandidateError("Database backup contains no application tables to verify")
+    restored = "phlo_acceptance_restore_" + secrets.token_hex(8)
+    compose(
+        config,
+        "exec",
+        "-T",
+        "postgres",
+        "sh",
+        "-c",
+        'createdb -U "$POSTGRES_USER" "$1"',
+        "sh",
+        restored,
+    )
+    try:
+        subprocess.run(
+            golden.compose_command(
+                config,
+                "exec",
+                "-T",
+                "postgres",
+                "sh",
+                "-c",
+                'pg_restore --exit-on-error --no-owner -U "$POSTGRES_USER" -d "$1"',
+                "sh",
+                restored,
+            ),
+            input=backup.read_bytes(),
+            capture_output=True,
+            check=True,
+        )
+        if database_snapshot(config, restored) != before:
+            raise golden.CandidateError("Restored database does not match retained table rows")
+        return {"restored_and_compared": True, "tables": len(before)}
+    finally:
+        compose(
+            config,
+            "exec",
+            "-T",
+            "postgres",
+            "sh",
+            "-c",
+            'dropdb -U "$POSTGRES_USER" "$1"',
+            "sh",
+            restored,
+        )
+
+
 def _browser(session: str, *args: str) -> dict:
     result = subprocess.run(
         ["agent-browser", "--session", session, *args, "--json"],
@@ -405,7 +718,7 @@ def browser_journey(config: golden.RunConfig, binding: dict, artifacts: Path) ->
     try:
         _browser(session, "open", f"{base}/?env={env}")
         _browser(session, "set", "viewport", "1280", "800", "2")
-        for route in ROUTES:
+        for route, title in ROUTES.items():
             detail = (
                 "&" + urllib.parse.urlencode({"branch": binding["nessie_ref"]})
                 if route == "branches"
@@ -418,22 +731,59 @@ def browser_journey(config: golden.RunConfig, binding: dict, artifacts: Path) ->
                 "eval",
                 "({title:document.querySelector('h1')?.textContent, text:document.querySelector('main')?.textContent})",
             ).get("result", {})
-            if not state.get("title") or any(
+            _browser(session, "screenshot", str(artifacts / f"{route or 'overview'}.png"))
+            if state.get("title", "").strip() != title or any(
                 message in state.get("text", "").lower()
                 for message in (
                     "internal server error",
                     "something went wrong",
                     "unauthorized",
                     "failed to load",
+                    "couldn't load this page",
+                    "sign in to access phlo",
                 )
             ):
                 raise golden.CandidateError(f"Packaged Observatory route failed: /{route}")
-            _browser(session, "screenshot", str(artifacts / f"{route or 'overview'}.png"))
             visited.append(route or "overview")
         # The packaged UI initiates asynchronous branch detail requests. Require
-        # their visible result, then advance the real public API cursor as well.
-        _browser(session, "wait", "--text", "Commit history")
+        # their visible result, then advance both its links and the API cursor.
+        _browser(session, "wait", '[aria-label="Commit history"]')
         _browser(session, "wait", "--text", "Ahead: 0")
+        _browser(session, "screenshot", str(artifacts / "branches.png"))
+        visible_hashes: set[str] = set()
+        for page in range(3):
+            _browser(session, "wait", "[data-commit-hash]")
+            current = _browser(
+                session,
+                "eval",
+                "[...document.querySelectorAll('[data-commit-hash]')].map(e=>e.dataset.commitHash)",
+            ).get("result", [])
+            if not current or visible_hashes.intersection(current):
+                raise golden.CandidateError("Packaged branch history repeated or omitted commits")
+            visible_hashes.update(current)
+            _browser(session, "screenshot", str(artifacts / f"branch-history-{page + 1}.png"))
+            if page < 2:
+                _browser(
+                    session,
+                    "find",
+                    "role",
+                    "link",
+                    "click",
+                    "--name",
+                    "Next history page",
+                    "--exact",
+                )
+                # Wait for the asynchronous detail replacement, not just URL navigation.
+                _browser(
+                    session,
+                    "wait",
+                    "--fn",
+                    "!document.querySelector('[data-commit-hash="
+                    + json.dumps(current[0])
+                    + "]') && !!document.querySelector('[data-commit-hash]')",
+                )
+        if len(visible_hashes) < SEED_COMMITS:
+            raise golden.CandidateError("Packaged history did not traverse the seeded commits")
         api = golden.service_url(config, "phlo-api", 4000)
         commits = verify_history(api, binding)
         _browser(session, "open", f"{base}/query?env={env}")
@@ -449,11 +799,26 @@ def browser_journey(config: golden.RunConfig, binding: dict, artifacts: Path) ->
         )
         _browser(session, "find", "role", "button", "click", "--name", "Run", "--exact")
         _browser(session, "wait", 'table[aria-label="Query results"] tbody')
-        text = _browser(session, "get", "text", 'table[aria-label="Query results"]').get("text", "")
-        if "retained" not in text or "synthetic" not in text or "19" not in text:
+        table = _browser(
+            session,
+            "eval",
+            "(() => { const t=document.querySelector('table[aria-label=\"Query results\"]'); "
+            "return {headers:[...t.querySelectorAll('thead th')].map(c=>c.textContent.trim()),"
+            "rows:[...t.querySelectorAll('tbody tr')].map(r=>[...r.querySelectorAll('td')].map(c=>c.textContent.trim()))}; })()",
+        ).get("result", {})
+        if table != {
+            "headers": ["#", "id bigint", "label varchar", "active boolean"],
+            "rows": [["1", "7", "retained", "true"], ["2", "19", "synthetic", "false"]],
+        }:
             raise golden.CandidateError("Packaged query results do not display the seeded rows")
         _browser(session, "screenshot", str(artifacts / "query-result.png"))
-        return {"routes": visited, "history": commits, "query_rows_displayed": len(ROWS)}
+        return {
+            "routes": visited,
+            "history": commits,
+            "browser_history_commits": len(visible_hashes),
+            "browser_cursor_advancements": 2,
+            "query_rows_displayed": len(ROWS),
+        }
     finally:
         _browser(session, "close")
 
@@ -542,10 +907,19 @@ def query_contract(api: str, binding: dict) -> dict:
 
 def verify_readiness(api: str, binding: dict) -> dict:
     report = request(f"{api}/api/v1/readiness?" + urllib.parse.urlencode({"env": binding["env"]}))
-    for name in ("orchestration", "incidents", "query_usage", "query_preview"):
+    for name in ("orchestration", "incidents", "query_usage"):
         checks = report["capabilities"][name]
         if not checks or any(check["state"] != "ready" for check in checks):
             raise golden.CandidateError(f"Feature readiness failed: {name}")
+    # The API intentionally never promotes preview configuration to deployed
+    # enforcement proof. Query/denial/runtime checks must supply that evidence.
+    preview = report["capabilities"]["query_preview"]
+    if (
+        not preview
+        or any(check["state"] != "configured" for check in preview)
+        or not any(check.get("reason_code") == "backend_reachable" for check in preview)
+    ):
+        raise golden.CandidateError("Feature readiness failed: query_preview")
     return report
 
 
@@ -560,7 +934,11 @@ def verify_ports(config: golden.RunConfig) -> None:
 def wait_ready(api: str, binding: dict) -> dict:
     for _ in range(120):
         try:
-            return verify_readiness(api, binding)
+            report = verify_readiness(api, binding)
+            # A loaded Dagster code location alone does not prove its retained
+            # database connections recovered after a PostgreSQL outage.
+            verify_overview(api, binding)
+            return report
         except (OSError, golden.CandidateError):
             time.sleep(1)
     raise golden.CandidateError("Feature readiness did not recover within 120 seconds")
@@ -568,21 +946,51 @@ def wait_ready(api: str, binding: dict) -> dict:
 
 def recover(config: golden.RunConfig, binding: dict, query_id: str) -> dict:
     api = golden.service_url(config, "phlo-api", 4000)
+    identity = compose(config, "ps", "-q", "phlo-api", capture=True).stdout.strip()
+    if not identity:
+        raise golden.CandidateError("Recovery requires a running API container")
     compose(config, "stop", "postgres")
     try:
         request(f"{api}/health")
         report = request(
-            f"{api}/api/v1/readiness?" + urllib.parse.urlencode({"env": binding["env"]})
+            f"{api}/api/v1/readiness?" + urllib.parse.urlencode({"env": binding["env"]}),
+            expected=(200, 503),
         )
-        if all(
-            check["state"] == "ready"
-            for checks in report["capabilities"].values()
-            for check in checks
-        ):
-            raise golden.CandidateError("Backend outage was reported as fully ready")
+        authorization_unavailable = (
+            report.get("error", {}).get("code") == "authorization_unavailable"
+        )
+        if authorization_unavailable:
+            # Durable identity shares PostgreSQL. Keep HTTP fail-closed: do not
+            # bypass authentication to expose readiness during that outage.
+            # The operator separately observes the installed read-only storage
+            # checks inside the unchanged API container, never a fixture result.
+            probe = compose(
+                config,
+                "exec",
+                "-T",
+                "phlo-api",
+                "python",
+                "-c",
+                "import contextlib,json,sys\n"
+                "with contextlib.redirect_stdout(sys.stderr):\n"
+                "    from phlo_api.api.v1_readiness import _storage_readiness\n"
+                "    checks=_storage_readiness()\n"
+                "print(json.dumps({'capabilities':{name:[item.model_dump() for item in items] for name,items in checks.items()}}))",
+            )
+            report = json.loads(probe.stdout)
+        for name in ("incidents", "query_usage"):
+            checks = report.get("capabilities", {}).get(name, [])
+            if not checks or any(
+                check["state"] not in {"unavailable", "degraded"}
+                or check.get("reason_code") != "backend_unavailable"
+                for check in checks
+            ):
+                raise golden.CandidateError(f"Database outage was not detected by {name}")
     finally:
         compose(config, "start", "postgres")
     wait_ready(api, binding)
+    if compose(config, "ps", "-q", "phlo-api", capture=True).stdout.strip() != identity:
+        raise golden.CandidateError("Database recovery replaced the API container")
     compose(config, "restart", "phlo-api", "observatory")
     wait_ready(api, binding)
     evidence = request(
@@ -597,12 +1005,29 @@ def recover(config: golden.RunConfig, binding: dict, query_id: str) -> dict:
     return {
         "liveness_during_outage": True,
         "feature_outage_detected": True,
+        "public_authorization_failed_closed": authorization_unavailable,
+        "storage_probe": "installed_read_only" if authorization_unavailable else "public_readiness",
         "durable_query_after_restart": True,
     }
 
 
-def transition(previous: golden.RunConfig, candidate: golden.RunConfig) -> dict:
+def transition(
+    previous: golden.RunConfig, candidate: golden.RunConfig, binding: dict, pristine: Path
+) -> dict:
     """Apply a concrete candidate file plan to the *same* retained project."""
+    retained = {
+        path: path.read_bytes()
+        for path in (
+            *(
+                path
+                for path in golden.project_env_paths(previous.project_dir / ".phlo")
+                if path.exists()
+            ),
+            previous.project_dir / "retained-jvm.config",
+            previous.project_dir / "retained-dagster.yaml",
+            previous.project_dir / ".phlo/retained-provider-note.txt",
+        )
+    }
     compose(previous, "stop", "phlo-api", "observatory", "dagster", "dagster-daemon")
     backup = previous.project_dir.parent / "postgres-before.dump"
     dump_command = golden.compose_command(
@@ -629,14 +1054,44 @@ def transition(previous: golden.RunConfig, candidate: golden.RunConfig) -> dict:
         capture_output=True,
         check=True,
     )
+    restore = verify_database_restore(previous, backup)
     golden.verify_candidate_bom(candidate)
     golden.install_operator_from_bom(candidate)
+    # The acceptance operator explicitly configures the discovered real target.
+    # Keep the old bytes, validate the new document before appending, and let
+    # reviewed services upgrade own authentication, roles and generated files.
+    private_file(
+        candidate.project_dir.parent / "legacy-project.before.yaml",
+        (candidate.project_dir / "phlo.yaml").read_text(),
+    )
+    installed(
+        candidate,
+        """
+import json,sys,yaml
+from pathlib import Path
+from phlo.config_schema import ProjectConfig
+path=Path.cwd()/'phlo.yaml'; text=path.read_text(); document=yaml.safe_load(text)
+if any(document.get(name) for name in ('environments','authentication','api')):
+    raise SystemExit('Existing legacy bindings/authentication require explicit operator reconciliation')
+binding=json.loads(sys.argv[1]); name=binding.pop('env')
+addition={'environments':{name:binding},'default_environment':name}
+ProjectConfig.model_validate({**document,**addition})
+path.write_text(text+chr(10)+yaml.safe_dump(addition))
+print('{}')
+""",
+        json.dumps(binding),
+    )
     plan_file = candidate.project_dir.parent / "reviewed-upgrade.json"
+    ownership_options = ("--repair-empty-api-binds",) if sys.platform == "linux" else ()
     golden.run(
         golden.command(
             str(candidate.operator_bin),
             "services",
             "upgrade",
+            "--observatory-dev",
+            *ownership_options,
+            "--previous-generated",
+            str(pristine),
             "--dry-run",
             "--output",
             str(plan_file),
@@ -663,6 +1118,10 @@ print(json.dumps({'value':plan.token()}))
         str(candidate.operator_bin),
         "services",
         "upgrade",
+        "--observatory-dev",
+        *ownership_options,
+        "--previous-generated",
+        str(pristine),
         "--apply",
         str(plan_file),
         "--confirm",
@@ -670,8 +1129,40 @@ print(json.dumps({'value':plan.token()}))
     )
     golden.run(command, cwd=candidate.project_dir, capture_output=True)
     golden.run(command, cwd=candidate.project_dir, capture_output=True)
+    if any(path.read_bytes() != content for path, content in retained.items()):
+        raise golden.CandidateError("Upgrade changed retained customisation sources or credentials")
+    installed(
+        candidate,
+        """
+import json,yaml
+from pathlib import Path
+root=Path.cwd()
+assert (root/'.phlo/trino/jvm.config').read_bytes()==(root/'retained-jvm.config').read_bytes()
+assert yaml.safe_load((root/'.phlo/dagster/dagster.yaml').read_text())['telemetry']['enabled'] is False
+assert 'postgres-data' in yaml.safe_load((root/'.phlo/docker-compose.yml').read_text())['volumes']
+print('{}')
+""",
+    )
+    installed_start_pins(previous, remove=True)
     (candidate.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
     golden.pin_candidate_images(candidate)
+    # Previous installations may never have used the incident/usage stores.
+    # Delegate their additive bootstrap to the same installed owners as API
+    # startup, with writers still stopped, before checking old constraints.
+    compose(
+        candidate,
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "phlo-api",
+        "python",
+        "-c",
+        "from phlo_api.incidents import initialize_incidents; "
+        "from phlo_api.usage import initialize_usage; "
+        "initialize_incidents(); initialize_usage()",
+        capture=True,
+    )
     migration = subprocess.run(
         golden.compose_command(
             candidate,
@@ -690,6 +1181,46 @@ print(json.dumps({'value':plan.token()}))
         text=True,
         check=False,
     )
+    state = json.loads(migration.stdout)
+    if migration.returncode == 1 and state == {
+        "migration": "004_configurable_environments",
+        "state": "required",
+    }:
+        # Archive restore and writer shutdown above are mandatory preconditions.
+        # The installed provider owns the transaction, constraints and validation.
+        compose(
+            candidate,
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            "phlo-api",
+            "python",
+            "-m",
+            "phlo_api.migrations",
+            "--apply",
+            "--backup-confirmed",
+            "--json",
+            capture=True,
+        )
+        migration = subprocess.run(
+            golden.compose_command(
+                candidate,
+                "run",
+                "--rm",
+                "--no-deps",
+                "-T",
+                "phlo-api",
+                "python",
+                "-m",
+                "phlo_api.migrations",
+                "--check",
+                "--json",
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     if migration.returncode or json.loads(migration.stdout)["state"] != "compatible":
         raise golden.CandidateError(
             "Provider schema migration required; retain verified backup and follow installed migration instructions"
@@ -697,24 +1228,62 @@ print(json.dumps({'value':plan.token()}))
     return {
         "reviewed_plan_applied_twice": True,
         "verified_database_backup": True,
+        "database_restore": restore,
         "retained_project": True,
         "schema": "compatible",
     }
 
 
-def start(config: golden.RunConfig) -> None:
-    golden.start_stack_candidate(config)
-    compose(
-        config,
-        "--profile",
-        "api",
-        "up",
-        "--detach",
-        "--no-build",
-        "--wait",
-        "--wait-timeout",
-        "180",
+def installed_start_pins(config: golden.RunConfig, *, remove: bool = False) -> None:
+    """Put verified pins in the ordinary CLI's final layer, disabling builds.
+
+    This layer belongs only to the uniquely owned acceptance project. A user
+    layer is never overwritten, including while switching candidate artifacts.
+    """
+    layer = config.project_dir / ".phlo/compose.local.yaml"
+    if remove and not layer.exists():
+        return
+    pins = json.loads((config.project_dir / ".phlo/compose.candidate.json").read_text())["services"]
+    assert config.bom is not None
+    allowed = {f"{item['name']}@{item['digest']}" for item in config.bom["artifacts"]}
+    lines = ["# Owned installed-consumer acceptance pins", "services:"]
+    for name, definition in sorted(pins.items()):
+        image_name, _, digest = bom_module.parse_image_reference(definition["image"])
+        if digest is None or f"{image_name}@{digest}" not in allowed:
+            raise golden.CandidateError("Installed startup image is absent from the exact BOM")
+        lines += [
+            f"  {json.dumps(name)}:",
+            f"    image: {json.dumps(definition['image'])}",
+            "    build: !reset null",
+        ]
+    content = "\n".join(lines) + "\n"
+    if layer.exists() and layer.read_text() != content:
+        raise golden.CandidateError("Refusing to replace a non-owned local Compose layer")
+    if remove:
+        layer.unlink()
+    elif not layer.exists():
+        private_file(layer, content)
+
+
+def start(config: golden.RunConfig, *, legacy: bool = False) -> None:
+    installed_start_pins(config)
+    document = golden.compose_config_json(config)
+    if any(definition.get("build") for definition in document["services"].values()):
+        raise golden.CandidateError("Installed startup must not have a build fallback")
+    compose(config, "--profile", "api", "pull")
+    golden.run(
+        golden.command(str(config.operator_bin), "services", "start"),
+        cwd=config.project_dir,
+        capture_output=True,
     )
+    if legacy:
+        # The previous CLI's --profile targets only that profile, not the
+        # default data stack. Both invocations are required by its contract.
+        golden.run(
+            golden.command(str(config.operator_bin), "services", "start", "--profile", "api"),
+            cwd=config.project_dir,
+            capture_output=True,
+        )
 
 
 def verify_overview(api: str, binding: dict) -> dict:
@@ -732,19 +1301,26 @@ def run_one(
     golden.verify_candidate_bom(config)
     _, wheels = golden.install_operator_from_bom(config)
     initialize(config, legacy=candidate is not None)
-    try:
-        binding = target(config)
-    except subprocess.CalledProcessError as exc:
-        raise golden.CandidateError(
-            "Installed environment binding is unavailable; an explicit previous-release onboarding compatibility seam is required"
-        ) from exc
+    pristine = config.project_dir.parent / (config.project_name + "-previous-generated")
+    if candidate is not None:
+        shutil.copytree(
+            config.project_dir, pristine, ignore=shutil.ignore_patterns(".git", ".venv")
+        )
+        metadata = installed(
+            config,
+            "import json; from importlib.metadata import distributions; print(json.dumps({d.metadata['Name']:d.version for d in distributions() if d.metadata['Name'].lower()=='phlo' or d.metadata['Name'].lower().startswith('phlo-')}))",
+        )
+        baseline = pristine / ".phlo/upgrade-baseline.json"
+        if not baseline.exists():
+            private_file(baseline, json.dumps({"files": {}, "distributions": metadata}))
     result = {}
     try:
         verify_ports(config)
-        start(config)
+        start(config, legacy=candidate is not None)
+        binding = legacy_target(config) if candidate is not None else target(config)
         result["seed"] = seed(config, binding)
         if candidate is not None:
-            result["transition"] = transition(config, candidate)
+            result["transition"] = transition(config, candidate, binding, pristine)
             config = candidate
             if target(config) != binding:
                 raise golden.CandidateError("Upgrade changed selected environment target binding")
@@ -763,12 +1339,28 @@ def run_one(
         images = provision_preview(config, binding)
         verify_ports(config)
         start(config)
+        result["preview_enforcement"] = verify_preview_runtime(config, binding)
+        start(config)
         api = golden.service_url(config, "phlo-api", 4000)
         result["readiness"] = wait_ready(api, binding)
         result["overview"] = verify_overview(api, binding)
         result["browser"] = browser_journey(config, binding, artifacts)
         result["query"] = query_contract(api, binding)
         result["recovery"] = recover(config, binding, result["query"]["query_id"])
+        from release_observatory_oidc import run as oidc_journey
+
+        assert config.bom is not None
+        proxy = [
+            item
+            for item in config.bom["artifacts"]
+            if item["kind"] == bom_module.KIND_PROVIDER_IMAGE
+            and item["name"] == "quay.io/oauth2-proxy/oauth2-proxy"
+        ]
+        if len(proxy) != 1:
+            raise golden.CandidateError("Authenticated journey requires the exact BOM proxy image")
+        result["authenticated"] = oidc_journey(
+            config, binding, artifacts, f"{proxy[0]['name']}@{proxy[0]['digest']}"
+        )
         return result, wheels + images
     finally:
         # Containers/volumes are owned by this unique run. Private project and
@@ -781,7 +1373,7 @@ def run_journey(
     config: golden.RunConfig, *, previous_bom: Path | None, artifacts: Path
 ) -> tuple[dict, list]:
     """Called by exact-BOM acceptance, never by source-mode fixture demonstrations."""
-    for executable in ("agent-browser", "openssl", "docker"):
+    for executable in ("agent-browser", "openssl", "docker", "certutil"):
         if not shutil.which(executable):
             raise golden.CandidateError(f"Installed Observatory acceptance requires {executable}")
     if previous_bom is None:
@@ -798,13 +1390,13 @@ def run_journey(
     temporary = Path(tempfile.mkdtemp(prefix="phlo-observatory-acceptance-"))
     fresh = replace(
         config,
-        project_dir=temporary / "fresh",
+        project_dir=temporary / f"{config.project_name}-fresh",
         operator_env=temporary / "fresh-operator",
         project_name=f"{config.project_name}-fresh",
     )
     old = replace(
         config,
-        project_dir=temporary / "upgrade",
+        project_dir=temporary / f"{config.project_name}-upgrade",
         operator_env=temporary / "old-operator",
         project_name=f"{config.project_name}-upgrade",
         bom=previous,

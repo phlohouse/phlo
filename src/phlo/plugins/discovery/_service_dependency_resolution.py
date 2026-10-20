@@ -48,7 +48,7 @@ def resolve_service_dependencies[ServiceT: _ServiceLike](
         node = queue.popleft()
         ordered_names.append(node)
 
-        for dependent in graph[node]:
+        for dependent in sorted(graph[node]):
             in_degree[dependent] -= 1
             if in_degree[dependent] == 0:
                 queue.append(dependent)
