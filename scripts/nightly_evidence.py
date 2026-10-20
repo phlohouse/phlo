@@ -30,6 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from golden_path_common import project_env_paths, read_env_file  # noqa: E402
 
+from phlo.exceptions import redact_sensitive_text  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 GOVERNED_BACKENDS = ("postgres", "minio", "nessie")
@@ -179,14 +181,17 @@ def compose_files(project: Path) -> list[str]:
 
 
 def _compose_cmd(project: Path, *args: str) -> list[str]:
-    return [
+    cmd = [
         "docker",
         "compose",
         *compose_files(project),
         "-p",
         _project_name(project),
-        *args,
     ]
+    for env_file in project_env_paths(project / ".phlo"):
+        if env_file.is_file():
+            cmd.extend(["--env-file", str(env_file)])
+    return [*cmd, *args]
 
 
 def compose(project: Path, *args: str) -> str:
@@ -312,15 +317,7 @@ def wait_stack_ready(project: Path) -> None:
     env_values = read_env_layers(project / ".phlo")
     pg_user = env_values.get("POSTGRES_USER", "phlo")
     minio_port = env_values.get("MINIO_API_PORT", "10001")
-    name = _project_name(project)
-    base = [
-        "docker",
-        "compose",
-        "-f",
-        str(project / ".phlo" / "docker-compose.yml"),
-        "-p",
-        name,
-    ]
+    base = _compose_cmd(project)
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         pg_ok = _try([*base, "exec", "-T", "postgres", "pg_isready", "-U", pg_user], cwd=project)
@@ -740,7 +737,11 @@ def main() -> int:
         report["steps"]["enforcement_probe"] = "ok"
         return_code = 0
     except StepError as exc:
-        report["error"] = str(exc)
+        error = redact_sensitive_text(str(exc))
+        annotation = error.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"ERROR: {error}", file=sys.stderr, flush=True)
+        print(f"::error::{annotation}", flush=True)
+        report["error"] = error
         return_code = 1
     finally:
         report["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
