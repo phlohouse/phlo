@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -43,6 +45,30 @@ def _apply(root: Path, plan: GeneratedStackPlan):
     return CliRunner().invoke(
         upgrade_cmd, ["--apply", str(root / "review.json"), "--confirm", plan.token()]
     )
+
+
+def test_reviewed_plan_is_stable_between_cli_processes(tmp_path, monkeypatch):
+    root = _init(tmp_path, monkeypatch)
+    plans = []
+    for seed in ("1", "2", "3"):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from phlo.cli.commands.services.upgrade import upgrade_cmd; upgrade_cmd()",
+                "--dry-run",
+                "--output",
+                str(root / "review.json"),
+            ],
+            cwd=root,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "Plan token:" in result.stdout
+        plans.append((root / "review.json").read_bytes())
+    assert plans[0] == plans[1] == plans[2]
 
 
 def test_upgrade_preserves_secrets_custom_files_and_volumes(tmp_path, monkeypatch):
