@@ -773,10 +773,12 @@ def test_runtime_diagnostics_emit_relevant_service_logs_and_do_not_mask_errors(
     config = _config(tmp_path)
     commands: list[list[str]] = []
 
-    def fake_run(args, **_kwargs):
+    def fake_run(args, **kwargs):
+        assert kwargs["capture_output"] is True
         commands.append(args)
         if args[-1] == "nessie":
-            raise RuntimeError("log collection unavailable")
+            raise RuntimeError("private-provider-secret")
+        return SimpleNamespace(stdout="private-provider-secret", stderr="private-stderr")
 
     monkeypatch.setattr(release_golden_path, "run", fake_run)
 
@@ -786,7 +788,16 @@ def test_runtime_diagnostics_emit_relevant_service_logs_and_do_not_mask_errors(
         release_golden_path.compose_command(config, "logs", "--no-color", "--timestamps", service)
         for service in release_golden_path.RUNTIME_DIAGNOSTIC_SERVICES
     ]
-    assert "diagnostics failed for nessie: log collection unavailable" in capsys.readouterr().err
+    output = capsys.readouterr()
+    assert "diagnostics failed for nessie: RuntimeError" in output.err
+    assert "private-provider-secret" not in output.err + output.out
+    directory = next(tmp_path.glob("phlo-runtime-private-*"))
+    logs = list(directory.glob("*.log"))
+    assert len(logs) == len(release_golden_path.RUNTIME_DIAGNOSTIC_SERVICES) - 1
+    assert all(path.read_text() == "private-provider-secretprivate-stderr" for path in logs)
+    if release_golden_path.os.name == "posix":
+        assert directory.stat().st_mode & 0o777 == 0o700
+        assert all(path.stat().st_mode & 0o777 == 0o600 for path in logs)
 
 
 def test_align_project_name_binds_cli_lookup_to_owned_compose_project(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ golden-path portability harness intentionally needs only pytest and stdlib.
 import json
 import os
 import sys
+from contextlib import nullcontext
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -103,7 +104,12 @@ def test_preview_layer_preserves_provider_private_volumes(config, observatory, m
     overrides = config.project_dir / ".phlo/overrides"
     overrides.mkdir(parents=True)
     layer_path = overrides / "compose.yaml"
-    layer_path.write_text("volumes:\n  retained-data: {}\n")
+    layer_path.write_text(
+        "volumes:\n  retained-data: {}\nservices:\n  phlo-api:\n"
+        "    environment:\n      RETAIN_ME: 'yes'\n"
+        "    depends_on:\n      postgres:\n        condition: service_healthy\n"
+        "    volumes:\n      - retained-data:/retained\n"
+    )
     output = config.project_dir / "private/generated"
     output.mkdir(parents=True)
     provider = {
@@ -132,7 +138,9 @@ def test_preview_layer_preserves_provider_private_volumes(config, observatory, m
     inputs = output.parent / "preview.json"
     monkeypatch.chdir(config.project_dir)
     monkeypatch.setattr(observatory, "preview_config", lambda *args: inputs)
-    monkeypatch.setattr(observatory.golden, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        observatory.golden, "run", lambda *args, **kwargs: SimpleNamespace(stdout="[100,101]")
+    )
     monkeypatch.setattr(observatory.golden, "pin_candidate_images", lambda _: ({}, []))
     monkeypatch.setattr(
         observatory.golden,
@@ -152,14 +160,18 @@ def test_preview_layer_preserves_provider_private_volumes(config, observatory, m
         return {}
 
     monkeypatch.setattr(observatory, "installed", run_installed_layer)
-    monkeypatch.setattr(observatory, "compose", lambda *args: None)
+    monkeypatch.setattr(observatory, "compose", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         observatory.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0)
     )
     observatory.provision_preview(config, {"env": "analytics"})
 
     result = yaml.safe_load(layer_path.read_text())
-    assert result["volumes"] == {"retained-data": {}, "preview-config": {}}
+    assert result["volumes"] == {
+        "retained-data": {},
+        "preview-config": {},
+        "preview-api-secrets": {},
+    }
     coordinator = result["services"]["trino-preview"]
     assert coordinator["volumes"] == ["preview-config:/etc/trino:ro"]
     assert coordinator["depends_on"] == provider["services"]["trino-preview"]["depends_on"]
@@ -171,7 +183,21 @@ def test_preview_layer_preserves_provider_private_volumes(config, observatory, m
         "preview-config:/target/trino",
     ]
     assert result["services"]["phlo-api"]["volumes"] == [
-        f"{output}/api-secrets:/opt/phlo-preview/api-secrets:ro"
+        "retained-data:/retained",
+        "preview-api-secrets:/opt/phlo-preview/api-secrets:ro",
+    ]
+    api = result["services"]["phlo-api"]
+    assert api["environment"]["RETAIN_ME"] == "yes"
+    assert api["depends_on"]["postgres"] == {"condition": "service_healthy"}
+    assert api["depends_on"]["phlo-api-preview-init"] == {
+        "condition": "service_completed_successfully"
+    }
+    private_init = result["services"]["phlo-api-preview-init"]
+    assert private_init["network_mode"] == "none"
+    assert private_init["read_only"] is True
+    assert private_init["volumes"] == [
+        f"{output}/api-secrets:/source:ro",
+        "preview-api-secrets:/target",
     ]
     assert provider_path.read_bytes() == original
 
@@ -259,6 +285,53 @@ def test_readiness_separates_mandatory_health_from_preview_configuration(
             observatory.verify_readiness("http://synthetic.invalid", {"env": "analytics"})
 
 
+@pytest.mark.parametrize("outage", [True, False])
+@pytest.mark.parametrize("authorization_unavailable", [True, False])
+def test_database_outage_requires_db_failure_not_configured_preview(
+    config, observatory, monkeypatch, outage, authorization_unavailable
+):
+    capabilities = {
+        name: [
+            {
+                "state": "unavailable" if outage else "ready",
+                "reason_code": "backend_unavailable" if outage else "ready",
+            }
+        ]
+        for name in ("incidents", "query_usage")
+    }
+    capabilities.update(
+        {"orchestration": [{"state": "ready"}], "query_preview": [{"state": "configured"}]}
+    )
+    monkeypatch.setattr(observatory.golden, "service_url", lambda *args: "http://synthetic.invalid")
+    monkeypatch.setattr(
+        observatory,
+        "compose",
+        lambda *args, **kwargs: SimpleNamespace(
+            stdout=json.dumps({"capabilities": capabilities})
+            if "exec" in args
+            else "api-container\n"
+        ),
+    )
+    monkeypatch.setattr(observatory, "wait_ready", lambda *args: None)
+    monkeypatch.setattr(observatory, "verify_data", lambda *args: None)
+    monkeypatch.setattr(
+        observatory,
+        "request",
+        lambda url, **kwargs: (
+            {"result": {"rows": observatory.ROWS}, "evidence_available": True}
+            if "/queries/" in url
+            else {"error": {"code": "authorization_unavailable"}}
+            if authorization_unavailable
+            else {"capabilities": capabilities}
+        ),
+    )
+    if outage:
+        assert observatory.recover(config, {"env": "analytics"}, "q19")["feature_outage_detected"]
+    else:
+        with pytest.raises(observatory.golden.CandidateError, match="outage was not detected"):
+            observatory.recover(config, {"env": "analytics"}, "q19")
+
+
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "0.0.0.0", None])
 def test_published_ports_require_explicit_loopback(host, config, observatory, monkeypatch):
     monkeypatch.setattr(
@@ -342,3 +415,135 @@ def test_history_rejects_incomplete_or_unbounded_pages(fault, observatory, monke
         observatory.verify_history(
             "http://synthetic.invalid", {"env": "analytics", "nessie_ref": "candidate-ref"}
         )
+
+
+def test_oidc_setup_has_distinct_targets_private_credentials_and_no_dev_identity(
+    config, observatory, monkeypatch
+):
+    """Fixture provisioning contract only, not a login or artifact qualification."""
+    import release_observatory_oidc as oidc
+    from click.testing import CliRunner
+
+    from phlo.cli.commands.services.init import init_cmd
+    from phlo.config_schema import ProjectConfig
+
+    config.project_dir.mkdir(parents=True)
+    monkeypatch.chdir(config.project_dir)
+    initialized = CliRunner().invoke(init_cmd, ["--observatory-dev"])
+    assert initialized.exit_code == 0, initialized.output
+    overrides = config.project_dir / ".phlo/overrides/compose.yaml"
+    overrides.write_text("services: {}\n")
+    monkeypatch.setattr(
+        observatory.golden,
+        "compose_config_json",
+        lambda _: {
+            "networks": {"default": {"name": "owned-test-network"}},
+            "services": {"phlo-api": {"image": "example.invalid/api@sha256:synthetic"}},
+        },
+    )
+    monkeypatch.setattr(
+        observatory.golden, "service_url", lambda *args: "https://synthetic.invalid"
+    )
+    monkeypatch.setattr(observatory, "request", lambda *args, **kwargs: {"hash": "a" * 64})
+
+    def installed(_config, source, *args):
+        monkeypatch.setattr(sys, "argv", ["-c", *args])
+        exec(source, {})
+        return {}
+
+    monkeypatch.setattr(observatory, "installed", installed)
+    root, issuer, _base, private_ref = oidc.prepare(
+        config, {"env": "sandbox", "nessie_ref": "main"}, "example.invalid/proxy@sha256:synthetic"
+    )
+    project = ProjectConfig.model_validate(
+        yaml.safe_load((config.project_dir / "phlo.yaml").read_text())
+    )
+    assert project.authentication.provider == "jwt"
+    assert project.environments["denied"].nessie_ref == private_ref != "main"
+    assert project.environments["denied"].dagster_location == private_ref
+    assert project.environments["denied"].compose_project is None
+    assert project.services.overrides["phlo-api"].environment["PHLO_AUTH_DEV_MODE"] == "false"
+    fixture = json.loads((root / "fixture.json").read_text())
+    proxy = fixture["services"]["login-proxy"]
+    assert proxy["environment"]["OAUTH2_PROXY_OIDC_ISSUER_URL"] == issuer
+    assert proxy["environment"]["OAUTH2_PROXY_COOKIE_SECURE"] == "true"
+    assert "OAUTH2_PROXY_SSL_INSECURE_SKIP_VERIFY" not in proxy["environment"]
+    assert proxy["environment"]["OAUTH2_PROXY_CLIENT_SECRET"] not in json.dumps(
+        [definition.get("command", []) for definition in fixture["services"].values()]
+    )
+    if os.name == "posix":
+        assert (root / "fixture.json").stat().st_mode & 0o077 == 0
+        assert (root / "login.json").stat().st_mode & 0o077 == 0
+
+
+@pytest.mark.parametrize("fault", [None, "identity", "denial", "receipt"])
+def test_oidc_acceptance_requires_verified_role_denial_and_honest_receipt(
+    config, observatory, monkeypatch, tmp_path, fault
+):
+    """Controlled driver boundary; real browser/TLS proof is a separate run."""
+    import release_observatory_oidc as oidc
+
+    root = tmp_path / "owned-oidc"
+    root.mkdir()
+    (root / "public").mkdir()
+    (root / "login.json").write_text(json.dumps({"password": "synthetic-private-password"}))
+    receipt = config.project_dir / ".phlo/observatory-ready.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "state": "ready" if fault == "receipt" else "verification_required",
+                "browser_login_verified": False,
+            }
+        )
+    )
+    monkeypatch.setattr(
+        oidc,
+        "prepare",
+        lambda *args: (root, "https://issuer.invalid", "https://ui.invalid", "actual-private"),
+    )
+    monkeypatch.setattr(oidc.Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setattr(oidc.ssl, "create_default_context", lambda **kwargs: None)
+    monkeypatch.setattr(oidc.urllib.request, "urlopen", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(
+        oidc.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(stdout="", stderr="", returncode=0),
+    )
+    monkeypatch.setattr(oidc.golden, "service_url", lambda *args: "https://dagster.invalid")
+    monkeypatch.setattr(
+        oidc.golden,
+        "graphql",
+        lambda *args: {
+            "data": {"repositoriesOrError": {"nodes": [{"location": {"name": "actual-private"}}]}}
+        },
+    )
+    monkeypatch.setattr(observatory, "compose", lambda *args, **kwargs: None)
+
+    def browser(_session, *args):
+        if args[0] == "eval":
+            if "/api/v1/me" in args[1]:
+                return {
+                    "result": {
+                        "status": 200,
+                        "body": {
+                            "subject": oidc.VIEWER,
+                            "roles": ["admin" if fault == "identity" else "viewer"],
+                        },
+                    }
+                }
+            return {
+                "result": 401 if "/oauth2/auth" in args[1] else 200 if fault == "denial" else 403
+            }
+        return {}
+
+    monkeypatch.setattr(observatory, "_browser", browser)
+    if fault:
+        with pytest.raises(observatory.golden.CandidateError, match="viewer|receipt|browser login"):
+            oidc.run(config, {"env": "sandbox"}, tmp_path, "synthetic-proxy")
+    else:
+        result = oidc.run(config, {"env": "sandbox"}, tmp_path, "synthetic-proxy")
+        assert result["api_jwt_verified"] and result["browser_password_login"]
+        assert result["canonical_role"] == "viewer"
+        assert result["environment_denied"] and result["admin_denied"]
+        assert result["logout_denied"] and result["api_no_token_denied"]

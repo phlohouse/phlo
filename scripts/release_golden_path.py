@@ -964,18 +964,28 @@ def verify_rows(
 
 
 def emit_runtime_diagnostics(config: RunConfig) -> None:
-    """Emit owned service logs before cleanup hides a post-start failure."""
+    """Keep raw service logs private; provider output can contain credentials."""
+    directory = Path(
+        tempfile.mkdtemp(prefix="phlo-runtime-private-", dir=config.project_dir.parent)
+    )
     for service in RUNTIME_DIAGNOSTIC_SERVICES:
         try:
-            run(
+            result = run(
                 compose_command(config, "logs", "--no-color", "--timestamps", service),
                 cwd=config.project_dir,
+                capture_output=True,
             )
+            descriptor = os.open(
+                directory / f"{service}.log", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(result.stdout + result.stderr)
         except Exception as exc:
             print(
-                f"release golden path diagnostics failed for {service}: {exc}",
+                f"release golden path diagnostics failed for {service}: {type(exc).__name__}",
                 file=sys.stderr,
             )
+    print(f"Private runtime diagnostics retained at {directory}", file=sys.stderr)
 
 
 def emit_missing_raw_diagnostics(config: RunConfig) -> None:
@@ -1395,17 +1405,18 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
 def start_stack_candidate(config: RunConfig) -> None:
     """Pull exact digests and start the stack without any build fallback."""
     try:
-        run(compose_command(config, "--profile", "api", "pull"), cwd=config.project_dir)
+        run(
+            compose_command(config, "--profile", "api", "pull"),
+            cwd=config.project_dir,
+            capture_output=True,
+        )
         run(
             compose_command(config, "--profile", "api", "up", "--detach", "--no-build"),
             cwd=config.project_dir,
+            capture_output=True,
         )
     except subprocess.CalledProcessError:
-        for parts in (("ps",), ("logs", "--no-color", "--timestamps")):
-            try:
-                run(compose_command(config, *parts), cwd=config.project_dir)
-            except Exception as exc:
-                print(f"release golden path diagnostics failed: {exc}", file=sys.stderr)
+        emit_runtime_diagnostics(config)
         raise
 
 
