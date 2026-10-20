@@ -97,7 +97,7 @@ def _sources() -> dict[str, tuple[str, dict[tuple[str, str], tuple[Environment, 
                 or not subject
                 or subject in subjects
                 or not isinstance(catalogs, dict)
-                or set(catalogs) != {"prod", "staging"}
+                or set(catalogs) != set(targets)
             ):
                 raise ValueError
             subjects.add(subject)
@@ -167,8 +167,9 @@ def _transaction() -> Iterator[Any]:
 
 
 def initialize_usage() -> None:
-    """Explicit migration for a disposable or selected installation database."""
+    """Apply the idempotent query-usage schema to the configured Phlo database."""
     with _transaction() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(1123, 1)")
         cursor.execute(
             (Path(__file__).parent / "sql" / "002_query_usage.sql").read_text(encoding="utf-8")
         )

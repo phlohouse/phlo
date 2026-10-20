@@ -19,6 +19,7 @@ WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 EXPECTED_UV_VERSION = "0.12.1"
 EXPECTED_RELX_VERSION = "v1.5.0"
 EXPECTED_RELX_REVISION = "5dc88dc73d728dd1560444baadf66d6115c1bec2"
+EXPECTED_ZIZMOR_VERSION = "1.31.0"
 
 _SHA_REF = re.compile(r"@[0-9a-f]{40}$")
 
@@ -134,6 +135,22 @@ def test_pre_commit_hooks_use_the_locked_project_toolchain() -> None:
             entry = str(hook.get("entry", ""))
             if entry.startswith("uv run"):
                 assert "--locked" in entry, f"unlocked pre-commit entry: {entry}"
+
+
+def test_zizmor_is_pinned_consistently_in_make_and_pre_commit() -> None:
+    """Security scans must use one explicit zizmor release in both entry points."""
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    config = _parse_yaml(REPO_ROOT / ".pre-commit-config.yaml")
+    hooks = [
+        hook
+        for repo in config.get("repos") or []
+        for hook in repo.get("hooks") or []
+        if hook.get("id") == "zizmor"
+    ]
+    expected = f"zizmor=={EXPECTED_ZIZMOR_VERSION}"
+    assert makefile.count(expected) == 1
+    assert len(hooks) == 1
+    assert expected in hooks[0].get("entry", "")
 
 
 def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:

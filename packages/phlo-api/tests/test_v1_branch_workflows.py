@@ -123,8 +123,10 @@ def branch_api(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, dict[str, l
                 "@", 1
             )[0]
             chain = histories[branch]
-            offset = int(params.get("pageToken", 0)) if params else 0
-            count = int(params["maxRecords"])
+            assert params is not None
+            assert "max-records" in params and "maxRecords" not in params
+            offset = int(params.get("page-token", 0))
+            count = int(params["max-records"])
             rows = [
                 {
                     "commitMeta": {
@@ -239,6 +241,96 @@ def test_commit_pagination_and_stale_cursor(branch_api) -> None:
     assert [commit["hash"] for commit in second.json()["items"]] == ["p1", "root"]
     assert second.json()["next_cursor"] is None
     assert stale.status_code == 400
+
+
+def test_nessie_history_uses_three_v2_pages_and_public_cursors(monkeypatch) -> None:
+    commits = [f"commit-{index}" for index in range(250)]
+    requests: list[dict[str, object]] = []
+
+    async def nessie(method, path, *, params=None, body=None, allow_not_found=False):
+        assert method == "GET"
+        assert params is not None
+        assert "max-records" in params and "maxRecords" not in params
+        assert "pageToken" not in params
+        requests.append(params)
+        start = int(params.get("page-token", 0))
+        count = int(params["max-records"])
+        page = commits[start : start + count]
+        end = start + len(page)
+        return {
+            "logEntries": [
+                {"commitMeta": {"hash": commit, "parentCommitHashes": []}} for commit in page
+            ],
+            "hasMore": end < len(commits),
+            "token": str(end) if end < len(commits) else None,
+        }
+
+    monkeypatch.setattr(v1_branch_workflows, "_nessie", nessie)
+    history = asyncio.run(
+        v1_branch_workflows._history("release_candidate", "pinned-head", limit=250)
+    )
+    branch = v1_branch_workflows.BranchReference(
+        env="prod", name="release_candidate", type="BRANCH", hash="pinned-head", protected=False
+    )
+    first, cursor = v1_branch_workflows._commit_page(
+        history, after=None, limit=100, env="prod", branch=branch
+    )
+    second, cursor = v1_branch_workflows._commit_page(
+        history, after=cursor, limit=100, env="prod", branch=branch
+    )
+    third, cursor = v1_branch_workflows._commit_page(
+        history, after=cursor, limit=100, env="prod", branch=branch
+    )
+
+    assert [len(request) for request in requests] == [2, 3, 3]
+    assert [len(page) for page in (first, second, third)] == [100, 100, 50]
+    assert [item.hash for item in first + second + third] == commits
+    assert cursor is None
+
+
+@pytest.mark.parametrize("failure", ["repeated_cursor", "duplicate_commit"])
+def test_nessie_history_rejects_repeated_page_state(monkeypatch, failure: str) -> None:
+    calls = 0
+
+    async def nessie(method, path, *, params=None, body=None, allow_not_found=False):
+        nonlocal calls
+        calls += 1
+        return {
+            "logEntries": [
+                {
+                    "commitMeta": {
+                        "hash": "same"
+                        if failure == "duplicate_commit" and calls > 1
+                        else f"page-{calls}"
+                    }
+                }
+            ],
+            "hasMore": True,
+            "token": "loop" if failure == "repeated_cursor" else str(calls),
+        }
+
+    monkeypatch.setattr(v1_branch_workflows, "_nessie", nessie)
+    with pytest.raises(v1_branch_workflows.BadGatewayError):
+        asyncio.run(v1_branch_workflows._history("feature", "pinned", limit=10))
+
+
+def test_branch_self_comparison_is_pinned_and_zero_ahead_behind(branch_api) -> None:
+    client, _ = branch_api
+
+    response = client.get("/api/v1/branches/main/compare?env=prod&target=main")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "env": "prod",
+        "source": "main",
+        "target": "main",
+        "source_hash": "p3",
+        "target_hash": "p3",
+        "merge_base": "p3",
+        "ahead": 0,
+        "behind": 0,
+        "status": "compared",
+    }
 
 
 def test_invalid_environment_query_is_rejected(branch_api) -> None:

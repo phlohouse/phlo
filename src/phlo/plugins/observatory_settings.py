@@ -8,7 +8,6 @@ never imports a provider package and contains no database driver or SQL code.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -21,7 +20,7 @@ from pydantic import ValidationError as ModelValidationError
 
 from phlo.capabilities.settings import SettingsRecord, SettingsScope, SettingsStore
 from phlo.config.base import BaseConfig
-from phlo.config.process import get_process_settings
+from phlo.config.project import get_environment_targets
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
@@ -314,23 +313,8 @@ def operational_schedule_slot(schedule: str, at: datetime) -> datetime | None:
 def operational_environment_target(env: str) -> tuple[str, str]:
     """Resolve an operator-bound consumer location/ref, never a default branch."""
     try:
-        targets = json.loads(get_process_settings()["PHLO_V1_ENVIRONMENTS"])
-        if env not in {"prod", "staging"} or set(targets) != {"prod", "staging"}:
-            raise ValueError
-        if (
-            len({targets[name]["dagster_location"] for name in targets}) != 2
-            or len({targets[name]["nessie_ref"] for name in targets}) != 2
-        ):
-            raise ValueError
-        location, ref = targets[env]["dagster_location"], targets[env]["nessie_ref"]
-        if (
-            not isinstance(location, str)
-            or not location
-            or not isinstance(ref, str)
-            or not re.fullmatch(r"[A-Za-z0-9_.-]+", ref)
-        ):
-            raise ValueError
-        return location, ref
+        target = get_environment_targets()[env]
+        return target.dagster_location, target.nessie_ref
     except (KeyError, TypeError, ValueError) as exc:
         raise StorageUnavailableError(
             "Operational consumer environment binding is unavailable."

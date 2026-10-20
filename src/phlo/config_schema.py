@@ -9,7 +9,57 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    AnyHttpUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
+
+EnvironmentId = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z][a-z0-9_-]{0,62}$")]
+
+
+class EnvironmentPreview(BaseModel):
+    """Opt-in provider inputs; secrets stay in private files, never YAML values."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    catalog: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_-]*$")
+    catalog_file: str = Field(min_length=1)
+    password_file: str = Field(min_length=1)
+
+
+class EnvironmentTarget(BaseModel):
+    """A deployed target, explicitly bound by the project operator."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    dagster_location: str = Field(min_length=1)
+    nessie_ref: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
+    compose_project: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    service_health_urls: dict[str, AnyHttpUrl] = Field(default_factory=dict, max_length=500)
+    preview: EnvironmentPreview | None = None
+
+    @model_validator(mode="after")
+    def require_server_owned_health_urls(self) -> EnvironmentTarget:
+        """Keep credentials and caller-controlled selectors out of probe URLs."""
+        for url in self.service_health_urls.values():
+            if url.username or url.password or url.query or url.fragment:
+                raise ValueError(
+                    "service health URLs cannot contain credentials, queries, or fragments"
+                )
+        return self
+
+
+def validate_environment_targets(targets: dict[str, EnvironmentTarget]) -> None:
+    """Reject aliases that could collapse isolation between deployed targets."""
+    for field in ("dagster_location", "nessie_ref", "compose_project"):
+        values = [getattr(target, field) for target in targets.values()]
+        values = [value for value in values if value is not None]
+        if len(values) != len(set(values)):
+            raise ValueError(f"environment {field} values must be distinct")
 
 
 class ApiAuthorizationConfig(BaseModel):
@@ -441,6 +491,14 @@ class ProjectServices(BaseModel):
         return result
 
 
+class PromotionEnvironments(BaseModel):
+    """Cross-environment promotion roles, independent of environment names."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_environment: EnvironmentId
+    target_environment: EnvironmentId
+
+
 class ProjectConfig(BaseModel):
     """One parse of core-owned phlo.yaml fields; extension blocks remain opaque."""
 
@@ -454,6 +512,24 @@ class ProjectConfig(BaseModel):
     wap: WapConfig = Field(default_factory=WapConfig)
     regulated: bool | None = Field(default=None, strict=True)
     regulated_mode: bool | None = Field(default=None, strict=True)
+    environments: dict[EnvironmentId, EnvironmentTarget] = Field(default_factory=dict)
+    default_environment: EnvironmentId | None = None
+    promotion: PromotionEnvironments | None = None
+
+    @model_validator(mode="after")
+    def validate_environments(self) -> ProjectConfig:
+        """Validate the default against the same configured target map."""
+        validate_environment_targets(self.environments)
+        if (
+            self.default_environment is not None
+            and self.default_environment not in self.environments
+        ):
+            raise ValueError("default_environment must name a configured environment")
+        if self.promotion is not None:
+            source, target = self.promotion.source_environment, self.promotion.target_environment
+            if source == target or not {source, target} <= self.environments.keys():
+                raise ValueError("promotion requires two distinct configured environments")
+        return self
 
     @field_validator("wap", mode="before")
     @classmethod

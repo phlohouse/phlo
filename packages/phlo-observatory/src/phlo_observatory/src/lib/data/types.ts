@@ -1,6 +1,6 @@
 /** Shared domain and presentation types for phlo. */
 
-export type Env = 'prod' | 'staging'
+export type Env = string
 export type Layer = 'bronze' | 'silver' | 'gold'
 export type LayerOrCatalog = Layer | 'catalog'
 export type Severity = 'high' | 'medium' | 'low'

@@ -14,6 +14,32 @@ checks each against `tests/coverage-floors.json`. A new source tree without a
 measurement or floor fails. The existing package-specific coverage collection
 remains in CI.
 
+CI measures the same workspace with four module-preserving shards and runs the
+required PostgreSQL coverage suite in a separate job. Every producer records
+branch coverage for the full source scope. The aggregate requires all four shards
+and the PostgreSQL producer, verifies their successful test reports and branch
+data, then combines them before enforcing the same floors. Missing producers,
+failed or empty test reports, and PostgreSQL skips fail the gate.
+
+After `make setup`, reproduce the CI producers from the repository root:
+
+```bash
+make test-coverage-workspace COVERAGE_SHARD_INDEX=0 COVERAGE_SHARD_COUNT=4
+make test-coverage-postgres
+```
+
+Run the workspace command for indices `0`, `1`, `2` and `3`; each writes its own
+directory beneath `test-results/coverage-inputs/`. The PostgreSQL command requires
+Docker. Once every producer succeeds, combine their results:
+
+```bash
+make test-coverage-combine COVERAGE_SHARD_COUNT=4
+```
+
+The complete `coverage.json`, `totals.json` and per-producer test reports are
+written to `test-results/coverage/`. `make test-coverage` remains the sequential
+local entry point for the complete measurement and coverage floors.
+
 The floors use a fresh workspace measurement, not the historical September
 aggregate. They are rounded down to one decimal place to avoid display-rounding
 failures. The JSON artifact contains the unrounded measurements. A floor is a
@@ -36,6 +62,41 @@ the failing exit status and the published skip reason.
 The required contracts in `scripts/run_integration.py` are Iceberg, Dagster,
 API integration, MinIO migration, dbt quality, schema generation, schema
 conversion, and ingestion. They do not claim complete external-service coverage.
+
+### Parallel integration contracts
+
+CI runs the storage contracts and three API groups on separate runners. The API
+partition keeps module fixtures together and includes newly added API integration
+tests in the `api-contracts` group automatically. All groups retain the required
+plugin, so skips, expected failures and empty selections fail their job.
+
+| Group | Required selection |
+| --- | --- |
+| `storage` | Iceberg, Dagster, MinIO migration, dbt quality, schema generation, schema conversion and ingestion |
+| `api-contracts` | Integration tests under `packages/phlo-api/tests`, except the separately assigned Trino journey module |
+| `api-query-journey` | The complete dataset journey and Trino integration modules |
+| `api-branch-journey` | The complete signed branch journey module |
+| `all` | The complete original selection; this remains the default local command |
+
+After `make setup`, with Docker running, build the checked-in MinIO image once
+and run a group from the repository root:
+
+```bash
+docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.1 packages/phlo-minio/src/phlo_minio
+uv run --locked python scripts/run_integration.py --group api-query-journey
+```
+
+Omit `--group` to run every original named contract. Each invocation writes
+distinct JUnit reports to `test-results/integration/` and attempts every selected
+suite even if an earlier suite fails. Only a selection containing Iceberg starts
+the runner's shared MinIO/Nessie pair; the API journey fixtures own their services.
+
+Each pytest process prints its 20 slowest setup, call and teardown phases taking
+at least one second. Use those durations to distinguish service provisioning from
+test execution. CI combines the producer reports into `integration-results` after
+requiring the image build, storage contracts, every API group and the independent
+PostgreSQL/quickstart/recovery job to succeed. The quickstart coverage artifact
+continues to feed `pr / required`.
 
 The [fix regression-test-or-justification item proposed in PR1109](https://github.com/phlohouse/phlo/blob/ac75026a89985d009bcb3430830e1b892af67fa4/.github/PULL_REQUEST_TEMPLATE.md#L18-L20)
 belongs to the single PR template. This change does not add a competing template

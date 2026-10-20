@@ -75,7 +75,15 @@ def test_reusable_evidence_workflows_do_not_cancel_one_another():
 
 def test_ci_status_includes_every_installed_provider_artifact_shard():
     ci = workflow("ci.yml")["jobs"]
-    assert ci["installed-provider-artifacts"]["strategy"]["matrix"]["docker-shard"] == [0, 1, 2, 3]
+    providers = ci["installed-provider-artifacts"]
+    assert providers["strategy"] == {"fail-fast": False, "matrix": {"docker-shard": [0, 1]}}
+    verify = next(
+        step for step in providers["steps"] if step.get("id") == "installed_provider_artifacts"
+    )
+    assert "--docker-shard-index ${{ matrix.docker-shard }}" in verify["run"]
+    assert "--docker-shard-count 2" in verify["run"]
+    assert providers["needs"] == "ci-config"
+    assert not providers.get("continue-on-error")
     assert {"installed-provider-artifacts", "windows-portability"} <= set(ci["ci-status"]["needs"])
     assert (
         ci["ci-status"]["steps"][0]["env"]["INSTALLED_PROVIDER_ARTIFACTS"]

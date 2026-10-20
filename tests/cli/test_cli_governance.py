@@ -1,9 +1,9 @@
-"""Tests for the governance CLI commands, run against a cleared flow-declaration registry.
+"""Governance CLI tests with isolated declarations and Dataset-store capabilities.
 
 Each test starts from an empty global flow-declaration registry and
-leaves nothing behind. Covers unsafe publishes failing with structured
-warnings, contract-governed publishes passing, read-model export, and
-clean errors for bad declaration modules.
+without a durable Dataset-store provider, then restores prior capabilities.
+Covers unsafe publishes failing with structured warnings, contract-governed
+publishes passing, read-model export, and clean errors for bad declaration modules.
 """
 
 from __future__ import annotations
@@ -29,16 +29,27 @@ def _assert_ok_payload(payload: dict) -> None:
     # The canonical Dataset section is always present; without a durable
     # state store it reports unavailability instead of failing the check.
     assert payload["datasets"]["available"] is False
-    assert "reason" in payload["datasets"]
+    assert "No durable dataset state store is registered" in payload["datasets"]["reason"]
 
 
 @pytest.fixture(autouse=True)
-def _clear_flow_declarations() -> Iterator[None]:
-    # Decorator-declared flows accumulate in global registry state, so every
-    # test starts from an empty registry and leaves nothing behind.
+def _isolate_governance_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    from phlo.capabilities.registry import get_capability_registry
+
+    # Workspace collection can import the API app and register provider-owned
+    # stores. These tests explicitly exercise the missing durable provider case.
+    registry = get_capability_registry()
+    previous_stores = registry.list("dataset_state_store")
+    registry.clear("dataset_state_store")
+    monkeypatch.setenv("PHLO_DATASET_STATE_STORE", "durable")
     phlo.clear_flow_declarations()
-    yield
-    phlo.clear_flow_declarations()
+    try:
+        yield
+    finally:
+        phlo.clear_flow_declarations()
+        registry.clear("dataset_state_store")
+        for store in previous_stores:
+            registry.register("dataset_state_store", store)
 
 
 def test_governance_check_fails_for_unsafe_publish() -> None:

@@ -15,7 +15,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_incident_environment_identity
 
 CREATE TABLE IF NOT EXISTS phlo.query_execution (
     query_id text PRIMARY KEY,
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     actor text NOT NULL,
     nessie_ref text NOT NULL,
     engine text NOT NULL,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS phlo.incident_query_evidence (
 
 CREATE TABLE IF NOT EXISTS phlo.incident_effect (
     effect_id text PRIMARY KEY,
-    env text NOT NULL CHECK (env IN ('prod', 'staging')),
+    env text NOT NULL CHECK (env ~ '^[a-z][a-z0-9_-]{0,62}$'),
     incident_id text NOT NULL,
     incident_version integer NOT NULL,
     actor text NOT NULL,

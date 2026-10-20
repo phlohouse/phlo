@@ -30,8 +30,13 @@ BASE ?= origin/main
 PYMDX_DOCS_DIR ?= docs-site
 PYMDX_DOCS_PORT ?= 3000
 COVERAGE_DIR ?= test-results/coverage
+COVERAGE_INPUTS_DIR ?= test-results/coverage-inputs
+COVERAGE_SHARD_COUNT ?= 4
+COVERAGE_SHARD_INDEX ?= 0
+COVERAGE_SOURCE_ARGS := --cov=src/phlo --cov=scripts $(addprefix --cov=,$(wildcard packages/*/src))
 
-.PHONY: setup setup-js install test test-coverage \
+.PHONY: setup setup-js install test test-coverage test-coverage-workspace \
+	test-coverage-postgres test-coverage-combine \
 	dagster superset hub minio pgweb trino nessie grafana prometheus api hasura openmetadata catalog docs-open \
 	check lint lint-sql lint-python format-python typecheck-python \
 	dependency-refresh dependency-refresh-check \
@@ -59,8 +64,7 @@ test:
 
 test-coverage:
 	@mkdir -p $(COVERAGE_DIR)
-	@args=(--cov=src/phlo --cov=scripts); \
-	for source in packages/*/src; do args+=("--cov=$$source"); done; \
+	@args=($(COVERAGE_SOURCE_ARGS)); \
 	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked pytest -m 'not integration' \
 		"$${args[@]}" --cov-branch --cov-report=json:$(COVERAGE_DIR)/coverage.json \
 		--cov-report= --junitxml=$(COVERAGE_DIR)/results.xml --tb=short -ra || exit $$?; \
@@ -73,6 +77,36 @@ test-coverage:
 		"$${args[@]}" --cov-append --cov-branch \
 		--cov-report=json:$(COVERAGE_DIR)/coverage.json --cov-report= \
 		--junitxml=$(COVERAGE_DIR)/postgres.xml --tb=short -ra
+	python3 scripts/coverage_report.py $(COVERAGE_DIR)/coverage.json --output $(COVERAGE_DIR)/totals.json
+
+test-coverage-workspace:
+	@mkdir -p "$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)"
+	@rm -f "$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)/coverage.data" \
+		"$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)/results.xml"
+	COVERAGE_FILE="$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)/coverage.data" \
+		uv run --locked python -m pytest -p scripts.ci_shard -m 'not integration' \
+		--ci-shard-index=$(COVERAGE_SHARD_INDEX) --ci-shard-count=$(COVERAGE_SHARD_COUNT) \
+		$(COVERAGE_SOURCE_ARGS) --cov-branch --cov-report= \
+		-o junit_suite_name=workspace-$(COVERAGE_SHARD_INDEX)-of-$(COVERAGE_SHARD_COUNT) \
+		--junitxml="$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)/results.xml" \
+		--tb=short -ra
+
+test-coverage-postgres:
+	@mkdir -p "$(COVERAGE_INPUTS_DIR)/postgres"
+	@rm -f "$(COVERAGE_INPUTS_DIR)/postgres/coverage.data" \
+		"$(COVERAGE_INPUTS_DIR)/postgres/results.xml"
+	COVERAGE_FILE="$(COVERAGE_INPUTS_DIR)/postgres/coverage.data" \
+		uv run --locked python -m pytest -p scripts.ci_required -o addopts= -m integration \
+		packages/phlo-api/tests/test_operation_controls_postgres.py \
+		packages/phlo-api/tests/test_run_report_postgres_recovery.py \
+		tests/integration/test_issue1035_dataset_journey.py \
+		tests/integration/test_issue1035_signed_branch_journey.py \
+		$(COVERAGE_SOURCE_ARGS) --cov-branch --cov-report= -o junit_suite_name=postgres \
+		--junitxml="$(COVERAGE_INPUTS_DIR)/postgres/results.xml" --tb=short -ra
+
+test-coverage-combine:
+	uv run --locked --only-group coverage-report python -m scripts.ci_coverage --inputs "$(COVERAGE_INPUTS_DIR)" \
+		--shards $(COVERAGE_SHARD_COUNT) --output "$(COVERAGE_DIR)"
 	python3 scripts/coverage_report.py $(COVERAGE_DIR)/coverage.json --output $(COVERAGE_DIR)/totals.json
 
 test-core-regression:
@@ -201,7 +235,7 @@ prek-validate:
 	uvx prek validate-config
 
 zizmor:
-	uvx zizmor --no-online-audits --no-progress --min-severity low .github/workflows
+	uvx --from zizmor==1.31.0 zizmor --no-online-audits --no-progress --min-severity low .github/workflows
 
 actionlint:
 	docker run --rm -v "$(PWD):/repo" -w /repo mirror.gcr.io/rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color

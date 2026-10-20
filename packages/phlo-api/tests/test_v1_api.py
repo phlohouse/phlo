@@ -182,7 +182,12 @@ def test_identity_and_environment_scoped_services(client):
     }
     environments = http.get("/api/v1/environments")
     assert environments.json() == {
-        "items": [{"env": "prod", "status": "available"}, {"env": "staging", "status": "available"}]
+        "default_environment": "prod",
+        "promotion_source_environment": "staging",
+        "items": [
+            {"env": "prod", "status": "available"},
+            {"env": "staging", "status": "available"},
+        ],
     }
     for env, ref in (("prod", "main"), ("staging", "candidate")):
         response = http.get(f"/api/v1/services?env={env}")
@@ -349,10 +354,12 @@ def test_missing_sources_do_not_report_healthy_or_empty(client):
     monkeypatch.setattr(v1, "project_env_value", lambda name: None)
     response = http.get("/api/v1/environments")
     assert response.json() == {
+        "default_environment": "prod",
+        "promotion_source_environment": "staging",
         "items": [
             {"env": "prod", "status": "unavailable"},
             {"env": "staging", "status": "unavailable"},
-        ]
+        ],
     }
     for env in ("prod", "staging"):
         response = http.get(f"/api/v1/services?env={env}")
@@ -380,6 +387,28 @@ def test_missing_staging_location_does_not_fall_back_to_prod(client):
         "dagster"
     ] == "unhealthy"
     assert http.get("/api/v1/events?env=staging").status_code == 503
+
+
+def test_single_configured_environment_keeps_unavailable_default_and_denies_unknown(client):
+    http, _, _, monkeypatch, _ = client
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps(
+            {
+                "sandbox": {"dagster_location": "sandbox_code", "nessie_ref": "development"},
+            }
+        ),
+    )
+    response = http.get("/api/v1/environments")
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [{"env": "sandbox", "status": "unavailable"}],
+        "default_environment": "sandbox",
+        "promotion_source_environment": None,
+    }
+    assert set(http.get("/api/v1/me").json()["permissions"]) == {"sandbox"}
+    assert http.get("/api/v1/services?env=prod").status_code == 422
+    assert http.get("/api/v1/services?env=sandbox").status_code == 200
 
 
 def test_policy_filters_environments_and_denies_cross_environment_read(client):
@@ -455,7 +484,9 @@ def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch
         },
     ]
 
-    async def graphql(url, query):
+    async def graphql(url, query, variables=None):
+        assert variables == {"filter": {"tags": [{"key": "phlo/ref", "value": "main"}]}}
+        assert "RunsFilter!" in query
         return {"data": {"runsOrError": {"__typename": "Runs", "results": rows}}}
 
     monkeypatch.setattr(v1, "graphql_request", graphql)
@@ -463,6 +494,38 @@ def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch
     rows[1]["tags"] = []
     monkeypatch.setattr(v1_assets, "_assets", lambda *args, **kwargs: asyncio.sleep(0, result=[]))
     assert http.get("/api/v1/overview?env=prod").status_code == 503
+
+
+def test_overview_ref_filter_excludes_legacy_history_before_validation(client, monkeypatch):
+    old_runs = [
+        {"runId": f"legacy-{index}", "status": "SUCCESS", "tags": [], "repositoryOrigin": None}
+        for index in range(105)
+    ]
+    selected = {
+        "runId": "selected",
+        "status": "STARTED",
+        "tags": [{"key": "phlo/ref", "value": "main"}],
+        "repositoryOrigin": {"repositoryLocationName": "production_jobs"},
+    }
+
+    async def graphql(_url, query, variables=None):
+        assert "RunsFilter!" in query
+        assert variables == {"filter": {"tags": [{"key": "phlo/ref", "value": "main"}]}}
+        return {
+            "data": {
+                "runsOrError": {
+                    "__typename": "Runs",
+                    "results": [row for row in old_runs + [selected] if row["tags"]],
+                }
+            }
+        }
+
+    monkeypatch.setattr(v1, "graphql_request", graphql)
+    assert asyncio.run(v1._runs("production_jobs", "main")) == {"selected": "STARTED"}
+
+    selected["repositoryOrigin"] = None
+    with pytest.raises(v1.BadGatewayError, match="location identity"):
+        asyncio.run(v1._runs("production_jobs", "main"))
 
 
 def test_events_openapi_advertises_sse():

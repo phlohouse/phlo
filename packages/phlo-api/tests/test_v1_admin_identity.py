@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+from click.testing import CliRunner
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -11,6 +13,8 @@ from fastapi.testclient import TestClient
 from phlo.capabilities.interfaces import AuthPrincipal, AuthResult, AuthenticatedSession
 from phlo.compliance.signatures.types import SignatureMeaning, SignatureRecord, SignatureRequest
 from phlo.identity.authority import IdentityAuthority
+from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
+from phlo.cli.commands import authz_identity
 from phlo.plugins.observatory_settings import InMemorySettingsService, StorageUnavailableError
 from phlo_api.api import v1_admin_identity
 from phlo_api.errors import PhloApiError, error_envelope
@@ -331,3 +335,129 @@ def test_identity_storage_outage_fails_closed(monkeypatch) -> None:
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "backend_unavailable"
+
+
+def test_role_catalog_reports_loaded_rules_without_condition_values(monkeypatch) -> None:
+    client = _client(monkeypatch, IdentityAuthority(InMemorySettingsService()))
+    backend = DefaultAuthorizationPolicyBackend(
+        policies=[
+            {
+                "policy_id": "conditional-query",
+                "effect": "allow",
+                "action": "dataset.query",
+                "principal": {"roles": ["analyst"], "attributes": {"tenant": "private-tenant"}},
+                "resource": {
+                    "type": "dataset",
+                    "id_pattern": "sales.*",
+                    "attributes": {"class": "private-class"},
+                },
+            },
+            {
+                "policy_id": "public-read",
+                "effect": "allow",
+                "action": "dataset.read",
+                "resource": {"type": "dataset", "id_pattern": "public.*"},
+            },
+        ]
+    )
+    monkeypatch.setattr(v1_admin_identity, "get_authorization_backend", lambda: backend)
+    response = client.get("/api/v1/admin/roles")
+    assert response.status_code == 200
+    catalog = response.json()
+    assert catalog["assignment_scope"] == "installation"
+    assert catalog["policy_status"] == "available"
+    roles = {item["name"]: item["policies"] for item in catalog["items"]}
+    assert set(roles) == {"admin", "operator", "developer", "analyst", "viewer", "service"}
+    assert [policy["policy_id"] for policy in roles["analyst"]] == [
+        "conditional-query",
+        "public-read",
+    ]
+    assert [policy["policy_id"] for policy in roles["viewer"]] == ["public-read"]
+    assert roles["analyst"][0]["principal_attribute_names"] == ["tenant"]
+    assert roles["analyst"][0]["resource_attribute_names"] == ["class"]
+    assert "private-tenant" not in response.text
+    assert "private-class" not in response.text
+    monkeypatch.setattr(v1_admin_identity, "get_authorization_backend", lambda: object())
+    unavailable = client.get("/api/v1/admin/roles").json()
+    assert unavailable["policy_status"] == "unavailable"
+    assert {item["name"] for item in unavailable["items"]} == set(roles)
+    assert all(item["policies"] == [] for item in unavailable["items"])
+
+
+def test_cli_guided_assignment_preserves_multiple_roles_and_rejects_stale_changes(
+    monkeypatch,
+) -> None:
+    authority = IdentityAuthority(InMemorySettingsService())
+    authority.assign_roles(
+        subject="alice-id",
+        email="alice@example.com",
+        principal_type="user",
+        roles=["analyst", "viewer"],
+        expected_version=0,
+    )
+    client = _client(monkeypatch, authority)
+    monkeypatch.setattr(v1_admin_identity, "get_authorization_backend", lambda: None)
+    monkeypatch.setattr(authz_identity, "_client", lambda _ctx: client)
+    runner = CliRunner()
+    prefix = ["--api-url", "https://api.example"]
+    env = {"PHLO_AUTHZ_TOKEN": "test-session-not-a-login-proof"}
+    # Accepting the default complete set must not discard the second role.
+    result = runner.invoke(
+        authz_identity.identity_group,
+        [*prefix, "assign", "alice-id"],
+        input="\ny\nAccess reviewed\n",
+        env=env,
+    )
+    assert result.exit_code == 0, result.output
+    assert authority.member("alice-id").roles == ("analyst", "viewer")
+    assert authority.member("alice-id").version == 2
+    assert authority.member("alice-id").email == "alice@example.com"
+    stale = runner.invoke(
+        authz_identity.identity_group,
+        [
+            *prefix,
+            "assign",
+            "alice-id",
+            "--role",
+            "admin",
+            "--expected-version",
+            "1",
+            "--yes",
+            "--justification",
+            "Reviewed stale request",
+        ],
+        env=env,
+    )
+    assert stale.exit_code != 0
+    assert "409" in stale.output
+    assert authority.member("alice-id").roles == ("analyst", "viewer")
+    invalid = runner.invoke(
+        authz_identity.identity_group,
+        [
+            *prefix,
+            "assign",
+            "alice-id",
+            "--role",
+            "superuser",
+            "--yes",
+            "--justification",
+            "Unknown role",
+        ],
+        env=env,
+    )
+    assert invalid.exit_code != 0
+    assert "supported role" in invalid.output
+    assert authority.member("alice-id").version == 2
+
+
+@pytest.mark.parametrize(
+    "url", ["http://api.example", "https://user:secret@api.example", "https://api.example?env=dev"]
+)
+def test_role_cli_rejects_unsafe_destinations(url) -> None:
+    result = CliRunner().invoke(
+        authz_identity.identity_group,
+        ["--api-url", url, "roles"],
+        env={"PHLO_AUTHZ_TOKEN": "do-not-leak"},
+    )
+    assert result.exit_code != 0
+    assert "do-not-leak" not in result.output

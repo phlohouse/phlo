@@ -33,6 +33,7 @@ from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.cli.output import user_error
 from phlo.config.layout import SHARED_LAYOUT_MARKER, env_defaults_path, env_secrets_path
+from phlo.config_schema import ProjectConfig
 from phlo.operations.generated_stack import BASELINE, generation_baseline
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
 from phlo.plugins.compose.generator import ComposeGenerator
@@ -158,6 +159,11 @@ def _validate_production_credentials(
     help="Also apply service-specific `dev:` runtime overrides (opt-in)",
 )
 @click.option(
+    "--observatory-dev",
+    is_flag=True,
+    help="Provision loopback-only Observatory with the canonical development identity and read-only policy.",
+)
+@click.option(
     "--production",
     is_flag=True,
     help="Render the production deployment profile without core host ports.",
@@ -186,6 +192,7 @@ def init_cmd(
     no_dev: bool,
     phlo_source: str | None,
     service_dev: bool,
+    observatory_dev: bool,
     production: bool,
     publish_all_interfaces: bool,
     allow_insecure: bool,
@@ -222,6 +229,8 @@ def init_cmd(
     """
     phlo_dir = get_phlo_dir()
     config_file = Path.cwd() / PHLO_CONFIG_FILE
+    if observatory_dev and (production or publish_all_interfaces):
+        raise click.UsageError("--observatory-dev requires development mode and loopback ports.")
 
     marker = phlo_dir / ".gitignore"
     shared_layout = marker.is_file() and SHARED_LAYOUT_MARKER in marker.read_text(encoding="utf-8")
@@ -238,7 +247,7 @@ def init_cmd(
         sys.exit(1)
 
     dev, phlo_src_path = _resolve_dev_mode(
-        dev, no_dev, service_dev, production, phlo_source, phlo_dir
+        dev, no_dev or (observatory_dev and not dev), service_dev, production, phlo_source, phlo_dir
     )
     # Derive project name from directory if not specified
     if not project_name:
@@ -279,9 +288,9 @@ def init_cmd(
         sys.exit(1)
 
     # Load existing phlo.yaml config for user overrides
-    existing_config = {}
-    if config_file.exists():
-        existing_config = _load_existing_project_config(config_file)
+    existing_config = _load_existing_project_config(config_file)
+    if observatory_dev:
+        _configure_observatory_dev(existing_config, project_name, phlo_dir, config_file)
     user_overrides = _get_service_overrides(existing_config)
     # Service selection and inline-service discovery use the same effective
     # overrides as Compose generation.
@@ -365,8 +374,9 @@ def init_cmd(
         click.echo(f"Created: .phlo/{f}")
 
     # Never adopt existing customized files during a preserving re-init.
-    if new_layout or force:
-        _record_initial_generation(phlo_dir, copied_files, allow_insecure=allow_insecure)
+    _record_initial_generation(
+        phlo_dir, copied_files, preserve_existing=preserve_shared, allow_insecure=allow_insecure
+    )
 
     # Summary
     click.echo("")
@@ -392,8 +402,10 @@ def init_cmd(
 
 
 def _record_initial_generation(
-    phlo_dir: Path, copied_files: list[str], *, allow_insecure: bool
+    phlo_dir: Path, copied_files: list[str], *, preserve_existing: bool, allow_insecure: bool
 ) -> None:
+    if preserve_existing:
+        return
     generated = [".phlo/docker-compose.yml", *(f".phlo/{name}" for name in copied_files)]
     if (phlo_dir / "overrides/compose.host.yaml").is_file():
         generated.append(".phlo/overrides/compose.host.yaml")
@@ -402,6 +414,120 @@ def _record_initial_generation(
         generation_baseline(Path.cwd(), generated),
         allow_insecure=allow_insecure,
     )
+
+
+def _configure_observatory_dev(
+    config: dict, project_name: str, phlo_dir: Path, config_file: Path
+) -> None:
+    """Add a development-only read contract through the existing project config."""
+    from phlo.config.env import load_project_env
+    from phlo.security.mode import is_regulated
+
+    env = config.setdefault("env", {})
+    effective = load_project_env(config_file.parent)
+    environment = effective.get("PHLO_ENVIRONMENT", "development")
+    if is_regulated() or environment.lower() not in {"dev", "development", "local", "test"}:
+        raise click.ClickException(
+            "Observatory development identity is forbidden outside development."
+        )
+    if any(
+        effective.get(name) not in {None, "", "static"}
+        for name in ("PHLO_AUTHENTICATION_PROVIDER", "PHLO_AUTHENTICATION_METHOD")
+    ):
+        raise click.ClickException(
+            "Remove the conflicting authentication provider before local onboarding."
+        )
+    if effective.get("PHLO_V1_ENVIRONMENTS"):
+        raise click.ClickException(
+            "Move runtime environment mappings into phlo.yaml before development onboarding."
+        )
+    if not config.get("environments") and any(
+        config.get("services", {}).get(name) for name in ("dagster", "nessie")
+    ):
+        raise click.ClickException(
+            "Configure the actual Dagster location, Nessie ref and local Compose project in phlo.yaml environments before onboarding a customized provider stack."
+        )
+    base = phlo_dir / "docker-compose.yml"
+    if base.exists():
+        existing_services = yaml.safe_load(base.read_text()).get("services", {})
+        if not {"phlo-api", "observatory"} <= existing_services.keys() or not config.get(
+            "environments"
+        ):
+            raise click.ClickException(
+                "Upgrade the generated stack to include API/UI and configure actual environments before development activation."
+            )
+    if config.get("authentication"):
+        raise click.ClickException(
+            "Existing authentication must be reviewed manually; it will not be overwritten."
+        )
+    if config.get("api") or config.get("services", {}).get("phlo-api", {}).get("authorization"):
+        raise click.ClickException("Existing API authorization will not be overwritten.")
+    authorization = phlo_dir / "authorization"
+    if any((authorization / name).exists() for name in ("roles.yaml", "policies.yaml")):
+        raise click.ClickException("Existing authorization files will not be overwritten.")
+    config["authentication"] = {"provider": "static", "static": {"enabled": True, "dev_mode": True}}
+    config["api"] = {"authorization": {"backend": "default", "mode": "required"}}
+    env.update({"PHLO_ENVIRONMENT": "development", "PHLO_AUTHORIZATION_MODE": "required"})
+    config.setdefault(
+        "environments",
+        {
+            "sandbox": {
+                "dagster_location": "phlo_dagster.framework.definitions",
+                "nessie_ref": effective.get("NESSIE_DEFAULT_REF", "main"),
+                "compose_project": config.get("name") or project_name,
+            },
+        },
+    )
+    config.setdefault("default_environment", next(iter(config["environments"])))
+    services = config.setdefault("services", {})
+    for name in ("phlo-api", "observatory"):
+        services.setdefault(name, {})["enabled"] = True
+    services["phlo-api"].setdefault("environment", {}).update(
+        {
+            "PHLO_ENVIRONMENT": "development",
+            "PHLO_AUTH_DEV_MODE": "true",
+            "PHLO_AUTHENTICATION_PROVIDER": "static",
+            "PHLO_AUTHORIZATION_MODE": "required",
+        }
+    )
+    ProjectConfig.model_validate(config)
+    for name in ("phlo-api", "observatory"):
+        if services[name].get("ports"):
+            raise click.ClickException(
+                "Review custom UI/API port overrides before development onboarding."
+            )
+    config_file.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    authorization.mkdir(parents=True, exist_ok=True)
+    (authorization / "roles.yaml").write_text(
+        yaml.safe_dump({"roles": {"admin": {}}, "subjects": {"users": {"dev_user": ["admin"]}}}),
+        encoding="utf-8",
+    )
+    policies = [
+        {
+            "policy_id": "observatory-dev-discovery",
+            "effect": "allow",
+            "principal": {"roles": ["admin"]},
+            "action": "platform_metadata.read",
+            "resource": {"type": "platform_metadata", "id_pattern": "*"},
+        }
+    ] + [
+        {
+            "policy_id": f"observatory-dev-read-{environment}-{index}",
+            "effect": "allow",
+            "principal": {"roles": ["admin"]},
+            "action": "*.read",
+            "resource": {"type": "*", "id_pattern": pattern},
+        }
+        for environment in config["environments"]
+        for index, pattern in enumerate((f"env={environment}", f"env={environment}|*"))
+    ]
+    (authorization / "policies.yaml").write_text(
+        yaml.safe_dump({"policies": policies}), encoding="utf-8"
+    )
+    from phlo.config.project import clear_config_cache
+
+    clear_config_cache()
+    click.echo("Configured dev_user with environment-scoped reads. V1 mutations remain denied.")
 
 
 def _select_initial_services(
