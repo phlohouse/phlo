@@ -31,6 +31,7 @@ EVIDENCE_SCHEMA = "phlo.release-candidate-evidence/v1"
 REQUIRED_DEMONSTRATIONS: tuple[tuple[str, str], ...] = (
     ("candidate_bom_verification", "Candidate BOM verification"),
     ("operator_installation", "Exact BOM artifact installation"),
+    ("observatory_installed_journeys", "Fresh and retained-volume installed Observatory journeys"),
     ("project_scaffold", "Project scaffold from installed artifacts"),
     ("production_preflight", "Production readiness preflight"),
     ("negative_security", "Negative security enforcement"),

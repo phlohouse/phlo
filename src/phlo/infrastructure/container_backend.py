@@ -115,6 +115,22 @@ def validate_development_compose_layers(phlo_dir: Path) -> None:
         )
 
 
+def project_compose_paths(phlo_dir: Path) -> tuple[Path, ...]:
+    """Return ordered layer candidates, including absent optional inputs."""
+    platform_name = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(
+        platform.system()
+    )
+    paths = [phlo_dir / "docker-compose.yml", phlo_dir / "compose.shared.yaml"]
+    if platform_name:
+        paths.append(phlo_dir / f"compose.{platform_name}.yaml")
+    return (
+        *paths,
+        phlo_dir / "overrides" / "compose.host.yaml",
+        phlo_dir / "overrides" / "compose.yaml",
+        phlo_dir / "compose.local.yaml",
+    )
+
+
 def _compose_base_cmd(
     *,
     binary: str,
@@ -142,20 +158,7 @@ def _compose_base_cmd(
     )
     # All layers live under .phlo and resolve relative paths against the shared
     # base. Personal and generated host overrides remain ignored by Git.
-    platform_name = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(
-        platform.system()
-    )
-    overrides = [phlo_dir / "compose.shared.yaml"]
-    if platform_name:
-        overrides.append(phlo_dir / f"compose.{platform_name}.yaml")
-    overrides.extend(
-        [
-            phlo_dir / "overrides" / "compose.host.yaml",
-            phlo_dir / "overrides" / "compose.yaml",
-            phlo_dir / "compose.local.yaml",  # Legacy, until services migrate moves it.
-        ]
-    )
-    overrides = [override for override in overrides if override.is_file()]
+    overrides = [override for override in project_compose_paths(phlo_dir)[1:] if override.is_file()]
     if overrides:
         validate_development_compose_layers(phlo_dir)
     for override in overrides:
