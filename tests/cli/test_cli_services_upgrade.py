@@ -243,6 +243,58 @@ def test_invalid_private_plan_does_not_print_embedded_credentials(tmp_path, monk
     assert "never-print-this" not in result.output
 
 
+@pytest.mark.parametrize("shared", [False, pytest.param(True, marks=pytest.mark.integration)])
+def test_legacy_development_activation_is_reviewed_idempotent_and_preserves_custom_auth(
+    tmp_path, monkeypatch, shared
+):
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(init_cmd, ["--no-dev", "--profile", "api"])
+    assert result.exit_code == 0, result.output
+    config_file = tmp_path / "phlo.yaml"
+    config = yaml.safe_load(config_file.read_text())
+    config["environments"] = {
+        "training": {"dagster_location": "actual_location", "nessie_ref": "main"}
+    }
+    config["default_environment"] = "training"
+    config_file.write_text(yaml.safe_dump(config))
+    if shared:
+        (tmp_path / ".phlo/overrides/compose.yaml").write_text(
+            "services:\n  phlo-api:\n    network_mode: host\n"
+        )
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    options = ["--observatory-dev", "--output", str(tmp_path / "review.json")]
+    result = runner.invoke(upgrade_cmd, [*options, "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert all(p.read_bytes() == content for p, content in before.items())
+    plan = GeneratedStackPlan.model_validate_json((tmp_path / "review.json").read_text())
+    assert next(change for change in plan.files if change.path == "phlo.yaml").state == "replace"
+    for _ in range(2):
+        result = runner.invoke(
+            upgrade_cmd,
+            [
+                "--observatory-dev",
+                "--apply",
+                str(tmp_path / "review.json"),
+                "--confirm",
+                plan.token(),
+            ],
+        )
+        if shared:
+            assert result.exit_code != 0 and "loopback" in result.output
+            assert all(p.read_bytes() == content for p, content in before.items())
+            return
+        assert result.exit_code == 0, result.output
+    active = yaml.safe_load(config_file.read_text())
+    assert active["environments"] == config["environments"]
+    assert active["authentication"]["static"] == {"enabled": True, "dev_mode": True}
+    policy = tmp_path / ".phlo/authorization/policies.yaml"
+    policy.write_text(policy.read_text() + "\n# reviewed separately\n")
+    result = runner.invoke(upgrade_cmd, ["--observatory-dev", "--dry-run"])
+    assert result.exit_code != 0 and "manual review" in result.output
+    assert policy.read_text().endswith("# reviewed separately\n")
+
+
 @pytest.mark.integration
 def test_upgrade_validates_resolved_personal_layers_before_mutation(tmp_path, monkeypatch):
     root = _init(tmp_path, monkeypatch)

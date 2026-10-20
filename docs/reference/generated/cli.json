@@ -9404,6 +9404,22 @@
         {
           "default": false,
           "envvar": null,
+          "help": "Include explicit local-development activation in the reviewed plan; requires actual configured environments.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
           "help": "Explicitly accept platforms without POSIX private-file guarantees.",
           "is_flag": true,
           "kind": "option",

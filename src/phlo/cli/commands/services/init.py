@@ -418,8 +418,13 @@ def _record_initial_generation(
 
 
 def _configure_observatory_dev(
-    config: dict, project_name: str, phlo_dir: Path, config_file: Path
-) -> None:
+    config: dict,
+    project_name: str,
+    phlo_dir: Path,
+    config_file: Path,
+    *,
+    write: bool = True,
+) -> dict[Path, str]:
     """Add a development-only read contract through the existing project config."""
     from phlo.config.env import load_project_env
     from phlo.security.mode import is_regulated
@@ -497,12 +502,6 @@ def _configure_observatory_dev(
             raise click.ClickException(
                 "Review custom UI/API port overrides before development onboarding."
             )
-    config_file.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-    authorization.mkdir(parents=True, exist_ok=True)
-    (authorization / "roles.yaml").write_text(
-        yaml.safe_dump({"roles": {"admin": {}}, "subjects": {"users": {"dev_user": ["admin"]}}}),
-        encoding="utf-8",
-    )
     policies = [
         {
             "policy_id": "observatory-dev-discovery",
@@ -522,13 +521,22 @@ def _configure_observatory_dev(
         for environment in config["environments"]
         for index, pattern in enumerate((f"env={environment}", f"env={environment}|*"))
     ]
-    (authorization / "policies.yaml").write_text(
-        yaml.safe_dump({"policies": policies}), encoding="utf-8"
-    )
-    from phlo.config.project import clear_config_cache
+    files = {
+        config_file: yaml.safe_dump(config, sort_keys=False),
+        authorization / "roles.yaml": yaml.safe_dump(
+            {"roles": {"admin": {}}, "subjects": {"users": {"dev_user": ["admin"]}}}
+        ),
+        authorization / "policies.yaml": yaml.safe_dump({"policies": policies}),
+    }
+    if write:
+        authorization.mkdir(parents=True, exist_ok=True)
+        for path, content in files.items():
+            path.write_text(content, encoding="utf-8")
+        from phlo.config.project import clear_config_cache
 
-    clear_config_cache()
-    click.echo("Configured dev_user with environment-scoped reads. V1 mutations remain denied.")
+        clear_config_cache()
+        click.echo("Configured dev_user with environment-scoped reads. V1 mutations remain denied.")
+    return files
 
 
 def _select_initial_services(
