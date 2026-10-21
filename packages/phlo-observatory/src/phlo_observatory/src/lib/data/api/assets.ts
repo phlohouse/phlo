@@ -13,6 +13,29 @@ const exactCountSubmissionSchema = z.object({
   query: z.object({ id: z.string().min(1) }),
 })
 
+const transformRunSchema = z.object({
+  status: z.string().nullable().optional(),
+  run_id: z.string().nullable().optional(),
+  plan_id: z.string().nullable().optional(),
+  duration_ms: z.number().int().nonnegative().nullable().optional(),
+  counts: z.record(z.string(), z.number().int().nonnegative()).optional(),
+})
+
+const transformSchema = z.object({
+  engine: z.string(),
+  model: z.string(),
+  target: z.string().nullable().optional(),
+  materialization: z.string().nullable().optional(),
+  version: z.string().nullable().optional(),
+  path: z.string().nullable().optional(),
+  workspace: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  sources: z.array(z.string()).optional(),
+  source_assets: z.array(z.string()).optional(),
+  tests: z.array(z.string()).optional(),
+  last_run: transformRunSchema.nullable().optional(),
+})
+
 const assetSchema = z.object({
   id: z.string(),
   key: z.array(z.string()),
@@ -63,6 +86,7 @@ const assetSchema = z.object({
     )
     .optional(),
   materialization_history_truncated: z.boolean().optional(),
+  transform: transformSchema.nullable().optional(),
 })
 const assetDetailSchema = assetSchema.extend({
   current_snapshot_id: z

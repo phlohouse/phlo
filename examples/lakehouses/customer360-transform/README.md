@@ -137,7 +137,12 @@ PHLO_TRANSFORMATION_PROVIDER=phlo-transform uv run pytest -q
 
 What changes: the ten SQL asset definitions and their execution path.
 What does not: ingestion assets, asset keys, dependency edges, schedules,
-quality contracts, and WAP policy. The schedules in
+quality contracts, and WAP policy.
+
+When the Observatory is running, the **Transform** page shows the active
+workspace, all ten models, their content-hash versions, blocking tests, and the
+last run for each asset. The same inventory is available from
+`GET /api/v1/transform?env=<env>`. The schedules in
 `workflows/schedules/customer360.py` select asset keys such as
 `stg_commerce_customers` and `customer_dimension`; both providers emit those
 exact keys.

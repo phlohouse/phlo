@@ -124,7 +124,17 @@ phlo transform use --unset
 
 Use the native asset-key shape to keep keys stable across the switch. The default `leaf` mode emits the last dotted segment (`stg_orders`), which is the dbt model name; set `PHLO_TRANSFORM_ASSET_KEY=logical` to keep `analytics.stg_orders` instead. Schedules and downstream assets that reference model names keep working.
 
-## 6. Prove parity before switching
+## 6. Inspect the transform graph in the Observatory
+
+The Phlo Observatory reads the provider metadata that the transform assets publish to Dagster:
+
+- The **Transform** page lists the active workspace, every compiled model, its materialization, target, content-hash version, blocking tests, sources, and last run.
+- Each transform asset's **Overview** tab has a Transform card with the model identity and last run result.
+- `GET /api/v1/transform?env=<env>` returns the same inventory for automation and dashboards.
+
+Start the Observatory alongside the project and open **Transform** in the navigation. The page reports an inactive provider with the `phlo transform use phlo-transform` command rather than an empty table.
+
+## 7. Prove parity before switching
 
 Run both engines against identical raw data and compare every table. The [Customer 360 transform example](../../examples/lakehouses/customer360-transform/) does this with dbt-duckdb and DuckDB:
 
