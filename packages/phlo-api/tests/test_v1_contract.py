@@ -172,6 +172,7 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/tables/{table_name}/snapshots",
         "/api/v1/tables/{table_name}/schema-history",
         "/api/v1/tables/{table_name}/rollback",
+        "/api/v1/transform",
         "/api/v1/sources",
         "/api/v1/layers",
         "/api/v1/overview",

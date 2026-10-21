@@ -44,7 +44,7 @@ RUN apt-get update \
         git \
         gosu \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "uv==0.12.5"
+    && pip install --no-cache-dir "uv==0.13.4"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

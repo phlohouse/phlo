@@ -60,7 +60,10 @@ def test_dbt_asset_full_refresh_replaces_disposable_incremental_table(tmp_path):
             manifest={"nodes": {}, "sources": {}},
             translator=DbtSpecTranslator(),
         )
-        assert result[-1].status == "success"
+        materialization = result[-1]
+        assert materialization.status == "success"
+        assert materialization.metadata["transform_status"] == "success"
+        assert materialization.metadata["transform_counts"]["failed"] == 0
 
     def rows():
         with duckdb.connect(str(database)) as connection:

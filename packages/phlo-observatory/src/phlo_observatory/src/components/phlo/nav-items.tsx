@@ -4,6 +4,7 @@ import {
   GitBranchIcon,
   LayoutGridIcon,
   SlidersHorizontalIcon,
+  SparklesIcon,
   SquareTerminalIcon,
   TriangleAlertIcon,
   WorkflowIcon,
@@ -17,6 +18,7 @@ type NavItem = {
     | '/assets'
     | '/query'
     | '/pipelines'
+    | '/transform'
     | '/branches'
     | '/settings'
   label: string
@@ -61,6 +63,13 @@ export const navItems: Array<NavItem> = [
     Icon: WorkflowIcon,
     exact: false,
     mobile: true,
+  },
+  {
+    to: '/transform',
+    label: 'Transform',
+    Icon: SparklesIcon,
+    exact: false,
+    mobile: false,
   },
   {
     to: '/branches',

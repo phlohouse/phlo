@@ -84,3 +84,10 @@ def test_build_dbt_asset_specs_raises_when_manifest_shape_is_invalid(monkeypatch
 
     with pytest.raises(PhloCapabilitySetupError, match="manifest_shape_invalid"):
         build_dbt_asset_specs()
+
+
+def test_build_dbt_asset_specs_skips_when_phlo_transform_is_active(monkeypatch) -> None:
+    """Exactly one provider owns the transform graph when both are installed."""
+    monkeypatch.setenv("PHLO_TRANSFORMATION_PROVIDER", "phlo-transform")
+
+    assert build_dbt_asset_specs() == []

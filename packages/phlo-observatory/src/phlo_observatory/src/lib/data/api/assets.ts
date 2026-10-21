@@ -1,6 +1,7 @@
 /** Validates and executes asset discovery, inspection, and mutation operations. */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
+import { transformRunSchema } from './transform'
 import { environmentSchema, phloApi } from './client'
 import { jobsSchema } from './pipelines'
 
@@ -11,6 +12,21 @@ const exactCountSubmissionSchema = z.object({
   observed_at: z.string(),
   snapshot_id: z.string().regex(/^[0-9]{1,19}$/),
   query: z.object({ id: z.string().min(1) }),
+})
+
+const transformSchema = z.object({
+  engine: z.string(),
+  model: z.string(),
+  target: z.string().nullable().optional(),
+  materialization: z.string().nullable().optional(),
+  version: z.string().nullable().optional(),
+  path: z.string().nullable().optional(),
+  workspace: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  sources: z.array(z.string()).optional(),
+  source_assets: z.array(z.string()).optional(),
+  tests: z.array(z.string()).optional(),
+  last_run: transformRunSchema.nullable().optional(),
 })
 
 const assetSchema = z.object({
@@ -63,6 +79,7 @@ const assetSchema = z.object({
     )
     .optional(),
   materialization_history_truncated: z.boolean().optional(),
+  transform: transformSchema.nullable().optional(),
 })
 const assetDetailSchema = assetSchema.extend({
   current_snapshot_id: z

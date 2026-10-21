@@ -18,6 +18,7 @@ import { Route as AppQueryRouteImport } from './routes/_app/query'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppStagingRouteImport } from './routes/_app/staging'
 import { Route as AppStatesRouteImport } from './routes/_app/states'
+import { Route as AppTransformRouteImport } from './routes/_app/transform'
 import { Route as AppAssetsIndexRouteImport } from './routes/_app/assets/index'
 import { Route as AppAssetsAssetIdRouteImport } from './routes/_app/assets/$assetId'
 import { Route as AppIncidentsIndexRouteImport } from './routes/_app/incidents/index'
@@ -72,6 +73,11 @@ const AppStagingRoute = AppStagingRouteImport.update({
 const AppStatesRoute = AppStatesRouteImport.update({
   id: '/states',
   path: '/states',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTransformRoute = AppTransformRouteImport.update({
+  id: '/transform',
+  path: '/transform',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAssetsIndexRoute = AppAssetsIndexRouteImport.update({
@@ -140,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof AppReportsRoute
   '/staging': typeof AppStagingRoute
   '/states': typeof AppStatesRoute
+  '/transform': typeof AppTransformRoute
   '/assets/$assetId': typeof AppAssetsAssetIdRoute
   '/incidents/$incidentId': typeof AppIncidentsIncidentIdRoute
   '/pipelines/$jobName': typeof AppPipelinesJobNameRoute
@@ -160,6 +167,7 @@ export interface FileRoutesByTo {
   '/reports': typeof AppReportsRoute
   '/staging': typeof AppStagingRoute
   '/states': typeof AppStatesRoute
+  '/transform': typeof AppTransformRoute
   '/': typeof AppIndexRoute
   '/assets/$assetId': typeof AppAssetsAssetIdRoute
   '/incidents/$incidentId': typeof AppIncidentsIncidentIdRoute
@@ -183,6 +191,7 @@ export interface FileRoutesById {
   '/_app/reports': typeof AppReportsRoute
   '/_app/staging': typeof AppStagingRoute
   '/_app/states': typeof AppStatesRoute
+  '/_app/transform': typeof AppTransformRoute
   '/_app/': typeof AppIndexRoute
   '/_app/assets/$assetId': typeof AppAssetsAssetIdRoute
   '/_app/incidents/$incidentId': typeof AppIncidentsIncidentIdRoute
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/staging'
     | '/states'
+    | '/transform'
     | '/assets/$assetId'
     | '/incidents/$incidentId'
     | '/pipelines/$jobName'
@@ -227,6 +237,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/staging'
     | '/states'
+    | '/transform'
     | '/'
     | '/assets/$assetId'
     | '/incidents/$incidentId'
@@ -249,6 +260,7 @@ export interface FileRouteTypes {
     | '/_app/reports'
     | '/_app/staging'
     | '/_app/states'
+    | '/_app/transform'
     | '/_app/'
     | '/_app/assets/$assetId'
     | '/_app/incidents/$incidentId'
@@ -331,6 +343,13 @@ declare module '@tanstack/react-router' {
       path: '/states'
       fullPath: '/states'
       preLoaderRoute: typeof AppStatesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/transform': {
+      id: '/_app/transform'
+      path: '/transform'
+      fullPath: '/transform'
+      preLoaderRoute: typeof AppTransformRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/assets/': {
@@ -420,6 +439,7 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRoute
   AppStagingRoute: typeof AppStagingRoute
   AppStatesRoute: typeof AppStatesRoute
+  AppTransformRoute: typeof AppTransformRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAssetsAssetIdRoute: typeof AppAssetsAssetIdRoute
   AppIncidentsIncidentIdRoute: typeof AppIncidentsIncidentIdRoute
@@ -441,6 +461,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRoute,
   AppStagingRoute: AppStagingRoute,
   AppStatesRoute: AppStatesRoute,
+  AppTransformRoute: AppTransformRoute,
   AppIndexRoute: AppIndexRoute,
   AppAssetsAssetIdRoute: AppAssetsAssetIdRoute,
   AppIncidentsIncidentIdRoute: AppIncidentsIncidentIdRoute,

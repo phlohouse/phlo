@@ -630,7 +630,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_keys=("run_id",),
     ),
     *_specs(
-        ("get_observatory_assets",),
+        ("get_observatory_assets", "v1_transform"),
         action=CanonicalAction.ASSET_READ.value,
         resource_type="asset",
     ),

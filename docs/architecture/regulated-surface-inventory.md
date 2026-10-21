@@ -279,6 +279,17 @@ These packages are reached only through already-regulated surfaces and do not ne
 - **Direct exposure:** No direct entrypoint; backend-only
 - **Adapter status:** Excluded — plugin-only, no direct surface
 
+#### `phlo-transform`
+
+- **Package:** `phlo-transform`
+- **Surface type:** Transformation provider (plugin) + `phlo transform` CLI
+- **Enforcement mode:** CLI mutation commands (`transform.run`, `transform.translate`, `transform.use`, `transform.install`) enforce the shared CLI surface when regulated mode is active; orchestrated runs use orchestration identity
+- **Identity source:** Orchestration identity; CLI principal for direct commands
+- **Audit path:** Via orchestration surface; CLI audit for direct commands
+- **Policy source:** Orchestration PDP; CLI PDP for direct commands
+- **Direct exposure:** `phlo transform run`, `plan`, `test`, `translate`, `use`, `install`
+- **Adapter status:** `TransformSurfaceAdapter` declares mutation and read commands
+
 #### `phlo-pandera`
 
 - **Package:** `phlo-pandera`
@@ -412,6 +423,7 @@ These packages are explicitly excluded from needing a `regulated_surface` adapte
 |---------|-----------------|
 | `phlo-dlt` | Plugin-only; reached through orchestration |
 | `phlo-dbt` | Plugin-only; reached through orchestration |
+| `phlo-transform` | Plugin plus CLI; mutations gated by the transform surface adapter |
 | `phlo-pandera` | Plugin-only; reached through orchestration |
 | `phlo-lineage` | Plugin-only; no direct entrypoint |
 | `phlo-alerting` | Plugin-only; no direct entrypoint |

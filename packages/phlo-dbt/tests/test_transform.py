@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from phlo.hooks.events import TelemetryEvent, TransformEvent
 from phlo.logging import get_logger
+from phlo_dbt.assets import _dbt_transform_metadata
 from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
 from phlo_dbt.translator import DbtSpecTranslator
 
@@ -177,6 +178,35 @@ def test_translator_preserves_declared_operational_metadata_without_overriding_r
     assert metadata["sla"] == {"freshness_hours": 24, "quality_threshold": 0.99}
     assert metadata["phlo/reports"] == ["site_daily_report"]
     assert metadata["phlo/relation"] == "analytics.fleet_summary"
+
+
+def test_dbt_transform_metadata_describes_the_provider() -> None:
+    metadata = _dbt_transform_metadata(
+        "model.customer360.customer_dimension",
+        {
+            "name": "customer_dimension",
+            "relation_name": "iceberg.customer360.customer_dimension",
+            "config": {"materialized": "table", "tags": ["gold"]},
+            "tags": ["gold", "customer"],
+            "checksum": {"name": "sha256", "checksum": "abcdef1234567890"},
+            "original_file_path": "models/customer_dimension.sql",
+            "depends_on": {"nodes": ["source.customer360.raw_customers"]},
+        },
+        checks=[SimpleNamespace(name="not_null_canonical_email")],
+        sources={"source.customer360.raw_customers": {"relation_name": "raw.c360_customers"}},
+        project_path=Path("/tmp/customer360-dbt"),
+    )
+
+    assert metadata["transform_engine"] == "dbt"
+    assert metadata["transform_model"] == "customer360.customer_dimension"
+    assert metadata["transform_target"] == "iceberg.customer360.customer_dimension"
+    assert metadata["transform_materialization"] == "table"
+    assert metadata["transform_version"] == "abcdef1"
+    assert metadata["transform_path"] == "models/customer_dimension.sql"
+    assert metadata["transform_tags"] == ["gold", "customer"]
+    assert metadata["transform_test_names"] == ["not_null_canonical_email"]
+    assert metadata["transform_sources"] == ["raw.c360_customers"]
+    assert metadata["transform_workspace"] == "/tmp/customer360-dbt"
 
 
 def test_custom_dbt_translator_metadata_compiled_sql_is_capped(
