@@ -21,8 +21,10 @@ The server exposes these routes:
   `@phlo-agent` request before the plugin signs its thread capability.
 - `POST /v1/issues` creates one maintenance issue.
 - `POST /v1/draft-pull-requests` creates an `agent/*` branch from the supplied
-  `main` SHA and opens a draft pull request. It refuses changes under `.github/`,
-  `.agents/`, `.amp/`, and `.git/`.
+  `main` SHA and opens a draft pull request. Send `pullNumber` instead of
+  `baseSha` to append a commit to the existing open phlo-agent draft request and
+  refresh its title and body. It refuses changes under `.github/`, `.agents/`,
+  `.amp/`, and `.git/`.
 
 All write routes require `Authorization: Bearer <PHLO_GITHUB_PUBLISH_TOKEN>`.
 The GitHub App key never leaves the server.
