@@ -1,3 +1,4 @@
+/** Bounded GitHub App writes for Phlo reviews, maintenance, and remediation. */
 import { timingSafeEqual } from 'node:crypto'
 import { githubRequest, installationToken, repository, type Fetcher } from './github.js'
 import { issueTriageLabelsAllowed, validBranch, validChangedPath } from './validation.js'

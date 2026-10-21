@@ -1,3 +1,4 @@
+/** Contract tests for the writer's bounded GitHub App writes. */
 import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
 import test from 'node:test'
