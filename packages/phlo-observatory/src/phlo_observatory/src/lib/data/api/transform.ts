@@ -3,12 +3,18 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
 
-const transformRunSchema = z.object({
+export const transformRunSchema = z.object({
   status: z.string().nullable().optional(),
+  action: z.string().nullable().optional(),
+  reasons: z.array(z.string()).optional(),
   run_id: z.string().nullable().optional(),
   plan_id: z.string().nullable().optional(),
   duration_ms: z.number().int().nonnegative().nullable().optional(),
   counts: z.record(z.string(), z.number().int().nonnegative()).optional(),
+  previous_version: z.string().nullable().optional(),
+  desired_version: z.string().nullable().optional(),
+  sql_hash: z.string().nullable().optional(),
+  query_id: z.string().nullable().optional(),
 })
 
 const transformModelSchema = z.object({

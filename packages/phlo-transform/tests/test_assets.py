@@ -34,9 +34,7 @@ def test_leaf_keys_are_dbt_compatible_and_deps_use_same_map(
     assert specs[1].group == "analytics"
     assert specs[1].metadata["transform_model"] == "analytics.orders"
     assert specs[1].metadata["transform_engine"] == "phlo-transform"
-    assert specs[1].metadata["transform_test_names"] == [
-        "analytics.orders.generated.not_null_id"
-    ]
+    assert specs[1].metadata["transform_test_names"] == ["analytics.orders.generated.not_null_id"]
     assert specs[1].checks[0].name == "analytics_orders_generated_not_null_id"
 
 
@@ -123,7 +121,18 @@ def test_run_translates_materialization_and_only_own_tests(
         "plan_id": "plan-1",
         "status": "passed",
         "counts": {"passed": 2, "failed": 0, "skipped": 0},
-        "models": [{"model": "analytics.orders", "duration_ms": 7, "query_id": "q-1"}],
+        "models": [
+            {
+                "model": "analytics.orders",
+                "action": "build",
+                "reasons": ["SQL changed"],
+                "previous_version": "old-version",
+                "desired_version": "new-version",
+                "sql_hash": "hash-1",
+                "duration_ms": 7,
+                "query_id": "q-1",
+            }
+        ],
         "tests": [
             {"test": "analytics.orders.generated.not_null_id", "status": "passed", "row_count": 0},
             {"test": "analytics.stg_orders.generated.other", "status": "failed", "row_count": 3},
@@ -147,6 +156,11 @@ def test_run_translates_materialization_and_only_own_tests(
     assert checks[0].passed is True
     assert materializations[0].status == "success"
     assert materializations[0].metadata["transform_run_id"] == "run-1"
+    assert materializations[0].metadata["transform_action"] == "build"
+    assert materializations[0].metadata["transform_reasons"] == ["SQL changed"]
+    assert materializations[0].metadata["transform_previous_version"] == "old-version"
+    assert materializations[0].metadata["transform_desired_version"] == "new-version"
+    assert materializations[0].metadata["transform_sql_hash"] == "hash-1"
     assert materializations[0].metadata["transform_duration_ms"] == 7
     assert seen[0][:3] == ["run", "--select", "analytics.orders"]
     assert "duckdb" in seen[0]

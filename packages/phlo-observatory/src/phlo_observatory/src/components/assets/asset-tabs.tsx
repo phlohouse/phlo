@@ -283,6 +283,33 @@ function transformCountText(counts: Record<string, number> | undefined) {
   )
 }
 
+function shortVersion(value: string | null | undefined) {
+  return value ? value.slice(0, 7) : null
+}
+
+function transformVersionText(
+  transform: NonNullable<ApiAssetDetail['transform']>,
+) {
+  const previous = shortVersion(transform.last_run?.previous_version)
+  const desired = shortVersion(transform.last_run?.desired_version)
+  if (previous && desired && previous !== desired)
+    return `${previous} → ${desired}`
+  return transform.version ?? desired ?? '—'
+}
+
+function transformActionLabel(action: string | null | undefined) {
+  if (action === 'build') return 'built'
+  if (action === 'skip') return 'skipped'
+  if (action === 'cached') return 'cached'
+  return action
+}
+
+function transformActionVariant(action: string | null | undefined) {
+  if (action === 'build') return 'ok'
+  if (action === 'skip' || action === 'cached') return 'neutral'
+  return null
+}
+
 function TransformLastRun({
   run,
 }: {
@@ -290,14 +317,31 @@ function TransformLastRun({
 }) {
   if (!run) return <>Not observed</>
   const countText = transformCountText(run.counts)
+  const action = transformActionLabel(run.action)
+  const reason = run.reasons?.[0]
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <Badge variant={transformRunVariant(run.status)}>
-        {run.status ?? 'unknown'}
-      </Badge>
-      {countText ? (
-        <span className="truncate text-xs text-muted-foreground">
-          {countText}
+    <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex items-center gap-2">
+        <Badge
+          variant={
+            transformActionVariant(run.action) ??
+            transformRunVariant(run.status)
+          }
+        >
+          {action ?? run.status ?? 'unknown'}
+        </Badge>
+        {countText ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {countText}
+          </span>
+        ) : null}
+      </span>
+      {reason ? (
+        <span
+          className="break-words text-xs text-muted-foreground"
+          title={run.reasons?.join(' · ')}
+        >
+          {reason}
         </span>
       ) : null}
     </span>
@@ -341,7 +385,12 @@ function TransformMetadata({
               {transform.target ?? '—'}
             </Mono>,
           ],
-          ['Version', <Mono key="version">{transform.version ?? '—'}</Mono>],
+          [
+            'Version',
+            <Mono key="version" className="break-all">
+              {transformVersionText(transform)}
+            </Mono>,
+          ],
           ['Tests', String(transform.tests?.length ?? 0)],
           [
             'Sources',

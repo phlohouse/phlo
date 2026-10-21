@@ -1,6 +1,7 @@
 /** Validates and executes asset discovery, inspection, and mutation operations. */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
+import { transformRunSchema } from './transform'
 import { environmentSchema, phloApi } from './client'
 import { jobsSchema } from './pipelines'
 
@@ -11,14 +12,6 @@ const exactCountSubmissionSchema = z.object({
   observed_at: z.string(),
   snapshot_id: z.string().regex(/^[0-9]{1,19}$/),
   query: z.object({ id: z.string().min(1) }),
-})
-
-const transformRunSchema = z.object({
-  status: z.string().nullable().optional(),
-  run_id: z.string().nullable().optional(),
-  plan_id: z.string().nullable().optional(),
-  duration_ms: z.number().int().nonnegative().nullable().optional(),
-  counts: z.record(z.string(), z.number().int().nonnegative()).optional(),
 })
 
 const transformSchema = z.object({

@@ -242,10 +242,16 @@ class AssetWriteCount(WireModel):
 
 class AssetTransformRunView(WireModel):
     status: str | None = None
+    action: str | None = None
+    reasons: list[str] = Field(default_factory=list)
     run_id: str | None = None
     plan_id: str | None = None
     duration_ms: int | None = None
     counts: dict[str, int] = Field(default_factory=dict)
+    previous_version: str | None = None
+    desired_version: str | None = None
+    sql_hash: str | None = None
+    query_id: str | None = None
 
 
 class AssetTransformView(WireModel):
@@ -962,10 +968,16 @@ def _transform_view(
     if status or run_id:
         last_run = AssetTransformRunView(
             status=status,
+            action=_declared_text(materialization_entries, "transform_action"),
+            reasons=_string_list(_declared_json(materialization_entries, "transform_reasons")),
             run_id=run_id,
             plan_id=plan_id,
             duration_ms=_declared_int(materialization_entries, "transform_duration_ms"),
             counts=counts,
+            previous_version=_declared_text(materialization_entries, "transform_previous_version"),
+            desired_version=_declared_text(materialization_entries, "transform_desired_version"),
+            sql_hash=_declared_text(materialization_entries, "transform_sql_hash"),
+            query_id=_declared_text(materialization_entries, "transform_query_id"),
         )
     return AssetTransformView(
         engine=_declared_text(definition_entries, "transform_engine") or "phlo-transform",

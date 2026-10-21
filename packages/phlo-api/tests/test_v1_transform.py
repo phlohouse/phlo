@@ -97,6 +97,36 @@ def _node() -> dict[str, Any]:
                     },
                     {
                         "__typename": "TextMetadataEntry",
+                        "label": "transform_action",
+                        "text": "build",
+                    },
+                    {
+                        "__typename": "JsonMetadataEntry",
+                        "label": "transform_reasons",
+                        "jsonString": '["SQL changed"]',
+                    },
+                    {
+                        "__typename": "TextMetadataEntry",
+                        "label": "transform_previous_version",
+                        "text": "3ab2ce0",
+                    },
+                    {
+                        "__typename": "TextMetadataEntry",
+                        "label": "transform_desired_version",
+                        "text": "45f19bc",
+                    },
+                    {
+                        "__typename": "TextMetadataEntry",
+                        "label": "transform_sql_hash",
+                        "text": "hash-1",
+                    },
+                    {
+                        "__typename": "TextMetadataEntry",
+                        "label": "transform_query_id",
+                        "text": "query-1",
+                    },
+                    {
+                        "__typename": "TextMetadataEntry",
                         "label": "transform_run_id",
                         "text": "run-1",
                     },
@@ -135,6 +165,12 @@ def test_asset_view_reads_transform_metadata() -> None:
     ]
     assert view.transform.last_run is not None
     assert view.transform.last_run.status == "passed"
+    assert view.transform.last_run.action == "build"
+    assert view.transform.last_run.reasons == ["SQL changed"]
+    assert view.transform.last_run.previous_version == "3ab2ce0"
+    assert view.transform.last_run.desired_version == "45f19bc"
+    assert view.transform.last_run.sql_hash == "hash-1"
+    assert view.transform.last_run.query_id == "query-1"
     assert view.transform.last_run.run_id == "run-1"
     assert view.transform.last_run.duration_ms == 12
     assert view.transform.last_run.counts == {"passed": 2, "failed": 0}

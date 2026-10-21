@@ -24,7 +24,25 @@ const runTone: Record<string, 'ok' | 'bad' | 'neutral'> = {
   skipped: 'neutral',
 }
 
-function runBadge(status: string | null | undefined) {
+function shortVersion(value: string | null | undefined) {
+  return value ? value.slice(0, 7) : null
+}
+
+function modelVersionText(model: TransformModel) {
+  const previous = shortVersion(model.last_run?.previous_version)
+  const desired = shortVersion(model.last_run?.desired_version)
+  if (previous && desired && previous !== desired)
+    return `${previous} → ${desired}`
+  return model.version ?? desired ?? '—'
+}
+
+function runBadge(
+  status: string | null | undefined,
+  action: string | null | undefined,
+) {
+  if (action === 'build') return <Badge variant="ok">built</Badge>
+  if (action === 'skip') return <Badge variant="neutral">skipped</Badge>
+  if (action === 'cached') return <Badge variant="neutral">cached</Badge>
   if (!status)
     return <span className="text-muted-foreground">Not observed</span>
   return <Badge variant={runTone[status] ?? 'neutral'}>{status}</Badge>
@@ -54,18 +72,26 @@ function ModelRow({ model, env }: { model: TransformModel; env: string }) {
       <td className="px-3 py-2.5 align-top break-words text-muted-foreground">
         <Mono>{model.target ?? '—'}</Mono>
       </td>
-      <td className="px-3 py-2.5 align-top font-mono text-xs whitespace-nowrap text-muted-foreground">
-        {model.version ?? '—'}
+      <td className="px-3 py-2.5 align-top font-mono text-xs break-words text-muted-foreground">
+        {modelVersionText(model)}
       </td>
       <td className="px-3 py-2.5 align-top font-mono text-xs text-muted-foreground">
         {tests}
       </td>
       <td className="px-3 py-2.5 align-top">
         <span className="flex flex-col items-start gap-0.5">
-          {runBadge(lastRun?.status)}
+          {runBadge(lastRun?.status, lastRun?.action)}
           {lastRun?.duration_ms != null ? (
             <span className="text-[11px] text-muted-foreground">
               {lastRun.duration_ms} ms
+            </span>
+          ) : null}
+          {lastRun?.reasons?.length ? (
+            <span
+              className="line-clamp-2 break-all text-[11px] leading-tight text-muted-foreground"
+              title={lastRun.reasons.join(' · ')}
+            >
+              {lastRun.reasons[0]}
             </span>
           ) : null}
         </span>
@@ -113,6 +139,12 @@ function TransformPage() {
   const sources = [
     ...new Set(data.models.flatMap((model) => model.sources ?? [])),
   ].sort()
+  const builtCount = data.models.filter(
+    (model) => model.last_run?.action === 'build',
+  ).length
+  const skippedCount = data.models.filter(
+    (model) => model.last_run?.action === 'skip',
+  ).length
 
   return (
     <>
@@ -161,6 +193,11 @@ function TransformPage() {
           <Mono className="text-foreground">
             {data.workspace ?? 'not declared'}
           </Mono>
+          {builtCount || skippedCount ? (
+            <span>
+              · last run: {builtCount} built · {skippedCount} skipped
+            </span>
+          ) : null}
         </p>
 
         <section
@@ -179,12 +216,12 @@ function TransformPage() {
             <table className="w-full min-w-[860px] table-fixed border-collapse text-left text-[12.5px]">
               <colgroup>
                 <col className="w-[180px]" />
-                <col className="w-[220px]" />
+                <col className="w-[200px]" />
                 <col className="w-[100px]" />
-                <col className="w-[220px]" />
-                <col className="w-[75px]" />
+                <col className="w-[140px]" />
+                <col className="w-[130px]" />
                 <col className="w-[55px]" />
-                <col className="w-[100px]" />
+                <col className="w-[150px]" />
               </colgroup>
               <thead className="text-xs text-muted-foreground">
                 <tr className="border-b border-line">
