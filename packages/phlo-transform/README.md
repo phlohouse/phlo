@@ -83,7 +83,8 @@ phlo-transform --root <workspace> run --select <model> --json
 
 The run report becomes a `MaterializeResult` (status, action, reasons, run and
 plan ids, previous and desired versions, SQL hash, query id, counts, timings)
-and one asset check per workspace test. A failed model or test is
+and one asset check per workspace test. The engine's `explain` report supplies
+column-level lineage metadata for the asset. A failed model or test is
 reported as a failure, not a silent skip. Unchanged models are reported as
 skipped by the engine and succeed. Set the orchestrator tag
 `phlo/full_refresh_asset=<asset key>` or pass `--force` to rebuild anyway.

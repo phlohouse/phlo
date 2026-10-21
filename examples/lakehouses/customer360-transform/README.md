@@ -156,7 +156,8 @@ When the Observatory is running, the **Transform** page shows the active
 engine (`dbt` or `phlo-transform`), all ten models, their content-hash
 versions, blocking tests, and the last run for each asset. With
 phlo-transform, it also shows which models were built or skipped, why, and the
-version transition. Switching providers swaps the page contents without
+version transition. Each asset's Lineage tab shows the engine's column-level
+inputs. Switching providers swaps the page contents without
 changing the route. The same inventory is available from
 `GET /api/v1/transform?env=<env>`.
 

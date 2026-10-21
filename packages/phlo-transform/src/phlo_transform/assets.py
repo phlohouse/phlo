@@ -10,6 +10,7 @@ adapters see the same contract they receive from the dbt provider.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from phlo.capabilities import (
     AssetCheckSpec,
@@ -200,6 +201,68 @@ def adapter_args(
     return args
 
 
+def _column_lineage_metadata(
+    workspace: TransformWorkspace,
+    model: WorkspaceModel,
+    settings: TransformSettings,
+) -> dict[str, Any]:
+    """Attach the engine's column inputs as Dagster column-lineage metadata."""
+    try:
+        from dagster import MetadataValue, TableColumnDep, TableColumnLineage
+    except ImportError:
+        return {}
+
+    payload, invocation = run_json(
+        workspace.binary,
+        ["explain", model.name],
+        settings=settings,
+        root=workspace.root,
+    )
+    if payload is None or not invocation.ok:
+        logger.warning("phlo_transform_column_lineage_unavailable", model=model.name)
+        return {}
+
+    model_payload = payload.get("model")
+    model_payload = model_payload if isinstance(model_payload, dict) else {}
+    columns = model_payload.get("columns")
+    if not isinstance(columns, list):
+        nested = model_payload.get("model")
+        columns = nested.get("columns") if isinstance(nested, dict) else None
+    if not isinstance(columns, list):
+        return {}
+
+    keys = _key_map(workspace, settings.asset_key_mode)
+    lineage: dict[str, list[Any]] = {}
+    for column in columns:
+        if not isinstance(column, dict):
+            continue
+        name = column.get("name")
+        inputs = column.get("inputs")
+        if not isinstance(name, str) or not isinstance(inputs, list):
+            continue
+        dependencies: list[Any] = []
+        for input_ref in inputs:
+            if not isinstance(input_ref, str):
+                continue
+            relation, _, column_name = input_ref.rpartition(".")
+            asset_key = keys.get(relation) or workspace.source_assets.get(relation)
+            if not relation or not column_name or asset_key is None:
+                continue
+            dependency = TableColumnDep(asset_key=asset_key, column_name=column_name)
+            if dependency not in dependencies:
+                dependencies.append(dependency)
+        if dependencies:
+            lineage[name] = dependencies
+
+    if not lineage:
+        return {}
+    return {
+        "column_lineage": MetadataValue.column_lineage(
+            TableColumnLineage(lineage),
+        )
+    }
+
+
 def _run_model(
     workspace: TransformWorkspace,
     model: WorkspaceModel,
@@ -242,6 +305,7 @@ def _run_model(
         for item in payload.get("tests") or []
         if isinstance(item, dict) and item.get("test")
     }
+    lineage_metadata = _column_lineage_metadata(workspace, model, settings)
 
     results: list[MaterializeResult | CheckResult] = []
     for test in workspace.tests_for(model.name):
@@ -283,6 +347,7 @@ def _run_model(
                 "transform_duration_ms": model_report.get("duration_ms"),
                 "transform_query_id": model_report.get("query_id"),
                 "transform_tests": len(workspace.tests_for(model.name)),
+                **lineage_metadata,
             },
         )
     )

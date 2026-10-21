@@ -11,6 +11,7 @@ from phlo.exceptions import PhloCapabilitySetupError
 from phlo.helpers.testing import FakeRuntimeContext
 from phlo_transform import assets as assets_module
 from phlo_transform.assets import (
+    _column_lineage_metadata,
     adapter_args,
     build_workspace_asset_specs,
     has_dbt_project,
@@ -108,6 +109,43 @@ def test_source_asset_bindings_become_dependencies(
     assert specs["stg_orders"].deps == ["sling_orders"]
     assert specs["stg_orders"].metadata["transform_source_assets"] == ["sling_orders"]
     assert specs["orders"].deps == ["stg_orders"]
+
+
+def test_column_lineage_metadata_maps_model_columns(
+    monkeypatch: pytest.MonkeyPatch,
+    transform_settings: TransformSettings,
+    fake_workspace,
+) -> None:
+    payload = {
+        "model": {
+            "columns": [
+                {
+                    "name": "id",
+                    "inputs": [
+                        "analytics.stg_orders.id",
+                        "analytics.orders.id",
+                    ],
+                }
+            ]
+        }
+    }
+
+    monkeypatch.setattr(
+        assets_module,
+        "run_json",
+        lambda *args, **kwargs: (payload, _invocation()),
+    )
+    metadata = _column_lineage_metadata(
+        fake_workspace,
+        fake_workspace.models[1],
+        transform_settings,
+    )
+
+    lineage = metadata["column_lineage"].lineage
+    assert [dep.asset_key.path for dep in lineage.deps_by_column["id"]] == [
+        ["orders"],
+        ["stg_orders"],
+    ]
 
 
 def test_run_translates_materialization_and_only_own_tests(
