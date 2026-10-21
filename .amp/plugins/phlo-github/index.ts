@@ -7,6 +7,9 @@
  * review threads and exposes a target-bound phlo-agent publishing tool.
  */
 import type { PluginAPI, PluginThread, ThreadID, ThreadMessage } from '@ampcode/plugin'
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import {
   capabilityPrefix,
   createCapability,
@@ -14,9 +17,13 @@ import {
   parseCapability,
   parseGitHubEvent,
   parseGitHubMention,
+  readContainedFile,
+  resolveFiles,
   reviewParentThreadID,
   verifyGitHubSignature,
 } from './lib.ts'
+
+const execFileAsync = promisify(execFile)
 
 export const description = 'Runs Phlo GitHub review, triage, and scheduled maintenance in Amp.'
 
@@ -46,6 +53,40 @@ function writerUrl(raw: string): string | null {
 
 function configuredSecret(value: string | undefined): string | undefined {
   return value !== undefined && value.length >= 32 ? value : undefined
+}
+
+async function workspaceFile(path: string): Promise<string> {
+  return readContainedFile(fileURLToPath(new URL('../../../', import.meta.url)), path)
+}
+
+async function checkoutHead(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', 'HEAD'],
+      { cwd: fileURLToPath(new URL('../../../', import.meta.url)) },
+    )
+    return stdout.trim()
+  } catch {
+    throw new Error('The workspace checkout is not a readable Git repository.')
+  }
+}
+
+async function pullRequestHead(number: number): Promise<string> {
+  const token = configuredSecret(process.env.PHLO_GITHUB_WRITER_TOKEN)
+  const url = writerUrl(process.env.PHLO_GITHUB_WRITER_URL ?? '')
+  if (token === undefined || url === null) throw new Error('Phlo GitHub publishing is not configured.')
+  const response = await fetch(new URL('/v1/pull-request-head', url), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ number }),
+  })
+  if (!response.ok) {
+    throw new Error(`The Phlo GitHub writer could not resolve the pull request head with HTTP ${response.status}.`)
+  }
+  const result = await response.json() as { headSha?: unknown }
+  if (typeof result.headSha !== 'string') throw new Error('The Phlo GitHub writer returned an invalid head SHA.')
+  return result.headSha
 }
 
 function configuredReviewThreads(value: unknown): Record<string, ThreadID> {
@@ -137,17 +178,23 @@ export default async function (amp: PluginAPI) {
       'On a scheduled wake-up, read get_schedule before acting. If it is not directly exposed, discover and call amp.get_schedule through tool_search and code_exec. If no schedule exists, stop.',
       'Follow only the schedule prompt and its named Phlo maintenance skills.',
       'Ground every finding in current main and search existing issues and pull requests before proposing work.',
-      'You have no shell or general-purpose write tools. Never push, merge, release, change secrets or workflows, or claim to have run checks.',
+      'You have shell access to the orb checkout for dependency resolution and focused checks. Never run git push, gh writes, merge, release, change secrets or workflows, or claim to have run a check you did not run.',
       'Use code_exec only to call get_schedule, not to execute repository code, change schedules, or perform other writes.',
-      'The only permitted GitHub writes are one bounded issue or draft pull request through the phlo maintenance publishing tools.',
+      'The only permitted GitHub writes are one bounded issue or draft pull request through the phlo maintenance publishing tools; publish the changed files, omit content to read the checkout, and state the checks you ran.',
     ].join(' '),
-    tools: [...READ_ONLY_TOOLS, ...SCHEDULE_TOOLS, MAINTENANCE_TOOLS],
+    tools: [
+      ...READ_ONLY_TOOLS,
+      ...SCHEDULE_TOOLS,
+      'create_file', 'edit_file',
+      'shell_command', 'shell_command_status', 'shell_command_kill',
+      MAINTENANCE_TOOLS,
+    ],
     display: { label: 'Phlo maintenance', color: '#34d399' },
   })
   amp.registerAgentMode({
     key: 'phlo-maintenance',
     label: 'Phlo maintenance',
-    description: 'Audits Phlo main and may publish a bounded issue or inspection-grounded draft pull request.',
+    description: 'Audits Phlo main, runs resolvers and focused checks, and may publish a bounded issue or draft pull request.',
     color: '#34d399',
     agent: maintenance.definition,
   })
@@ -266,7 +313,7 @@ export default async function (amp: PluginAPI) {
 
   amp.registerTool({
     name: 'publish_phlo_maintenance_pull_request',
-    description: 'Create or update one draft Phlo maintenance pull request from verified file contents. Supply baseSha to create, or pullNumber to add a commit to an existing open agent pull request. Workflow and Amp automation files are refused.',
+    description: 'Create or update one draft Phlo maintenance pull request. Supply baseSha to create, or pullNumber to update. Omit a file content to publish the current workspace file. Workflow and Amp automation files are refused.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -283,9 +330,9 @@ export default async function (amp: PluginAPI) {
             type: 'object',
             properties: {
               path: { type: 'string' },
-              content: { type: ['string', 'null'], description: 'Complete file content, or null to delete.' },
+              content: { type: ['string', 'null'], description: 'Complete file content, null to delete, or omit to read the current workspace file.' },
             },
-            required: ['path', 'content'],
+            required: ['path'],
             additionalProperties: false,
           },
         },
@@ -294,7 +341,21 @@ export default async function (amp: PluginAPI) {
       additionalProperties: false,
     },
     async execute(input) {
-      return publishMaintenance('/v1/draft-pull-requests', input)
+      const request = input as { baseSha?: unknown; files?: unknown; pullNumber?: unknown }
+      const expected = typeof request.baseSha === 'string'
+        ? request.baseSha
+        : Number.isSafeInteger(request.pullNumber)
+          ? await pullRequestHead(request.pullNumber as number)
+          : null
+      if (expected !== null && await checkoutHead() !== expected) {
+        throw new Error('The workspace checkout is not at the target revision. Check out the base or pull request head before publishing.')
+      }
+      if (!Array.isArray(request.files)) return publishMaintenance('/v1/draft-pull-requests', input)
+      const files = await resolveFiles(
+        request.files as Array<{ content?: string | null; path: string }>,
+        workspaceFile,
+      )
+      return publishMaintenance('/v1/draft-pull-requests', { ...request, files })
     },
   })
 
