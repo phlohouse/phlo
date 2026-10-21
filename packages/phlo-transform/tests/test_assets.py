@@ -33,6 +33,10 @@ def test_leaf_keys_are_dbt_compatible_and_deps_use_same_map(
     assert specs[1].deps == ["stg_orders"]
     assert specs[1].group == "analytics"
     assert specs[1].metadata["transform_model"] == "analytics.orders"
+    assert specs[1].metadata["transform_engine"] == "phlo-transform"
+    assert specs[1].metadata["transform_test_names"] == [
+        "analytics.orders.generated.not_null_id"
+    ]
     assert specs[1].checks[0].name == "analytics_orders_generated_not_null_id"
 
 
