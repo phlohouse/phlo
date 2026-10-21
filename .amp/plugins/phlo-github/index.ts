@@ -7,7 +7,7 @@
  * review threads and exposes a target-bound phlo-agent publishing tool.
  */
 import type { PluginAPI, PluginThread, ThreadID, ThreadMessage } from '@ampcode/plugin'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -58,7 +58,12 @@ async function workspaceFile(path: string): Promise<string> {
   if (inside === '' || inside.startsWith('..') || inside.split('/').includes('..')) {
     throw new Error(`The path is outside the workspace checkout: ${path}`)
   }
-  return readFile(absolute, 'utf8')
+  const real = await realpath(absolute)
+  const realInside = relative(await realpath(root), real)
+  if (realInside === '' || realInside.startsWith('..') || realInside.split('/').includes('..')) {
+    throw new Error(`The path resolves outside the workspace checkout: ${path}`)
+  }
+  return readFile(real, 'utf8')
 }
 
 function configuredReviewThreads(value: unknown): Record<string, ThreadID> {
