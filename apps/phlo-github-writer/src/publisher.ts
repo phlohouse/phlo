@@ -30,6 +30,15 @@ interface ChangedFile {
   path: string
 }
 
+interface PullRequestRequest {
+  baseSha?: string
+  body: string
+  branch: string
+  files: ChangedFile[]
+  pullNumber?: number
+  title: string
+}
+
 interface PullRequestMetadataRequest {
   body?: string
   number: number
@@ -180,15 +189,12 @@ function pullRequestNumberInput(value: unknown): { number: number } | null {
     : null
 }
 
-function pullRequestInput(value: unknown): {
-  baseSha: string
-  body: string
-  branch: string
-  files: ChangedFile[]
-  title: string
-} | null {
+function pullRequestInput(value: unknown): PullRequestRequest | null {
   const data = object(value)
-  if (data === null || typeof data.baseSha !== 'string' || !SHA_PATTERN.test(data.baseSha)) return null
+  if (data === null) return null
+  const creates = typeof data.baseSha === 'string' && SHA_PATTERN.test(data.baseSha)
+  const updates = Number.isSafeInteger(data.pullNumber) && (data.pullNumber as number) > 0
+  if (creates === updates) return null
   if (!validBranch(data.branch) || typeof data.title !== 'string' || data.title.length < 1 || data.title.length > 256) return null
   if (typeof data.body !== 'string' || data.body.length < 1 || data.body.length > MAX_BODY_LENGTH) return null
   if (!Array.isArray(data.files) || data.files.length < 1 || data.files.length > 50) return null
@@ -201,7 +207,14 @@ function pullRequestInput(value: unknown): {
     paths.add(file.path)
     files.push({ content: file.content, path: file.path })
   }
-  return { baseSha: data.baseSha, body: data.body, branch: data.branch, files, title: data.title }
+  return {
+    ...(creates ? { baseSha: data.baseSha as string } : {}),
+    ...(updates ? { pullNumber: data.pullNumber as number } : {}),
+    body: data.body,
+    branch: data.branch,
+    files,
+    title: data.title,
+  }
 }
 
 async function publishIssue(issue: ReturnType<typeof issueInput> & {}, token: string, fetcher: Fetcher) {
@@ -241,31 +254,24 @@ async function pullRequestHead(number: number, token: string, fetcher: Fetcher) 
   return { headSha: result.head.sha }
 }
 
-async function publishPullRequest(
-  pull: ReturnType<typeof pullRequestInput> & {},
+async function commitTree(commitSha: string, token: string, fetcher: Fetcher): Promise<string> {
+  const response = await githubRequest(`/repos/${repository}/git/commits/${commitSha}`, token, fetcher)
+  if (!response.ok) throw new Error(`GitHub commit lookup failed with HTTP ${response.status}.`)
+  const commit = await response.json() as { tree?: { sha?: unknown } }
+  if (typeof commit.tree?.sha !== 'string') throw new Error('GitHub returned an invalid tree SHA.')
+  return commit.tree.sha
+}
+
+async function commitFiles(
+  files: ChangedFile[],
+  baseTreeSha: string,
+  parentSha: string,
+  message: string,
   token: string,
   fetcher: Fetcher,
-) {
-  const reference = await githubRequest(`/repos/${repository}/git/ref/heads/main`, token, fetcher)
-  if (!reference.ok) throw new Error(`GitHub main reference lookup failed with HTTP ${reference.status}.`)
-  const current = await reference.json() as { object?: { sha?: unknown } }
-  if (current.object?.sha !== pull.baseSha) throw new Error('The main branch changed after maintenance started.')
-
-  const baseCommitResponse = await githubRequest(
-    `/repos/${repository}/git/commits/${pull.baseSha}`,
-    token,
-    fetcher,
-  )
-  if (!baseCommitResponse.ok) {
-    throw new Error(`GitHub base commit lookup failed with HTTP ${baseCommitResponse.status}.`)
-  }
-  const baseCommit = await baseCommitResponse.json() as { tree?: { sha?: unknown } }
-  if (typeof baseCommit.tree?.sha !== 'string') {
-    throw new Error('GitHub returned an invalid base tree SHA.')
-  }
-
+): Promise<string> {
   const tree = []
-  for (const file of pull.files) {
+  for (const file of files) {
     if (file.content === null) {
       tree.push({ path: file.path, mode: '100644', type: 'blob', sha: null })
       continue
@@ -281,7 +287,7 @@ async function publishPullRequest(
   }
   const treeResponse = await githubRequest(`/repos/${repository}/git/trees`, token, fetcher, {
     method: 'POST',
-    body: JSON.stringify({ base_tree: baseCommit.tree.sha, tree }),
+    body: JSON.stringify({ base_tree: baseTreeSha, tree }),
   })
   if (!treeResponse.ok) throw new Error(`GitHub tree creation failed with HTTP ${treeResponse.status}.`)
   const treeResult = await treeResponse.json() as { sha?: unknown }
@@ -289,15 +295,29 @@ async function publishPullRequest(
 
   const commitResponse = await githubRequest(`/repos/${repository}/git/commits`, token, fetcher, {
     method: 'POST',
-    body: JSON.stringify({ message: pull.title, tree: treeResult.sha, parents: [pull.baseSha] }),
+    body: JSON.stringify({ message, tree: treeResult.sha, parents: [parentSha] }),
   })
   if (!commitResponse.ok) throw new Error(`GitHub commit creation failed with HTTP ${commitResponse.status}.`)
   const commit = await commitResponse.json() as { sha?: unknown }
   if (typeof commit.sha !== 'string') throw new Error('GitHub returned an invalid commit SHA.')
+  return commit.sha
+}
 
+async function publishPullRequest(
+  pull: PullRequestRequest & { baseSha: string },
+  token: string,
+  fetcher: Fetcher,
+) {
+  const reference = await githubRequest(`/repos/${repository}/git/ref/heads/main`, token, fetcher)
+  if (!reference.ok) throw new Error(`GitHub main reference lookup failed with HTTP ${reference.status}.`)
+  const current = await reference.json() as { object?: { sha?: unknown } }
+  if (current.object?.sha !== pull.baseSha) throw new Error('The main branch changed after maintenance started.')
+
+  const baseTreeSha = await commitTree(pull.baseSha, token, fetcher)
+  const sha = await commitFiles(pull.files, baseTreeSha, pull.baseSha, pull.title, token, fetcher)
   const branchResponse = await githubRequest(`/repos/${repository}/git/refs`, token, fetcher, {
     method: 'POST',
-    body: JSON.stringify({ ref: `refs/heads/${pull.branch}`, sha: commit.sha }),
+    body: JSON.stringify({ ref: `refs/heads/${pull.branch}`, sha }),
   })
   if (!branchResponse.ok) throw new Error(`GitHub branch creation failed with HTTP ${branchResponse.status}.`)
   const pullResponse = await githubRequest(`/repos/${repository}/pulls`, token, fetcher, {
@@ -312,7 +332,55 @@ async function publishPullRequest(
   })
   if (!pullResponse.ok) throw new Error(`GitHub pull request creation failed with HTTP ${pullResponse.status}.`)
   const result = await pullResponse.json() as { html_url?: unknown }
-  return { htmlUrl: typeof result.html_url === 'string' ? result.html_url : '', sha: commit.sha }
+  return { htmlUrl: typeof result.html_url === 'string' ? result.html_url : '', sha }
+}
+
+async function updatePullRequestContents(
+  pull: PullRequestRequest & { pullNumber: number },
+  token: string,
+  fetcher: Fetcher,
+) {
+  const reference = await githubRequest(`/repos/${repository}/pulls/${pull.pullNumber}`, token, fetcher)
+  if (!reference.ok) throw new Error(`GitHub pull request lookup failed with HTTP ${reference.status}.`)
+  const existing = await reference.json() as {
+    base?: { ref?: unknown }
+    head?: { ref?: unknown; repo?: { full_name?: unknown }; sha?: unknown }
+    state?: unknown
+    user?: { type?: unknown }
+  }
+  if (
+    existing.state !== 'open'
+    || existing.head?.ref !== pull.branch
+    || existing.head?.repo?.full_name !== repository
+    || existing.base?.ref !== 'main'
+    || existing.user?.type !== 'Bot'
+  ) {
+    throw new Error('The pull request cannot be updated by this writer.')
+  }
+  const headSha = existing.head.sha
+  if (typeof headSha !== 'string' || !SHA_PATTERN.test(headSha)) {
+    throw new Error('GitHub returned an invalid pull request head SHA.')
+  }
+
+  const baseTreeSha = await commitTree(headSha, token, fetcher)
+  const sha = await commitFiles(pull.files, baseTreeSha, headSha, pull.title, token, fetcher)
+  const branchPath = pull.branch.split('/').map(encodeURIComponent).join('/')
+  const branchResponse = await githubRequest(`/repos/${repository}/git/refs/heads/${branchPath}`, token, fetcher, {
+    method: 'PATCH',
+    body: JSON.stringify({ force: false, sha }),
+  })
+  if (!branchResponse.ok) throw new Error(`GitHub branch update failed with HTTP ${branchResponse.status}.`)
+  const pullResponse = await githubRequest(`/repos/${repository}/pulls/${pull.pullNumber}`, token, fetcher, {
+    method: 'PATCH',
+    body: JSON.stringify({ body: pull.body, title: pull.title }),
+  })
+  if (!pullResponse.ok) throw new Error(`GitHub pull request update failed with HTTP ${pullResponse.status}.`)
+  const result = await pullResponse.json() as { html_url?: unknown }
+  return {
+    htmlUrl: typeof result.html_url === 'string' ? result.html_url : '',
+    sha,
+    updated: true,
+  }
 }
 
 export async function handleRequest(request: Request, dependencies: Dependencies): Promise<Response> {
@@ -358,11 +426,15 @@ export async function handleRequest(request: Request, dependencies: Dependencies
         ? await updatePullRequest(parsed as PullRequestMetadataRequest, token, fetcher)
       : url.pathname === '/v1/issues'
         ? await publishIssue(parsed as ReturnType<typeof issueInput> & {}, token, fetcher)
-        : await publishPullRequest(parsed as ReturnType<typeof pullRequestInput> & {}, token, fetcher)
-    return Response.json(result, { status: 'reused' in result && result.reused ? 200 : 201 })
+        : (parsed as PullRequestRequest).pullNumber === undefined
+          ? await publishPullRequest(parsed as PullRequestRequest & { baseSha: string }, token, fetcher)
+          : await updatePullRequestContents(parsed as PullRequestRequest & { pullNumber: number }, token, fetcher)
+    const reused = 'reused' in result && result.reused
+    const updated = 'updated' in result && result.updated
+    return Response.json(result, { status: reused || updated ? 200 : 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'GitHub publishing failed.'
-    const status = message.includes('changed after') ? 409 : 502
+    const status = message.includes('changed after') || message.includes('cannot be updated') ? 409 : 502
     return Response.json({ error: message }, { status })
   }
 }

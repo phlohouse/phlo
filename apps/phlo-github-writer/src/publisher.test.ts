@@ -155,6 +155,95 @@ test('creates a draft pull request from bounded file content', async () => {
   assert.equal((calls.at(-1)?.body as { draft?: unknown }).draft, true)
 })
 
+test('updates an existing agent draft pull request with one new commit', async () => {
+  const branch = 'agent/security-dependency-remediation'
+  const headSha = 'a'.repeat(40)
+  const headTreeSha = 'e'.repeat(40)
+  const calls: Array<{ body: unknown; method: string; url: string }> = []
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = String(input)
+    const auth = githubAuth(url)
+    if (auth !== null) return auth
+    calls.push({
+      body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+      method: init?.method ?? 'GET',
+      url,
+    })
+    if (url.endsWith('/pulls/99')) {
+      if (init?.method === 'PATCH') {
+        return Response.json({ html_url: 'https://github.com/phlohouse/phlo/pull/99' })
+      }
+      return Response.json({
+        base: { ref: 'main' },
+        head: { ref: branch, repo: { full_name: 'phlohouse/phlo' }, sha: headSha },
+        state: 'open',
+        user: { type: 'Bot' },
+      })
+    }
+    if (url.endsWith(`/git/commits/${headSha}`)) return Response.json({ tree: { sha: headTreeSha } })
+    if (url.endsWith('/git/blobs')) return Response.json({ sha: 'b'.repeat(40) })
+    if (url.endsWith('/git/trees')) return Response.json({ sha: 'c'.repeat(40) })
+    if (url.endsWith('/git/commits')) return Response.json({ sha: 'd'.repeat(40) })
+    return Response.json({})
+  }
+  const response = await handleRequest(request('/v1/draft-pull-requests', {
+    body: 'Refreshed advisory evidence.',
+    branch,
+    files: [{ content: 'fixed lock\n', path: 'uv.lock' }],
+    pullNumber: 99,
+    title: 'fix(deps): remediate advisories',
+  }), { ...credentials, fetch: fetcher })
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), {
+    htmlUrl: 'https://github.com/phlohouse/phlo/pull/99',
+    sha: 'd'.repeat(40),
+    updated: true,
+  })
+  const treeRequest = calls.find((call) => call.url.endsWith('/git/trees'))
+  assert.equal((treeRequest?.body as { base_tree?: unknown }).base_tree, headTreeSha)
+  const commitRequest = calls.find((call) => call.url.endsWith('/git/commits') && call.method === 'POST')
+  assert.deepEqual((commitRequest?.body as { parents?: unknown }).parents, [headSha])
+  const refRequest = calls.find((call) => call.url.includes('/git/refs/heads/'))
+  assert.deepEqual(refRequest?.body, { force: false, sha: 'd'.repeat(40) })
+  const metadataRequest = calls.find((call) => call.url.endsWith('/pulls/99') && call.method === 'PATCH')
+  assert.deepEqual(metadataRequest?.body, {
+    body: 'Refreshed advisory evidence.',
+    title: 'fix(deps): remediate advisories',
+  })
+})
+
+test('refuses to update a pull request it does not own', async () => {
+  const fetcher: typeof fetch = async (input) => {
+    const auth = githubAuth(String(input))
+    if (auth !== null) return auth
+    return Response.json({
+      base: { ref: 'main' },
+      head: { ref: 'agent/human-branch', repo: { full_name: 'phlohouse/phlo' }, sha: 'a'.repeat(40) },
+      state: 'open',
+      user: { type: 'User' },
+    })
+  }
+  const response = await handleRequest(request('/v1/draft-pull-requests', {
+    body: 'Update a human pull request.',
+    branch: 'agent/human-branch',
+    files: [{ content: 'unsafe\n', path: 'docs/example.md' }],
+    pullNumber: 99,
+    title: 'docs: rewrite',
+  }), { ...credentials, fetch: fetcher })
+  assert.equal(response.status, 409)
+
+  const both = await handleRequest(request('/v1/draft-pull-requests', {
+    baseSha: 'a'.repeat(40),
+    body: 'Ambiguous request.',
+    branch: 'agent/fix-docs',
+    files: [{ content: 'fixed\n', path: 'docs/example.md' }],
+    pullNumber: 99,
+    title: 'fix(docs): correct example',
+  }), credentials)
+  assert.equal(both.status, 400)
+})
+
 test('refuses automation changes, unknown labels, and stale maintenance bases', async () => {
   for (const path of ['.github/workflows/ci.yml', '.agents/setup']) {
     const invalid = await handleRequest(request('/v1/draft-pull-requests', {
