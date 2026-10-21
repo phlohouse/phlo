@@ -266,12 +266,13 @@ export default async function (amp: PluginAPI) {
 
   amp.registerTool({
     name: 'publish_phlo_maintenance_pull_request',
-    description: 'Create one feature branch and draft Phlo maintenance pull request from verified file contents. Workflow and Amp automation files are refused.',
+    description: 'Create or update one draft Phlo maintenance pull request from verified file contents. Supply baseSha to create, or pullNumber to add a commit to an existing open agent pull request. Workflow and Amp automation files are refused.',
     inputSchema: {
       type: 'object',
       properties: {
-        baseSha: { type: 'string', description: 'Exact origin/main SHA used for the change.' },
-        branch: { type: 'string', description: 'New agent/* branch name.' },
+        baseSha: { type: 'string', description: 'Exact origin/main SHA used for a new change. Omit when updating pullNumber.' },
+        pullNumber: { type: 'number', description: 'Existing open phlo-agent draft pull request to update. Omit when creating.' },
+        branch: { type: 'string', description: 'New agent/* branch name, or the existing branch of pullNumber.' },
         title: { type: 'string', description: 'Conventional Commit style pull request title.' },
         body: { type: 'string', description: 'Draft pull request body including checks run.' },
         files: {
@@ -289,7 +290,7 @@ export default async function (amp: PluginAPI) {
           },
         },
       },
-      required: ['baseSha', 'branch', 'title', 'body', 'files'],
+      required: ['branch', 'title', 'body', 'files'],
       additionalProperties: false,
     },
     async execute(input) {
