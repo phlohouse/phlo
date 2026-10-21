@@ -153,9 +153,10 @@ The schedules in `workflows/schedules/customer360.py` select asset keys such as
 exact keys.
 
 When the Observatory is running, the **Transform** page shows the active
-workspace, all ten models, their content-hash versions, blocking tests, and the
-last run for each asset. The same inventory is available from
-`GET /api/v1/transform?env=<env>`.
+engine (`dbt` or `phlo-transform`), all ten models, their content-hash
+versions, blocking tests, and the last run for each asset. Switching providers
+swaps the page contents without changing the route. The same inventory is
+available from `GET /api/v1/transform?env=<env>`.
 
 ## Run the lakehouse
 

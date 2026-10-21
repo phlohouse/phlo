@@ -126,11 +126,11 @@ Use the native asset-key shape to keep keys stable across the switch. The defaul
 
 ## 6. Inspect the transform graph in the Observatory
 
-The Phlo Observatory reads the provider metadata that the transform assets publish to Dagster:
+Both providers publish the same provider-neutral metadata to Dagster, so the Observatory experience survives a switch:
 
-- The **Transform** page lists the active workspace, every compiled model, its materialization, target, content-hash version, blocking tests, sources, and last run.
-- Each transform asset's **Overview** tab has a Transform card with the model identity and last run result.
-- `GET /api/v1/transform?env=<env>` returns the same inventory for automation and dashboards.
+- The **Transform** page shows the active engine (`dbt` or `phlo-transform`) and lists the workspace, every compiled model, its materialization, target, content-hash version, blocking tests, sources, and last run.
+- Each transformation asset's **Overview** tab has a Transform card with its engine, model identity, and last run result.
+- `GET /api/v1/transform?env=<env>` returns the same inventory for automation and dashboards, including the active engine.
 
 Start the Observatory alongside the project and open **Transform** in the navigation. The page reports an inactive provider with the `phlo transform use phlo-transform` command rather than an empty table.
 

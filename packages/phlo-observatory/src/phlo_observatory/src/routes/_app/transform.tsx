@@ -87,20 +87,20 @@ function TransformPage() {
               Transform
             </span>
           }
-          meta="Native Phlo Transform workspace"
+          meta="Transformation workspace"
         />
         <PageBody className="gap-6 lg:p-8">
           <EmptyState
-            title="No transform assets in this environment"
+            title="No transformation assets in this environment"
             icon={<SparklesIcon className="size-3" />}
             action={
               <code className="rounded-md bg-soft px-2.5 py-1.5 font-mono text-xs">
-                phlo transform use phlo-transform
+                phlo transform status
               </code>
             }
           >
             {data.reason ??
-              'Switch the project to the phlo-transform provider and restart Dagster.'}
+              'Install a dbt project or phlo-transform workspace, select a provider, and restart Dagster.'}
           </EmptyState>
         </PageBody>
       </>
@@ -122,7 +122,7 @@ function TransformPage() {
             <SparklesIcon className="size-4 text-muted-foreground" /> Transform
           </span>
         }
-        meta="Native Phlo Transform workspace declared by the active provider"
+        meta="Transformation workspace declared by the active provider"
         actions={
           <Link
             to="/assets"
@@ -140,8 +140,8 @@ function TransformPage() {
         >
           <Stat
             label="Engine"
-            value="phlo-transform"
-            sub="SQL compiler and runner"
+            value={data.engine}
+            sub="Active transformation provider"
           />
           <Stat label="Models" value={data.model_count} sub="Compiled assets" />
           <Stat

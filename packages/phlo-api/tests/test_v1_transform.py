@@ -196,6 +196,7 @@ def test_transform_endpoint_aggregates_models(monkeypatch: pytest.MonkeyPatch) -
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["status"] == "available"
+    assert payload["engine"] == "phlo-transform"
     assert payload["model_count"] == 1
     assert payload["test_count"] == 1
     assert payload["source_count"] == 0
@@ -204,6 +205,22 @@ def test_transform_endpoint_aggregates_models(monkeypatch: pytest.MonkeyPatch) -
     assert payload["models"][0]["tests"] == [
         "customer360.customer_dimension.generated.not_null_canonical_email"
     ]
+
+
+def test_transform_endpoint_reports_the_dbt_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_asset_nodes(request, env, **kwargs):
+        node = copy.deepcopy(_node())
+        for entry in node["metadataEntries"]:
+            if entry["label"] == "transform_engine":
+                entry["text"] = "dbt"
+        return [node]
+
+    _configure_environment(monkeypatch)
+    monkeypatch.setattr(v1_assets, "_asset_nodes", fake_asset_nodes)
+    response = authenticated_client("admin").get("/api/v1/transform?env=dev")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["engine"] == "dbt"
 
 
 def test_transform_endpoint_explains_an_inactive_provider(
@@ -221,5 +238,5 @@ def test_transform_endpoint_explains_an_inactive_provider(
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["status"] == "unavailable"
-    assert "phlo transform use phlo-transform" in payload["reason"]
+    assert "phlo transform status" in payload["reason"]
     assert payload["models"] == []

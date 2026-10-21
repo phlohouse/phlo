@@ -282,6 +282,7 @@ class TransformModelView(WireModel):
 class TransformWorkspaceView(WireModel):
     env: Environment
     status: Literal["available", "unavailable"]
+    engine: str = "phlo-transform"
     reason: str | None = None
     workspace: str | None = None
     model_count: int = Field(default=0, ge=0)
@@ -2843,6 +2844,7 @@ async def v1_transform(request: Request, env: Environment = Query()) -> Transfor
     nodes = await _asset_nodes(request, env)
     models: list[TransformModelView] = []
     workspaces: set[str] = set()
+    engines: set[str] = set()
     tests: set[str] = set()
     sources: set[str] = set()
     for node in nodes:
@@ -2869,6 +2871,7 @@ async def v1_transform(request: Request, env: Environment = Query()) -> Transfor
         )
         if transform.workspace:
             workspaces.add(transform.workspace)
+        engines.add(transform.engine)
         tests.update(transform.tests)
         sources.update(transform.sources)
     if not models:
@@ -2876,14 +2879,16 @@ async def v1_transform(request: Request, env: Environment = Query()) -> Transfor
             env=env,
             status="unavailable",
             reason=(
-                "No Phlo Transform assets are registered in this Dagster code location. "
-                "Run `phlo transform use phlo-transform` and restart Dagster to switch."
+                "No transformation assets are registered in this Dagster code location. "
+                "Run `phlo transform status`, select a provider, and restart Dagster."
             ),
         )
     workspace = next(iter(workspaces)) if len(workspaces) == 1 else ", ".join(sorted(workspaces))
+    engine = next(iter(engines)) if len(engines) == 1 else "mixed"
     return TransformWorkspaceView(
         env=env,
         status="available",
+        engine=engine,
         workspace=workspace or None,
         model_count=len(models),
         test_count=len(tests),

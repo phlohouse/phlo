@@ -327,16 +327,29 @@ function TransformMetadata({
         keyWidth={96}
         className="text-[13px] [&_dd]:min-w-0"
         items={[
-          ['Model', <Mono key="model">{transform.model}</Mono>],
+          ['Engine', transform.engine],
+          [
+            'Model',
+            <Mono key="model" className="min-w-0 break-all">
+              {transform.model}
+            </Mono>,
+          ],
           ['Materialization', transform.materialization ?? '—'],
-          ['Target', <Mono key="target">{transform.target ?? '—'}</Mono>],
+          [
+            'Target',
+            <Mono key="target" className="min-w-0 break-all">
+              {transform.target ?? '—'}
+            </Mono>,
+          ],
           ['Version', <Mono key="version">{transform.version ?? '—'}</Mono>],
           ['Tests', String(transform.tests?.length ?? 0)],
           [
             'Sources',
-            transform.sources?.length
-              ? transform.sources.join(', ')
-              : 'None declared',
+            transform.sources?.length ? (
+              <span className="break-all">{transform.sources.join(', ')}</span>
+            ) : (
+              'None declared'
+            ),
           ],
           ['Last run', <TransformLastRun key="run" run={transform.last_run} />],
         ]}

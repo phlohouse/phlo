@@ -30,6 +30,7 @@ const transformModelSchema = z.object({
 const transformWorkspaceSchema = z.object({
   env: environmentSchema,
   status: z.enum(['available', 'unavailable']),
+  engine: z.string().default('phlo-transform'),
   reason: z.string().nullable().optional(),
   workspace: z.string().nullable().optional(),
   model_count: z.number().int().nonnegative(),

@@ -80,6 +80,78 @@ def _asset_deps(unique_id: str, nodes: Mapping[str, Any], asset_keys: dict[str, 
     return deps
 
 
+def _dbt_transform_metadata(
+    unique_id: str,
+    props: Mapping[str, Any],
+    *,
+    checks: list[Any],
+    sources: Mapping[str, Any],
+    project_path: Path,
+) -> dict[str, Any]:
+    """Describe a dbt asset with the provider-neutral transform contract."""
+    model = unique_id.partition(".")[2] or str(props.get("name") or "")
+    config = props.get("config")
+    config = config if isinstance(config, Mapping) else {}
+    materialized = str(config.get("materialized") or "view")
+
+    target = str(props.get("relation_name") or "")
+    if not target:
+        schema = str(props.get("schema") or "")
+        alias = str(props.get("alias") or props.get("name") or "")
+        target = f"{schema}.{alias}" if schema and alias else alias
+
+    checksum = props.get("checksum")
+    version = None
+    if isinstance(checksum, Mapping):
+        raw = checksum.get("checksum")
+        if isinstance(raw, str) and raw:
+            version = raw[:7]
+
+    tags: list[str] = []
+    for value in (config.get("tags"), props.get("tags")):
+        if isinstance(value, str):
+            tags.append(value)
+        elif isinstance(value, (list, tuple)):
+            tags.extend(str(item) for item in value)
+    tags = list(dict.fromkeys(tags))
+
+    depends_on = props.get("depends_on")
+    declared = depends_on.get("sources") if isinstance(depends_on, Mapping) else None
+    nodes = depends_on.get("nodes") if isinstance(depends_on, Mapping) else None
+    source_ids = list(declared) if isinstance(declared, list) else []
+    if isinstance(nodes, list):
+        source_ids.extend(
+            node for node in nodes if isinstance(node, str) and node.startswith("source.")
+        )
+    source_relations: list[str] = []
+    for unique_source in source_ids:
+        source = sources.get(str(unique_source))
+        if not isinstance(source, Mapping):
+            continue
+        schema = str(source.get("schema") or "")
+        name = str(source.get("name") or "")
+        relation = (
+            f"{schema}.{name}" if schema and name else str(source.get("relation_name") or name)
+        )
+        if relation and relation not in source_relations:
+            source_relations.append(relation)
+
+    return {
+        "transform_engine": "dbt",
+        "transform_model": model,
+        "transform_target": target,
+        "transform_materialization": materialized,
+        "transform_version": version,
+        "transform_path": str(props.get("original_file_path") or props.get("path") or ""),
+        "transform_tags": tags,
+        "transform_test_names": [
+            str(check.name) for check in checks if getattr(check, "name", None)
+        ],
+        "transform_sources": source_relations,
+        "transform_workspace": str(project_path),
+    }
+
+
 def _run_dbt_model(
     *,
     model_name: str,
@@ -122,6 +194,13 @@ def _run_dbt_model(
         translator=translator,
         partition_key=partition_key,
     )
+    counts: dict[str, int] = {}
+    if result.tests_passed >= 0:
+        counts["passed"] = result.tests_passed
+    if result.tests_failed >= 0:
+        counts["failed"] = result.tests_failed
+    elapsed = result.metadata.get("total_elapsed_seconds")
+    duration_ms = int(round(float(elapsed) * 1000)) if isinstance(elapsed, (int, float)) else None
     return [
         *checks,
         MaterializeResult(
@@ -131,6 +210,10 @@ def _run_dbt_model(
                 "dbt_target": target,
                 "dbt_status": result.status,
                 "dbt_metadata": result.metadata,
+                "transform_status": result.status,
+                "transform_run_id": runtime.run_id,
+                "transform_duration_ms": duration_ms,
+                "transform_counts": counts,
             },
         ),
     ]
@@ -284,6 +367,16 @@ def _build_project_asset_specs(
             metadata = {**metadata, "dbt_project": project_name}
 
         checks = [check for check in check_specs if check.asset_key == asset_key]
+        if resource_type == "model":
+            metadata.update(
+                _dbt_transform_metadata(
+                    unique_id,
+                    props,
+                    checks=checks,
+                    sources=sources,
+                    project_path=project_path,
+                )
+            )
 
         # Bind the model name and asset key via default arguments: a plain
         # closure would capture the loop variable by reference and every spec
