@@ -1,14 +1,20 @@
 /** Tests for GitHub event filtering, signatures, and review capabilities. */
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import type { PluginThread, ThreadMessage } from '@ampcode/plugin'
 import { targetFromThread } from './index.ts'
 import {
+  containedPath,
   createCapability,
   parseCapability,
   parseGitHubEvent,
   parseGitHubMention,
+  readContainedFile,
+  resolveFiles,
   reviewParentThreadID,
   verifyGitHubSignature,
   type ReviewTarget,
@@ -157,4 +163,34 @@ test('uses the configured automation host for review threads', () => {
   assert.equal(reviewParentThreadID('T-automation-host', webhookThread), 'T-automation-host')
   assert.equal(reviewParentThreadID(undefined, webhookThread), webhookThread)
   assert.equal(reviewParentThreadID('automation-host', webhookThread), webhookThread)
+})
+
+test('bounds workspace reads to the checkout and rejects symlink escapes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'phlo-workspace-'))
+  try {
+    await writeFile(join(root, 'uv.lock'), 'lock\n')
+    assert.equal(await readContainedFile(root, 'uv.lock'), 'lock\n')
+    assert.throws(() => containedPath(root, '../outside'), /outside/)
+    assert.throws(() => containedPath(root, '/etc/passwd'), /outside/)
+    await symlink('/etc/hostname', join(root, 'escape'))
+    await assert.rejects(readContainedFile(root, 'escape'), /resolves outside/)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test('reads omitted file content and keeps explicit deletions', async () => {
+  let reads = 0
+  const read = async (path: string) => {
+    reads += 1
+    return `content:${path}`
+  }
+
+  assert.deepEqual(await resolveFiles([{ path: 'uv.lock' }], read), [
+    { content: 'content:uv.lock', path: 'uv.lock' },
+  ])
+  assert.deepEqual(await resolveFiles([{ content: null, path: 'gone.txt' }], read), [
+    { content: null, path: 'gone.txt' },
+  ])
+  assert.equal(reads, 1)
 })

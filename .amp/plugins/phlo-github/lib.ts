@@ -1,5 +1,7 @@
 /** GitHub webhook verification, filtering, and signed review capabilities. */
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { readFile, realpath } from 'node:fs/promises'
+import { relative, resolve } from 'node:path'
 
 const REPOSITORY = 'phlohouse/phlo'
 const CAPABILITY_PREFIX = '[phlo-github-event:v1]'
@@ -186,3 +188,31 @@ export function parseGitHubMention(
 }
 
 export const capabilityPrefix = CAPABILITY_PREFIX
+
+export function containedPath(root: string, path: string): string {
+  const absolute = resolve(root, path)
+  const inside = relative(root, absolute)
+  if (inside === '' || inside.startsWith('..') || inside.split('/').includes('..')) {
+    throw new Error(`The path is outside the workspace checkout: ${path}`)
+  }
+  return absolute
+}
+
+export async function readContainedFile(root: string, path: string): Promise<string> {
+  const real = await realpath(containedPath(root, path))
+  const inside = relative(await realpath(root), real)
+  if (inside === '' || inside.startsWith('..') || inside.split('/').includes('..')) {
+    throw new Error(`The path resolves outside the workspace checkout: ${path}`)
+  }
+  return readFile(real, 'utf8')
+}
+
+export async function resolveFiles(
+  files: Array<{ content?: string | null; path: string }>,
+  read: (path: string) => Promise<string>,
+): Promise<Array<{ content: string | null; path: string }>> {
+  return Promise.all(files.map(async (file) => ({
+    content: file.content === undefined ? await read(file.path) : file.content,
+    path: file.path,
+  })))
+}

@@ -37,9 +37,11 @@ Treat the repository's `.github/workflows/security.yml` and its latest public
 main-branch result as the authoritative executed Python vulnerability inventory.
 Keep version availability, manifest discovery, and test selection deterministic:
 
-- A routine update first reuses any existing dependency remediation pull
-  request and updates it in place with `pullNumber`. If none exists, create a
-  bounded draft pull request from the verified resolver output.
+- A routine update first reuses an existing open phlo-agent `agent/*` draft
+  pull request and updates it in place with `pullNumber`. Renovate's
+  `renovate/*` requests cannot be updated by the writer; coordinate with them
+  instead of duplicating their change. If no agent draft exists, create one
+  from the verified resolver output.
 - Compatibility work requires mapping the change to every affected Phlo
   surface and naming its compatibility checks in the issue acceptance criteria.
 - Security judgment, ambiguous impact, low-confidence classification, and
@@ -52,10 +54,13 @@ Never reinterpret uncertainty as permission to act.
 Search existing issues and pull requests first. Ignore version churn with no
 demonstrable effect on Phlo.
 
-- For a mechanical dependency or lockfile update, run the project's resolver in
-  the orb checkout (for example `uv lock --upgrade-package <name>` or
-  `npm install <package>@<version>`), then run the focused checks for each
-  affected consumer. Send the changed paths to
+- For a mechanical dependency or lockfile update, check out the exact target
+  revision in the orb checkout (`git fetch origin main` and
+  `git checkout --detach <baseSha>` for a new pull request, or
+  `git fetch origin <branch>` and `git checkout --detach origin/<branch>` for
+  an update), run the project's resolver (for example
+  `uv lock --upgrade-package <name>` or `npm install <package>@<version>`), then
+  run the focused checks for each affected consumer. Send the changed paths to
   `publish_phlo_maintenance_pull_request` with the exact main SHA and a body
   that states the commands and outcomes. Omit each file's `content` so the
   plugin reads the current workspace file; supply content only for new files.

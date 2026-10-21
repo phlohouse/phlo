@@ -7,9 +7,9 @@
  * review threads and exposes a target-bound phlo-agent publishing tool.
  */
 import type { PluginAPI, PluginThread, ThreadID, ThreadMessage } from '@ampcode/plugin'
-import { readFile, realpath } from 'node:fs/promises'
-import { relative, resolve } from 'node:path'
+import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import {
   capabilityPrefix,
   createCapability,
@@ -17,9 +17,13 @@ import {
   parseCapability,
   parseGitHubEvent,
   parseGitHubMention,
+  readContainedFile,
+  resolveFiles,
   reviewParentThreadID,
   verifyGitHubSignature,
 } from './lib.ts'
+
+const execFileAsync = promisify(execFile)
 
 export const description = 'Runs Phlo GitHub review, triage, and scheduled maintenance in Amp.'
 
@@ -52,18 +56,37 @@ function configuredSecret(value: string | undefined): string | undefined {
 }
 
 async function workspaceFile(path: string): Promise<string> {
-  const root = fileURLToPath(new URL('../../../', import.meta.url))
-  const absolute = resolve(root, path)
-  const inside = relative(root, absolute)
-  if (inside === '' || inside.startsWith('..') || inside.split('/').includes('..')) {
-    throw new Error(`The path is outside the workspace checkout: ${path}`)
+  return readContainedFile(fileURLToPath(new URL('../../../', import.meta.url)), path)
+}
+
+async function checkoutHead(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', 'HEAD'],
+      { cwd: fileURLToPath(new URL('../../../', import.meta.url)) },
+    )
+    return stdout.trim()
+  } catch {
+    throw new Error('The workspace checkout is not a readable Git repository.')
   }
-  const real = await realpath(absolute)
-  const realInside = relative(await realpath(root), real)
-  if (realInside === '' || realInside.startsWith('..') || realInside.split('/').includes('..')) {
-    throw new Error(`The path resolves outside the workspace checkout: ${path}`)
+}
+
+async function pullRequestHead(number: number): Promise<string> {
+  const token = configuredSecret(process.env.PHLO_GITHUB_WRITER_TOKEN)
+  const url = writerUrl(process.env.PHLO_GITHUB_WRITER_URL ?? '')
+  if (token === undefined || url === null) throw new Error('Phlo GitHub publishing is not configured.')
+  const response = await fetch(new URL('/v1/pull-request-head', url), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ number }),
+  })
+  if (!response.ok) {
+    throw new Error(`The Phlo GitHub writer could not resolve the pull request head with HTTP ${response.status}.`)
   }
-  return readFile(real, 'utf8')
+  const result = await response.json() as { headSha?: unknown }
+  if (typeof result.headSha !== 'string') throw new Error('The Phlo GitHub writer returned an invalid head SHA.')
+  return result.headSha
 }
 
 function configuredReviewThreads(value: unknown): Record<string, ThreadID> {
@@ -318,14 +341,20 @@ export default async function (amp: PluginAPI) {
       additionalProperties: false,
     },
     async execute(input) {
-      const request = input as { files?: unknown }
+      const request = input as { baseSha?: unknown; files?: unknown; pullNumber?: unknown }
+      const expected = typeof request.baseSha === 'string'
+        ? request.baseSha
+        : Number.isSafeInteger(request.pullNumber)
+          ? await pullRequestHead(request.pullNumber as number)
+          : null
+      if (expected !== null && await checkoutHead() !== expected) {
+        throw new Error('The workspace checkout is not at the target revision. Check out the base or pull request head before publishing.')
+      }
       if (!Array.isArray(request.files)) return publishMaintenance('/v1/draft-pull-requests', input)
-      const files = await Promise.all(request.files.map(async (candidate) => {
-        if (typeof candidate !== 'object' || candidate === null) return candidate
-        const file = candidate as { content?: unknown; path?: unknown }
-        if (file.content !== undefined || typeof file.path !== 'string') return candidate
-        return { path: file.path, content: await workspaceFile(file.path) }
-      }))
+      const files = await resolveFiles(
+        request.files as Array<{ content?: string | null; path: string }>,
+        workspaceFile,
+      )
       return publishMaintenance('/v1/draft-pull-requests', { ...request, files })
     },
   })

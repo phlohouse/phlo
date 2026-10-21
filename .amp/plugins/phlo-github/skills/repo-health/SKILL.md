@@ -29,10 +29,10 @@ Deliver at most one artifact per run:
   `content` so the plugin reads the checkout), `agent/*` branch, title, and body
   to `publish_phlo_maintenance_pull_request`. State the checks you ran; CI must
   validate the draft.
-- For code changes, generated files, dependency resolution, or anything requiring
-  execution or product judgment: create one focused GitHub issue with context,
-  evidence, expected outcome, and acceptance criteria through
-  `publish_phlo_maintenance_issue`. Do not code it.
+- For code changes, generated files, or anything requiring product judgment:
+  create one focused GitHub issue with context, evidence, expected outcome, and
+  acceptance criteria through `publish_phlo_maintenance_issue`. Do not code it.
+  Dependency updates follow the resolver path in `upstream-sync`.
 
 Never push with Git, merge, mark a draft ready, publish, release, alter `.github`
 workflows, `.amp` automation, or secrets, or create work merely to fill the run.
