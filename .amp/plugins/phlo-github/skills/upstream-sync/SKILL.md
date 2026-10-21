@@ -6,8 +6,9 @@ description: Check Phlo's upstream ecosystem for compatibility-impacting release
 # Upstream sync
 
 Monitor the upstream projects that Phlo integrates, not only version numbers.
-No shell or code execution is available. Use Librarian to build the inventory
-from current `phlohouse/phlo` main on every run by enumerating:
+Use the orb checkout and its shell to run resolvers, inspect manifests, and run
+focused checks. Use Librarian to build the inventory from current
+`phlohouse/phlo` main on every run by enumerating:
 
 - the root `pyproject.toml`, `uv.lock`, and every `packages/*/pyproject.toml`
 - every provider's packaged YAML and other service definitions for image refs
@@ -30,16 +31,17 @@ packages, identify every affected consumer before proposing work.
 Search all open pull requests for existing dependency work and do not duplicate
 it. Read `docs/operations/release-management.md`, the latest public main-branch
 security CI result, and authoritative upstream advisories before proposing
-dependency work. When no existing work owns a vulnerability, create a bounded
-issue for remediation.
+dependency work.
 
 Treat the repository's `.github/workflows/security.yml` and its latest public
 main-branch result as the authoritative executed Python vulnerability inventory.
 Keep version availability, manifest discovery, and test selection deterministic:
 
-- A routine update first reuses any existing dependency remediation pull
-  request. If none exists, create an issue naming the affected manifests and
-  normal constraint, lock, and validation commands for an implementation agent.
+- A routine update first reuses an existing open phlo-agent `agent/*` draft
+  pull request and updates it in place with `pullNumber`. Renovate's
+  `renovate/*` requests cannot be updated by the writer; coordinate with them
+  instead of duplicating their change. If no agent draft exists, create one
+  from the verified resolver output.
 - Compatibility work requires mapping the change to every affected Phlo
   surface and naming its compatibility checks in the issue acceptance criteria.
 - Security judgment, ambiguous impact, low-confidence classification, and
@@ -52,15 +54,22 @@ Never reinterpret uncertainty as permission to act.
 Search existing issues and pull requests first. Ignore version churn with no
 demonstrable effect on Phlo.
 
-- If a compatibility adaptation is a documentation-only correction whose
-  complete output follows directly from inspected source, it may be sent to
-  `publish_phlo_maintenance_pull_request` with the exact main SHA and complete
-  changed-file contents. State that CI must validate the **draft** pull request.
-- If an update changes code, locks, generated files, tests, or requires a product
-  or security decision, call
-  `publish_phlo_maintenance_issue` with one focused issue explaining the
-  upstream release, affected Phlo surfaces, evidence, risk, migration path, and
-  decision.
+- For a mechanical dependency or lockfile update, check out the exact target
+  revision in the orb checkout (`git fetch origin main` and
+  `git checkout --detach <baseSha>` for a new pull request, or
+  `git fetch origin <branch>` and `git checkout --detach origin/<branch>` for
+  an update), run the project's resolver (for example
+  `uv lock --upgrade-package <name>` or `npm install <package>@<version>`), then
+  run the focused checks for each affected consumer. Send the changed paths to
+  `publish_phlo_maintenance_pull_request` with the exact main SHA and a body
+  that states the commands and outcomes. Omit each file's `content` so the
+  plugin reads the current workspace file; supply content only for new files.
+  Use `pullNumber` to update an existing open agent draft request instead of
+  opening a duplicate.
+- If an update changes code, tests, generated files, or requires a product or
+  security decision, call `publish_phlo_maintenance_issue` with one focused
+  issue explaining the upstream release, affected Phlo surfaces, evidence,
+  risk, migration path, and decision.
 - If nothing warrants action, create nothing.
 
 Never push with Git, merge, publish, release, alter `.github` workflows, `.amp`

@@ -80,8 +80,11 @@ plugin is active on `main`. Schedule these prompts:
 
 The maintenance agent reads the saved prompt with `get_schedule`. On runtimes
 that expose Amp tools as deferred modules, it uses `tool_search` and
-`code_exec` to call `amp.get_schedule`. This does not grant a shell or permission
-to change schedules.
+`code_exec` to call `amp.get_schedule`. This does not grant permission to change
+schedules. The agent runs resolvers and focused checks in its orb checkout;
+GitHub writes still go through the writer tools. When publishing, omit a file's
+`content` so the plugin reads the current workspace file instead of resending
+large locks through the model.
 
 ### Daily dependency security
 
@@ -91,8 +94,8 @@ Run at `0 2 * * *` UTC:
 > Load `phlo-github:upstream-sync`. Inspect the latest public main-branch
 > security CI result and authoritative upstream advisories. If they are clean,
 > stop and create nothing. For findings, search existing issues and pull
-> requests, then follow the skill. Create at most one issue or bounded draft
-> pull request through the Phlo maintenance publishing tools. Never merge,
+> requests, then follow the skill. Create or update at most one issue or bounded
+> draft pull request through the Phlo maintenance publishing tools. Never merge,
 > waive a finding, publish, or release.
 
 ### Repository maintenance
@@ -101,10 +104,11 @@ Run at `0 8 * * 2,4` UTC:
 
 > Run Phlo's scheduled maintenance pass against current `origin/main`. Load and
 > follow both `phlo-github:upstream-sync` and `phlo-github:repo-health`. Search
-> existing issues and pull requests before proposing work. Create at most one
-> grounded issue or bounded draft pull request through the Phlo maintenance
-> publishing tools. Create nothing when no action is warranted. Never merge,
-> publish, release, change workflows or Amp automation, or modify secrets.
+> existing issues and pull requests before proposing work. Create or update at
+> most one grounded issue or bounded draft pull request through the Phlo
+> maintenance publishing tools. Create nothing when no action is warranted.
+> Never merge, publish, release, change workflows or Amp automation, or modify
+> secrets.
 
 Keep the webhook owner thread and both maintenance threads unarchived. An
 archived thread does not run its webhook or schedule.
