@@ -1,5 +1,5 @@
 {
-  "command_count": 182,
+  "command_count": 195,
   "commands": [
     {
       "capabilities": {
@@ -9877,6 +9877,777 @@
           "required": false,
           "secondary_options": [],
           "type": "text"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo transform",
+      "description": "Phlo Transform workspace commands (check, plan, run, test, lineage).",
+      "kind": "group",
+      "parameters": []
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform check",
+      "description": "Compile the workspace and print diagnostics.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform doctor",
+      "description": "Diagnose workspace, adapter, and state health.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform explain",
+      "description": "Explain one model: SQL, columns, lineage, and state.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "model",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo transform install",
+      "description": "Download the pinned portable engine binary into .phlo/bin.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Release version to download (default: settings).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "version",
+          "nargs": 1,
+          "options": [
+            "--version"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Replace an already installed binary.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform lineage",
+      "description": "Export the workspace lineage graph.",
+      "kind": "command",
+      "parameters": [
+        {
+          "choices": [
+            "graph",
+            "openlineage"
+          ],
+          "default": "graph",
+          "envvar": null,
+          "help": "Export format.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "lineage_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform list",
+      "description": "List compiled models, dependencies, and tests.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform plan",
+      "description": "Explain what would change and why.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Model selector (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "select",
+          "nargs": 1,
+          "options": [
+            "--select"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Exclude selector (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "exclude",
+          "nargs": 1,
+          "options": [
+            "--exclude"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Include transitive dependencies.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "upstream",
+          "nargs": 1,
+          "options": [
+            "--upstream"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Include transitive dependents.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "downstream",
+          "nargs": 1,
+          "options": [
+            "--downstream"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Plan a rebuild regardless of state.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Logical environment / Nessie reference.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "ref",
+          "nargs": 1,
+          "options": [
+            "--ref"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Execution adapter (trino or duckdb).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "adapter",
+          "nargs": 1,
+          "options": [
+            "--adapter"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform run",
+      "description": "Plan, apply, and test the selected models.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Model selector (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "select",
+          "nargs": 1,
+          "options": [
+            "--select"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Exclude selector (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "exclude",
+          "nargs": 1,
+          "options": [
+            "--exclude"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Include transitive dependencies.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "upstream",
+          "nargs": 1,
+          "options": [
+            "--upstream"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Include transitive dependents.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "downstream",
+          "nargs": 1,
+          "options": [
+            "--downstream"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Rebuild selected models regardless of state.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Logical environment / Nessie reference.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "ref",
+          "nargs": 1,
+          "options": [
+            "--ref"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Execution adapter (trino or duckdb).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "adapter",
+          "nargs": 1,
+          "options": [
+            "--adapter"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform status",
+      "description": "Show the active provider, workspace, binary, and compiled counts.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit machine-readable status.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform test",
+      "description": "Run workspace tests against the selected models.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Model selector (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "select",
+          "nargs": 1,
+          "options": [
+            "--select"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Logical environment / Nessie reference.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "ref",
+          "nargs": 1,
+          "options": [
+            "--ref"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": "Execution adapter (trino or duckdb).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "adapter",
+          "nargs": 1,
+          "options": [
+            "--adapter"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": true
+      },
+      "command": "phlo transform translate",
+      "description": "Translate a dbt project into a native transform workspace.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "dbt",
+          "envvar": null,
+          "help": "Source format.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source",
+          "nargs": 1,
+          "options": [
+            "--from"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source_root",
+          "nargs": 1,
+          "options": [
+            "--source-root"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "help": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "out",
+          "nargs": 1,
+          "options": [
+            "--out"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Analyse without writing.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "check_only",
+          "nargs": 1,
+          "options": [
+            "--check"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Overwrite existing files.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "overwrite",
+          "nargs": 1,
+          "options": [
+            "--overwrite"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Compile-check the generated workspace.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "verify",
+          "nargs": 1,
+          "options": [
+            "--verify"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Emit the engine's JSON report.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "capabilities": {
+        "confirmation_flag": false,
+        "dry_run": false,
+        "json": false
+      },
+      "command": "phlo transform use",
+      "description": "Select the transformation provider that owns the asset graph.",
+      "kind": "command",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "provider",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "help": "Clear the project choice.",
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "unset",
+          "nargs": 1,
+          "options": [
+            "--unset"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
         }
       ]
     },

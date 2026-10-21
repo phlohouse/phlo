@@ -1,5 +1,5 @@
 {
-  "component_count": 95,
+  "component_count": 96,
   "components": [
     {
       "applicable_gates": [
@@ -673,6 +673,15 @@
       "readiness": "not gated",
       "target_profile": "optional",
       "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "package:phlo-transform",
+      "current_maturity": "development_only",
+      "readiness": "not gated",
+      "target_profile": "outside_v1",
+      "target_status": "development_only"
     },
     {
       "applicable_gates": [
