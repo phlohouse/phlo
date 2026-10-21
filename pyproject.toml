@@ -20,6 +20,7 @@ dev = [
     "phlo-dlt>=0.3.2",
     "phlo-iceberg>=0.3.2",
     "phlo-dbt>=0.1.0",
+    "dbt-duckdb>=1.9,<1.12",
     "phlo-grafana>=0.1.0",
     "phlo-hasura>=0.1.0",
     "phlo-kafka>=0.1.0",

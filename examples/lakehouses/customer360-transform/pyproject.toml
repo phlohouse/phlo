@@ -17,7 +17,7 @@ dependencies = [
     "phlo-sling==0.16.1",
     "dlt[filesystem]>=1.20,<2",
     "pandas>=2.3,<3.1",
-    "pyarrow>=21,<26",
+    "pyarrow>=26,<27",
     "psycopg2-binary>=2.9,<3.1",
 ]
 

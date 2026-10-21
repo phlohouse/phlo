@@ -53,10 +53,10 @@ and `scripts/generate_native_workspace.py` regenerates it atomically.
 
 ```bash
 # Analyse only: every resource is classified CLEAN / REVIEW / UNSUPPORTED.
-uv run python scripts/generate_native_workspace.py --check
+uv run --project ../.. python scripts/generate_native_workspace.py --check
 
 # Re-translate, verify the result compiles, and replace the native workspace.
-uv run python scripts/generate_native_workspace.py
+uv run --project ../.. python scripts/generate_native_workspace.py
 ```
 
 The current project translates **10 models / 5 sources / 15 tests, 100% CLEAN**.
@@ -79,13 +79,19 @@ engines does not change what has to materialise first.
 
 ## Prove parity
 
-The parity script needs the engine binary and the dev group (`dbt-duckdb`):
+The parity script needs the engine binary and `dbt-duckdb`. Until the pinned
+provider releases are on the package index, run the example against the
+repository environment:
 
 ```bash
-uv run phlo transform install          # pinned portable release -> .phlo/bin
-uv sync --group dev
-uv run python scripts/verify_parity.py
+# From examples/lakehouses/customer360-transform
+uv sync --locked --project ../..                # includes dbt-duckdb
+uv run --project ../.. phlo transform install   # pinned portable release -> .phlo/bin
+uv run --project ../.. python scripts/verify_parity.py
 ```
+
+`--project ../..` keeps the current directory (and its workspace files) while
+using the repository's locked environment, which includes `dbt-duckdb`.
 
 It generates the fixtures, loads identical raw rows into two DuckDB databases,
 runs `phlo-transform run` on the native workspace and `dbt run` + `dbt test`
@@ -119,53 +125,61 @@ Both providers are installed. The checked-in default is dbt, so existing
 projects keep the graph they already had. Switch with the project marker:
 
 ```bash
-uv run phlo transform use phlo-transform
-uv run phlo services restart dagster        # reload the orchestrated graph
+uv run --project ../.. phlo transform use phlo-transform
+uv run --project ../.. phlo services restart dagster        # reload the orchestrated graph
 
-uv run phlo transform status                # active provider, workspace, counts
-uv run phlo transform use dbt               # switch back
-uv run phlo transform use --unset           # follow install defaults again
+uv run --project ../.. phlo transform status                # active provider, workspace, counts
+uv run --project ../.. phlo transform use dbt               # switch back
+uv run --project ../.. phlo transform use --unset           # follow install defaults again
 ```
+
+`--project ../..` targets the repository environment from this directory; drop
+it once the pinned provider releases are published.
 
 `phlo transform use` writes `.phlo/transformation-provider` (local, gitignored)
 and validates that the provider is installed. `PHLO_TRANSFORMATION_PROVIDER`
 overrides the marker for a single process, which is useful in CI:
 
 ```bash
-PHLO_TRANSFORMATION_PROVIDER=phlo-transform uv run pytest -q
+PHLO_TRANSFORMATION_PROVIDER=phlo-transform uv run --project ../.. python -m pytest -q
 ```
 
 What changes: the ten SQL asset definitions and their execution path.
 What does not: ingestion assets, asset keys, dependency edges, schedules,
 quality contracts, and WAP policy.
 
-When the Observatory is running, the **Transform** page shows the active
-workspace, all ten models, their content-hash versions, blocking tests, and the
-last run for each asset. The same inventory is available from
-`GET /api/v1/transform?env=<env>`. The schedules in
-`workflows/schedules/customer360.py` select asset keys such as
+The schedules in `workflows/schedules/customer360.py` select asset keys such as
 `stg_commerce_customers` and `customer_dimension`; both providers emit those
 exact keys.
 
+When the Observatory is running, the **Transform** page shows the active
+workspace, all ten models, their content-hash versions, blocking tests, and the
+last run for each asset. The same inventory is available from
+`GET /api/v1/transform?env=<env>`.
+
 ## Run the lakehouse
 
+Use the repository environment while the pinned provider releases are
+unpublished. The `--project ../..` flag targets it; drop the flag once the
+pinned releases are on the package index.
+
 ```bash
-uv sync --group dev
-uv run python scripts/generate_fixtures.py
-uv run pytest -q
-uv run ruff check .
+uv sync --locked --project ../..
+uv run --project ../.. python scripts/generate_fixtures.py
+uv run --project ../.. python -m pytest -q
+uv run --project ../.. ruff check .
 ```
 
 Start the platform, seed the commerce source, and start the support replay API
 in another shell:
 
 ```bash
-uv run phlo services init --force --no-dev --profile observability
-uv run phlo services start --build
-uv run phlo doctor
+uv run --project ../.. phlo services init --force --no-dev --profile observability
+uv run --project ../.. phlo services start --build
+uv run --project ../.. phlo doctor
 
-uv run python scripts/seed_postgres.py
-uv run python scripts/support_api.py            # port 8093
+uv run --project ../.. python scripts/seed_postgres.py
+uv run --project ../.. python scripts/support_api.py            # port 8093
 ```
 
 With dbt active, materialize the models with `phlo materialize <key>` as in
@@ -177,11 +191,11 @@ a Dagster materialization and asset checks.
 Local engine commands, without the platform:
 
 ```bash
-uv run phlo transform check
-uv run phlo transform plan --adapter duckdb
-uv run phlo transform explain customer360.customer_dimension
-uv run phlo transform lineage --format openlineage
-uv run phlo transform doctor --adapter duckdb
+uv run --project ../.. phlo transform check
+uv run --project ../.. phlo transform plan --adapter duckdb
+uv run --project ../.. phlo transform explain customer360.customer_dimension
+uv run --project ../.. phlo transform lineage --format openlineage
+uv run --project ../.. phlo transform doctor --adapter duckdb
 ```
 
 DuckDB runs also need the raw relations. Run
@@ -248,8 +262,8 @@ the other examples. The commerce source runs on localhost port 10432 via
 support replay server binds `127.0.0.1:8093`; inside the platform the Dagster
 services reach it through `host.docker.internal`.
 
-The example pins the Phlo Transform release; until that release is published,
-use the repository environment (where the package is installed from
+The example pins the provider releases; while any of them are unpublished,
+use the repository environment (where `phlo-transform` is installed from
 `packages/phlo-transform`) to run the parity proof. The example ships without
 a `uv.lock` for the same reason: resolve it once the pinned packages are
 available.
