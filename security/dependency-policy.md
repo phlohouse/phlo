@@ -47,11 +47,13 @@ before the next daily scan. Deduplicate remediation by advisory, package and
 version, retaining all affected lockfiles and named owners in the existing issue.
 
 Phlo's existing `phlo-maintenance` mode coordinates triage; Renovate remains the
-deterministic resolver and protected CI verifies its updates. The existing agent
-interface requires a configured schedule, searches issues/PRs before publishing,
-has no shell, and permits one bounded issue or draft PR via
+preferred resolver for routine updates and protected CI verifies every update.
+The agent runs resolvers and focused checks in its orb checkout, searches
+issues/PRs before publishing, and permits one bounded issue or draft PR via
 `publish_phlo_maintenance_issue` / `publish_phlo_maintenance_pull_request`.
-It cannot run scanners, approve risks, change workflows or change live settings.
+The writer remains the only GitHub write path: the agent never pushes with Git.
+It cannot run release scanners, approve risks, change workflows or change live
+settings.
 The scheduled Security workflow calls the trusted-main `dependency-triage.yml`
 reusable workflow after dependency assessment. It authenticates the scheduled
 Security run and exact SHA/attempt, requires its dependency-assessment job to be
@@ -64,8 +66,9 @@ with Issues write, Pull requests write, Actions read and Contents read and a hum
 sender to reach existing signed issue webhook intake; its bot filter
 rejects the fallback `github.token` sender. Without this credential, issues are
 recorded but maintainers own triage. Verify live webhook delivery before claiming
-automatic handoff. No competing updater, agent shell permission or shared setting
-is introduced; Renovate remains the resolver.
+automatic handoff. No competing updater or shared setting is introduced;
+Renovate remains the preferred resolver, and the agent may produce a bounded
+remediation PR only from resolver output it has verified.
 
 ## Caller contract
 
