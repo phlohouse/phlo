@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: c360_raw
+    description: Raw commerce tables replicated by Sling from the local PostgreSQL source.
+    schema: raw
+    tables:
+      - name: raw_customers
+        identifier: c360_customers
+        meta:
+          phlo_asset_key: sling_c360_customers
+      - name: raw_orders
+        identifier: c360_orders
+        meta:
+          phlo_asset_key: sling_c360_orders
+
+models:
+  - name: stg_commerce_customers
+    description: Commerce customers with canonical emails resolved from case and plus-suffix variants.
+  - name: identity_resolution
+    description: One row per distinct observed address, mapped to its canonical email and source domain.
+    columns:
+      - name: observed_email
+        tests: [unique, not_null]
+      - name: canonical_email
+        tests: [not_null]
+  - name: customer_dimension
+    description: Type-2 dimension keyed by canonical email; half-open validity windows, one current row per identity.
+    columns:
+      - name: canonical_email
+        tests: [not_null]
+      - name: current_flag
+        tests: [not_null]

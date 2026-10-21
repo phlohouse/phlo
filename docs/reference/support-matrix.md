@@ -353,6 +353,13 @@ A target profile states the intended support boundary. Maturity and readiness st
 - Applicable gates: none.
 - Blockers: none.
 
+### `phlo-transform`
+
+- Target profile: `outside_v1`; target status: `development_only`.
+- Current maturity: `development_only`; readiness: `not gated`.
+- Applicable gates: none.
+- Blockers: none.
+
 ### `phlo-trino`
 
 - Target profile: `blessed_core`; target status: `supported`.

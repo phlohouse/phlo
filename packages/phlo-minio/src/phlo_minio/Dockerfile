@@ -1,4 +1,4 @@
-FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0 AS build
+FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS build
 
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 WORKDIR /src
@@ -19,7 +19,8 @@ WORKDIR /src/minio
 # go get ./... resolves local packages against that module graph, not @latest.
 # hadolint ignore=DL3062
 RUN go get github.com/apache/thrift@v0.24.0 github.com/buger/jsonparser@v1.1.2 \
-        github.com/go-jose/go-jose/v4@v4.1.4 github.com/prometheus/prometheus@v0.311.3 \
+        github.com/go-jose/go-jose/v4@v4.1.4 github.com/klauspost/compress@v1.18.7 \
+        github.com/prometheus/prometheus@v0.311.3 \
         github.com/rabbitmq/amqp091-go@v1.13.0 go.opentelemetry.io/otel/sdk@v1.44.0 \
         golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 \
         golang.org/x/text@v0.42.0 google.golang.org/grpc@v1.83.2 \
@@ -32,7 +33,8 @@ RUN go get github.com/apache/thrift@v0.24.0 github.com/buger/jsonparser@v1.1.2 \
 
 WORKDIR /src/mc
 # hadolint ignore=DL3062
-RUN go get github.com/prometheus/prometheus@v0.311.3 \
+RUN go get github.com/klauspost/compress@v1.18.7 \
+        github.com/prometheus/prometheus@v0.311.3 \
         golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 \
         golang.org/x/text@v0.42.0 google.golang.org/grpc@v1.83.2 \
     && go get ./... \
@@ -50,7 +52,7 @@ RUN if [ -f /context/Dockerfile ]; then \
         cp /context/src/phlo_minio/Dockerfile /sources/Dockerfile; \
     fi \
     && printf '%s\n' \
-        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-10-08.' \
+        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-10-21.' \
         'These are Phlo builds, not official MinIO binaries. See Dockerfile for the dependency changes.' \
         > /sources/PHLO-NOTICE
 

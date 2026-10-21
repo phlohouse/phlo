@@ -5,6 +5,7 @@
     "ingest-data",
     "add-quality-checks",
     "transform-with-dbt",
+    "transform-with-phlo-transform",
     "evolve-a-schema",
     "choose-your-stack",
     "expose-data",

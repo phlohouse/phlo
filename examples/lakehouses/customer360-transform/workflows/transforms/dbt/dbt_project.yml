@@ -1,0 +1,16 @@
+name: customer360
+version: "1.0"
+config-version: 2
+profile: customer360
+
+# Domain-colocated transforms: commerce, support, and marketing each own the
+# SQL under their workflow folder, and this single project compiles all three
+# roots into one lineage graph.
+model-paths:
+  - "../../commerce/models"
+  - "../../support/models"
+  - "../../marketing/models"
+
+models:
+  customer360:
+    +materialized: table

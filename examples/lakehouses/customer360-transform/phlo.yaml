@@ -1,0 +1,27 @@
+name: customer360-transform
+description: Customer 360 lakehouse with two interchangeable transform engines. The dbt project stays the source of truth; a native Phlo Transform workspace is generated from it, and phlo transform use switches which provider owns the asset graph without changing ingestion, quality, schedules, or asset keys.
+
+env:
+  PHLO_PROJECT: customer360-transform
+  PHLO_TRANSFORM_ROOT: workflows/transforms/native
+  COMMERCE_SOURCE_URL: postgresql://commerce:commerce@host.docker.internal:10432/commerce?sslmode=disable
+  SUPPORT_API_URL: http://host.docker.internal:8093/v1
+
+services:
+  dagster:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  dagster-daemon:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+
+wap:
+  enabled: true
+  job_name: customer360_wap_job
+  repository_location_name: phlo_dagster.framework.definitions
+  repository_name: __repository__

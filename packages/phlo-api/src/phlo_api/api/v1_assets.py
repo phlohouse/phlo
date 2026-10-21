@@ -108,6 +108,8 @@ ASSET_QUERY = """query V1Assets {
             }
             metadataEntries {
               label
+              ... on TextMetadataEntry { text }
+              ... on JsonMetadataEntry { jsonString }
               ... on IntMetadataEntry { intValue intRepr }
               ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
               ... on TableColumnLineageMetadataEntry {
@@ -146,6 +148,8 @@ ASSET_DETAIL_QUERY = """query V1AssetDetail($assetKey: AssetKeyInput!) {
         }
         metadataEntries {
           label
+          ... on TextMetadataEntry { text }
+          ... on JsonMetadataEntry { jsonString }
           ... on IntMetadataEntry { intValue intRepr }
           ... on TableSchemaMetadataEntry { schema { columns { name type description } } }
           ... on TableColumnLineageMetadataEntry {
@@ -236,6 +240,63 @@ class AssetWriteCount(WireModel):
     rows_deleted: int | None = Field(default=None, ge=0)
 
 
+class AssetTransformRunView(WireModel):
+    status: str | None = None
+    action: str | None = None
+    reasons: list[str] = Field(default_factory=list)
+    run_id: str | None = None
+    plan_id: str | None = None
+    duration_ms: int | None = None
+    counts: dict[str, int] = Field(default_factory=dict)
+    previous_version: str | None = None
+    desired_version: str | None = None
+    sql_hash: str | None = None
+    query_id: str | None = None
+
+
+class AssetTransformView(WireModel):
+    engine: str = "phlo-transform"
+    model: str
+    target: str | None = None
+    materialization: str | None = None
+    version: str | None = None
+    path: str | None = None
+    workspace: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    source_assets: list[str] = Field(default_factory=list)
+    tests: list[str] = Field(default_factory=list)
+    last_run: AssetTransformRunView | None = None
+
+
+class TransformModelView(WireModel):
+    asset_id: str
+    key: list[str]
+    model: str
+    target: str | None = None
+    materialization: str | None = None
+    version: str | None = None
+    path: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    dependencies: list[list[str]] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    source_assets: list[str] = Field(default_factory=list)
+    tests: list[str] = Field(default_factory=list)
+    last_run: AssetTransformRunView | None = None
+
+
+class TransformWorkspaceView(WireModel):
+    env: Environment
+    status: Literal["available", "unavailable"]
+    engine: str = "phlo-transform"
+    reason: str | None = None
+    workspace: str | None = None
+    model_count: int = Field(default=0, ge=0)
+    test_count: int = Field(default=0, ge=0)
+    source_count: int = Field(default=0, ge=0)
+    models: list[TransformModelView] = Field(default_factory=list)
+
+
 class AssetView(WireModel):
     id: str
     key: list[str]
@@ -279,6 +340,7 @@ class AssetView(WireModel):
     check_definition_scope: Literal["unique", "ambiguous", "unknown"] = Field(
         default="unknown", exclude=True
     )
+    transform: AssetTransformView | None = None
 
 
 class AssetPage(WireModel):
@@ -836,6 +898,103 @@ def _compute_kind(node: dict[str, Any]) -> str | None:
     return node.get("computeKind") or " · ".join(sorted(kinds)) or None
 
 
+def _declared_json(entries: list[Any], label: str) -> Any:
+    matches = [
+        entry for entry in entries if isinstance(entry, dict) and entry.get("label") == label
+    ]
+    if len(matches) > 1:
+        raise BadGatewayError(f"Asset has invalid {label} metadata.")
+    if not matches:
+        return None
+    entry = matches[0]
+    if entry.get("__typename") == "NullMetadataEntry" or entry.get("jsonString") == "null":
+        return None
+    raw = entry.get("jsonString")
+    if not isinstance(raw, str):
+        raise BadGatewayError(f"Asset has invalid {label} metadata.")
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        raise BadGatewayError(f"Asset has invalid {label} metadata.") from exc
+
+
+def _declared_int(entries: list[Any], label: str) -> int | None:
+    matches = [
+        entry for entry in entries if isinstance(entry, dict) and entry.get("label") == label
+    ]
+    if len(matches) > 1:
+        raise BadGatewayError(f"Asset has invalid {label} metadata.")
+    if not matches:
+        return None
+    entry = matches[0]
+    if entry.get("__typename") == "NullMetadataEntry":
+        return None
+    value = entry.get("intValue")
+    if value is None:
+        return None
+    if type(value) is not int:
+        raise BadGatewayError(f"Asset has invalid {label} metadata.")
+    return value
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise BadGatewayError("Asset has invalid transform metadata.")
+    return value
+
+
+def _transform_view(
+    definition_entries: list[Any], materialization_entries: list[Any]
+) -> AssetTransformView | None:
+    """Read the transform provider's declared model facts from Dagster metadata."""
+    model = _declared_text(definition_entries, "transform_model")
+    if model is None:
+        return None
+    counts_raw = _declared_json(materialization_entries, "transform_counts")
+    counts: dict[str, int] = {}
+    if counts_raw is not None:
+        if not isinstance(counts_raw, dict) or any(
+            not isinstance(key, str) or type(value) is not int or value < 0
+            for key, value in counts_raw.items()
+        ):
+            raise BadGatewayError("Asset has invalid transform run metadata.")
+        counts = counts_raw
+    status = _declared_text(materialization_entries, "transform_status")
+    run_id = _declared_text(materialization_entries, "transform_run_id")
+    plan_id = _declared_text(materialization_entries, "transform_plan_id")
+    last_run = None
+    if status or run_id:
+        last_run = AssetTransformRunView(
+            status=status,
+            action=_declared_text(materialization_entries, "transform_action"),
+            reasons=_string_list(_declared_json(materialization_entries, "transform_reasons")),
+            run_id=run_id,
+            plan_id=plan_id,
+            duration_ms=_declared_int(materialization_entries, "transform_duration_ms"),
+            counts=counts,
+            previous_version=_declared_text(materialization_entries, "transform_previous_version"),
+            desired_version=_declared_text(materialization_entries, "transform_desired_version"),
+            sql_hash=_declared_text(materialization_entries, "transform_sql_hash"),
+            query_id=_declared_text(materialization_entries, "transform_query_id"),
+        )
+    return AssetTransformView(
+        engine=_declared_text(definition_entries, "transform_engine") or "phlo-transform",
+        model=model,
+        target=_declared_text(definition_entries, "transform_target"),
+        materialization=_declared_text(definition_entries, "transform_materialization"),
+        version=_declared_text(definition_entries, "transform_version"),
+        path=_declared_text(definition_entries, "transform_path"),
+        workspace=_declared_text(definition_entries, "transform_workspace"),
+        tags=_string_list(_declared_json(definition_entries, "transform_tags")),
+        sources=_string_list(_declared_json(definition_entries, "transform_sources")),
+        source_assets=_string_list(_declared_json(definition_entries, "transform_source_assets")),
+        tests=_string_list(_declared_json(definition_entries, "transform_test_names")),
+        last_run=last_run,
+    )
+
+
 def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
     materializable = node.get("isMaterializable")
     if type(materializable) is not bool:
@@ -866,6 +1025,10 @@ def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
         if item.timestamp >= datetime.now(UTC) - timedelta(days=7)
     ]
     layer, freshness_sla = _declared_asset_policy(node)
+    transform = _transform_view(
+        node.get("metadataEntries") or [],
+        (latest.get("metadataEntries") or []) if latest is not None else [],
+    )
     reports: list[str] = []
     for entry in node.get("metadataEntries") or []:
         if entry.get("label") == "phlo/reports":
@@ -907,6 +1070,7 @@ def _asset_view(node: dict[str, Any], ref: str) -> AssetView:
             for tag in node.get("tags") or []
         ),
         check_definition_scope=node.get("_phlo_check_definition_scope", "unknown"),
+        transform=transform,
     )
 
 
@@ -2683,6 +2847,65 @@ async def v1_asset_backfill(
     )
     return AssetActionResponse(
         env=env, asset_id=asset_id, nessie_ref=target.nessie_ref, result=result
+    )
+
+
+@router.get("/transform", response_model=TransformWorkspaceView)
+async def v1_transform(request: Request, env: Environment = Query()) -> TransformWorkspaceView:
+    target = _target(request, env)
+    nodes = await _asset_nodes(request, env)
+    models: list[TransformModelView] = []
+    workspaces: set[str] = set()
+    engines: set[str] = set()
+    tests: set[str] = set()
+    sources: set[str] = set()
+    for node in nodes:
+        view = _asset_view(node, target.nessie_ref)
+        transform = view.transform
+        if transform is None:
+            continue
+        models.append(
+            TransformModelView(
+                asset_id=view.id,
+                key=view.key,
+                model=transform.model,
+                target=transform.target,
+                materialization=transform.materialization,
+                version=transform.version,
+                path=transform.path,
+                tags=transform.tags,
+                dependencies=view.dependencies,
+                sources=transform.sources,
+                source_assets=transform.source_assets,
+                tests=transform.tests,
+                last_run=transform.last_run,
+            )
+        )
+        if transform.workspace:
+            workspaces.add(transform.workspace)
+        engines.add(transform.engine)
+        tests.update(transform.tests)
+        sources.update(transform.sources)
+    if not models:
+        return TransformWorkspaceView(
+            env=env,
+            status="unavailable",
+            reason=(
+                "No transformation assets are registered in this Dagster code location. "
+                "Run `phlo transform status`, select a provider, and restart Dagster."
+            ),
+        )
+    workspace = next(iter(workspaces)) if len(workspaces) == 1 else ", ".join(sorted(workspaces))
+    engine = next(iter(engines)) if len(engines) == 1 else "mixed"
+    return TransformWorkspaceView(
+        env=env,
+        status="available",
+        engine=engine,
+        workspace=workspace or None,
+        model_count=len(models),
+        test_count=len(tests),
+        source_count=len(sources),
+        models=sorted(models, key=lambda item: item.model),
     )
 
 

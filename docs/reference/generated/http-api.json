@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 216,
+  "endpoint_count": 217,
   "endpoints": [
     {
       "method": "GET",
@@ -1897,6 +1897,15 @@
       "operation_id": "v1_table_snapshots_api_v1_tables__table_name__snapshots_get",
       "path": "/api/v1/tables/{table_name}/snapshots",
       "summary": "V1 Table Snapshots",
+      "tags": [
+        "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_api_v1_transform_get",
+      "path": "/api/v1/transform",
+      "summary": "V1 Transform",
       "tags": [
         "v1 assets"
       ]

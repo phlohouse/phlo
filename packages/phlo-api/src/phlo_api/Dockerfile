@@ -29,7 +29,7 @@ RUN apk upgrade --no-cache \
     && pip install --no-cache-dir \
         "setuptools==83.0.0" \
         "wheel==0.47.0" \
-        "uv==0.12.5"
+        "uv==0.13.4"
 
 COPY --from=phlo-build-context /opt/phlo-build-context/wheelhouse /opt/phlo-wheelhouse
 

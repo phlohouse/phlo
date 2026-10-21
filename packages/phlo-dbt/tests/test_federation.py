@@ -115,6 +115,11 @@ def test_multi_project_build_merges_namespaced_specs(monkeypatch, tmp_path) -> N
     assert keys == {"finance_domain.invoice_aging", "sales_domain.deal_pipeline"}
     for spec in specs:
         assert spec.metadata["dbt_project"] in {"finance_domain", "sales_domain"}
+        assert spec.metadata["transform_engine"] == "dbt"
+    assert {spec.metadata["transform_model"] for spec in specs} == {
+        "finance_domain.invoice_aging",
+        "sales_domain.deal_pipeline",
+    }
 
 
 def test_multi_project_cross_reference_resolves_to_foreign_model(monkeypatch, tmp_path) -> None:

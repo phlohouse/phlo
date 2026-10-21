@@ -133,6 +133,9 @@ export function OverviewTab({
       </section>
       <aside className="flex flex-col gap-[22px] border-t border-line px-4 py-5 lg:border-t-0 lg:border-l lg:px-6">
         <AssetMetadata asset={asset} env={env} jobs={jobs} />
+        {asset.transform ? (
+          <TransformMetadata transform={asset.transform} env={env} />
+        ) : null}
         <div className="flex flex-col gap-2">
           <Eyebrow>Audits</Eyebrow>
           <span className="text-[13px] text-muted-foreground">
@@ -262,6 +265,146 @@ function freshnessSlaLabel(asset: ApiAssetDetail) {
   return asset.freshness_sla_seconds
     ? `${asset.freshness_sla_seconds / 3600} hours`
     : 'Not declared'
+}
+
+function transformRunVariant(status: string | null | undefined) {
+  if (status === 'failed' || status === 'failure') return 'bad'
+  if (status === 'passed' || status === 'success') return 'ok'
+  return 'neutral'
+}
+
+function transformCountText(counts: Record<string, number> | undefined) {
+  if (!counts) return null
+  return (
+    Object.entries(counts)
+      .filter(([, value]) => value > 0)
+      .map(([key, value]) => `${value} ${key}`)
+      .join(' · ') || null
+  )
+}
+
+function shortVersion(value: string | null | undefined) {
+  return value ? value.slice(0, 7) : null
+}
+
+function transformVersionText(
+  transform: NonNullable<ApiAssetDetail['transform']>,
+) {
+  const previous = shortVersion(transform.last_run?.previous_version)
+  const desired = shortVersion(transform.last_run?.desired_version)
+  if (previous && desired && previous !== desired)
+    return `${previous} → ${desired}`
+  return transform.version ?? desired ?? '—'
+}
+
+function transformActionLabel(action: string | null | undefined) {
+  if (action === 'build') return 'built'
+  if (action === 'skip') return 'skipped'
+  if (action === 'cached') return 'cached'
+  return action
+}
+
+function transformActionVariant(action: string | null | undefined) {
+  if (action === 'build') return 'ok'
+  if (action === 'skip' || action === 'cached') return 'neutral'
+  return null
+}
+
+function TransformLastRun({
+  run,
+}: {
+  run: NonNullable<ApiAssetDetail['transform']>['last_run']
+}) {
+  if (!run) return <>Not observed</>
+  const countText = transformCountText(run.counts)
+  const action = transformActionLabel(run.action)
+  const reason = run.reasons?.[0]
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex items-center gap-2">
+        <Badge
+          variant={
+            transformActionVariant(run.action) ??
+            transformRunVariant(run.status)
+          }
+        >
+          {action ?? run.status ?? 'unknown'}
+        </Badge>
+        {countText ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {countText}
+          </span>
+        ) : null}
+      </span>
+      {reason ? (
+        <span
+          className="break-words text-xs text-muted-foreground"
+          title={run.reasons?.join(' · ')}
+        >
+          {reason}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function TransformMetadata({
+  transform,
+  env,
+}: {
+  transform: NonNullable<ApiAssetDetail['transform']>
+  env: Env
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline">
+        <Eyebrow>Transform</Eyebrow>
+        <Link
+          to="/transform"
+          search={{ env }}
+          className="ml-auto text-[13px] underline-offset-2 hover:underline"
+        >
+          Workspace
+        </Link>
+      </div>
+      <KeyValues
+        keyWidth={96}
+        className="text-[13px] [&_dd]:min-w-0"
+        items={[
+          ['Engine', transform.engine],
+          [
+            'Model',
+            <Mono key="model" className="min-w-0 break-all">
+              {transform.model}
+            </Mono>,
+          ],
+          ['Materialization', transform.materialization ?? '—'],
+          [
+            'Target',
+            <Mono key="target" className="min-w-0 break-all">
+              {transform.target ?? '—'}
+            </Mono>,
+          ],
+          [
+            'Version',
+            <Mono key="version" className="break-all">
+              {transformVersionText(transform)}
+            </Mono>,
+          ],
+          ['Tests', String(transform.tests?.length ?? 0)],
+          [
+            'Sources',
+            transform.sources?.length ? (
+              <span className="break-all">{transform.sources.join(', ')}</span>
+            ) : (
+              'None declared'
+            ),
+          ],
+          ['Last run', <TransformLastRun key="run" run={transform.last_run} />],
+        ]}
+      />
+    </div>
+  )
 }
 
 function AssetMetadata({

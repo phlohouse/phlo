@@ -10,6 +10,7 @@ The repository contains complete, standalone examples under `examples/lakehouses
 | [E-commerce Replication](../../examples/lakehouses/ecommerce-replication/README.md) | Database ingestion | PostgreSQL replication, checks, and dbt marts |
 | [SaaS Product Analytics](../../examples/lakehouses/saas-product-analytics/README.md) | REST APIs | Paginated API replay, schema evolution, and sessions |
 | [Customer 360](../../examples/lakehouses/customer360/README.md) | Multi-domain modelling | Commerce, support, and marketing identity resolution |
+| [Customer 360 transform migration](../../examples/lakehouses/customer360-transform/README.md) | dbt migration and engine switching | The same lakehouse in phlo-transform, with dbt kept for in-situ switching |
 | [IoT Telemetry](../../examples/lakehouses/iot-telemetry/README.md) | Pipeline stages | Compressed telemetry through normalise, aggregate, and publish stages |
 | [Delta Portability](../../examples/lakehouses/delta-portability/README.md) | Alternative table format | IoT-shaped pipeline implemented with Delta Lake |
 | [ClickHouse Ops](../../examples/lakehouses/clickhouse-ops/README.md) | Operational analytics | ClickHouse storage, access logs, events, and operational marts |
