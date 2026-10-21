@@ -174,11 +174,15 @@ Local engine commands, without the platform:
 ```bash
 uv run phlo transform check
 uv run phlo transform plan --adapter duckdb
-uv run phlo transform run --adapter duckdb --duckdb-path .phlo/parity.duckdb
 uv run phlo transform explain customer360.customer_dimension
 uv run phlo transform lineage --format openlineage
 uv run phlo transform doctor --adapter duckdb
 ```
+
+DuckDB runs also need the raw relations. Run
+`scripts/verify_parity.py --work-dir <dir>` to seed a database and report its
+path, or point `PHLO_TRANSFORM_DUCKDB_PATH` at a DuckDB file that already
+holds the `raw` schema.
 
 `PHLO_TRANSFORM_ROOT` is set in `phlo.yaml`, so the workspace is found from
 the host CLI and from the orchestrator container.
