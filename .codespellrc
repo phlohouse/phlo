@@ -1,3 +1,4 @@
 [codespell]
 skip = *.lock,uv.lock,*.svg,*/package-lock.json,package-lock.json,*.min.js
-ignore-words-list = iterm,temperatur,coo,vew
+# ND is the laboratory qualifier for a result that was not detected.
+ignore-words-list = iterm,temperatur,coo,vew,nd

@@ -11,7 +11,6 @@ import {
   assetFreshness,
   assetListCursorForEnv,
   assetListPosition,
-  assetWriteSummary,
   getAssetList,
   assetLayer as layerOf,
   nextAssetListPage,
@@ -19,14 +18,17 @@ import {
 } from '@/lib/data/api/assets'
 import { Eyebrow, PageHeader } from '@/components/phlo/page'
 import { LayerSwatch, Mono } from '@/components/phlo/status'
-import { SlaLegend } from '@/components/assets/bits'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import {
+  assetFreshnessLabel,
+  assetMaterializationDays,
   assetSortOptions,
   assetTableColumns,
   assetTableFeatures,
   formatAssetTimestamp,
+  formatInventoryBytes,
+  formatInventoryCount,
 } from '@/lib/data/assets-table'
 
 type Chip = 'all' | 'attention' | Layer
@@ -67,16 +69,19 @@ const chips: Array<{ key: Chip; label: string; layer?: Layer }> = [
   { key: 'gold', label: 'Gold', layer: 'gold' },
 ]
 const grid =
-  'grid grid-cols-[minmax(250px,2.4fr)_84px_128px_128px_80px_80px_128px_190px] items-center gap-x-4 px-5'
+  'grid grid-cols-[minmax(190px,2.1fr)_80px_130px_125px_70px_70px_105px_105px] items-center gap-x-4 px-5'
 
 function matchesAssetSearch(asset: ApiAsset, active: Chip, q: string) {
   return (
     (active === 'all' || active === 'attention' || layerOf(asset) === active) &&
     (active !== 'attention' || assetFreshness(asset) !== 'fresh') &&
     (!q ||
-      [asset.id, asset.group_name ?? '', asset.description ?? ''].some(
-        (value) => value.toLowerCase().includes(q),
-      ))
+      [
+        asset.id,
+        asset.owner ?? '',
+        asset.group_name ?? '',
+        asset.description ?? '',
+      ].some((value) => value.toLowerCase().includes(q)))
   )
 }
 
@@ -203,7 +208,7 @@ function AssetsPage() {
                   replace: true,
                 })
               }
-              placeholder="Filter by name, group or description"
+              placeholder="Filter by name, owner or group"
               className="min-w-0 flex-1 border-0 bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-faint"
             />
           </label>
@@ -220,7 +225,7 @@ function AssetsPage() {
       ) : null}
       <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 py-3 lg:px-5 lg:py-3.5">
         <label className="flex flex-col gap-1.5 lg:hidden">
-          <span className="text-[13.5px] font-medium">Find an asset</span>
+          <span className="text-[13.5px] font-medium">Find a table</span>
           <input
             type="search"
             value={search.q}
@@ -233,7 +238,7 @@ function AssetsPage() {
                 replace: true,
               })
             }
-            placeholder="Name, group or description"
+            placeholder="Name or owner"
             className="h-11 rounded-[10px] border border-border-strong bg-card px-3 text-base outline-none"
           />
         </label>
@@ -241,7 +246,7 @@ function AssetsPage() {
           <div
             role="group"
             aria-label="Filter assets"
-            className="flex min-w-0 flex-1 flex-wrap gap-2 lg:flex-none lg:flex-nowrap"
+            className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1 lg:flex-none lg:overflow-visible lg:pb-0"
           >
             {chips.map((chip) => (
               <button
@@ -322,7 +327,7 @@ function AssetsPage() {
       </div>
       <div className="hidden min-h-0 flex-1 flex-col md:flex">
         <div className="min-h-0 flex-1 overflow-auto">
-          <div role="table" aria-label="Assets" className="min-w-[1180px]">
+          <div role="table" aria-label="Assets" className="min-w-[1130px]">
             <div
               role="row"
               className={cn(
@@ -335,7 +340,7 @@ function AssetsPage() {
                 const label =
                   assetSortOptions.find(
                     (option) => option.id === header.column.id,
-                  )?.label ?? 'Observed writes'
+                  )?.label ?? 'Last 7 days'
                 const nextDirection =
                   header.column.getNextSortingOrder() === 'desc'
                     ? 'descending'
@@ -450,7 +455,16 @@ function AssetsPage() {
               Next
             </button>
           </div>
-          <SlaLegend />
+          <span className="hidden items-center gap-3 whitespace-nowrap text-xs xl:flex">
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-sm bg-ok/50" />
+              Materialized
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-sm bg-border" />
+              No observation
+            </span>
+          </span>
         </div>
       </div>
     </>
@@ -507,14 +521,17 @@ type DesktopCellRenderer = (asset: ApiAsset, env: Env) => React.ReactNode
 
 const desktopCellRenderers: Record<string, DesktopCellRenderer> = {
   asset: (asset, env) => (
-    <Link
-      to="/assets/$assetId"
-      params={{ assetId: asset.id }}
-      search={{ env }}
-      className="block truncate font-mono text-[13px] text-foreground hover:text-link"
-    >
-      {asset.id}
-    </Link>
+    <div className="flex min-w-0 items-center gap-2.5">
+      <FreshnessDot asset={asset} />
+      <Link
+        to="/assets/$assetId"
+        params={{ assetId: asset.id }}
+        search={{ env }}
+        className="block truncate font-mono text-[13px] text-foreground hover:text-link"
+      >
+        {asset.id}
+      </Link>
+    </div>
   ),
   layer: (asset) => {
     const layer = layerOf(asset)
@@ -538,27 +555,35 @@ const desktopCellRenderers: Record<string, DesktopCellRenderer> = {
     </time>
   ),
   rowCount: (asset) =>
-    asset.row_count?.toLocaleString() ??
-    (asset.table_metadata_error ? 'Unavailable' : 'Not observed'),
+    asset.row_count == null ? (
+      asset.table_metadata_error ? (
+        'Unavailable'
+      ) : (
+        'Not observed'
+      )
+    ) : (
+      <span title={asset.row_count.toLocaleString()}>
+        {formatInventoryCount(asset.row_count)}
+      </span>
+    ),
   sizeBytes: (asset) =>
-    asset.size_bytes == null
-      ? asset.table_metadata_error
-        ? 'Unavailable'
-        : 'Not observed'
-      : `${asset.size_bytes.toLocaleString()} B`,
+    asset.size_bytes == null ? (
+      asset.table_metadata_error ? (
+        'Unavailable'
+      ) : (
+        'Not observed'
+      )
+    ) : (
+      <span title={`${asset.size_bytes.toLocaleString()} bytes`}>
+        {formatInventoryBytes(asset.size_bytes)}
+      </span>
+    ),
   owner: (asset) => (
     <span title={asset.owner ?? 'Not declared'} className="block truncate">
       {asset.owner ?? 'Not declared'}
     </span>
   ),
-  writes: (asset) => (
-    <span
-      title={`${assetWriteSummary(asset)}; observed write counts are not table totals.${asset.materialization_history_truncated ? ' History is truncated.' : ''}`}
-      className="block truncate"
-    >
-      {assetWriteSummary(asset)}
-    </span>
-  ),
+  writes: (asset) => <MaterializationStrip asset={asset} />,
 }
 
 function DesktopCell({
@@ -608,8 +633,15 @@ function FreshnessCell({ asset }: { asset: ApiAsset }) {
       title={evidenceTitle}
       className="flex min-w-0 flex-col text-[12px] text-muted-foreground"
     >
-      <span className="text-[13px] capitalize">{assetFreshness(asset)}</span>
-      <span className="truncate">
+      <span
+        className={cn(
+          'font-mono text-[13px]',
+          assetFreshness(asset) === 'stale' && 'text-bad-text',
+        )}
+      >
+        {assetFreshnessLabel(asset)}
+      </span>
+      <span className="sr-only">
         {observedLabel ? `${sourceLabel} · ${observedLabel}` : sourceLabel}
       </span>
     </span>
@@ -626,32 +658,23 @@ function MobileRow({ asset, env }: { asset: ApiAsset; env: Env }) {
       search={{ env }}
       className="flex min-h-[60px] items-center gap-3 border-b border-line-soft px-3.5 py-2.5 text-foreground last:border-b-0 hover:bg-raised"
     >
-      <span
-        aria-label={`Freshness ${freshness}`}
-        className={cn(
-          'size-2.5 shrink-0 rounded-full',
-          freshness === 'fresh'
-            ? 'bg-ok'
-            : freshness === 'stale'
-              ? 'bg-bad'
-              : 'bg-border-strong',
-        )}
-      />
+      <FreshnessDot asset={asset} />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="truncate font-mono text-[13px]">{asset.id}</span>
         <span className="flex items-center gap-1.5 overflow-hidden text-[12.5px] whitespace-nowrap text-muted-foreground">
           {layer ? <LayerSwatch layer={layer} /> : null}
           <span className="capitalize">{layer ?? 'Unknown layer'}</span>
-          <span className="truncate">{asset.group_name ?? 'No group'}</span>
+          <span
+            className={cn(
+              'truncate font-mono text-xs',
+              freshness === 'stale' && 'text-bad-text',
+            )}
+          >
+            {assetFreshnessLabel(asset)}
+          </span>
         </span>
       </span>
-      <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
-        {freshness === 'fresh'
-          ? 'Fresh'
-          : freshness === 'stale'
-            ? 'Stale'
-            : 'Freshness unknown'}
-      </span>
+      <MaterializationStrip asset={asset} />
     </Link>
   )
 }
@@ -664,5 +687,48 @@ function NoMatch() {
         Try another name, or pick All.
       </div>
     </Card>
+  )
+}
+
+function FreshnessDot({ asset }: { asset: ApiAsset }) {
+  const freshness = assetFreshness(asset)
+  return (
+    <span
+      role="img"
+      aria-label={`Freshness ${freshness}`}
+      className={cn(
+        'size-2 shrink-0 rounded-full',
+        freshness === 'fresh'
+          ? 'bg-ok'
+          : freshness === 'stale'
+            ? 'bg-bad'
+            : 'bg-border-strong',
+      )}
+    />
+  )
+}
+
+function MaterializationStrip({ asset }: { asset: ApiAsset }) {
+  const days = assetMaterializationDays(asset)
+  const summary = days
+    .map((day) => `${day.date}: ${day.count} observed materializations`)
+    .join('; ')
+  return (
+    <span
+      role="img"
+      aria-label={`Last 7 days, observed materializations. ${summary}${asset.materialization_history_truncated ? '. History is truncated.' : ''}`}
+      title={`Materialization observations, not historical SLA results. ${summary}`}
+      className="inline-flex shrink-0 items-center gap-[3px]"
+    >
+      {days.map((day) => (
+        <span
+          key={day.date}
+          className={cn(
+            'h-3.5 w-2.5 rounded-[2px] lg:h-4',
+            day.count ? 'bg-ok/50' : 'bg-border',
+          )}
+        />
+      ))}
+    </span>
   )
 }

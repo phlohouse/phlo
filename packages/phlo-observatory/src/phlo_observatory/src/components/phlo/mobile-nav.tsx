@@ -6,6 +6,7 @@ import { BrandMark, EnvSwitcher } from './sidebar'
 import { ThemeToggleButton } from './theme-switch'
 import { useCommandPalette } from './command-palette'
 import type { Env } from '@/lib/data/types'
+import { NotificationsButton } from '@/components/notifications/inbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,7 @@ export function MobileTopBar({ env }: { env: Env }) {
       >
         <SearchIcon className="size-[18px]" />
       </button>
+      <NotificationsButton key={env} env={env} />
       <ThemeToggleButton />
     </header>
   )

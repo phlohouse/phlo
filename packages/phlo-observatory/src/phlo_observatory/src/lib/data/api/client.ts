@@ -276,6 +276,21 @@ export async function parseApiResponse<T>({
   return result
 }
 
+function apiRequestContent(
+  body: unknown,
+  rawBody: ArrayBuffer | undefined,
+  method: string | undefined,
+) {
+  if (body !== undefined && rawBody !== undefined)
+    throw new Error('Choose either JSON or binary API request content.')
+  const content =
+    rawBody ?? (body === undefined ? undefined : JSON.stringify(body))
+  return {
+    body: content,
+    method: method ?? (content === undefined ? 'GET' : 'POST'),
+  }
+}
+
 export const phloApi = createServerOnlyFn(
   async <T>(
     path: string,
@@ -283,6 +298,7 @@ export const phloApi = createServerOnlyFn(
     options: {
       env?: z.infer<typeof environmentSchema>
       body?: unknown
+      rawBody?: ArrayBuffer
       method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
       idempotencyKey?: string
       responseType?: 'json' | 'text'
@@ -296,6 +312,11 @@ export const phloApi = createServerOnlyFn(
         'Phlo API is not configured (set PHLO_API_URL on the server).',
       )
 
+    const content = apiRequestContent(
+      options.body,
+      options.rawBody,
+      options.method,
+    )
     const headers = new Headers(options.headers)
     const authorization = getRequestHeader('authorization')
     const accessToken = getRequestHeader('x-auth-request-access-token')
@@ -314,9 +335,7 @@ export const phloApi = createServerOnlyFn(
     try {
       response = await fetch(new URL(path, `${baseUrl.replace(/\/$/, '')}/`), {
         headers,
-        method: options.method ?? (options.body === undefined ? 'GET' : 'POST'),
-        body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
+        ...content,
         cache: 'no-store',
         signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
       })

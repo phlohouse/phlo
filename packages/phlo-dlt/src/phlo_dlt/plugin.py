@@ -274,6 +274,10 @@ class DltWorkflowAuthoringProvider:
             raise ValueError(f"Unsupported DLT workflow type: {workflow_type}")
 
         contribution_id = request.get("contribution_id")
+        if contribution_id == "dlt.reviewed-csv-upload":
+            from phlo_dlt.csv_upload import author_csv_upload
+
+            return author_csv_upload(project_root, values)
         if contribution_id not in {None, "", "dlt.rest-api-source"}:
             raise ValueError(f"DLT cannot author contribution {contribution_id!r}")
 

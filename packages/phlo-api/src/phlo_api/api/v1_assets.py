@@ -2647,7 +2647,12 @@ async def v1_asset_materialize(
         raise HTTPException(status_code=422, detail="Confirm the materialization before executing.")
     if payload.mode == "full" and not payload.dry_run:
         _require_full_refresh_mfa(request)
-    tags = {"environment": env, "phlo/ref": write_ref}
+    principal = get_request_principal(request)
+    tags = {
+        "environment": env,
+        "phlo/ref": write_ref,
+        "phlo/actor": principal.subject if principal else auth["subject"],
+    }
 
     async def execute() -> dict[str, Any]:
         if payload.mode is not None:

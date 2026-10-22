@@ -33,8 +33,9 @@ from phlo_api.api.operation_controls import (
     shared_operation_controls,
 )
 from phlo_api.api.v1 import _target, _targets
-from phlo_api.errors import BackendUnavailableError, BadGatewayError, NotFoundError
+from phlo_api.errors import BackendUnavailableError, BadGatewayError, ConflictError, NotFoundError
 from phlo_api.observatory_api.http_client import backend_client
+from phlo_api.branch_schema_comparison import read_schema_comparison
 from phlo_api.branch_schema_resolution import (
     PreparedSchemaResolutions,
     prepare_schema_resolutions,
@@ -99,6 +100,30 @@ class BranchDiff(WireModel):
     target_hash: str
     items: list[BranchChange]
     truncated: bool
+
+
+class BranchSchemaField(WireModel):
+    field_id: int
+    name: str
+    type: str
+    required: bool
+    doc: str | None
+
+
+class BranchSchemaColumn(WireModel):
+    name: str
+    source: BranchSchemaField | None
+    target: BranchSchemaField | None
+
+
+class BranchSchemaComparison(WireModel):
+    env: Environment
+    source: str
+    target: str
+    source_hash: str
+    target_hash: str
+    table_key: str
+    columns: list[BranchSchemaColumn]
 
 
 class BranchComparison(WireModel):
@@ -1035,6 +1060,58 @@ async def v1_branch_diff(
     source = await _scoped_reference(branch_name, env, target, branch_only=True)
     target_branch = await _scoped_reference(target_ref, env, target, branch_only=True)
     return await _diff(source, target_branch, env)
+
+
+@router.get("/branches/{branch_name}/schema-diff", response_model=BranchSchemaComparison)
+async def v1_branch_schema_diff(
+    request: Request,
+    branch_name: str,
+    target_ref: Annotated[str, Query(alias="target", min_length=1, max_length=128)],
+    table_key: Annotated[str, Query(min_length=1, max_length=512)],
+    source_hash: Annotated[str, Query(min_length=1, max_length=256)],
+    target_hash: Annotated[str, Query(min_length=1, max_length=256)],
+    env: Environment = Query(),
+) -> BranchSchemaComparison:
+    configured = _target(
+        request,
+        env,
+        allowed_query=frozenset(
+            {
+                "env",
+                "target",
+                "table_key",
+                "source_hash",
+                "target_hash",
+            }
+        ),
+    )
+    require_scope(request, "lakehouse:read")
+    source = await _scoped_reference(branch_name, env, configured, branch_only=True)
+    target = await _scoped_reference(target_ref, env, configured, branch_only=True)
+    if source.hash != source_hash or target.hash != target_hash:
+        raise ConflictError("Branch heads changed. Refresh the comparison before choosing columns.")
+    try:
+        columns = await read_schema_comparison(
+            source=source.name,
+            target=target.name,
+            source_hash=source.hash,
+            target_hash=target.hash,
+            key=table_key,
+            nessie_request=_nessie,
+        )
+    except TimeoutError as exc:
+        raise BackendUnavailableError(
+            "Branch schema comparison exceeded the read time budget."
+        ) from exc
+    return BranchSchemaComparison(
+        env=env,
+        source=source.name,
+        target=target.name,
+        source_hash=source.hash,
+        target_hash=target.hash,
+        table_key=table_key,
+        columns=[BranchSchemaColumn.model_validate(column) for column in columns],
+    )
 
 
 @router.get("/branches/{branch_name}/compare", response_model=BranchComparison)

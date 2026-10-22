@@ -194,6 +194,7 @@ def test_plan_backfill_uses_real_partition_configs_and_downstream_selection(oper
         assert request["run_config"]["ops"]["ingest"]["config"]["date"] == request["partition_key"]
         assert request["asset_selection"] == ["warehouse/orders", "warehouse/summary"]
         assert request["tags"]["phlo/ref"] == "prod-work"
+        assert request["tags"]["phlo/actor"] == "alice"
         assert request["tags"]["phlo/ref_hash"] == "head-1"
         assert request["repository_location_name"] == "production_jobs"
     assert calls[0][1]["idempotency_key"] != calls[1][1]["idempotency_key"]

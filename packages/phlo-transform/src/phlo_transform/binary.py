@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import urlopen
@@ -141,6 +142,23 @@ def binary_version(binary: Path, settings: TransformSettings) -> str | None:
     return text[0].strip()
 
 
+def _public_command(command: list[str]) -> list[str]:
+    public: list[str] = []
+    redact_next = False
+    for argument in command:
+        if redact_next:
+            public.append("[redacted]")
+            redact_next = False
+        elif argument in {"--trino-password", "--nessie-token"}:
+            public.append(argument)
+            redact_next = True
+        elif argument.startswith(("--trino-password=", "--nessie-token=")):
+            public.append(argument.partition("=")[0] + "=[redacted]")
+        else:
+            public.append(argument)
+    return public
+
+
 def run_cli(
     binary: Path,
     args: list[str],
@@ -148,6 +166,7 @@ def run_cli(
     settings: TransformSettings,
     root: Path | None,
     extra_args: list[str] | None = None,
+    environment: Mapping[str, str | None] | None = None,
 ) -> Invocation:
     """Invoke the CLI and capture its output without raising on failure."""
 
@@ -156,7 +175,13 @@ def run_cli(
         command.extend(["--root", str(root)])
     command.extend(extra_args or [])
     command.extend(args)
+    public_command = _public_command(command)
     env = {**os.environ}
+    for key, value in (environment or {}).items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
     try:
         # reason: the executable path is resolved from settings or PATH, not shell input.
         completed = subprocess.run(  # noqa: S603 - the executable path is resolved locally
@@ -176,20 +201,21 @@ def run_cli(
             cause=exc,
         ) from exc
     except subprocess.TimeoutExpired as exc:
+        exc.cmd = public_command
         raise PhloCapabilitySetupError(
             capability="transform",
             required=True,
-            message=f"phlo-transform exceeded {settings.timeout_seconds:.0f}s: {' '.join(command)}",
+            message=f"phlo-transform exceeded {settings.timeout_seconds:.0f}s: {' '.join(public_command)}",
             suggestions=["Raise PHLO_TRANSFORM_TIMEOUT_SECONDS or narrow the selection"],
             cause=exc,
         ) from exc
     logger.debug(
         "phlo_transform_cli_finished",
-        command=" ".join(command),
+        command=" ".join(public_command),
         returncode=completed.returncode,
     )
     return Invocation(
-        command=tuple(command),
+        command=tuple(public_command),
         returncode=completed.returncode,
         stdout=completed.stdout or "",
         stderr=completed.stderr or "",
@@ -202,10 +228,13 @@ def run_json(
     *,
     settings: TransformSettings,
     root: Path,
+    environment: Mapping[str, str | None] | None = None,
 ) -> tuple[dict | None, Invocation]:
     """Invoke the CLI with ``--json`` and return the parsed report and process."""
 
-    invocation = run_cli(binary, ["--json", *args], settings=settings, root=root)
+    invocation = run_cli(
+        binary, ["--json", *args], settings=settings, root=root, environment=environment
+    )
     return invocation.json(), invocation
 
 

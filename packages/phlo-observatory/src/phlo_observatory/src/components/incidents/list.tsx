@@ -8,6 +8,7 @@ import {
   XIcon,
 } from 'lucide-react'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
+import { shortIncidentId } from '@/lib/incident-id'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Eyebrow } from '@/components/phlo/page'
@@ -160,7 +161,7 @@ export function IncidentGroup({
                 className="hidden truncate font-mono text-[12.5px] text-muted-foreground md:block"
                 title={incident.id}
               >
-                #{incident.id}
+                #{shortIncidentId(incident.id)}
               </span>
               <span
                 className="mt-px inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-soft text-text-3 md:hidden"
@@ -179,7 +180,8 @@ export function IncidentGroup({
                   {incident.title}
                 </span>
                 <span className="truncate font-mono text-xs text-muted-foreground md:hidden">
-                  #{incident.id} · {incident.asset_id} · {cap(incident.kind)}
+                  #{shortIncidentId(incident.id)} · {incident.asset_id} ·{' '}
+                  {cap(incident.kind)}
                 </span>
                 <span className="hidden text-[13px] whitespace-nowrap text-muted-foreground lg:inline">
                   {cap(incident.kind)}

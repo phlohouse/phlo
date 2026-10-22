@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { BellIcon, BellOffIcon, EllipsisIcon, LinkIcon } from 'lucide-react'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
+import { getIncidentSubscription } from '@/lib/data/api/notifications'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -36,6 +37,30 @@ export function IncidentActions({
   const [comment, setComment] = React.useState('')
   const [reopen, setReopen] = React.useState(false)
   const [copied, setCopied] = React.useState(false)
+  const [subscriptionLoading, setSubscriptionLoading] = React.useState(true)
+  React.useEffect(() => {
+    let active = true
+    setSubscribed(undefined)
+    setSubscriptionLoading(true)
+    void getIncidentSubscription({ data: { env, id: incident.id } })
+      .then((result) => {
+        if (active) setSubscribed(result.subscribed)
+      })
+      .catch((caught: unknown) => {
+        if (active)
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : 'Subscription unavailable.',
+          )
+      })
+      .finally(() => {
+        if (active) setSubscriptionLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [env, incident.id])
   async function run(action: () => Promise<unknown>) {
     setPending(true)
     setError(undefined)
@@ -70,10 +95,20 @@ export function IncidentActions({
       <Button
         variant="outline"
         className="h-10 lg:h-8"
-        disabled={pending}
+        disabled={pending || subscriptionLoading}
         aria-pressed={subscribed}
         onClick={() =>
           run(async () => {
+            if (subscribed === undefined) {
+              setSubscribed(
+                (
+                  await getIncidentSubscription({
+                    data: { env, id: incident.id },
+                  })
+                ).subscribed,
+              )
+              return
+            }
             const next = subscribed !== true
             const result = await setIncidentSubscription({
               data: {
@@ -105,11 +140,22 @@ export function IncidentActions({
         ) : (
           <BellIcon />
         )}
-        {subscribed === undefined
-          ? 'Subscription unknown · Subscribe'
-          : subscribed
-            ? 'Subscribed'
-            : 'Not subscribed · Subscribe'}
+        <span className="lg:hidden">
+          {subscriptionLoading
+            ? 'Loading…'
+            : subscribed
+              ? 'Subscribed'
+              : 'Subscribe'}
+        </span>
+        <span className="hidden lg:inline">
+          {subscribed === undefined
+            ? subscriptionLoading
+              ? 'Loading subscription…'
+              : 'Retry subscription'
+            : subscribed
+              ? 'Subscribed'
+              : 'Not subscribed · Subscribe'}
+        </span>
       </Button>
       {incident.status === 'open' ? (
         <Button disabled={pending} onClick={() => updateStatus('acknowledged')}>

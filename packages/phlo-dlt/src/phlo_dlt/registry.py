@@ -86,6 +86,7 @@ class TableConfig:
     group_name: str
     partition_spec: list[tuple[str, str]] | None = None
     schema_policy: Literal["strict", "additive", "drop_extra"] = "strict"
+    namespace: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_policy not in ("strict", "additive", "drop_extra"):
@@ -111,4 +112,4 @@ class TableConfig:
             ```
 
         """
-        return f"{get_settings().dlt_default_namespace}.{self.table_name}"
+        return f"{self.namespace or get_settings().dlt_default_namespace}.{self.table_name}"

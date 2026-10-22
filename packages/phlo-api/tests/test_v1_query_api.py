@@ -298,7 +298,7 @@ def test_query_result_is_bounded_owner_scoped_exportable_and_audited(query_api, 
     assert result["status"] == "completed"
     assert result["result"]["rows"] == [{"id": 7}]
     assert calls[-1][1:] == ("warehouse_prod", 1)
-    assert calls[-1][0].endswith('AS "_phlo_query_result" LIMIT 2')
+    assert calls[-1][0] == "SELECT id FROM analytics.orders LIMIT 2"
     csv = client.get(f"/api/v1/queries/{query_id}/csv?env=prod")
     assert csv.status_code == 200
     assert csv.text == "id\r\n7\r\n"

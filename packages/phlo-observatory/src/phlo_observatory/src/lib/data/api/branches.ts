@@ -325,3 +325,50 @@ export const signAndMerge = createServerFn({ method: 'POST' })
       },
     )
   })
+
+const schemaField = z.object({
+  field_id: z.number().int(),
+  name: z.string(),
+  type: z.string(),
+  required: z.boolean(),
+  doc: z.string().nullable(),
+})
+const branchSchemaSchema = z.object({
+  env: environmentSchema,
+  source: z.string(),
+  target: z.string(),
+  source_hash: z.string(),
+  target_hash: z.string(),
+  table_key: z.string(),
+  columns: z.array(
+    z.object({
+      name: z.string(),
+      source: schemaField.nullable(),
+      target: schemaField.nullable(),
+    }),
+  ),
+})
+export type BranchSchemaComparison = z.infer<typeof branchSchemaSchema>
+
+export const getBranchSchemaDiff = createServerFn({ method: 'GET' })
+  .validator(
+    detailInput.omit({ after: true }).extend({
+      tableKey: z.string().min(1).max(512),
+      sourceHash: z.string().min(1),
+      targetHash: z.string().min(1),
+    }),
+  )
+  .handler(({ data }) => {
+    const query = new URLSearchParams({
+      env: data.env,
+      target: data.target,
+      table_key: data.tableKey,
+      source_hash: data.sourceHash,
+      target_hash: data.targetHash,
+    })
+    return phloApi(
+      `/api/v1/branches/${encodeURIComponent(data.branch)}/schema-diff?${query}`,
+      branchSchemaSchema,
+      { env: data.env },
+    )
+  })
