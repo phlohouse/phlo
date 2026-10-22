@@ -2098,7 +2098,11 @@ def test_materialize_action_pins_location_ref_and_replay_key(client, monkeypatch
     assert asset_id == "warehouse/orders"
     assert action["repository_location_name"] == "production_jobs"
     assert action["repository_name"] == "prod_repo"
-    assert action["tags"] == {"environment": "prod", "phlo/ref": "main"}
+    assert action["tags"] == {
+        "environment": "prod",
+        "phlo/ref": "main",
+        "phlo/actor": "alice",
+    }
     assert action["idempotency_key"] == "req-1"
     audit_log = tmp_path / ".phlo" / "audit" / "operations.jsonl"
     assert len(audit_log.read_text().splitlines()) == 1

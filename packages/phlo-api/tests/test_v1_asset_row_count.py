@@ -100,9 +100,9 @@ def test_explicit_count_is_snapshot_pinned_bounded_and_zero_is_real(monkeypatch,
         assert result["result"]["rows"] == [{"row_count": "0"}]
         assert statements == [
             (
-                "SELECT * FROM (SELECT CAST(COUNT(*) AS VARCHAR) AS row_count FROM "
+                "SELECT CAST(COUNT(*) AS VARCHAR) AS row_count FROM "
                 '"warehouse_prod"."analytics"."orders" FOR VERSION AS OF '
-                '9007199254740993) AS "_phlo_query_result" LIMIT 2',
+                "9007199254740993 LIMIT 2",
                 "warehouse_prod",
                 1,
             )
