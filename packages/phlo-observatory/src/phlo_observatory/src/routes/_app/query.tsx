@@ -37,6 +37,7 @@ import {
 } from '@/lib/data/api/query'
 import { CatalogTree } from '@/components/query/catalog-tree'
 import { QueryHistory } from '@/components/query/history'
+import { QueryPreviewStatus } from '@/components/query/preview-status'
 import { SqlEditor } from '@/components/query/sql-editor'
 import {
   PlanView,
@@ -44,12 +45,7 @@ import {
   ResultsGrid,
   ResultsPivot,
 } from '@/components/query/result-views'
-import {
-  EmptyState,
-  PageSkeleton,
-  PanelUnavailable,
-  RouteError,
-} from '@/components/phlo/states'
+import { EmptyState, PageSkeleton, RouteError } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -747,14 +743,7 @@ function QueryPage() {
           </a>{' '}
           to configure its deployment, trust and credentials, then check again.
         </p>
-        {checks.map((check, index) => (
-          <PanelUnavailable
-            key={index}
-            title="Query preview"
-            status={check.state}
-            message={`${check.message} ${check.remediation}\nReason: ${check.reason_code}. Reference: ${result.readiness.correlation_id}.`}
-          />
-        ))}
+        <QueryPreviewStatus checks={checks} />
         <QueryHistory key={env} env={env} />
       </div>
     )
@@ -1241,23 +1230,7 @@ function QueryWorkspace({
 
   return (
     <>
-      {checks.some((check) => check.state !== 'ready') ? (
-        <details className="shrink-0 border-b border-warn bg-warn-soft px-4 py-2 text-xs">
-          <summary className="cursor-pointer text-warn-text">
-            Query preview readiness needs attention
-          </summary>
-          <div className="grid gap-2 pt-2">
-            {checks
-              .filter((check) => check.state !== 'ready')
-              .map((check, index) => (
-                <p key={index} className="m-0">
-                  {check.message} {check.remediation} Reason:{' '}
-                  {check.reason_code}.
-                </p>
-              ))}
-          </div>
-        </details>
-      ) : null}
+      <QueryPreviewStatus checks={checks} />
       <QueryToolbar
         tab={tab}
         tabs={tabs}

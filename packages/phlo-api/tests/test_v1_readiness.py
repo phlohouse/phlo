@@ -115,12 +115,35 @@ def test_preview_probe_never_promotes_configuration_to_ready(readiness_client, m
     monkeypatch.setattr(v1_readiness, "execute_preview", execute)
     path = "/api/v1/readiness?env=prod"
     unavailable = readiness_client.get(path).json()["capabilities"]["query_preview"]
+    assert len(unavailable) == 1
     assert unavailable[-1]["reason_code"] == "backend_unavailable"
     result["rows"] = [{"phlo_readiness": 1}]
     reachable = readiness_client.get(path).json()["capabilities"]["query_preview"]
+    assert len(reachable) == 1
     assert reachable[-1]["reason_code"] == "backend_reachable"
     assert all(check["state"] == "configured" for check in reachable)
-    assert reachable[0]["reason_code"] == "enforcement_unverified"
+    assert "connection verified" in reachable[0]["message"]
+
+
+def test_preview_prerequisite_failure_does_not_probe_or_claim_connection(
+    readiness_client, monkeypatch
+):
+    prerequisite = {
+        "state": "unavailable",
+        "reason_code": "configuration_invalid",
+        "message": "Preview trusted CA is invalid or unavailable.",
+        "remediation": "Review the trusted CA.",
+    }
+    monkeypatch.setattr(v1_readiness, "preview_preflight", lambda env: [prerequisite])
+
+    async def unexpected_probe(*args, **kwargs):
+        pytest.fail("Invalid prerequisites must not trigger a backend probe")
+
+    monkeypatch.setattr(v1_readiness, "execute_preview", unexpected_probe)
+    checks = readiness_client.get("/api/v1/readiness?env=prod").json()["capabilities"][
+        "query_preview"
+    ]
+    assert checks == [prerequisite]
 
 
 @pytest.mark.integration

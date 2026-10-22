@@ -50,6 +50,32 @@ The native and CSV candidates preserved the original `main` head and workspace
 SQL. Final post-restart idempotent replays and the 11 live read-only preview/server
 rejection checks passed. No candidate promotion or merge occurred.
 
+## Query preview follow-up checks
+
+The original local deployment was checked again on 22 October 2026 while fixing
+the duplicated readiness messages. These are observations of that deployment,
+not a production readiness attestation or a fresh-example startup result.
+
+| Check | Observed result |
+| --- | --- |
+| Authenticated catalog reads and evidence | Actual QC result counts were 96 rows and 37 out of spec; query evidence remained readable after the API restarted |
+| TLS and authentication | Untrusted CA, wrong hostname, absent credentials and wrong credentials were rejected |
+| Read-only isolation | API and coordinator rejected writes, cross-catalog system reads and session overrides |
+| Bounds and cancellation | Five-row cap retained truncation evidence; an oversized response was rejected; a CPU-bound read hit Trino's `EXCEEDED_TIME_LIMIT` at its 20-second limit; cancellation succeeded |
+| Coordinator restart | A separate source-provisioned local coordinator read the same 96 rows before and after restart |
+| Password and certificate renewal | The separate coordinator accepted a newly generated complete bundle, new password and new CA; its previous password returned 401 and its previous CA rejected the renewed certificate |
+| UI recovery | Query and Settings showed one neutral connected status, an actual probe timeout stayed actionable, and refreshing after load cleared restored connected status; a browser query returned 100 real rows |
+
+The running API had one container and one Uvicorn process. Active query sessions
+remain process-local; recovery of completed evidence does not imply recovery of
+in-flight sessions. Renewal was rehearsed on a disposable coordinator, preserving
+the working lakehouse's credentials and data. Physical scan limits retain the
+periodic-enforcement limitations described in the preview deployment guide.
+
+The automatic readiness probe verifies configuration and an authenticated
+connection. Its connected status does not record or certify this manual
+checklist, which must be repeated for another deployment or changed credentials.
+
 ## Screenshots
 
 These seven JPEGs are current application captures from that deployment, not the
