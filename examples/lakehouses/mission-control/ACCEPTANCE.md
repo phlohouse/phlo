@@ -71,6 +71,10 @@ remain process-local; recovery of completed evidence does not imply recovery of
 in-flight sessions. Renewal was rehearsed on a disposable coordinator, preserving
 the working lakehouse's credentials and data. Physical scan limits retain the
 periodic-enforcement limitations described in the preview deployment guide.
+The small fixture did not exercise the 256 MB physical-scan threshold. A
+concurrency probe observed two running sessions and a third rejection, matching
+the two-slot limiter; the generic error did not independently identify the
+rejection cause, so this is partial admission evidence.
 
 The automatic readiness probe verifies configuration and an authenticated
 connection. Its connected status does not record or certify this manual
