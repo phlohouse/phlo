@@ -134,7 +134,7 @@ def test_generated_preview_reads_denies_writes_and_recovers_evidence(tmp_path, m
     with (
         Network() as network,
         (
-            DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.1")
+            DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.2")
             .with_network(network)
             .with_network_aliases("minio")
             .with_env("MINIO_ROOT_USER", "localtest")

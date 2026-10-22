@@ -82,7 +82,7 @@ After `make setup`, with Docker running, build the checked-in MinIO image once
 and run a group from the repository root:
 
 ```bash
-docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.1 packages/phlo-minio/src/phlo_minio
+docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.2 packages/phlo-minio/src/phlo_minio
 uv run --locked python scripts/run_integration.py --group api-query-journey
 ```
 
