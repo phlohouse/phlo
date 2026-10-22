@@ -84,7 +84,7 @@ def _notification_candidates(env: Environment, subject: str, view: NotificationV
                     AND s.incident_id=e.incident_id AND s.subject=%s
                 WHERE e.env=%s AND e.occurred_at >= now()-interval '30 days'
                     {filters[view]}
-                ORDER BY e.occurred_at DESC,e.event_id DESC LIMIT %s""",  # noqa: S608 # Static view fragments only; identity, scope and limit remain bound.
+                ORDER BY e.occurred_at DESC,e.event_id DESC LIMIT %s""",  # noqa: S608 # Reason: Static view fragments only; identity, scope and limit remain bound.
             params,
         )
         return cur.fetchall()
