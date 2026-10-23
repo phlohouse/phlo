@@ -15,9 +15,41 @@ four plate replicates, unique telemetry keys, 504 minute groups, mixed dates and
 checks and eight jobs, with no schedule. Dagster's automatic asset job is separate.
 
 The original live deployment used locally built service/provider images and a
-source-built native engine. The curated example's complete container startup,
-preview TLS setup and authorization bootstrap have not been rerun from scratch.
-Those remain a reproduction gate; unit tests do not establish that runtime exit.
+source-built native engine. Generator tests alone do not qualify container
+startup, preview TLS or authorization bootstrap. Use the opt-in installed-service
+driver below for that separate reproduction gate.
+
+## Disposable installed-service reproduction
+
+The [disposable demo command](README.md#run-the-disposable-acceptance-demo) builds
+the current checkout's wheels and generated API/Dagster images. It creates a
+private project, loopback-only service ports, operator/viewer identities, policy
+grants and a signed TLS preview bundle. No existing lakehouse is accepted as an
+input. The native engine is a separate, verified prerequisite.
+
+The command must finish all these checks before recording `result: passed`:
+
+- Launch the actual `mission_control_full` Dagster job and await success.
+- Query the resulting source-backed gold table through the authenticated API,
+  returning 24 batches and 37 held results. Reject the restricted viewer's query.
+- Retain and review the stability CSV, prepare its generated contract/workflow,
+  reload Dagster, materialise its isolated candidate and read a pinned snapshot
+  containing 1,284 rows.
+- Save an immutable source-backed native draft, compile it with the TLS preview
+  binding, execute it and read a candidate snapshot containing 24 rows.
+- Observe the deployed preview server limits and read-only denials. Preserve the
+  original `main` hash and workspace SQL throughout candidate operations.
+
+The credential-free JSON report records actual run and snapshot identities.
+Failed steps fail the command; historical screenshots never substitute for a
+missing runtime result. Default cleanup removes only this run's services,
+volumes and private files, including after failure. `--keep-project` retains
+private credentials and services for local debugging and records their cleanup
+command. Do not publish that retained directory.
+
+This source-build HTTP journey does not qualify an immutable release bill of
+materials, browser behaviour, production operation or candidate promotion. Those
+need their own acceptance. The historical observations below remain separate.
 
 ## Historical live acceptance
 

@@ -36,6 +36,45 @@ it starts no services and performs no lakehouse writes.
 All names, laboratory-shaped readings and source events are synthetic. No
 clinical, manufacturing-release or scientific conclusions follow from them.
 
+## Run the disposable acceptance demo
+
+From the repository root, use the opt-in source-build driver to create a new
+private project and volumes. It never accepts an existing deployment directory.
+Docker with Compose, `uv`, OpenSSL and a compatible Linux GNU Phlo Transform
+engine are required. Verify the engine's build or release digest independently.
+See the [native provider installation guide](../../../packages/phlo-transform/README.md#install)
+for the engine prerequisite. The driver does not download or trust an unchecked binary.
+
+```bash
+uv run --locked python scripts/observatory_demo.py \
+  --run-disposable \
+  --native-binary /absolute/path/to/phlo-transform \
+  --native-sha256 SHA256_FROM_YOUR_VERIFIED_BUILD \
+  --report "$PWD/.amp/in/artifacts/mission-control-demo.json"
+```
+
+The driver builds this checkout's wheels and API/Dagster images. It generates
+private operator and viewer credentials, canonical grants and a signed TLS
+preview bundle only inside the new project. All published ports bind to
+`127.0.0.1` with ephemeral host ports. The operator grant is intentionally broad
+inside this disposable lakehouse. Normal onboarding remains read-only and gains
+no credentials, grants or preview settings from this command.
+
+The real fixture job writes fourteen tables. Acceptance then checks a query
+returning 24 batches and 37 held results, a denied viewer, the 1,284-row stability
+CSV candidate and a 24-row source-backed native SQL candidate. Both candidates
+must retain snapshot evidence while preserving `main` and workspace SQL. The
+driver also observes actual preview TLS, read-only denials and server budgets
+before enabling query assertions. Success prints `PASS Mission Control` and
+writes credential-free JSON evidence. Any failed step fails the command.
+
+Cleanup removes the owned services, volumes and private files on success or
+failure. Add `--keep-project` only for local debugging. That option retains
+credentials in `.phlo/demo-credentials.json` with mode `0600`; the report gives
+the project path and exact cleanup command. Do not share those files or expose
+the backing services through a tunnel. This HTTP acceptance journey does not
+start Observatory's browser UI, promote a branch or qualify released artifacts.
+
 ## Create a fresh runtime
 
 Use a separate project with fresh volumes. The 14 baseline definitions explicitly
@@ -49,10 +88,10 @@ uv run phlo services init --dev
 uv run phlo services start --build
 ```
 
-The local acceptance deployment built Phlo and its providers from source. A fresh
-container deployment of this curated example has **not** been acceptance-tested;
-source dependency paths may need the normal source-image build context. The
-portable generator and definition tests do not prove container startup.
+The manual path uses this example's editable source dependencies. For a fresh
+installed-wheel container journey, use the disposable driver above rather than
+copying this directory or its source paths into an image. Generator and
+definition tests alone do not prove container startup.
 
 Configure authentication, canonical authorization and sandbox preview through the
 normal project setup. This example contains no grants, tokens, passwords, private
