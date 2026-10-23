@@ -7,6 +7,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -60,7 +61,7 @@ def endpoint(monkeypatch, demo):
         "service_url",
         lambda config, service, port, suffix="": f"http://127.0.0.1:{server.server_port}{suffix}",
     )
-    monkeypatch.setattr(demo.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(demo, "time", SimpleNamespace(sleep=lambda seconds: None))
     try:
         yield requests, responses
     finally:
