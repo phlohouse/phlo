@@ -36,12 +36,15 @@ text = "MIT"
 
 [project.optional-dependencies]
 dagster = ["phlo-dagster>=0.3.2"]
+dlt = ["phlo-dlt>=0.17.0,<0.18"]
 dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",
 ]
 iceberg = ["phlo-iceberg>=0.17.0,<0.18"]
 lineage = ["phlo-lineage>=0.1.0"]
+transform = ["phlo-transform>=0.1.0,<0.2"]
+trino = ["phlo-trino>=0.17.0,<0.18"]
 
 [project.readme]
 content-type = "text/plain"

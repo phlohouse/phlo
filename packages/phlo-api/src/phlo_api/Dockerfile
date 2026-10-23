@@ -1,31 +1,39 @@
-FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 AS phlo-build-context
+# Native transform releases target GNU libc, matching the Dagster runtime.
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS phlo-build-context
 
 WORKDIR /opt/phlo-build-context
+
+ARG PHLO_TRANSFORM_BINARY=
+ARG PHLO_TRANSFORM_SHA256=
 
 COPY . .
 RUN set -eux; \
     if [ -f entrypoint.sh ]; then entrypoint=entrypoint.sh; else entrypoint=phlo-api/entrypoint.sh; fi; \
     install -m 0755 "$entrypoint" /opt/phlo-build-context/phlo-api-entrypoint.sh; \
-    mkdir -p /opt/phlo-build-context/wheelhouse
+    mkdir -p /opt/phlo-build-context/wheelhouse /opt/phlo-native; \
+    if [ -n "$PHLO_TRANSFORM_BINARY" ]; then \
+        test -n "$PHLO_TRANSFORM_SHA256"; \
+        printf '%s  %s\n' "$PHLO_TRANSFORM_SHA256" "$PHLO_TRANSFORM_BINARY" | sha256sum -c -; \
+        install -m 0755 "$PHLO_TRANSFORM_BINARY" /opt/phlo-native/phlo-transform; \
+    fi
 
-FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 AS runtime
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS runtime
 
 WORKDIR /app
 
 ARG PHLO_VERSION=
 ARG PHLO_API_VERSION=
 ARG PHLO_WHEELHOUSE=
+ARG PHLO_API_EXTRAS=
 
-# Alpine packages stay unpinned: the branch archive drops superseded versions,
-# so an exact version becomes a hard build failure for consumers running
-# `phlo services start --build` weeks after the phlo release. `apk upgrade`
-# below resolves the current branch versions even with a digest-pinned base.
-# hadolint ignore=DL3018
-RUN apk upgrade --no-cache \
-    && apk add --no-cache ca-certificates \
-    && apk add --no-cache --virtual .build-deps \
-        gcc \
-        musl-dev \
+ENV PHLO_API_EXTRAS=${PHLO_API_EXTRAS}
+
+RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"].split(","))); unknown = extras - {"dagster", "dlt", "iceberg", "lineage", "transform", "trino"}; assert not unknown, f"Unsupported API provider extras: {sorted(unknown)}"'
+
+# Match the existing GNU-native provider runtime rather than relying on musl shims.
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev \
     && pip install --no-cache-dir \
         "setuptools==83.0.0" \
         "wheel==0.47.0" \
@@ -40,7 +48,8 @@ RUN set -eux; \
     PHLO_REQUIREMENT="phlo"; \
     if [ -n "$PHLO_VERSION" ]; then PHLO_REQUIREMENT="phlo==$PHLO_VERSION"; fi; \
     PHLO_API_REQUIREMENT="phlo-api"; \
-    if [ -n "$PHLO_API_VERSION" ]; then PHLO_API_REQUIREMENT="phlo-api==$PHLO_API_VERSION"; fi; \
+    if [ -n "${PHLO_API_EXTRAS:-}" ]; then PHLO_API_REQUIREMENT="phlo-api[$PHLO_API_EXTRAS]"; fi; \
+    if [ -n "$PHLO_API_VERSION" ]; then PHLO_API_REQUIREMENT="$PHLO_API_REQUIREMENT==$PHLO_API_VERSION"; fi; \
     if [ -n "$PHLO_WHEELHOUSE" ]; then \
         test -d /opt/phlo-wheelhouse; \
         uv pip install --system --no-index --no-deps --reinstall --find-links /opt/phlo-wheelhouse "$PHLO_REQUIREMENT" "$PHLO_API_REQUIREMENT"; \
@@ -55,16 +64,20 @@ RUN set -eux; \
         uv pip install --system --no-deps phlo; \
         python -c 'import importlib.metadata as md; print("\n".join(r.split(";", 1)[0].strip() for r in (md.metadata("phlo").get_all("Requires-Dist") or []) if " @ " in r))' > /tmp/phlo-url-requirements.txt; \
         uv pip install --system --requirement /tmp/phlo-url-requirements.txt phlo "$PHLO_API_REQUIREMENT"; \
-    fi; \
-    apk del .build-deps
+    fi
 
 # Do not retain uv's downloaded archives in the runtime image; they are not needed to run Phlo.
-RUN rm -rf /root/.cache/uv
+RUN apt-get purge -y --auto-remove gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/* /root/.cache/uv
 
 COPY --from=phlo-build-context /opt/phlo-build-context/phlo-api-entrypoint.sh /usr/local/bin/phlo-api-entrypoint.sh
+COPY --from=phlo-build-context /opt/phlo-native/ /usr/local/bin/
 
-RUN addgroup -S phlo \
-    && adduser -S -G phlo -h /app -H phlo \
+# Reject an unusable approved binary in the final runtime, not on the first save.
+RUN if [ -f /usr/local/bin/phlo-transform ]; then phlo-transform --version; fi
+
+RUN groupadd --system phlo \
+    && useradd --system --gid phlo --home-dir /app --no-create-home phlo \
     && chown -R phlo:phlo /app
 
 USER phlo
