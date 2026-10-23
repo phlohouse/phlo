@@ -52,7 +52,7 @@ def observations(monkeypatch, tmp_path):
         resource_id="run",
     )
     monkeypatch.setattr(loads.assets, "_assets", AsyncMock(return_value=[asset]))
-    monkeypatch.setattr(loads.jobs, "_scoped_runs", AsyncMock(return_value=[run]))
+    monkeypatch.setattr(loads.jobs, "_run_page", AsyncMock(return_value=([run], None)))
     upload = SimpleNamespace(
         upload_id="own",
         actor="test:operator",
@@ -164,3 +164,119 @@ def test_unavailable_inventory_fails_closed_and_anonymous_is_denied(observations
     )
     response = authenticated_client("operator").get("/api/v1/loads?env=sandbox")
     assert response.status_code == 503
+
+
+def test_load_pages_reach_older_runs_and_bind_continuation_to_actor(observations, monkeypatch):
+    _, run, _ = observations
+    runs = [run.model_copy(update={"run_id": f"run-{index:03}"}) for index in range(125)]
+
+    async def run_page(location, ref, limit, cursor=None):
+        start = next((i + 1 for i, item in enumerate(runs) if item.run_id == cursor), 0)
+        page = runs[start : start + limit]
+        return page, page[-1].run_id if len(page) == limit else None
+
+    monkeypatch.setattr(loads.jobs, "_run_page", run_page)
+    client = authenticated_client("operator")
+    first = client.get("/api/v1/loads?env=sandbox&limit=80")
+    assert first.status_code == 200, first.text
+    assert len(first.json()["items"]) == 80
+    cursor = first.json()["next_cursor"]
+    assert cursor
+    runs.insert(0, run.model_copy(update={"run_id": "new-before-cursor"}))
+    second = client.get("/api/v1/loads", params={"env": "sandbox", "after": cursor, "limit": 80})
+    assert second.status_code == 200, second.text
+    combined = first.json()["items"] + second.json()["items"]
+    assert len(combined) == 127
+    assert len({item["id"] for item in combined}) == 127
+    assert {item["run_id"] for item in combined if item["evidence_kind"] == "ingestion_run"} == {
+        f"run-{index:03}" for index in range(125)
+    }
+    assert second.json()["next_cursor"] is None
+    other = authenticated_client("operator")
+    other.headers["x-test-subject"] = "different"
+    assert other.get("/api/v1/loads", params={"env": "sandbox", "after": cursor}).status_code == 422
+
+
+def test_exact_csv_page_boundary_continues_into_ingestion(observations):
+    client = authenticated_client("operator")
+    first = client.get("/api/v1/loads?env=sandbox&limit=2")
+    assert first.status_code == 200, first.text
+    assert {item["evidence_kind"] for item in first.json()["items"]} == {
+        "csv_candidate",
+        "csv_attempt",
+    }
+    second = client.get(
+        "/api/v1/loads", params={"env": "sandbox", "limit": 2, "after": first.json()["next_cursor"]}
+    )
+    assert second.status_code == 200, second.text
+    assert [item["evidence_kind"] for item in second.json()["items"]] == ["ingestion_run"]
+    assert second.json()["next_cursor"] is None
+
+
+def test_one_run_spans_pages_without_losing_assets_or_repeating_receipts(observations, monkeypatch):
+    asset, run, _ = observations
+    inventory = [
+        asset.model_copy(update={"id": f"bronze/{index:03}", "key": ["bronze", str(index)]})
+        for index in range(113)
+    ]
+    run.selected_assets = []
+    monkeypatch.setattr(loads.assets, "_assets", AsyncMock(return_value=inventory))
+    client = authenticated_client("operator")
+    items = []
+    after = None
+    for _ in range(5):
+        params = {"env": "sandbox", "limit": 40}
+        if after:
+            params["after"] = after
+        response = client.get("/api/v1/loads", params=params)
+        assert response.status_code == 200, response.text
+        items.extend(response.json()["items"])
+        after = response.json()["next_cursor"]
+        if after is None:
+            break
+    assert after is None
+    assert len(items) == 115
+    assert len({item["id"] for item in items}) == 115
+    assert [item["asset_id"] for item in items if item["evidence_kind"] == "ingestion_run"] == [
+        f"bronze/{index:03}" for index in range(113)
+    ]
+
+
+def test_empty_scan_can_continue_and_rechecks_authorization(observations, monkeypatch):
+    _, run, _ = observations
+    monkeypatch.setattr(loads.uploads, "_records", lambda: [])
+    monkeypatch.setattr(
+        loads.jobs, "_run_page", AsyncMock(side_effect=[([], "unrelated-run"), ([run], None)])
+    )
+    client = authenticated_client("operator")
+    first = client.get("/api/v1/loads?env=sandbox")
+    assert first.status_code == 200, first.text
+    assert first.json()["items"] == []
+    cursor = first.json()["next_cursor"]
+    assert cursor
+    original = loads.enforce_http_operation
+
+    async def deny(request, spec, params):
+        if params.get("asset_id") == "bronze/lims":
+            raise HTTPException(403, "denied after the first page")
+        return await original(request, spec, params)
+
+    monkeypatch.setattr(loads, "enforce_http_operation", deny)
+    second = client.get("/api/v1/loads", params={"env": "sandbox", "after": cursor})
+    assert second.status_code == 200, second.text
+    assert second.json()["items"] == []
+    assert second.json()["next_cursor"] is None
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS", '{"sandbox":{"dagster_location":"sandbox","nessie_ref":"changed"}}'
+    )
+    assert (
+        client.get("/api/v1/loads", params={"env": "sandbox", "after": cursor}).status_code == 422
+    )
+
+
+@pytest.mark.parametrize("cursor", ["not-a-cursor", "e30=", "W10=", "bnVsbA==", "eyJzY29wZSI6MH0="])
+def test_malformed_load_cursor_is_rejected(observations, cursor):
+    response = authenticated_client("operator").get(
+        "/api/v1/loads", params={"env": "sandbox", "after": cursor}
+    )
+    assert response.status_code == 422, response.text

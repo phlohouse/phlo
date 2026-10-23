@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from datetime import UTC, datetime
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import Field
@@ -13,7 +15,7 @@ from phlo_api.api import v1_uploads as uploads
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.v1 import _target
 from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
-from phlo_api.v1_contract import Environment, WireModel
+from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
 
 router = APIRouter(tags=["v1 load observations"])
 MAX_RUNS = 100
@@ -73,7 +75,16 @@ class LoadPage(WireModel):
     items: list[LoadObservation]
     observed_at: datetime
     truncated: bool
+    next_cursor: str | None = None
     limitations: list[str]
+
+
+class _LoadCursor(WireModel):
+    scope: list[str]
+    phase: Literal["csv", "runs"] = "csv"
+    after: str | None = Field(default=None, max_length=4096)
+    run_id: str | None = Field(default=None, max_length=512)
+    asset_id: str | None = Field(default=None, max_length=512)
 
 
 async def _visible(request: Request, operation: str, **params: str) -> bool:
@@ -197,41 +208,117 @@ def _ingestion_observation(asset: assets.AssetView, run: jobs.Run, ref: str) -> 
     )
 
 
-@router.get("/loads", response_model=LoadPage)
-async def v1_loads(request: Request, env: Environment = Query()) -> LoadPage:
-    target = _target(request, env)
-    # Both backend inventories must be available before returning a partial success.
-    inventory = await assets._assets(request, env)
-    runs = await jobs._scoped_runs(target.dagster_location, target.nessie_ref, MAX_RUNS)
-    items = await _csv_observations(request, env)
-    ingestion_assets = [asset for asset in inventory if asset.is_ingestion or asset.is_source]
-    readable_runs = {
-        run.run_id: await _visible(request, "v1_run", run_id=run.run_id) for run in runs
-    }
-    for asset in ingestion_assets[:100]:
-        if not await _visible(request, "v1_asset_detail", asset_id=asset.id):
-            continue
-        for run in runs:
-            materialized = any(write.run_id == run.run_id for write in asset.materializations)
-            selected = asset.key in run.selected_assets
-            declared_job = run.job_id in asset.job_names and not run.selected_assets
-            if not (materialized or selected or declared_job):
-                continue
-            if not readable_runs[run.run_id]:
-                continue
-            items.append(_ingestion_observation(asset, run, target.nessie_ref))
-    items.sort(
-        key=lambda item: (item.observed_at or datetime.min.replace(tzinfo=UTC), item.id),
-        reverse=True,
+async def _run_observations(
+    request: Request, inventory: list[assets.AssetView], run: jobs.Run, ref: str
+) -> list[LoadObservation]:
+    if not await _visible(request, "v1_run", run_id=run.run_id):
+        return []
+    items = []
+    for asset in inventory:
+        materialized = any(write.run_id == run.run_id for write in asset.materializations)
+        selected = asset.key in run.selected_assets
+        declared_job = run.job_id in asset.job_names and not run.selected_assets
+        if (materialized or selected or declared_job) and await _visible(
+            request, "v1_asset_detail", asset_id=asset.id
+        ):
+            items.append(_ingestion_observation(asset, run, ref))
+    return sorted(items, key=lambda item: item.asset_id)
+
+
+async def _ingestion_page(
+    request: Request,
+    target: EnvironmentTarget,
+    inventory: list[assets.AssetView],
+    position: _LoadCursor,
+    limit: int,
+) -> tuple[list[LoadObservation], _LoadCursor | None]:
+    # Bound each request, not the lifetime inventory. Empty/denied raw pages still advance.
+    runs, following = await jobs._run_page(
+        target.dagster_location, target.nessie_ref, MAX_RUNS, position.after
     )
+    items: list[LoadObservation] = []
+    before = position.after
+    for run in runs:
+        rows = await _run_observations(request, inventory, run, target.nessie_ref)
+        if run.run_id == position.run_id and position.asset_id is not None:
+            rows = [row for row in rows if row.asset_id > position.asset_id]
+        remaining = limit - len(items)
+        if len(rows) > remaining:
+            items.extend(rows[:remaining])
+            return items, _LoadCursor(
+                scope=position.scope,
+                phase="runs",
+                after=before,
+                run_id=run.run_id if remaining else None,
+                asset_id=rows[remaining - 1].asset_id if remaining else None,
+            )
+        items.extend(rows)
+        before = run.run_id
+    return items, (
+        _LoadCursor(scope=position.scope, phase="runs", after=following) if following else None
+    )
+
+
+@router.get("/loads", response_model=LoadPage)
+async def v1_loads(
+    request: Request,
+    env: Environment = Query(),
+    limit: Annotated[int, Query(ge=1, le=MAX_ITEMS)] = 100,
+    after: Annotated[str | None, Query(max_length=16384)] = None,
+) -> LoadPage:
+    allowed_query = frozenset({"env", "limit", "after"})
+    target = _target(request, env, allowed_query=allowed_query)
+    principal = get_request_principal(request)
+    if principal is None:
+        raise HTTPException(401, "Authentication is required.")
+    scope = [env, target.dagster_location, target.nessie_ref, principal.subject]
+    position = _LoadCursor(scope=scope)
+    if after is not None:
+        try:
+            position = _LoadCursor.model_validate_json(base64.urlsafe_b64decode(after))
+            if position.scope != scope:
+                raise ValueError("scope mismatch")
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(422, "Load cursor does not match actor or environment.") from exc
+    inventory = await assets._assets(request, env, allowed_query=allowed_query)
+    items: list[LoadObservation] = []
+    if position.phase == "csv":
+        private = sorted(
+            await _csv_observations(request, env), key=lambda item: item.id, reverse=True
+        )
+        if position.after is not None:
+            private = [item for item in private if item.id < position.after]
+        items = private[:limit]
+        position = (
+            _LoadCursor(scope=scope, after=items[-1].id)
+            if len(private) > limit
+            else _LoadCursor(scope=scope, phase="runs")
+        )
+    following: _LoadCursor | None = position
+    if position.phase == "runs" and len(items) < limit:
+        page, following = await _ingestion_page(
+            request,
+            target,
+            [asset for asset in inventory if asset.is_ingestion or asset.is_source],
+            position,
+            limit - len(items),
+        )
+        items.extend(page)
     return LoadPage(
         env=env,
-        items=items[:MAX_ITEMS],
+        items=items,
         observed_at=datetime.now(UTC),
-        truncated=len(runs) >= MAX_RUNS or len(items) > MAX_ITEMS or len(ingestion_assets) > 100,
+        truncated=following is not None,
+        next_cursor=(
+            base64.urlsafe_b64encode(following.model_dump_json().encode()).decode()
+            if following is not None
+            else None
+        ),
         limitations=[
-            "Bounded observations: up to 100 scoped runs, 100 ingestion assets and 300 rows; asset write-count history covers the last seven days.",
+            "Private CSV observations precede ingestion runs. Runs follow provider creation order, then asset ID; this is not a global load-time ordering.",
+            "Each request scans up to 100 provider runs and returns at most 300 observations. Continue even after an empty page when a next cursor is present. Asset write-count history covers the last seven days.",
             "CSV receipts are creator-private recorded state; timestamps absent from the receipt remain unavailable.",
             "Ingestion observations are asset/run evidence, not invented file/extract or DLT package records. Counts are not summed across these different grains.",
+            "This is a live inventory, not a frozen snapshot. Refresh to include observations added before the current cursor.",
         ],
     )

@@ -106,3 +106,26 @@ The candidate endpoints below use the same upload path and environment:
   candidate-specific until a source review adapts and commits them. Existing
   branch checks, trial merge, and signed merge remain separate authorised POST
   operations. Export does not publish source or promote candidate data.
+
+## Load observation pagination
+
+`GET /api/v1/loads?env=<environment>&limit=100` returns authorised private CSV
+observations followed by ingestion runs. `limit` defaults to 100 and accepts
+values from 1 to 300. The response includes `next_cursor`; passing that value
+as `after` continues the inventory. A cursor belongs to the actor, environment,
+Dagster location, and configured reference that created it.
+
+CSV observations use descending receipt identity. Ingestion runs follow
+Dagster's creation order, with assets ordered by ID within each run. This is
+not a global ordering by load completion time. The continuation preserves a
+partially returned run so runs with many assets do not lose observations.
+
+Each request scans at most 100 provider runs. An empty page can still have a
+`next_cursor` when unrelated or denied runs consume that scan. The inventory
+is live, not a frozen snapshot. Refreshing includes new observations before
+the current cursor. Observatory's filters and JSON export apply to loaded
+observations, not pages that have not been fetched.
+
+Pagination does not expand the underlying evidence. Asset materialisation
+row-count history covers the last seven days. An ingestion run is not a
+per-file receipt, and an unknown CSV receipt timestamp remains unknown.
