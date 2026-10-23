@@ -119,4 +119,40 @@ describe('Loads inventory', () => {
     click.mockRestore()
     vi.unstubAllGlobals()
   })
+  it('keeps upload creation separate from unknown load time and actual run timing', () => {
+    render(
+      <LoadsInventory
+        data={{
+          ...data,
+          items: [
+            {
+              ...base,
+              name: 'opaque-receipt',
+              upload_filename: 'original-results.csv',
+              upload_created_at: '2026-10-20T10:00:00Z',
+              upload_actor: 'quality-owner',
+              timestamp_basis: 'unavailable',
+              run_started_at: null,
+              run_ended_at: null,
+            },
+          ],
+        }}
+      />,
+    )
+    const evidence = within(
+      screen.getByRole('complementary', { name: 'Selected load evidence' }),
+    )
+    expect(
+      screen.getByRole('button', { name: /original-results.csv/ }),
+    ).toBeTruthy()
+    expect(evidence.getByText('quality-owner')).toBeTruthy()
+    expect(
+      evidence.getByText('Uploaded at (not load time)').nextElementSibling
+        ?.textContent,
+    ).toBe('2026-10-20T10:00:00Z')
+    for (const label of ['Observation timestamp', 'Run started', 'Run ended'])
+      expect(evidence.getByText(label).nextElementSibling?.textContent).toBe(
+        'Not recorded',
+      )
+  })
 })

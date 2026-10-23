@@ -30,7 +30,7 @@ const productSchema = z.object({
   classifications: z.array(z.string()),
   member_dataset_ids: z.array(z.string()),
   version: z.number().int().positive(),
-  status: z.literal('draft'),
+  status: z.enum(['draft', 'archived']),
   created_at: z.string(),
   updated_at: z.string(),
   members: z.array(
@@ -63,11 +63,16 @@ export const productInputSchema = z
   })
   .strict()
 export const getDataProducts = createServerFn({ method: 'GET' })
-  .inputValidator(environmentSchema)
-  .handler(async ({ data: env }) => {
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      include_archived: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ data: { env, include_archived } }) => {
     const [products, assets] = await Promise.all([
       phloApi(
-        `api/v1/data-products?env=${encodeURIComponent(env)}`,
+        `api/v1/data-products?env=${encodeURIComponent(env)}${include_archived ? '&include_archived=true' : ''}`,
         z.object({ env: environmentSchema, items: z.array(productSchema) }),
         { env },
       ),
@@ -108,6 +113,40 @@ export const updateDataProduct = createServerFn({ method: 'POST' })
       `api/v1/data-products/${encodeURIComponent(data.product_id)}?env=${encodeURIComponent(env)}`,
       productSchema,
       { env, method: 'PUT', body: data },
+    ),
+  )
+
+export const changeProductLifecycle = createServerFn({ method: 'POST' })
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      id: z.string().min(1),
+      action: z.enum(['archive', 'restore']),
+      expected_version: z.number().int().positive(),
+    }),
+  )
+  .handler(({ data: { env, id, action, expected_version } }) =>
+    phloApi(
+      `api/v1/data-products/${encodeURIComponent(id)}/${action === 'archive' ? 'archive' : 'restore'}?env=${env}`,
+      productSchema,
+      { env, method: 'POST', body: { expected_version } },
+    ),
+  )
+
+export const exportProductDraft = createServerFn({ method: 'GET' })
+  .inputValidator(z.object({ env: environmentSchema, id: z.string().min(1) }))
+  .handler(({ data: { env, id } }) =>
+    phloApi(
+      `api/v1/data-products/${encodeURIComponent(id)}/export?env=${env}`,
+      z.object({
+        format: z.literal('phlo.product-draft'),
+        schema_version: z.literal(1),
+        env: environmentSchema,
+        version: z.number().int().positive(),
+        status: z.enum(['draft', 'archived']),
+        definition: productInputSchema.omit({ env: true }),
+      }),
+      { env },
     ),
   )
 export function productQuery(table: string) {

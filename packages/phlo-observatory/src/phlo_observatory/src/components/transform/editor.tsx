@@ -4,6 +4,7 @@ import { useBlocker } from '@tanstack/react-router'
 import { MaximizeIcon, MinimizeIcon } from 'lucide-react'
 import { CandidateExecutionPanel } from './execution-panel'
 import { DraftComparison, RevisionHistory } from './revision-history'
+import { RevisionLifecycle } from './revision-lifecycle'
 import type { TransformModel } from '@/lib/data/api/transform'
 import type {
   TransformCompilation,
@@ -129,8 +130,9 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
     },
     enableBeforeUnload: dirty,
   })
+  const canSave = Boolean(source) && !busy && !draft?.archived_at
   const save = async () => {
-    if (!source || busy) return
+    if (!canSave || !source) return
     const requestVersion = navigationVersion.current
     setBusy('save')
     setError(undefined)
@@ -170,7 +172,14 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
     }
   }
   const compile = async () => {
-    if (!draft || dirty || busy || !compilePermission.allowed) return
+    if (
+      !draft ||
+      draft.archived_at ||
+      dirty ||
+      busy ||
+      !compilePermission.allowed
+    )
+      return
     const requestVersion = navigationVersion.current
     setBusy('compile')
     setError(undefined)
@@ -263,6 +272,13 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
     compile,
     changeSql,
     openRevision,
+    updateDraft: (value: TransformDraft) =>
+      setDraft((current) =>
+        current?.draft_id === value.draft_id &&
+        current.revision === value.revision
+          ? value
+          : current,
+      ),
     env,
   }
 }
@@ -377,6 +393,16 @@ export function TransformEditor({
             dirty={compiledRevisionDiffers(compilation, draft, dirty)}
           />
           {draft ? (
+            <RevisionLifecycle
+              key={`${draft.draft_id}:${draft.revision}`}
+              env={env}
+              model={model.model}
+              draft={draft}
+              disabled={dirty || Boolean(state.busy)}
+              onChanged={state.updateDraft}
+            />
+          ) : null}
+          {draft ? (
             <CandidateExecutionPanel
               key={`${draft.draft_id}:${draft.revision}`}
               env={env}
@@ -424,14 +450,21 @@ function EditorActions({
         <Button
           operation="v1_transform_model_compile"
           variant="outline"
-          disabled={!draft || dirty || Boolean(busy)}
+          disabled={
+            !draft || Boolean(draft.archived_at) || dirty || Boolean(busy)
+          }
           onClick={() => void compile()}
         >
           {busy === 'compile' ? 'Compiling…' : 'Compile and plan'}
         </Button>
         <Button
           operation="v1_transform_model_draft_save"
-          disabled={!source || Boolean(busy) || (!dirty && Boolean(draft))}
+          disabled={
+            !source ||
+            Boolean(draft?.archived_at) ||
+            Boolean(busy) ||
+            (!dirty && Boolean(draft))
+          }
           onClick={() => void save()}
         >
           {busy === 'save' ? 'Saving…' : 'Save draft revision'}
@@ -449,6 +482,17 @@ function EditorContent({
   model: string
 }) {
   const { source, view, sql, changeSql, compile, compilation, error } = state
+  if (state.draft?.archived_at && view === 'source')
+    return (
+      <pre
+        role="region"
+        aria-label={`Archived SQL source for ${model}`}
+        tabIndex={0}
+        className="m-0 min-h-80 flex-1 overflow-auto p-5 font-mono text-xs leading-6"
+      >
+        {state.draft.sql}
+      </pre>
+    )
   if (view === 'compare')
     return state.draft ? (
       <DraftComparison

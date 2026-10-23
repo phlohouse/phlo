@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { PlusIcon, SearchIcon } from 'lucide-react'
+import { z } from 'zod'
 import { getDataProducts } from '@/lib/data/api/data-products'
 import { NewProduct } from '@/components/data-products/new-product'
 import { PageHeader } from '@/components/phlo/page'
@@ -10,14 +11,19 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 
 export const Route = createFileRoute('/_app/data-products/')({
-  loaderDeps: ({ search }) => ({ env: search.env }),
-  loader: ({ deps }) => getDataProducts({ data: deps.env }),
+  validateSearch: z.object({ archived: z.boolean().default(false) }),
+  loaderDeps: ({ search }) => ({
+    env: search.env,
+    include_archived: search.archived,
+  }),
+  loader: ({ deps }) => getDataProducts({ data: deps }),
   head: () => ({ meta: [{ title: 'Data products · phlo' }] }),
   component: ProductsPage,
 })
 function ProductsPage() {
   const data = Route.useLoaderData()
   const navigate = Route.useNavigate()
+  const { archived } = Route.useSearch()
   const router = useRouter()
   const [creating, setCreating] = React.useState(false)
   const [query, setQuery] = React.useState('')
@@ -48,13 +54,28 @@ function ProductsPage() {
           </Button>
         }
       />
-      <div className="flex shrink-0 items-center gap-4 border-b border-line px-5 py-3 text-[13px]">
+      <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-line px-5 py-3 text-[13px]">
         <span className="rounded-md bg-soft px-3 py-1.5">
           All · {data.items.length}
         </span>
         <span className="text-muted-foreground">
           Draft declarations · {data.env}
         </span>
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={archived}
+            onChange={(event) =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  archived: event.target.checked,
+                }),
+              })
+            }
+          />
+          Include archived definitions
+        </label>
       </div>
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4 p-5">
@@ -92,7 +113,9 @@ function ProductsPage() {
                 className="flex min-h-40 flex-col gap-2.5 rounded-xl border border-line bg-card p-4 text-foreground hover:border-border-strong"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <Badge variant="outline">Draft</Badge>
+                  <Badge variant="outline">
+                    {product.status === 'archived' ? 'Archived' : 'Draft'}
+                  </Badge>
                   <Badge variant="branch">
                     {product.classifications.join(', ')}
                   </Badge>

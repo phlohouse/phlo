@@ -34,6 +34,7 @@ export const getEnvironments = createServerFn({ method: 'GET' })
             )
             .min(1),
           default_environment: environmentSchema.nullable().optional(),
+          promotion_source_environment: environmentSchema.nullable().optional(),
         }),
       ),
       phloApi(

@@ -14,15 +14,19 @@ import { getSources, sourceJobIds } from '@/lib/data/api/sources'
 import { PageHeader } from '@/components/phlo/page'
 import { getLoads } from '@/lib/data/api/loads'
 import { LoadsInventory } from '@/components/sources/loads'
-import { getCsvUpload } from '@/lib/data/api/uploads'
+import { getCsvUpload, listCsvUploads } from '@/lib/data/api/uploads'
 import { CsvUploadReview } from '@/components/sources/csv-upload'
+import { UploadInventory } from '@/components/sources/upload-history'
 import { RestApiForm } from '@/components/sources/rest-api-form'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
 export const Route = createFileRoute('/_app/sources')({
   validateSearch: z.object({
-    tab: z.enum(['connected', 'add', 'upload', 'loads']).default('connected'),
+    tab: z
+      .enum(['connected', 'add', 'upload', 'loads', 'retained'])
+      .default('connected'),
+    archived: z.boolean().optional(),
     upload: z
       .string()
       .regex(/^[a-f0-9]{32}$/)
@@ -34,11 +38,18 @@ export const Route = createFileRoute('/_app/sources')({
     cursor: search.cursor,
     upload: search.upload,
     tab: search.tab,
+    archived: search.archived,
   }),
   loader: async ({ deps }) => ({
     ...(await getSources({ data: { env: deps.env, cursor: deps.cursor } })),
     loads:
       deps.tab === 'loads' ? await getLoads({ data: { env: deps.env } }) : null,
+    retained:
+      deps.tab === 'retained'
+        ? await listCsvUploads({
+            data: { env: deps.env, include_archived: deps.archived },
+          })
+        : null,
     upload: deps.upload
       ? await getCsvUpload({ data: { env: deps.env, upload_id: deps.upload } })
       : null,
@@ -114,6 +125,32 @@ function SourcesPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const [showForm, setShowForm] = React.useState(false)
+  if (search.tab === 'retained' && data.retained)
+    return (
+      <>
+        <PageHeader
+          title="Retained uploads"
+          crumbs={[{ label: 'Sources', to: '/sources' }]}
+          meta="Private file history and archived evidence"
+          actions={
+            <Link to="/sources" search={{ env: data.env, tab: 'upload' }}>
+              Upload a file
+            </Link>
+          }
+        />
+        <UploadInventory
+          env={data.env}
+          items={data.retained.items}
+          total={data.retained.total}
+          archived={Boolean(search.archived)}
+          onArchived={(archived) =>
+            void navigate({
+              search: { env: data.env, tab: 'retained', archived },
+            })
+          }
+        />
+      </>
+    )
   if (search.tab === 'loads' && data.loads)
     return (
       <>
@@ -149,7 +186,7 @@ function SourcesPage() {
                 void navigate({ search: { env: data.env, tab: 'connected' } })
               }
             >
-              Cancel
+              Back to sources
             </Button>
           }
         />
@@ -181,7 +218,7 @@ function SourcesPage() {
         }
       />
       <div
-        className="flex shrink-0 items-center gap-2 border-b border-line px-5 py-3"
+        className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3"
         role="group"
         aria-label="Source views"
       >
@@ -210,6 +247,13 @@ function SourcesPage() {
           className="ml-2 text-[13px]"
         >
           Loads
+        </Link>
+        <Link
+          to="/sources"
+          search={{ env: data.env, tab: 'retained' }}
+          className="ml-2 text-[13px]"
+        >
+          Retained uploads
         </Link>
       </div>
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_300px]">

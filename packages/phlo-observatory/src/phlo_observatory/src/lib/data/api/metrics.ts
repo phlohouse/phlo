@@ -30,7 +30,7 @@ const modelSchema = metricDefinitionSchema.extend({
   nessie_ref: z.string(),
   relation: z.string(),
   version: z.number().int().positive(),
-  status: z.literal('draft'),
+  status: z.enum(['draft', 'archived']),
   created_at: z.string(),
   updated_at: z.string(),
   source_status: z.enum(['available', 'unavailable']).optional(),
@@ -59,10 +59,19 @@ export type MetricModel = z.infer<typeof modelSchema>
 export type MetricSource = z.infer<typeof sourceDetailSchema>
 
 export const getMetricsWorkspace = createServerFn({ method: 'GET' })
-  .inputValidator(z.object({ env: environmentSchema }))
-  .handler(async ({ data: { env } }) => {
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      include_archived: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ data: { env, include_archived } }) => {
     const [models, sources] = await Promise.all([
-      phloApi(`api/v1/metric-models?env=${env}`, inventorySchema, { env }),
+      phloApi(
+        `api/v1/metric-models?env=${env}${include_archived ? '&include_archived=true' : ''}`,
+        inventorySchema,
+        { env },
+      ),
       phloApi(
         `api/v1/assets?env=${env}&limit=100`,
         z.object({
@@ -86,6 +95,51 @@ export const getMetricSource = createServerFn({ method: 'GET' })
     phloApi(
       `api/v1/assets/${encodeURIComponent(id)}?env=${env}`,
       sourceDetailSchema,
+      { env },
+    ),
+  )
+
+export const getMetricModel = createServerFn({ method: 'GET' })
+  .inputValidator(z.object({ env: environmentSchema, id: z.string().min(1) }))
+  .handler(({ data: { env, id } }) =>
+    phloApi(
+      `api/v1/metric-models/${encodeURIComponent(id)}?env=${env}`,
+      modelSchema,
+      { env },
+    ),
+  )
+
+export const changeMetricLifecycle = createServerFn({ method: 'POST' })
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      id: z.string().min(1),
+      action: z.enum(['archive', 'restore']),
+      expected_version: z.number().int().positive(),
+    }),
+  )
+  .handler(({ data: { env, id, action, expected_version } }) =>
+    phloApi(
+      `api/v1/metric-models/${encodeURIComponent(id)}/${action === 'archive' ? 'archive' : 'restore'}?env=${env}`,
+      modelSchema,
+      { env, method: 'POST', body: { expected_version } },
+    ),
+  )
+
+export const exportMetricDraft = createServerFn({ method: 'GET' })
+  .inputValidator(z.object({ env: environmentSchema, id: z.string().min(1) }))
+  .handler(({ data: { env, id } }) =>
+    phloApi(
+      `api/v1/metric-models/${encodeURIComponent(id)}/export?env=${env}`,
+      z.object({
+        format: z.literal('phlo.metric-draft'),
+        schema_version: z.literal(1),
+        env: environmentSchema,
+        nessie_ref: z.string(),
+        version: z.number().int().positive(),
+        status: z.enum(['draft', 'archived']),
+        definition: metricDefinitionSchema,
+      }),
       { env },
     ),
   )

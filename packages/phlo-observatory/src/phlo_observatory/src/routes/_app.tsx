@@ -38,7 +38,10 @@ export const Route = createFileRoute('/_app')({
         replace: true,
       })
     }
-    return { environments: discovery.items }
+    return {
+      environments: discovery.items,
+      promotionSource: discovery.promotion_source_environment ?? null,
+    }
   },
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: ({ deps }) => getShell({ data: deps.env }),

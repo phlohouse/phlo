@@ -41,6 +41,62 @@ const model: MetricModel = {
 }
 
 describe('metric model editor', () => {
+  it('repairs a stale source outside the inventory page and remaps before saving the current version', async () => {
+    source
+      .mockRejectedValueOnce(new Error('Saved asset is missing.'))
+      .mockResolvedValue({
+        id: 'gold/replacement',
+        relation: 'gold.replacement',
+        columns: [{ name: 'sample_id', type: 'string', description: null }],
+      })
+    save.mockResolvedValue({
+      ...model,
+      asset_id: 'gold/replacement',
+      version: 4,
+    })
+    const user = userEvent.setup()
+    const saved = vi.fn()
+    render(
+      <MetricModelEditor
+        env="sandbox"
+        model={{
+          ...model,
+          source_status: 'unavailable',
+          source_reason: 'Saved asset is missing.',
+        }}
+        sources={[]}
+        onSaved={saved}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    const id = screen.getByLabelText('Source asset ID')
+    await user.clear(id)
+    await user.type(id, 'gold/replacement')
+    await user.tab()
+    expect(screen.queryByLabelText('Measure 1 name')).toBeNull()
+    await user.click(await screen.findByRole('button', { name: 'Add measure' }))
+    await user.type(screen.getByLabelText('Measure 1 name'), 'samples')
+    await user.click(screen.getByRole('button', { name: 'Save draft model' }))
+    expect(save).toHaveBeenCalledWith({
+      data: {
+        env: 'sandbox',
+        expected_version: 3,
+        definition: expect.objectContaining({
+          asset_id: 'gold/replacement',
+          measures: [
+            {
+              name: 'samples',
+              column: 'sample_id',
+              aggregation: 'count',
+              description: '',
+            },
+          ],
+        }),
+      },
+    })
+    expect(saved).toHaveBeenCalledWith(expect.objectContaining({ version: 4 }))
+  })
   it('submits edits with the current version and preserves a rejected draft for recovery', async () => {
     source.mockResolvedValue({
       id: 'gold/batches',

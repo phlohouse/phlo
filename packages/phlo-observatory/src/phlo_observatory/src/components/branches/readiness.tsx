@@ -79,6 +79,25 @@ export function BranchReadiness({
         Checks apply to this pinned branch revision. Trial merge and a fresh
         approval signature remain required.
       </p>
+      <details className="text-xs leading-relaxed text-muted-foreground">
+        <summary className="cursor-pointer">Release prerequisites</summary>
+        <ol className="mt-2 list-decimal space-y-2 pl-4">
+          <li>
+            Configure and run tests, schema contracts and downstream audits.
+            Unavailable or missing evidence is not a pass; inspect each recorded
+            result above.
+          </li>
+          <li>
+            Run a trial merge against the current source and target hashes.
+            Reference changes invalidate earlier evidence.
+          </li>
+          <li>
+            Review the changes and provide the required fresh approval signature
+            and MFA in the merge dialog. Enabled controls are coarse permission
+            checks, not proof that signing or release will succeed.
+          </li>
+        </ol>
+      </details>
     </section>
   )
 }

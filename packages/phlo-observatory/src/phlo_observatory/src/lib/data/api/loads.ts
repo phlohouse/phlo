@@ -22,6 +22,21 @@ const observationSchema = z.object({
   ref_hash: z.string().nullable(),
   snapshot_id: z.string().nullable(),
   upload_id: z.string().nullable(),
+  upload_filename: z.string().nullable().optional(),
+  upload_created_at: z.string().nullable().optional(),
+  upload_actor: z.string().nullable().optional(),
+  run_started_at: z.string().nullable().optional(),
+  run_ended_at: z.string().nullable().optional(),
+  timestamp_basis: z
+    .enum([
+      'receipt',
+      'materialization',
+      'run_created',
+      'run_started',
+      'run_ended',
+      'unavailable',
+    ])
+    .optional(),
   review_version: z.number().int().nullable(),
   recipe_digest: z.string().nullable(),
   detail: z.string(),

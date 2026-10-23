@@ -11,6 +11,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CsvDestination } from '@/components/sources/csv-destination'
 import { CsvColumnAssistance } from '@/components/sources/csv-column-assistance'
+import {
+  HistoricalUploadReview,
+  UploadRetention,
+} from '@/components/sources/upload-history'
 
 export function CsvUploadReview({
   env,
@@ -106,26 +110,12 @@ export function CsvUploadReview({
   return (
     <div className="grid min-h-0 min-w-0 w-full max-w-full flex-1 grid-cols-[minmax(0,1fr)] overflow-y-auto lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 max-w-full space-y-5 p-5">
-        <div className="flex flex-wrap items-center gap-3 text-[13px]">
-          <span className="flex items-center gap-1.5">
-            {upload ? (
-              <CheckCircle2Icon className="size-4 text-ok" />
-            ) : (
-              <UploadIcon className="size-4" />
-            )}
-            1 File
-          </span>
-          <span className={upload ? 'font-medium' : 'text-muted-foreground'}>
-            2 Check columns
-          </span>
-          <span className="text-muted-foreground">3 Destination</span>
-          <span className="text-muted-foreground">4 Review and load</span>
-        </div>
+        <UploadSteps retained={Boolean(upload)} />
         {upload ? (
           <UploadSummary
             upload={upload}
             dirty={dirty}
-            busy={busy}
+            busy={busy || Boolean(upload.archived_at)}
             expanded={showFilePicker}
             pickerId={filePickerId}
             onReplace={() => setShowFilePicker((value) => !value)}
@@ -149,7 +139,15 @@ export function CsvUploadReview({
         ) : null}
         {upload ? (
           <>
-            {upload.parse_errors.length ? (
+            <UploadRetention
+              upload={upload}
+              env={env}
+              disabled={busy || dirty}
+              onChanged={accept}
+            />
+            {upload.archived_at ? (
+              <UploadPreview upload={upload} />
+            ) : upload.parse_errors.length ? (
               <div
                 role="alert"
                 className="space-y-2 rounded-lg border border-warn-line bg-warn-wash p-3 text-sm text-warn-ink"
@@ -313,10 +311,34 @@ export function CsvUploadReview({
             >
               Reload retained review
             </Button>
+            <HistoricalUploadReview
+              key={JSON.stringify([env, upload.upload_id, upload.archived_at])}
+              env={env}
+              uploadId={upload.upload_id}
+            />
           </>
         ) : null}
       </div>
       <UploadSidebar upload={upload} />
+    </div>
+  )
+}
+function UploadSteps({ retained }: { retained: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-[13px]">
+      <span className="flex items-center gap-1.5">
+        {retained ? (
+          <CheckCircle2Icon className="size-4 text-ok" />
+        ) : (
+          <UploadIcon className="size-4" />
+        )}
+        1 File
+      </span>
+      <span className={retained ? 'font-medium' : 'text-muted-foreground'}>
+        2 Check columns
+      </span>
+      <span className="text-muted-foreground">3 Destination</span>
+      <span className="text-muted-foreground">4 Review and load</span>
     </div>
   )
 }

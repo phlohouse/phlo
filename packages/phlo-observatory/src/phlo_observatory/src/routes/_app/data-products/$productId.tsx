@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/phlo/page'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { NewProduct } from '@/components/data-products/new-product'
+import { DraftLifecycleActions } from '@/components/phlo/draft-lifecycle'
 
 export const Route = createFileRoute('/_app/data-products/$productId')({
   loaderDeps: ({ search }) => ({ env: search.env }),
@@ -31,16 +32,29 @@ function ProductPage() {
       <PageHeader
         crumbs={[{ label: 'Data products', to: '/data-products' }]}
         title={product.name}
-        meta={`Draft · v${product.version}`}
+        meta={`${product.status} · v${product.version}`}
         actions={
           <>
             <Button
               operation="v1_data_product_update"
               variant="outline"
+              disabled={product.status === 'archived'}
               onClick={() => setEditing(true)}
             >
               Edit draft
             </Button>
+            <DraftLifecycleActions
+              key={`${product.product_id}:${product.version}`}
+              kind="product"
+              env={product.env}
+              id={product.product_id}
+              version={product.version}
+              status={product.status}
+              onChanged={() => {
+                setEditing(false)
+                void router.invalidate()
+              }}
+            />
             {first ? (
               <Link
                 to="/query"
@@ -60,12 +74,14 @@ function ProductPage() {
       <div className="flex shrink-0 gap-5 border-b border-line px-5 py-3 text-[13px]">
         <span className="font-medium">Overview</span>
         <span className="text-muted-foreground">
-          Draft declaration · no access grants
+          {product.status === 'archived'
+            ? 'Archived definition · restore before editing'
+            : 'Draft declaration · no access grants'}
         </span>
       </div>
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6 p-5">
-          {editing ? (
+          {editing && product.status === 'draft' ? (
             <NewProduct
               key={`${product.env}:${product.product_id}:${product.version}`}
               env={product.env}
@@ -92,7 +108,7 @@ function ProductPage() {
               {[
                 [
                   'Collection state',
-                  'Draft',
+                  product.status === 'archived' ? 'Archived' : 'Draft',
                   'No product publication recorded',
                 ],
                 [

@@ -361,6 +361,7 @@ function BranchHeader({
   data: BranchPage
   view: 'references' | 'wap'
 }) {
+  const { promotionSource } = Route.useRouteContext()
   return (
     <PageHeader
       title="Branches"
@@ -370,21 +371,32 @@ function BranchHeader({
           : `Nessie catalog · ${data.branches.length} branches, ${data.tags.length} tags`
       }
       actions={
-        view === 'wap' ? undefined : (
-          <Button
-            operation="v1_branch_create"
-            variant="outline"
-            className="h-10 lg:h-8"
-            render={
-              <Link
-                to="/branches"
-                search={{ env: data.env, dialog: 'new-branch' }}
-              />
-            }
-          >
-            <PlusIcon /> New branch
-          </Button>
-        )
+        <>
+          {promotionSource ? (
+            <Link
+              to="/staging"
+              search={{ env: promotionSource }}
+              className="text-xs text-link"
+            >
+              Review release from {promotionSource}
+            </Link>
+          ) : null}
+          {view === 'wap' ? null : (
+            <Button
+              operation="v1_branch_create"
+              variant="outline"
+              className="h-10 lg:h-8"
+              render={
+                <Link
+                  to="/branches"
+                  search={{ env: data.env, dialog: 'new-branch' }}
+                />
+              }
+            >
+              <PlusIcon /> New branch
+            </Button>
+          )}
+        </>
       }
     />
   )

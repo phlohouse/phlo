@@ -45,7 +45,7 @@ export function LoadsInventory({ data }: { data: LoadsPage }) {
     (item) =>
       (status === 'all' || item.status === status) &&
       (source === 'all' || item.source === source) &&
-      [item.name, item.relation, item.run_id, item.ref]
+      [item.name, item.upload_filename, item.relation, item.run_id, item.ref]
         .join(' ')
         .toLowerCase()
         .includes(search.toLowerCase()),
@@ -144,7 +144,7 @@ export function LoadsInventory({ data }: { data: LoadsPage }) {
                         className="text-left text-link underline-offset-4 hover:underline"
                       >
                         <span className="block max-w-60 truncate font-mono">
-                          {item.name}
+                          {item.upload_filename ?? item.name}
                         </span>
                         <span className="text-[11px] text-muted-foreground">
                           {item.evidence_kind === 'ingestion_run'
@@ -160,6 +160,10 @@ export function LoadsInventory({ data }: { data: LoadsPage }) {
                       {item.observed_at
                         ? new Date(item.observed_at).toLocaleString()
                         : 'Not recorded'}
+                      <span className="block text-[11px] text-muted-foreground">
+                        {item.timestamp_basis?.replaceAll('_', ' ') ??
+                          'Timestamp basis not recorded'}
+                      </span>
                     </td>
                     <td className="px-3 py-3 tabular-nums">
                       {item.rows?.toLocaleString() ?? 'Not recorded'}
@@ -216,6 +220,13 @@ export function LoadsInventory({ data }: { data: LoadsPage }) {
 }
 function LoadEvidence({ item, env }: { item: LoadObservation; env: string }) {
   const fields = [
+    ['Original filename', item.upload_filename],
+    ['Uploaded by', item.upload_actor],
+    ['Uploaded at (not load time)', item.upload_created_at],
+    ['Observation timestamp', item.observed_at],
+    ['Timestamp basis', item.timestamp_basis?.replaceAll('_', ' ')],
+    ['Run started', item.run_started_at],
+    ['Run ended', item.run_ended_at],
     ['Source', item.source],
     ['Into', item.relation],
     ['Reference', item.ref],

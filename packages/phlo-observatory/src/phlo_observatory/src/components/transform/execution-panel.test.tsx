@@ -4,6 +4,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { CandidateExecutionPanel } from './execution-panel'
+import { RevisionLifecycle } from './revision-lifecycle'
 import type {
   TransformCompilation,
   TransformDraft,
@@ -14,10 +15,16 @@ const api = vi.hoisted(() => ({
   list: vi.fn(),
   run: vi.fn(),
   branches: vi.fn(),
+  reconcile: vi.fn(),
+  archive: vi.fn(),
+  handoff: vi.fn(),
 }))
 vi.mock('@/lib/data/api/transform-editor', () => ({
   getTransformExecutions: api.list,
   executeTransformDraft: api.run,
+  reconcileTransformExecution: api.reconcile,
+  archiveTransformExecution: api.archive,
+  getTransformHandoff: api.handoff,
 }))
 vi.mock('@/lib/data/api/branches', () => ({ getBranchesPage: api.branches }))
 afterEach(() => {
@@ -55,7 +62,7 @@ const compilation: TransformCompilation = {
   source: 'phlo-transform-engine',
 }
 const result: TransformExecution = {
-  execution_id: 'actual-execution',
+  execution_id: '63947c63-2dfa-4da3-88be-6d2f791656ec',
   model: draft.model,
   env: 'sandbox',
   ref: 'main',
@@ -82,6 +89,153 @@ const result: TransformExecution = {
     snapshot_id: '9223372036854775807',
   },
 }
+it('clears prepared handoff eligibility and download after execution archive and restore', async () => {
+  const user = userEvent.setup()
+  api.list.mockResolvedValue({ items: [result] })
+  api.handoff.mockResolvedValue({
+    env: 'sandbox',
+    kind: 'transform_revision',
+    source_review_required: true,
+    automatic_promotion: false,
+    files: [],
+    candidate_evidence: {
+      stale: false,
+      eligible_for_release: true,
+      reason: null,
+      base_hash: 'base',
+      current_base_hash: 'base',
+      candidate_hash: 'candidate',
+      observed_candidate_hash: 'candidate',
+    },
+    release: {
+      source_ref: null,
+      target_ref: 'main',
+      checks_url: null,
+      trial_merge_url: null,
+      merge_url: null,
+      requires_signature: true,
+      blocked_reason: null,
+    },
+  })
+  api.archive
+    .mockResolvedValueOnce({ ...result, archived_at: '2026-10-23T12:00:00Z' })
+    .mockResolvedValueOnce({ ...result, archived_at: null })
+  render(
+    <CandidateExecutionPanel
+      env="sandbox"
+      model={draft.model}
+      draft={draft}
+      dirty={false}
+    />,
+  )
+  await user.click(
+    await screen.findByRole('button', { name: 'Prepare source handoff' }),
+  )
+  expect(
+    await screen.findByRole('button', { name: 'Download review bundle' }),
+  ).toBeTruthy()
+  expect(screen.getAllByText(/Candidate evidence verified/)).toHaveLength(1)
+  for (const action of ['archive', 'restore']) {
+    await user.click(
+      screen.getByRole('button', {
+        name: action === 'archive' ? 'Archive evidence' : 'Restore evidence',
+      }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Reason' }),
+      'Lifecycle transition',
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: action === 'archive' ? 'Confirm archive' : 'Confirm restore',
+      }),
+    )
+    await screen.findByRole('button', {
+      name: action === 'archive' ? 'Restore evidence' : 'Archive evidence',
+    })
+    expect(
+      screen.queryByRole('button', { name: 'Download review bundle' }),
+    ).toBeNull()
+    expect(screen.queryByText(/Candidate evidence verified/)).toBeNull()
+    if (action === 'archive') {
+      await user.click(
+        screen.getByRole('button', { name: 'Prepare source handoff' }),
+      )
+      await screen.findByRole('button', { name: 'Download review bundle' })
+    }
+  }
+})
+it('invalidates revision source handoff when archive state changes without changing revision identity', async () => {
+  api.handoff.mockResolvedValue({
+    env: 'sandbox',
+    kind: 'transform_revision',
+    source_review_required: true,
+    automatic_promotion: false,
+    files: [],
+    candidate_evidence: null,
+    release: {
+      source_ref: null,
+      target_ref: 'main',
+      checks_url: null,
+      trial_merge_url: null,
+      merge_url: null,
+      requires_signature: true,
+      blocked_reason: null,
+    },
+  })
+  const props = {
+    env: 'sandbox',
+    model: draft.model,
+    draft,
+    disabled: false,
+    onChanged: vi.fn(),
+  }
+  const { rerender } = render(<RevisionLifecycle {...props} />)
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Prepare source handoff' }),
+  )
+  await screen.findByRole('button', { name: 'Download review bundle' })
+  rerender(
+    <RevisionLifecycle
+      {...props}
+      draft={{ ...draft, archived_at: '2026-10-23T12:00:00Z' }}
+    />,
+  )
+  expect(
+    screen.queryByRole('button', { name: 'Download review bundle' }),
+  ).toBeNull()
+  expect(
+    screen.getByRole('button', { name: 'Prepare source handoff' }),
+  ).toBeTruthy()
+})
+it('reconciles unknown evidence without rerunning and keeps an unresolved verdict explicit', async () => {
+  api.list.mockResolvedValue({
+    items: [{ ...result, status: 'unknown', preview: null }],
+  })
+  api.reconcile.mockResolvedValue({
+    ...result,
+    status: 'unknown',
+    preview: null,
+    reconciliation: {
+      resolution: 'unresolved',
+      reason: 'Durable report not found.',
+    },
+  })
+  render(
+    <CandidateExecutionPanel
+      env="sandbox"
+      model={draft.model}
+      draft={draft}
+      dirty={false}
+    />,
+  )
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Reconcile evidence' }),
+  )
+  expect(await screen.findByText(/Reconciliation: unresolved/)).toBeTruthy()
+  expect(screen.getByText(/Durable report not found/)).toBeTruthy()
+  expect(api.run).not.toHaveBeenCalled()
+})
 it.each([true, false])(
   'renews the request key only after proven pre-write rejection (%s)',
   async (rejected) => {

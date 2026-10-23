@@ -30,9 +30,12 @@ export function RevisionHistory({
   const [total, setTotal] = React.useState<number>()
   const [truncated, setTruncated] = React.useState(false)
   const [error, setError] = React.useState<string>()
+  const [archived, setArchived] = React.useState(false)
   React.useEffect(() => {
     let active = true
-    getTransformDrafts({ data: { env, model } }).then(
+    getTransformDrafts({
+      data: { env, model, include_archived: archived },
+    }).then(
       (page) => {
         if (!active) return
         setItems(page.items)
@@ -52,7 +55,14 @@ export function RevisionHistory({
     return () => {
       active = false
     }
-  }, [env, model, draft?.draft_id, draft?.revision])
+  }, [
+    env,
+    model,
+    draft?.draft_id,
+    draft?.revision,
+    draft?.archived_at,
+    archived,
+  ])
   const value = draft ? `${draft.draft_id}:${draft.revision}` : ''
   const choose = (selected: string) => {
     const entry = items.find(
@@ -74,7 +84,7 @@ export function RevisionHistory({
         value={value}
         disabled={disabled || dirty || items.length === 0}
         onChange={(event) => choose(event.target.value)}
-        className="min-w-0 max-w-full flex-1 rounded-md border border-line bg-background px-2 py-1.5 text-foreground sm:flex-none sm:basis-80"
+        className="min-w-0 max-w-full basis-full rounded-md border border-line bg-background px-2 py-1.5 text-foreground sm:basis-80"
       >
         {!draft ? <option value="">Workspace source</option> : null}
         {draft &&
@@ -88,9 +98,18 @@ export function RevisionHistory({
           >
             Revision {item.revision} · {item.draft_id.slice(0, 8)} ·{' '}
             {new Date(item.created_at).toLocaleString()}
+            {item.archived_at ? ' · Archived' : ''}
           </option>
         ))}
       </select>
+      <label className="flex items-center gap-2 text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={archived}
+          onChange={(event) => setArchived(event.target.checked)}
+        />
+        Include archived revisions
+      </label>
       <span className="text-muted-foreground">
         {total === undefined
           ? 'Reading saved revisions…'
