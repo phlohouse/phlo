@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 /** Destination confirms a pinned candidate plan and waits for real readback before claiming loaded. */
-import { cleanup, render, screen } from '@testing-library/react'
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CsvDestination } from './csv-destination'
@@ -36,6 +42,15 @@ const upload: CsvUpload = {
   version: 4,
   status: 'reviewed',
   columns: [],
+  output_columns: [
+    {
+      name: 'result',
+      type: 'string',
+      nullable: false,
+      source_column: 'result',
+      derived: false,
+    },
+  ],
   row_count: 96,
   parse_errors: [],
   error_count: 0,
@@ -81,13 +96,15 @@ const prepared: UploadCandidate = {
   attempts: [],
 }
 describe('reviewed CSV candidate destination', () => {
-  it('keeps destination unavailable while column choices are unsaved', () => {
+  it('keeps destination unavailable while column choices are unsaved', async () => {
     vi.mocked(getUploadCandidate).mockRejectedValue(new Error('not prepared'))
     render(<CsvDestination env="sandbox" upload={upload} dirty />)
     expect(
-      screen.getByRole<HTMLButtonElement>('button', {
-        name: 'Prepare candidate destination',
-      }).disabled,
+      (
+        await screen.findByRole<HTMLButtonElement>('button', {
+          name: 'Prepare candidate destination',
+        })
+      ).disabled,
     ).toBe(true)
     expect(screen.queryByText('Candidate loaded')).toBeNull()
   })
@@ -129,7 +146,9 @@ describe('reviewed CSV candidate destination', () => {
     render(<CsvDestination env="sandbox" upload={upload} dirty={false} />)
     const user = userEvent.setup()
     await user.click(
-      screen.getByRole('button', { name: 'Prepare candidate destination' }),
+      await screen.findByRole('button', {
+        name: 'Prepare candidate destination',
+      }),
     )
     expect(prepareUploadDestination).toHaveBeenCalledWith({
       data: {
@@ -154,9 +173,7 @@ describe('reviewed CSV candidate destination', () => {
       }),
     })
     expect(screen.queryByText('Candidate loaded')).toBeNull()
-    await user.click(
-      screen.getByRole('button', { name: 'Check run and preview candidate' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Check load status' }))
     expect(await screen.findByText('Candidate loaded')).toBeTruthy()
     expect(screen.getByText('ND')).toBeTruthy()
     expect(screen.getByText(/9223372036854775801/)).toBeTruthy()
@@ -214,5 +231,251 @@ it('refreshes a failed receipt and requires an explicit retry confirmation for t
       plan_hash: 'retry-plan',
     }),
   })
-  expect(screen.getByText(/Prior failed attempts: failed-run/)).toBeTruthy()
+  await user.click(screen.getByText('Prior attempts (1)'))
+  expect(screen.getByText('failed-run')).toBeTruthy()
+})
+
+function loadedReceipt(
+  overrides: Partial<UploadCandidate> = {},
+): UploadCandidate {
+  return {
+    ...prepared,
+    status: 'loaded',
+    loaded: true,
+    run_id: 'verified-run',
+    snapshot_id: '9223372036854775801',
+    row_count: 3,
+    base_ref: 'release_test',
+    main_unchanged: true,
+    plan_hash: 'verified-plan',
+    job_snapshot_id: 'job-revision',
+    ...overrides,
+  }
+}
+
+it('opens a loaded candidate with the observed result first and hides preparation controls and technical columns', async () => {
+  const receipt = loadedReceipt({
+    attempts: [
+      {
+        run_id: 'failed-run',
+        status: 'FAILURE',
+        plan_hash: 'old-plan',
+        job_snapshot_id: 'old-job',
+        launch_ref_hash: 'old-base',
+      },
+    ],
+  })
+  vi.mocked(getUploadCandidate).mockResolvedValue(receipt)
+  vi.mocked(previewUploadCandidate).mockResolvedValue({
+    receipt,
+    columns: [
+      'upload_record_id_key',
+      '_phlo_run_id',
+      '_dlt_load_id',
+      'upload_record_id',
+      'result',
+      'numeric_result',
+    ],
+    column_types: [
+      'varchar',
+      'varchar',
+      'varchar',
+      'varchar',
+      'varchar',
+      'double',
+    ],
+    rows: [
+      {
+        upload_record_id_key: 'generated-key',
+        _phlo_run_id: 'verified-run',
+        _dlt_load_id: 'load-key',
+        upload_record_id: 'user-record',
+        result: 'ND',
+        numeric_result: null,
+      },
+    ],
+    has_more: false,
+    row_count: 3,
+    snapshot_id: receipt.snapshot_id!,
+    ref_hash: receipt.candidate_hash,
+    query_id: 'query-id',
+  })
+  const reviewed = {
+    ...upload,
+    output_columns: [
+      ...upload.output_columns!,
+      {
+        name: 'upload_record_id',
+        type: 'string' as const,
+        nullable: false,
+        source_column: 'upload_record_id',
+        derived: false,
+      },
+      {
+        name: 'numeric_result',
+        type: 'number' as const,
+        nullable: true,
+        source_column: 'result',
+        derived: true,
+      },
+    ],
+  }
+  render(<CsvDestination env="sandbox" upload={reviewed} dirty={false} />)
+  expect(
+    await screen.findByRole('heading', { name: 'Candidate loaded' }),
+  ).toBeTruthy()
+  expect(screen.getByText('3 actual rows')).toBeTruthy()
+  expect(screen.getByText('bronze.upload_aaaaaaaaaaaa')).toBeTruthy()
+  expect(
+    screen.getByText(/Base reference release_test is unchanged/),
+  ).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'New bronze table' })).toBeNull()
+  expect(
+    screen.queryByRole('button', { name: /Confirm|Estimate|Prepare/ }),
+  ).toBeNull()
+  const table = await screen.findByRole('table', {
+    name: 'Candidate table preview',
+  })
+  expect(
+    within(table)
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent),
+  ).toEqual(['upload_record_id', 'result', 'numeric_result'])
+  expect(within(table).getByText('user-record')).toBeTruthy()
+  expect(within(table).queryByText('generated-key')).toBeNull()
+  const evidence = screen.getByText('Evidence').closest('details')!
+  const attempts = screen.getByText('Prior attempts (1)').closest('details')!
+  expect(evidence.open).toBe(false)
+  expect(attempts.open).toBe(false)
+  expect(
+    screen.getByText('3 actual rows').compareDocumentPosition(evidence) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  const user = userEvent.setup()
+  await user.click(screen.getByText('Evidence'))
+  expect(evidence.open).toBe(true)
+  expect(within(evidence).getByText('9223372036854775801')).toBeTruthy()
+  expect(within(evidence).getByText('verified-plan')).toBeTruthy()
+  await user.click(screen.getByText('Prior attempts (1)'))
+  expect(within(attempts).getByText('failed-run')).toBeTruthy()
+  await user.click(
+    screen.getByRole('checkbox', { name: 'Show technical columns (3)' }),
+  )
+  expect(
+    within(table).getByRole('columnheader', { name: 'upload_record_id_key' }),
+  ).toBeTruthy()
+  expect(within(table).getByText('generated-key')).toBeTruthy()
+  await user.click(screen.getByRole('button', { name: 'Refresh preview' }))
+  expect(previewUploadCandidate).toHaveBeenCalledTimes(2)
+  expect(loadUploadCandidate).not.toHaveBeenCalled()
+  expect(planUploadCandidate).not.toHaveBeenCalled()
+})
+
+it.each(['queued', 'running'] as const)(
+  'keeps %s work pending and never implies it loaded',
+  async (status) => {
+    vi.mocked(getUploadCandidate).mockResolvedValue({
+      ...prepared,
+      status,
+      run_id: 'pending-run',
+    })
+    render(<CsvDestination env="sandbox" upload={upload} dirty={false} />)
+    await screen.findByRole('button', { name: 'Check load status' })
+    expect(screen.queryByText('Candidate loaded')).toBeNull()
+    expect(screen.queryByText(/actual rows/)).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: /Confirm|Prepare|Estimate/ }),
+    ).toBeNull()
+    expect(previewUploadCandidate).not.toHaveBeenCalled()
+    expect(loadUploadCandidate).not.toHaveBeenCalled()
+  },
+)
+
+it('ignores a late loaded preview after the user switches uploads', async () => {
+  const receipt = loadedReceipt()
+  vi.mocked(getUploadCandidate)
+    .mockResolvedValueOnce(receipt)
+    .mockRejectedValueOnce(new Error('not prepared'))
+  let resolvePreview!: (
+    value: Awaited<ReturnType<typeof previewUploadCandidate>>,
+  ) => void
+  vi.mocked(previewUploadCandidate).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolvePreview = resolve
+      }),
+  )
+  const { rerender } = render(
+    <CsvDestination env="sandbox" upload={upload} dirty={false} />,
+  )
+  await waitFor(() => expect(previewUploadCandidate).toHaveBeenCalledOnce())
+  rerender(
+    <CsvDestination
+      env="sandbox"
+      upload={{ ...upload, upload_id: 'd'.repeat(32) }}
+      dirty={false}
+    />,
+  )
+  await screen.findByRole('button', { name: 'Prepare candidate destination' })
+  resolvePreview({
+    receipt,
+    columns: ['result'],
+    column_types: ['varchar'],
+    rows: [{ result: 'OLD' }],
+    has_more: false,
+    row_count: 3,
+    snapshot_id: receipt.snapshot_id!,
+    ref_hash: 'written',
+    query_id: null,
+  })
+  await waitFor(() => expect(screen.queryByText('OLD')).toBeNull())
+  expect(screen.queryByText('Candidate loaded')).toBeNull()
+})
+
+it('immediately removes a previous upload preview when identity changes and uses review columns when output columns are empty', async () => {
+  const receipt = loadedReceipt()
+  vi.mocked(getUploadCandidate)
+    .mockResolvedValueOnce(receipt)
+    .mockRejectedValueOnce(new Error('not prepared'))
+  vi.mocked(previewUploadCandidate).mockResolvedValue({
+    receipt,
+    columns: ['result', '_phlo_run_id'],
+    column_types: ['varchar', 'varchar'],
+    rows: [{ result: 'PRIVATE-PREVIOUS-UPLOAD', _phlo_run_id: 'verified-run' }],
+    has_more: false,
+    row_count: 3,
+    snapshot_id: receipt.snapshot_id!,
+    ref_hash: 'written',
+    query_id: null,
+  })
+  const legacyReview: CsvUpload = {
+    ...upload,
+    output_columns: [],
+    columns: [
+      {
+        column: 'Result',
+        name: 'result',
+        type: 'string',
+        nullable: false,
+        date_format: 'iso',
+      },
+    ],
+  }
+  const { rerender } = render(
+    <CsvDestination env="sandbox" upload={legacyReview} dirty={false} />,
+  )
+  expect(await screen.findByText('PRIVATE-PREVIOUS-UPLOAD')).toBeTruthy()
+  expect(
+    screen.queryByRole('columnheader', { name: '_phlo_run_id' }),
+  ).toBeNull()
+  rerender(
+    <CsvDestination
+      env="sandbox"
+      upload={{ ...legacyReview, upload_id: 'e'.repeat(32) }}
+      dirty={false}
+    />,
+  )
+  expect(screen.queryByText('PRIVATE-PREVIOUS-UPLOAD')).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Candidate loaded' })).toBeNull()
+  await screen.findByRole('button', { name: 'Prepare candidate destination' })
 })

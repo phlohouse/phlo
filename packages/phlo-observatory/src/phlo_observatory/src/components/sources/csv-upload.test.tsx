@@ -82,9 +82,11 @@ describe('retained CSV review', () => {
       },
     })
     expect(
-      screen.getByRole<HTMLButtonElement>('button', {
-        name: 'Prepare candidate destination',
-      }).disabled,
+      (
+        await screen.findByRole<HTMLButtonElement>('button', {
+          name: 'Prepare candidate destination',
+        })
+      ).disabled,
     ).toBe(true)
     expect(
       screen.getByText(
@@ -92,7 +94,7 @@ describe('retained CSV review', () => {
       ),
     ).toBeTruthy()
   })
-  it('shows a validated review and offers destination preparation before loading', () => {
+  it('shows a validated review and offers destination preparation before loading', async () => {
     render(
       <CsvUploadReview
         env="sandbox"
@@ -102,9 +104,11 @@ describe('retained CSV review', () => {
     )
     expect(screen.getByText('Columns validated')).toBeTruthy()
     expect(
-      screen.getByRole<HTMLButtonElement>('button', {
-        name: 'Prepare candidate destination',
-      }).disabled,
+      (
+        await screen.findByRole<HTMLButtonElement>('button', {
+          name: 'Prepare candidate destination',
+        })
+      ).disabled,
     ).toBe(false)
     expect(screen.queryByText('Loaded')).toBeNull()
   })
