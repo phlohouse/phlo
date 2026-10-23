@@ -185,27 +185,77 @@ def tls_material(root: Path) -> None:
             "rsa:2048",
             "-nodes",
             "-keyout",
-            str(root / "server.key"),
+            str(root / "ca.key"),
             "-out",
             str(root / "ca.pem"),
             "-days",
             "1",
             "-subj",
-            "/CN=trino-preview",
+            "/CN=Phlo acceptance CA",
             "-addext",
-            "subjectAltName=DNS:trino-preview,DNS:localhost,IP:127.0.0.1",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    (root / "ca.key").chmod(0o600)
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-new",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(root / "server.key"),
+            "-out",
+            str(root / "server.csr"),
+            "-subj",
+            "/CN=trino-preview",
         ],
         check=True,
         capture_output=True,
     )
     (root / "server.key").chmod(0o600)
+    private_file(
+        root / "server.ext",
+        "basicConstraints=critical,CA:FALSE\n"
+        "keyUsage=critical,digitalSignature,keyEncipherment\n"
+        "extendedKeyUsage=serverAuth\n"
+        "subjectAltName=DNS:trino-preview,DNS:localhost,IP:127.0.0.1\n",
+    )
+    subprocess.run(
+        [
+            "openssl",
+            "x509",
+            "-req",
+            "-in",
+            str(root / "server.csr"),
+            "-CA",
+            str(root / "ca.pem"),
+            "-CAkey",
+            str(root / "ca.key"),
+            "-CAcreateserial",
+            "-out",
+            str(root / "server.pem"),
+            "-days",
+            "1",
+            "-extfile",
+            str(root / "server.ext"),
+        ],
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(
         [
             "openssl",
             "pkcs12",
             "-export",
             "-in",
-            str(root / "ca.pem"),
+            str(root / "server.pem"),
             "-inkey",
             str(root / "server.key"),
             "-out",

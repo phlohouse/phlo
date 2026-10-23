@@ -1,6 +1,7 @@
 """Operation availability reflects manifest policy and local gates, never grants mutations."""
 
 import json
+import sys
 
 import pytest
 from fastapi import HTTPException
@@ -153,6 +154,13 @@ def test_native_and_csv_preflights_require_exact_preview_binding_and_candidate_r
     actions = client.get(path).json()["actions"]
     assert actions["v1_transform_model_execute"]["allowed"] is True
     assert actions["v1_csv_candidate_load"]["allowed"] is True
+    with monkeypatch.context() as missing_dagster:
+        missing_dagster.setitem(sys.modules, "phlo_dagster", None)
+        actions = client.get(path).json()["actions"]
+        assert actions["v1_csv_candidate_load"]["allowed"] is False
+        assert "phlo-api[dagster]" in actions["v1_csv_candidate_load"]["reason"]
+        assert actions["v1_csv_destination"]["allowed"] is True
+        assert actions["v1_transform_model_execute"]["allowed"] is True
     monkeypatch.setenv("PHLO_TRANSFORM_TRINO_USER", "primary_writer")
     actions = client.get(path).json()["actions"]
     assert actions["v1_transform_model_compile"]["allowed"] is False

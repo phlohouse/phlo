@@ -149,7 +149,7 @@ The base API image does not install every provider. To retain and load reviewed
 CSV files and use native SQL drafts, build with explicit provider extras:
 
 ```bash
-export PHLO_API_EXTRAS=iceberg,dlt,trino,transform
+export PHLO_API_EXTRAS=dagster,iceberg,dlt,trino,transform
 phlo services init
 phlo services start --build
 ```
@@ -157,7 +157,8 @@ phlo services start --build
 Keep this selection in your generated project's environment configuration for
 later rebuilds. Setting `PHLO_API_EXTRAS` on an already-built container does not
 install providers. Development source mounts also use this explicit selection.
-Add `dagster` or `lineage` only when the API needs those providers.
+The `dagster` extra is required in the API to launch reviewed CSV loads, not
+only in the Dagster worker. Add `lineage` only when the API needs that provider.
 
 Install `phlo-dlt` in the Dagster code-location and run images too. The unlocked
 Dagster image installs it through `phlo[defaults]`. For a lock-aware project,
@@ -182,6 +183,14 @@ checksum and runs `phlo-transform --version` inside the final runtime. An
 incompatible engine fails the build. Alternatively, mount an approved engine
 under `.phlo/bin` read-only and verify its version inside the running image.
 The build cannot validate a binary supplied only by a later runtime mount.
+
+Native model discovery also runs in the Dagster code location. Declare
+`phlo-transform` in that project's runtime dependencies, update its lockfile,
+and rebuild and reload the location. Give its runtime access to the approved
+GNU-compatible engine, `transforms/phlo.toml`, and the model source tree.
+Installing the API extra alone does not declare models in Dagster. Discovery
+and draft storage do not require a configured query endpoint; compilation and
+preview do.
 
 `phlo services init` and `start` prepare four private authoring directories:
 `.phlo/uploads`, `.phlo/transform-editor`, `contracts/uploads`, and
