@@ -82,6 +82,39 @@ const result: TransformExecution = {
     snapshot_id: '9223372036854775807',
   },
 }
+it.each([true, false])(
+  'renews the request key only after proven pre-write rejection (%s)',
+  async (rejected) => {
+    api.list.mockResolvedValue({ items: [] })
+    api.branches.mockResolvedValue({
+      branches: [{ name: 'main', hash: 'e'.repeat(64) }],
+    })
+    if (rejected)
+      api.run.mockResolvedValueOnce({
+        rejected_before_write: true,
+        message: 'Compile unavailable',
+      })
+    else api.run.mockRejectedValueOnce(new Error('Transport unavailable'))
+    api.run.mockResolvedValueOnce(result)
+    render(
+      <CandidateExecutionPanel
+        env="sandbox"
+        model={draft.model}
+        draft={draft}
+        dirty={false}
+        compilation={compilation}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Run candidate' }))
+    await screen.findByRole('alert')
+    await userEvent.click(screen.getByRole('button', { name: 'Run candidate' }))
+    await screen.findByText(/Native run actual-native-run/)
+    const first = api.run.mock.calls[0][0].data.idempotency_key
+    const second = api.run.mock.calls[1][0].data.idempotency_key
+    if (rejected) expect(second).not.toBe(first)
+    else expect(second).toBe(first)
+  },
+)
 it('requires a matching compiled revision and preserves the exact Iceberg snapshot identity', async () => {
   let finishHistory!: (value: { items: Array<TransformExecution> }) => void
   api.list.mockReturnValue(

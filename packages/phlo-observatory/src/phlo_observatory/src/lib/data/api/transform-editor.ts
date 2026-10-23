@@ -1,7 +1,7 @@
 /** Provider-backed immutable SQL drafts and actual read-only engine plans. */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { environmentSchema, phloApi } from './client'
+import { PhloApiError, environmentSchema, phloApi } from './client'
 
 const modelInput = z.object({
   env: environmentSchema,
@@ -130,17 +130,33 @@ export const executeTransformDraft = createServerFn({ method: 'POST' })
     }),
   )
   .handler(
-    ({ data: { env, model, draft_id, revision, idempotency_key, ...body } }) =>
-      phloApi(
-        `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions?env=${env}`,
-        executionSchema,
-        {
-          env,
-          method: 'POST',
-          body,
-          headers: { 'Idempotency-Key': idempotency_key },
-        },
-      ),
+    async ({
+      data: { env, model, draft_id, revision, idempotency_key, ...body },
+    }) => {
+      try {
+        return await phloApi(
+          `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions?env=${env}`,
+          executionSchema,
+          {
+            env,
+            method: 'POST',
+            body,
+            headers: { 'Idempotency-Key': idempotency_key },
+          },
+        )
+      } catch (error) {
+        if (
+          error instanceof PhloApiError &&
+          error.reasonCode === 'rejected_before_write'
+        )
+          return {
+            rejected_before_write: true as const,
+            message:
+              'Compilation was rejected before any candidate write. Repair prerequisites and run again with a fresh request.',
+          }
+        throw error
+      }
+    },
   )
 export const getTransformExecutions = createServerFn({ method: 'GET' })
   .inputValidator(draftIdentity)

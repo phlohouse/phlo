@@ -11,6 +11,23 @@ import {
 } from './client'
 
 describe('Phlo API response boundary', () => {
+  it('retains only explicit pre-write rejection evidence, not a retry guess from HTTP status', async () => {
+    for (const rejected of [true, false]) {
+      await expect(
+        parseApiResponse({
+          response: new Response('private compiler details', {
+            status: 503,
+            headers: rejected
+              ? { 'X-Phlo-Mutation-Outcome': 'rejected-before-write' }
+              : {},
+          }),
+          schema: z.object({}),
+        }),
+      ).rejects.toMatchObject({
+        reasonCode: rejected ? 'rejected_before_write' : undefined,
+      })
+    }
+  })
   it('isolates optional dependency failures but never identity or permission failures', async () => {
     expect(await optionalRead(Promise.resolve({ count: 3 }))).toEqual({
       state: 'available',

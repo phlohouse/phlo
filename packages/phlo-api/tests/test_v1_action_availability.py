@@ -1,16 +1,13 @@
 """Operation availability reflects manifest policy and local gates, never grants mutations."""
 
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from phlo.capabilities import AuthorizationDecision
-from phlo.exceptions import PhloCapabilitySetupError
 from phlo_api.api import v1_action_availability as availability
-from phlo_api.errors import BackendUnavailableError
 from phlo_api.main import app
 import security_test_support
 from security_test_support import authenticated_client
@@ -131,46 +128,35 @@ def test_availability_fails_closed_without_exposing_backend_errors(configured, m
 def test_native_and_csv_preflights_require_exact_preview_binding_and_candidate_runtime(
     configured, monkeypatch, tmp_path
 ):
-    missing = {"native": True, "candidate": True}
-
-    def preview_settings(
-        root, *, ref, required_ref, required_catalog, required_endpoint, required_user
-    ):
-        if missing["native"]:
-            raise PhloCapabilitySetupError("transform", "Private setup detail", required=True)
-        if (root, ref, required_ref, required_catalog, required_endpoint, required_user) != (
-            tmp_path,
-            "release",
-            "release",
-            "preview_prod",
-            "https://preview:8443",
-            "phlo_api_preview_prod",
-        ):
-            raise RuntimeError("Binding mismatch")
-
-    def candidate():
-        if missing["candidate"]:
-            raise BackendUnavailableError("Writable candidate catalog is not configured.")
-
-    modules = {
-        "phlo_transform.editor": SimpleNamespace(preview_settings=preview_settings),
-        "phlo_transform.editor_execution": SimpleNamespace(),
-        "phlo_api.candidate_runtime": SimpleNamespace(preflight_candidate=candidate),
-        "phlo_dlt.csv_upload": SimpleNamespace(),
-    }
-    monkeypatch.setattr(availability, "import_module", modules.__getitem__)
+    monkeypatch.setenv("PHLO_TRANSFORMATION_PROVIDER", "transform")
+    monkeypatch.setenv("PHLO_TRANSFORM_ADAPTER", "trino")
+    monkeypatch.setenv("PHLO_TRANSFORM_TRINO_CATALOG", "preview_prod")
+    monkeypatch.setenv("PHLO_TRANSFORM_TRINO_ENDPOINT", "https://preview:8443")
+    monkeypatch.setenv("PHLO_TRANSFORM_TRINO_USER", "phlo_api_preview_prod")
+    monkeypatch.setenv("TRINO_CATALOG", "iceberg")
+    binary = tmp_path / "native-engine"
+    monkeypatch.setenv("PHLO_TRANSFORM_BIN", str(binary))
     client = authenticated_client("operator")
     path = "/api/v1/action-availability?env=prod"
     actions = client.get(path).json()["actions"]
     assert actions["v1_transform_model_compile"]["allowed"] is False
-    assert "Private setup detail" not in actions["v1_transform_model_compile"]["reason"]
     assert actions["v1_csv_candidate_load"]["allowed"] is False
     assert actions["v1_csv_upload"]["allowed"] is True
-    missing["native"] = False
+    # Availability checks presence only; it must not execute the binary or contact providers.
+    binary.touch()
     actions = client.get(path).json()["actions"]
     assert actions["v1_transform_model_compile"]["allowed"] is True
     assert actions["v1_transform_model_execute"]["allowed"] is False
-    missing["candidate"] = False
+    catalog = tmp_path / ".phlo/trino/catalog/iceberg.properties"
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text("connector.name=iceberg\niceberg.catalog.type=rest\n")
     actions = client.get(path).json()["actions"]
     assert actions["v1_transform_model_execute"]["allowed"] is True
     assert actions["v1_csv_candidate_load"]["allowed"] is True
+    monkeypatch.setenv("PHLO_TRANSFORM_TRINO_USER", "primary_writer")
+    actions = client.get(path).json()["actions"]
+    assert actions["v1_transform_model_compile"]["allowed"] is False
+    assert actions["v1_transform_model_execute"]["allowed"] is False
+    assert actions["v1_csv_candidate_load"]["allowed"] is True
+    catalog.write_text(catalog.read_text() + "iceberg.security=READ_ONLY\n")
+    assert client.get(path).json()["actions"]["v1_csv_candidate_load"]["allowed"] is False

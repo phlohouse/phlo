@@ -143,6 +143,49 @@ function setup(extra = {}, history: Array<TransformDraftSummary> = []) {
 }
 
 describe('Transform source editor', () => {
+  it('restores the previous revision when navigation returns during a pending revision load', async () => {
+    let finish!: (value: typeof draft) => void
+    api.read.mockImplementation(({ data }: { data: { revision: number } }) =>
+      data.revision === 2
+        ? new Promise((resolve) => {
+            finish = resolve
+          })
+        : Promise.resolve({ ...draft, sql: 'SELECT 1' }),
+    )
+    const props = {
+      env: 'sandbox',
+      model,
+      focus: false,
+      draftId: draft.draft_id,
+      revision: 1,
+      onFocus: vi.fn(),
+      onClose: vi.fn(),
+      onSaved: vi.fn(),
+    }
+    const view = setup(props)
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText<HTMLTextAreaElement>(
+          'SQL source for review.inspection',
+        ).value,
+      ).toBe('SELECT 1'),
+    )
+    view.rerender(<TransformEditor {...props} revision={2} />)
+    view.rerender(<TransformEditor {...props} revision={1} />)
+    await act(() => finish({ ...draft, revision: 2, sql: 'SELECT 2' }))
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText<HTMLTextAreaElement>(
+          'SQL source for review.inspection',
+        ).value,
+      ).toBe('SELECT 1'),
+    )
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', {
+        name: 'Compile and plan',
+      }).disabled,
+    ).toBe(false)
+  })
   it.each(['Save draft revision', 'Compile and plan'])(
     'ignores a late %s response after selecting another revision',
     async (action) => {

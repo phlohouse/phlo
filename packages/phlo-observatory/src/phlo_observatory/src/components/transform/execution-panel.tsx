@@ -76,6 +76,10 @@ function useCandidateExecution({ env, model, draft }: Props) {
           idempotency_key: intent.current.key,
         },
       })
+      if ('rejected_before_write' in result) {
+        intent.current = undefined
+        throw new Error(result.message)
+      }
       if (mounted.current) {
         setExecutions((current) => mergeExecutions(current, [result]))
         setSelectedId(result.execution_id)
@@ -158,8 +162,10 @@ export function CandidateExecutionPanel(props: Props) {
         />
       ) : view !== 'history' ? (
         <p className="m-0 text-muted-foreground">
-          Compile this saved revision before running its candidate. Candidate
-          tables are separate from published assets.
+          {ready
+            ? 'This saved revision is ready to run as a candidate.'
+            : 'Compile this saved revision before running its candidate.'}{' '}
+          Candidate tables are separate from published assets.
         </p>
       ) : null}
       {error ? (

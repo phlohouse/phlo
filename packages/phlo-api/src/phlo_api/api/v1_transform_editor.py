@@ -395,10 +395,16 @@ async def v1_transform_model_execute(
                     422, "The saved revision must compile successfully before candidate execution."
                 )
         except HTTPException as exc:
-            raise MutationRejected(exc.status_code, exc.detail, headers=exc.headers) from exc
+            raise MutationRejected(
+                exc.status_code,
+                exc.detail,
+                headers={**(exc.headers or {}), "X-Phlo-Mutation-Outcome": "rejected-before-write"},
+            ) from exc
         except Exception as exc:
             raise MutationRejected(
-                503, "Native compilation prerequisites are unavailable."
+                503,
+                "Native compilation prerequisites are unavailable.",
+                headers={"X-Phlo-Mutation-Outcome": "rejected-before-write"},
             ) from exc
         execution_id = str(uuid4())
         await _call(

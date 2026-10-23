@@ -229,7 +229,10 @@ export async function parseApiResponse<T>({
     throw new PhloApiError(
       response.status,
       detail?.message,
-      detail?.code,
+      response.headers.get('x-phlo-mutation-outcome') ===
+        'rejected-before-write'
+        ? 'rejected_before_write'
+        : detail?.code,
       id.success ? id.data : undefined,
     )
   }

@@ -60,6 +60,7 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
     const identity = JSON.stringify([env, model.model, draftId, revision])
     if (selectedIdentity.current === identity) return
     navigationVersion.current += 1
+    selectedIdentity.current = ''
     let active = true
     setBusy('history')
     setSource(undefined)
@@ -467,7 +468,6 @@ function EditorContent({
             label={`SQL source for ${model}`}
             onRun={() => void compile()}
             className="min-h-[320px] flex-1"
-            catalog={[]}
           />
         ) : (
           <pre

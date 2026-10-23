@@ -319,6 +319,7 @@ def test_read_only_compile_failure_allows_a_confirmed_fresh_key_retry(
     client = authenticated_client("operator")
     rejected = client.post(url, json=payload, headers={"Idempotency-Key": "preflight-rejected"})
     assert rejected.status_code == (422 if isinstance(failure, HTTPException) else 503)
+    assert rejected.headers["X-Phlo-Mutation-Outcome"] == "rejected-before-write"
     assert state["provisions"] == state["runs"] == 0
     monkeypatch.setattr(editor, "v1_transform_model_compile", original)
     retried = client.post(url, json=payload, headers={"Idempotency-Key": "preflight-recovered"})
@@ -344,6 +345,7 @@ def test_unknown_candidate_write_still_fences_fresh_key_retries(setup_editor, mo
     client = authenticated_client("operator")
     first = client.post(url, json=payload, headers={"Idempotency-Key": "write-uncertain"})
     assert first.status_code == 504
+    assert "X-Phlo-Mutation-Outcome" not in first.headers
     second = client.post(url, json=payload, headers={"Idempotency-Key": "write-not-retried"})
     assert second.status_code == 409
     assert "operation_unknown" in second.json()["error"]["message"]
