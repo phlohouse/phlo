@@ -15,6 +15,7 @@ import {
 } from '@/lib/data/api/upload-candidate'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ActionGroup } from '@/components/ui/action-group'
 
 function isLoaded(receipt: UploadCandidate | null): boolean {
   return Boolean(
@@ -447,7 +448,7 @@ function CandidateActions({
     <>
       {' '}
       {['prepared', 'planned', 'failed'].includes(receipt.status) ? (
-        <div className="flex flex-wrap items-center gap-3">
+        <ActionGroup controlsClassName="gap-3">
           <Button
             operation="v1_csv_candidate_plan"
             variant="outline"
@@ -487,7 +488,7 @@ function CandidateActions({
                 : 'Confirm load into candidate'}
             </Button>
           ) : null}
-        </div>
+        </ActionGroup>
       ) : null}
     </>
   )

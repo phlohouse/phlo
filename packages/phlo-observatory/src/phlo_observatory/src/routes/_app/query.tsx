@@ -48,6 +48,7 @@ import {
 import { EmptyState, PageSkeleton, RouteError } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { ActionGroup } from '@/components/ui/action-group'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -349,11 +350,11 @@ function QueryTabs({
     tabRefs.current[target]?.focus()
   }
   return (
-    <>
+    <div className="order-last flex w-full min-w-0 items-center gap-1 lg:order-none lg:w-auto lg:flex-1">
       <div
         role="tablist"
         aria-label="Open queries"
-        className="order-last -mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:order-none lg:mx-0 lg:w-auto lg:min-w-0 lg:flex-1 lg:px-0"
+        className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]"
       >
         {tabs.map((item, index) => (
           <button
@@ -386,11 +387,10 @@ function QueryTabs({
         size="icon-sm"
         aria-label="New query tab"
         onClick={onNew}
-        className="order-last lg:order-none"
       >
         <PlusIcon />
       </Button>
-    </>
+    </div>
   )
 }
 
@@ -502,10 +502,16 @@ function QueryToolbar(props: QueryToolbarProps) {
       >
         <XIcon />
       </Button>
-      <div className="ml-auto mr-4 flex min-w-0 max-w-full shrink-0 flex-wrap items-center justify-end gap-2 lg:mr-0">
+      <ActionGroup
+        className="w-full lg:ml-auto lg:w-auto"
+        controlsClassName="lg:justify-end"
+      >
         <Popover open={treeOpen} onOpenChange={setTreeOpen}>
           <PopoverTrigger
-            className={cn(buttonVariants({ variant: 'outline' }), 'lg:hidden')}
+            className={cn(
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              'lg:hidden',
+            )}
           >
             <TableIcon /> Tables
           </PopoverTrigger>
@@ -527,7 +533,7 @@ function QueryToolbar(props: QueryToolbarProps) {
           <DropdownMenuTrigger
             aria-label={`Engine: ${engineId ?? 'none'}`}
             className={cn(
-              buttonVariants({ variant: 'outline' }),
+              buttonVariants({ variant: 'outline', size: 'sm' }),
               'inline-flex',
             )}
           >
@@ -543,55 +549,62 @@ function QueryToolbar(props: QueryToolbarProps) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {tab.saved ? (
+        <div className="flex items-center gap-2">
+          {tab.saved ? (
+            <Button
+              operation="v1_saved_query_delete"
+              size="icon-sm"
+              variant="outline"
+              onClick={remove}
+              disabled={isSubmitting}
+              aria-label="Delete saved query"
+            >
+              <Trash2Icon />
+            </Button>
+          ) : null}
           <Button
-            operation="v1_saved_query_delete"
+            operation={
+              tab.saved ? 'v1_saved_query_update' : 'v1_saved_query_create'
+            }
             variant="outline"
-            onClick={remove}
-            disabled={isSubmitting}
-            aria-label="Delete saved query"
-          >
-            <Trash2Icon />
-          </Button>
-        ) : null}
-        <Button
-          operation={
-            tab.saved ? 'v1_saved_query_update' : 'v1_saved_query_create'
-          }
-          variant="outline"
-          onClick={persist}
-          disabled={isSubmitting}
-        >
-          Save
-        </Button>
-        <Button
-          operation="v1_query_explain"
-          variant="outline"
-          onClick={() => start('plan')}
-          disabled={Boolean(running) || isSubmitting}
-        >
-          Explain
-        </Button>
-        {running ? (
-          <Button
-            operation="v1_query_cancel"
-            variant="outline"
-            onClick={cancel}
-            disabled={tab.session?.status === 'cancelling'}
-          >
-            <SquareIcon /> Cancel
-          </Button>
-        ) : (
-          <Button
-            operation="v1_query_submit"
-            onClick={() => start('results')}
+            size="sm"
+            onClick={persist}
             disabled={isSubmitting}
           >
-            <PlayIcon className="fill-current" />{' '}
-            {isSubmitting ? 'Submitting…' : 'Run'}
+            Save
           </Button>
-        )}
-      </div>
+          <Button
+            operation="v1_query_explain"
+            variant="outline"
+            size="sm"
+            onClick={() => start('plan')}
+            disabled={Boolean(running) || isSubmitting}
+          >
+            Explain
+          </Button>
+          {running ? (
+            <Button
+              operation="v1_query_cancel"
+              variant="outline"
+              size="sm"
+              onClick={cancel}
+              disabled={tab.session?.status === 'cancelling'}
+            >
+              <SquareIcon /> Cancel
+            </Button>
+          ) : (
+            <Button
+              operation="v1_query_submit"
+              size="sm"
+              onClick={() => start('results')}
+              disabled={isSubmitting}
+            >
+              <PlayIcon className="fill-current" />{' '}
+              {isSubmitting ? 'Submitting…' : 'Run'}
+            </Button>
+          )}
+        </div>
+      </ActionGroup>
     </header>
   )
 }

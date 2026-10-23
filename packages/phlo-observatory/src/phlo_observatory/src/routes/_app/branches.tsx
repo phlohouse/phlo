@@ -16,6 +16,7 @@ import {
   trialMerge,
 } from '@/lib/data/api/branches'
 import { Eyebrow, PageHeader } from '@/components/phlo/page'
+import { ActionGroup } from '@/components/ui/action-group'
 import { EmptyState } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { MergeDialog } from '@/components/branches/merge-dialog'
@@ -276,7 +277,7 @@ function BranchActions({
 }) {
   if (selected.protected) return null
   return (
-    <>
+    <ActionGroup>
       <Button
         operation="v1_branch_rebase"
         actionContext={{ branch_name: selected.name }}
@@ -349,7 +350,7 @@ function BranchActions({
       >
         <Trash2Icon /> Delete
       </Button>
-    </>
+    </ActionGroup>
   )
 }
 

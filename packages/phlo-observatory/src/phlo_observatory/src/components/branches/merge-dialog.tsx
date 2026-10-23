@@ -7,6 +7,7 @@ import type {
   BranchRef,
 } from '@/lib/data/api/branches'
 import { Button } from '@/components/ui/button'
+import { ActionGroup } from '@/components/ui/action-group'
 import {
   Dialog,
   DialogBody,
@@ -97,7 +98,7 @@ export function MergeDialog({
             Reload if either head changes.
           </p>
           <ChecksSummary checks={checks} />
-          <div className="flex flex-wrap gap-2">
+          <ActionGroup>
             <Button
               operation="v1_branch_checks"
               actionContext={{ branch_name: branch.name }}
@@ -116,7 +117,7 @@ export function MergeDialog({
             >
               Trial merge
             </Button>
-          </div>
+          </ActionGroup>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="merge-message">
               Merge message and signature justification

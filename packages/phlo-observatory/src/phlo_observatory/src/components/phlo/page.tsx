@@ -3,6 +3,7 @@ import * as React from 'react'
 import { Link } from '@tanstack/react-router'
 import { ChevronRightIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ActionGroup } from '@/components/ui/action-group'
 
 /**
  * The 52px bar at the top of the main panel. On phones it wraps: title first, actions below.
@@ -52,9 +53,9 @@ export function PageHeader({
         </span>
       ) : null}
       {actions ? (
-        <div className="ml-auto flex flex-wrap items-center gap-2.5">
+        <ActionGroup className="ml-auto py-2" controlsClassName="gap-2.5">
           {actions}
-        </div>
+        </ActionGroup>
       ) : null}
     </header>
   )

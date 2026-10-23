@@ -411,28 +411,32 @@ function EditorActions({
   const { source, draft, dirty, busy, save, compile } = state
   return (
     <>
-      <Button variant="outline" onClick={onFocus}>
-        {focus ? <MinimizeIcon /> : <MaximizeIcon />}
-        {focus ? 'Exit focus' : 'Focus'}
-      </Button>
-      <Button variant="outline" onClick={onClose}>
-        Workspace
-      </Button>
-      <Button
-        operation="v1_transform_model_compile"
-        variant="outline"
-        disabled={!draft || dirty || Boolean(busy)}
-        onClick={() => void compile()}
-      >
-        {busy === 'compile' ? 'Compiling…' : 'Compile and plan'}
-      </Button>
-      <Button
-        operation="v1_transform_model_draft_save"
-        disabled={!source || Boolean(busy) || (!dirty && Boolean(draft))}
-        onClick={() => void save()}
-      >
-        {busy === 'save' ? 'Saving…' : 'Save draft revision'}
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" onClick={onFocus}>
+          {focus ? <MinimizeIcon /> : <MaximizeIcon />}
+          {focus ? 'Exit focus' : 'Focus'}
+        </Button>
+        <Button variant="outline" onClick={onClose}>
+          Workspace
+        </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          operation="v1_transform_model_compile"
+          variant="outline"
+          disabled={!draft || dirty || Boolean(busy)}
+          onClick={() => void compile()}
+        >
+          {busy === 'compile' ? 'Compiling…' : 'Compile and plan'}
+        </Button>
+        <Button
+          operation="v1_transform_model_draft_save"
+          disabled={!source || Boolean(busy) || (!dirty && Boolean(draft))}
+          onClick={() => void save()}
+        >
+          {busy === 'save' ? 'Saving…' : 'Save draft revision'}
+        </Button>
+      </div>
     </>
   )
 }
