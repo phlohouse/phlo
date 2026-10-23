@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import Field, StringConstraints, model_validator
 
 from phlo_api.api.authentication import get_request_principal
@@ -77,9 +77,16 @@ class MetricRecord(MetricDefinition):
     updated_at: str
 
 
+class MetricInventoryItem(MetricRecord):
+    """Expose an authorized draft even when its source needs repair."""
+
+    source_status: Literal["available", "unavailable"]
+    source_reason: str | None
+
+
 class MetricInventory(WireModel):
     env: Environment
-    items: list[MetricRecord]
+    items: list[MetricInventoryItem]
     publication: Literal["draft_definitions_only"] = "draft_definitions_only"
 
 
@@ -215,9 +222,27 @@ def metric_sql(record: MetricRecord, group_by: list[str]) -> str:
 async def v1_metric_models(request: Request, env: Environment = Query()) -> MetricInventory:
     target = _target(request, env)
     records = _records(env, target.nessie_ref)
+    items = []
     for record in records:
-        await _validate_record_source(request, env, record)
-    return MetricInventory(env=env, items=records)
+        reason = None
+        try:
+            await _validate_record_source(request, env, record)
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                continue
+            if exc.status_code != 404:
+                raise
+            reason = "Source asset is unavailable. Repair the draft before previewing."
+        except (NotFoundError, UnprocessableInputError, ConflictError):
+            reason = "Source asset or schema changed. Repair the draft before previewing."
+        items.append(
+            MetricInventoryItem(
+                **record.model_dump(),
+                source_status="unavailable" if reason else "available",
+                source_reason=reason,
+            )
+        )
+    return MetricInventory(env=env, items=items)
 
 
 @router.get("/metric-models/{model_id}", response_model=MetricRecord)

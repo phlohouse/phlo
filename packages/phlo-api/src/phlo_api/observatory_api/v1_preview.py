@@ -459,6 +459,8 @@ def _preview_payload(
     labels = [column.get("name") for column in columns]
     if any(not isinstance(label, str) for label in labels):
         raise PreviewUnavailable("Trino returned invalid preview columns.")
+    if len(set(labels)) != len(labels):
+        raise PreviewQueryRejected("Query results require unique column aliases.")
     items = [dict(zip(labels, row, strict=True)) for row in rows[:limit]]
     payload = {
         "columns": [{"name": column["name"], "type": column.get("type")} for column in columns],

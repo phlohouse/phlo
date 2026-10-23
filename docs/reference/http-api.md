@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (252)
+## Endpoints (253)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -119,6 +119,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/registry` | Get Registry | none |
 | `GET` | `/api/services` | Get Services | none |
 | `GET` | `/api/services/{name}` | Get Service Info | none |
+| `GET` | `/api/v1/action-availability` | V1 Action Availability | `v1 readiness` |
 | `GET` | `/api/v1/activity` | Activity | `v1 incidents` |
 | `GET` | `/api/v1/admin/audit/export` | V1 Admin Audit Export | `v1 admin audit` |
 | `GET` | `/api/v1/admin/audit/records` | V1 Admin Audit Records | `v1 admin audit` |

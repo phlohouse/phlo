@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 252,
+  "endpoint_count": 253,
   "endpoints": [
     {
       "method": "GET",
@@ -946,6 +946,15 @@
       "path": "/api/services/{name}",
       "summary": "Get Service Info",
       "tags": []
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_action_availability_api_v1_action_availability_get",
+      "path": "/api/v1/action-availability",
+      "summary": "V1 Action Availability",
+      "tags": [
+        "v1 readiness"
+      ]
     },
     {
       "method": "GET",

@@ -124,6 +124,7 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/environments",
         "/api/v1/services",
         "/api/v1/readiness",
+        "/api/v1/action-availability",
         "/api/v1/events",
         "/api/v1/jobs",
         "/api/v1/jobs/{job_id}",

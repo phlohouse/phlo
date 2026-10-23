@@ -154,7 +154,10 @@ def test_metric_preview_compiles_readonly_sql_and_rechecks_current_source(
         raise NotFoundError("Source asset missing.")
 
     monkeypatch.setattr(metrics, "v1_asset_detail", removed)
-    assert client.get("/api/v1/metric-models?env=sandbox").status_code == 404
+    inventory = client.get("/api/v1/metric-models?env=sandbox")
+    assert inventory.status_code == 200
+    assert inventory.json()["items"][0]["source_status"] == "unavailable"
+    assert inventory.json()["items"][0]["source_reason"]
     assert client.get("/api/v1/metric-models/batch_release?env=sandbox").status_code == 404
     assert (
         client.post(
@@ -179,13 +182,69 @@ def test_metric_authentication_and_source_authorization(metric_setup, monkeypatc
         raise HTTPException(403, "Source permission revoked")
 
     monkeypatch.setattr(metrics, "enforce_http_operation", denied)
-    assert client.get("/api/v1/metric-models?env=sandbox").status_code == 403
+    inventory = client.get("/api/v1/metric-models?env=sandbox")
+    assert inventory.status_code == 200 and inventory.json()["items"] == []
     assert client.get("/api/v1/metric-models/batch_release?env=sandbox").status_code == 403
     assert (
         client.post(
             "/api/v1/metric-models/batch_release/preview-sql?env=sandbox", json={"group_by": []}
         ).status_code
         == 403
+    )
+
+    async def unavailable(*args, **kwargs):
+        raise HTTPException(503, "Authorization backend unavailable")
+
+    monkeypatch.setattr(metrics, "enforce_http_operation", unavailable)
+    assert client.get("/api/v1/metric-models?env=sandbox").status_code == 503
+
+
+@pytest.mark.parametrize("stale", ["missing", "schema", "relation"])
+def test_metric_inventory_isolates_stale_and_unauthorized_models(metric_setup, monkeypatch, stale):
+    original_source = metrics.v1_asset_detail
+    changed = False
+
+    async def source(request, asset_id, env):
+        result = await original_source(request, "gold/batch_release_metrics", env)
+        if changed and asset_id == "stale":
+            if stale == "missing":
+                raise NotFoundError("Private source error")
+            if stale == "schema":
+                result.columns = []
+            else:
+                result.relation = "gold.replaced"
+        return result
+
+    monkeypatch.setattr(metrics, "v1_asset_detail", source)
+    client = authenticated_client("operator")
+    for name in ("healthy", "stale", "hidden"):
+        response = client.post(
+            "/api/v1/metric-models?env=sandbox",
+            json={**metric_setup, "model_id": name, "asset_id": name},
+        )
+        assert response.status_code == 201, response.text
+    changed = True
+    original_enforce = metrics.enforce_http_operation
+
+    async def authorize(request, spec, params):
+        if params.get("asset_id") == "hidden":
+            raise HTTPException(403, "Source permission revoked")
+        await original_enforce(request, spec, params)
+
+    monkeypatch.setattr(metrics, "enforce_http_operation", authorize)
+    response = client.get("/api/v1/metric-models?env=sandbox")
+    assert response.status_code == 200, response.text
+    items = {item["model_id"]: item for item in response.json()["items"]}
+    assert set(items) == {"healthy", "stale"}
+    assert items["healthy"]["source_status"] == "available"
+    assert items["healthy"]["source_reason"] is None
+    assert items["stale"]["source_status"] == "unavailable"
+    assert "Private source error" not in response.text
+    assert (
+        client.post(
+            "/api/v1/metric-models/stale/preview-sql?env=sandbox", json={"group_by": []}
+        ).status_code
+        == {"missing": 404, "schema": 422, "relation": 409}[stale]
     )
 
 

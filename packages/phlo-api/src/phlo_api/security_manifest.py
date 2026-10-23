@@ -94,7 +94,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         public=True,
     ),
     *_specs(
-        ("v1_me", "v1_environments"),
+        ("v1_me", "v1_environments", "v1_action_availability"),
         action=CanonicalAction.PLATFORM_METADATA_READ.value,
         resource_type="platform_metadata",
     ),
