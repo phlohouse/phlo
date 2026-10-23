@@ -95,6 +95,26 @@ non-main runtime ref is provisioned to its own catalog through
 `RefQueryCatalogManager` before the engine runs. Without orchestration the
 engine decides: Trino when an endpoint is configured, otherwise DuckDB.
 
+## Observatory candidate execution
+
+The editor saves immutable SQL revisions and runs them on isolated candidate
+branches. Compilation uses the environment's configured preview reference,
+catalog, endpoint, and identity. Custom primary references are supported when
+that complete binding matches the native provider configuration.
+
+A rejected read-only compilation does not imply an uncertain write. After
+correcting its prerequisites, you can confirm a new execution with a fresh
+idempotency key. Once candidate provisioning or execution starts, an uncertain
+outcome remains blocked, including requests with a different key.
+
+Successful executions retain their native report. When the candidate result
+hash is recorded, the authorised execution preview endpoint can retry result
+readback without rerunning the model.
+Executions left `running` or `unknown` do not have a supported automatic
+reconciliation or retry path. Preserve their records, branches, and catalogs
+for operator investigation. Do not clear idempotency state or assume that a
+timeout means no write occurred.
+
 ## CLI
 
 ```bash

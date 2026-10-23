@@ -140,6 +140,10 @@ def _save(receipt: CandidateReceipt, *, previous: CandidateReceipt | None) -> Ca
         if previous is None:
             if current is not None or len(items) >= 100:
                 raise ConflictError("CSV candidate already exists or collection is full.")
+            if any(item.get("asset_id") == receipt.asset_id for item in items):
+                raise ConflictError(
+                    "Destination asset identity is already reserved. Choose a new table."
+                )
             return [*items, receipt.model_dump()]
         if (
             current is None
@@ -232,6 +236,13 @@ async def v1_csv_destination(
             if receipt.status != "preparing":
                 return receipt
         else:
+            if any(
+                asset.id == f"dlt_{payload.table}"
+                for asset in await v1_assets._assets(request, env)
+            ):
+                raise ConflictError(
+                    "Destination asset identity already exists. Choose a new table."
+                )
             base_hash = await _head(target.nessie_ref)
             await _new_relation(target.nessie_ref, payload.table)
             receipt = CandidateReceipt(

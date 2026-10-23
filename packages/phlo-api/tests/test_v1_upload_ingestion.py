@@ -51,6 +51,7 @@ def candidate(monkeypatch, tmp_path):
     monkeypatch.setattr(ingestion, "provision_candidate", AsyncMock(return_value=binding))
     monkeypatch.setattr(ingestion, "verify_candidate", AsyncMock(return_value="base-head"))
     monkeypatch.setattr(ingestion, "_reload", AsyncMock())
+    monkeypatch.setattr(ingestion.v1_assets, "_assets", AsyncMock(return_value=[]))
 
     def author(**kwargs):
         result = author_csv_upload(kwargs["project_root"], kwargs["values"])
@@ -150,6 +151,46 @@ def test_candidate_head_drift_and_review_checksum_tampering_fail_closed(candidat
     assert client.post(path + "/candidate/plan?env=sandbox", json={}).status_code == 409
     (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").write_bytes(b"changed")
     assert client.get(path + "/candidate?env=sandbox").status_code == 409
+
+
+@pytest.mark.parametrize("occupied", ["candidate", "other_environment", "declared_asset"])
+def test_destination_asset_collision_is_rejected_before_artifacts(candidate, monkeypatch, occupied):
+    client, _, _, root = candidate
+    env = "prod" if occupied == "other_environment" else "sandbox"
+    if occupied != "declared_asset":
+        original = prepare(candidate)
+    else:
+        monkeypatch.setattr(
+            ingestion.v1_assets,
+            "_assets",
+            AsyncMock(
+                return_value=[
+                    SimpleNamespace(id="dlt_reviewed_batch", relation="raw.reviewed_batch")
+                ]
+            ),
+        )
+    uploaded = client.post(
+        f"/api/v1/uploads/csv?env={env}",
+        content=b"id\n3\n",
+        headers={"X-Phlo-Upload-Name": "another.csv"},
+    ).json()
+    path = f"/api/v1/uploads/csv/{uploaded['upload_id']}"
+    reviewed = client.put(
+        path + f"/columns?env={env}",
+        json={"expected_version": 1, "columns": uploaded["columns"]},
+    )
+    assert reviewed.status_code == 200
+    rejected = client.post(
+        path + f"/destination?env={env}",
+        json={"expected_version": 2, "table": "reviewed_batch"},
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert client.get(path + f"/candidate?env={env}").status_code == 404
+    assert not (root / f"contracts/uploads/{uploaded['upload_id']}.json").exists()
+    assert not (root / f"workflows/uploads/{uploaded['upload_id']}.py").exists()
+    if occupied != "declared_asset":
+        first_path = f"/api/v1/uploads/csv/{original['upload_id']}/candidate?env=sandbox"
+        assert client.get(first_path).json() == original
 
 
 def test_confirmed_load_is_idempotent_and_readback_pins_written_snapshot(candidate, monkeypatch):

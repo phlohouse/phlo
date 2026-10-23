@@ -57,7 +57,7 @@ def setup_editor(monkeypatch, tmp_path):
                 draft_id=draft["draft_id"],
                 revision=1,
                 revision_digest="c" * 64,
-                ref="main",
+                ref=draft["ref"],
                 status="ready",
                 diagnostics=[],
                 plan_id="actual-plan",
@@ -101,14 +101,25 @@ def test_source_and_draft_save_use_actual_identity_and_project_authorization(set
     assert len(calls) == before
 
 
-def test_compile_revalidates_source_visibility_and_pins_catalog_revision(setup_editor, monkeypatch):
+@pytest.mark.parametrize("ref", ["main", "release_test"])
+def test_compile_revalidates_source_visibility_and_pins_catalog_revision(
+    setup_editor, monkeypatch, ref
+):
     draft, calls = setup_editor
+    draft["ref"] = ref
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        '{"sandbox":{"dagster_location":"sandbox","nessie_ref":"'
+        + ref
+        + '"},"prod":{"dagster_location":"prod","nessie_ref":"prod"}}',
+    )
     _, url = paths(draft)
     client = authenticated_client("analyst")
     response = client.post(url)
     assert response.status_code == 200, response.text
     assert response.json()["materialization_available"] is False
     assert calls[-1][0] == "compile_model_draft"
+    assert calls[-1][1]["required_ref"] == ref
     assert calls[-1][1]["required_catalog"] == "iceberg"
     assert calls[-1][1]["required_endpoint"] == "https://trino-preview:8443"
     assert calls[-1][1]["required_user"] == "phlo_api_preview_sandbox"
@@ -287,6 +298,56 @@ def test_candidate_stale_revision_denied_actor_and_catalog_escape_fail_before_pr
     draft["sql"] = "WITH allowed AS (SELECT * FROM iceberg.gold.batches) SELECT * FROM allowed"
     assert client.post(url, json=payload, headers={"Idempotency-Key": "catalog"}).status_code == 422
     assert state["provisions"] == state["runs"] == 0
+
+
+@pytest.mark.parametrize(
+    "failure", [HTTPException(422, "Invalid plan"), RuntimeError("Missing binary")]
+)
+def test_read_only_compile_failure_allows_a_confirmed_fresh_key_retry(
+    setup_editor, monkeypatch, failure
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    original = editor.v1_transform_model_compile
+
+    async def unavailable(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(editor, "v1_transform_model_compile", unavailable)
+    base, _ = paths(draft)
+    url = f"{base}/drafts/{draft['draft_id']}/1/executions?env=sandbox"
+    payload = {"revision_digest": draft["revision_digest"], "base_hash": "e" * 64}
+    client = authenticated_client("operator")
+    rejected = client.post(url, json=payload, headers={"Idempotency-Key": "preflight-rejected"})
+    assert rejected.status_code == (422 if isinstance(failure, HTTPException) else 503)
+    assert state["provisions"] == state["runs"] == 0
+    monkeypatch.setattr(editor, "v1_transform_model_compile", original)
+    retried = client.post(url, json=payload, headers={"Idempotency-Key": "preflight-recovered"})
+    assert retried.status_code == 201, retried.text
+    assert retried.json()["status"] == "passed"
+    assert state["provisions"] == state["runs"] == 1
+
+
+def test_unknown_candidate_write_still_fences_fresh_key_retries(setup_editor, monkeypatch):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    runtime = editor._runtime()
+    original = runtime.provision_candidate
+
+    async def response_lost(**kwargs):
+        await original(**kwargs)
+        raise HTTPException(504, "Candidate fork response lost")
+
+    runtime.provision_candidate = response_lost
+    monkeypatch.setattr(editor, "_runtime", lambda: runtime)
+    base, _ = paths(draft)
+    url = f"{base}/drafts/{draft['draft_id']}/1/executions?env=sandbox"
+    payload = {"revision_digest": draft["revision_digest"], "base_hash": "e" * 64}
+    client = authenticated_client("operator")
+    first = client.post(url, json=payload, headers={"Idempotency-Key": "write-uncertain"})
+    assert first.status_code == 504
+    second = client.post(url, json=payload, headers={"Idempotency-Key": "write-not-retried"})
+    assert second.status_code == 409
+    assert "operation_unknown" in second.json()["error"]["message"]
+    assert state["provisions"] == 1 and state["runs"] == 0
 
 
 def test_revision_history_compare_contracts_preserve_identity_and_current_asset_access(

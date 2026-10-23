@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
 from phlo_transform.assets import adapter_args, provider_is_active
 from phlo_transform.binary import require_binary, run_json
-from phlo_transform.settings import get_settings
+from phlo_transform.settings import TransformSettings, get_settings
 from phlo_transform.workspace import TransformWorkspace, load_workspace
 
 _MAX_SOURCE_BYTES = 256 * 1024
@@ -253,11 +253,56 @@ def read_model_draft(
     return {**found, "sql": files[found["path"]].decode("utf-8")}
 
 
+def preview_settings(
+    root: Path,
+    *,
+    ref: str,
+    required_ref: str | None = None,
+    required_catalog: str | None = None,
+    required_endpoint: str | None = None,
+    required_user: str | None = None,
+) -> TransformSettings:
+    """Validate local native prerequisites against the caller's attested preview binding."""
+    if not provider_is_active(root):
+        raise TransformEditorError("Phlo Transform is not the active provider.", status=503)
+    if required_ref is not None and required_ref != ref:
+        raise TransformEditorError(
+            "The preview binding does not match the draft reference.", status=503
+        )
+    if ref != "main" and not all(
+        (required_ref, required_catalog, required_endpoint, required_user)
+    ):
+        raise TransformEditorError(
+            "A complete preview binding is required for this reference.", status=503
+        )
+    settings = get_settings(root)
+    require_binary(root, settings)
+    if settings.adapter != "trino" or not settings.trino_endpoint or not settings.trino_catalog:
+        raise TransformEditorError(
+            "Read-only planning requires an explicitly configured Trino endpoint and catalog.",
+            status=503,
+        )
+    if required_catalog is not None and settings.trino_catalog != required_catalog:
+        raise TransformEditorError(
+            "The engine catalog does not match the selected environment.", status=503
+        )
+    if required_endpoint is not None and (
+        settings.trino_endpoint.rstrip("/") != required_endpoint.rstrip("/")
+        or settings.trino_user != required_user
+    ):
+        raise TransformEditorError(
+            "The engine connection does not match the environment's read-only preview identity.",
+            status=503,
+        )
+    return settings
+
+
 def compile_model_draft(
     root: Path,
     model: str,
     *,
     allowed_sources: set[str],
+    required_ref: str | None = None,
     required_catalog: str | None = None,
     required_endpoint: str | None = None,
     required_user: str | None = None,
@@ -265,13 +310,15 @@ def compile_model_draft(
     **identity: Any,
 ) -> dict[str, Any]:
     record = read_model_draft(root, model, **identity)
-    # This phase cannot promise isolation for arbitrary environment labels.
-    if record["ref"] != "main":
-        raise TransformEditorError(
-            "Candidate compilation requires a verified candidate catalog binding; only the main read-only plan is available."
-        )
     directory = _artifact(root, record["draft_id"], record["artifact_id"])
-    settings = get_settings(root)
+    settings = preview_settings(
+        root,
+        ref=record["ref"],
+        required_ref=required_ref,
+        required_catalog=required_catalog,
+        required_endpoint=required_endpoint,
+        required_user=required_user,
+    )
     binary = require_binary(root, settings)
     check, checked = run_json(binary, ["check"], settings=settings, root=directory)
     if check is None:
@@ -294,23 +341,6 @@ def compile_model_draft(
     }
     if not checked.ok:
         return result
-    if settings.adapter != "trino" or not settings.trino_endpoint or not settings.trino_catalog:
-        raise TransformEditorError(
-            "Read-only planning requires an explicitly configured Trino endpoint and catalog.",
-            status=503,
-        )
-    if required_catalog is not None and settings.trino_catalog != required_catalog:
-        raise TransformEditorError(
-            "The engine catalog does not match the selected environment.", status=503
-        )
-    if required_endpoint is not None and (
-        (settings.trino_endpoint or "").rstrip("/") != required_endpoint.rstrip("/")
-        or settings.trino_user != required_user
-    ):
-        raise TransformEditorError(
-            "The engine connection does not match the environment's read-only preview identity.",
-            status=503,
-        )
     listed, listed_invocation = run_json(binary, ["list"], settings=settings, root=directory)
     if listed is None or not listed_invocation.ok:
         raise TransformEditorError("The engine did not report the draft source graph.", status=502)

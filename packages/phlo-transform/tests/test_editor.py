@@ -8,14 +8,20 @@ from phlo_transform import editor
 from phlo_transform.binary import Invocation
 
 
-def save(root: Path, sql: str = "SELECT batch_id FROM gold.batch_release_metrics", **updates):
+def save(
+    root: Path,
+    sql: str = "SELECT batch_id FROM gold.batch_release_metrics",
+    *,
+    ref="main",
+    **updates,
+):
     source = editor.read_model_source(root, "review.inspection")
     return editor.save_model_draft(
         root,
         "review.inspection",
         actor="author",
         env="sandbox",
-        ref="main",
+        ref=ref,
         sql=sql,
         source_digest=source["source_digest"],
         workspace_digest=source["workspace_digest"],
@@ -117,9 +123,11 @@ def invocation(code=0):
     return Invocation(command=("engine",), returncode=code, stdout="", stderr="")
 
 
-def test_compile_uses_engine_reports_and_never_applies_or_materializes(editable, monkeypatch):
+@pytest.mark.parametrize("ref", ["main", "release_test"])
+def test_compile_uses_engine_reports_and_never_applies_or_materializes(editable, monkeypatch, ref):
     root, _ = editable
-    draft = save(root)
+    editor.get_settings(root).trino_user = "phlo_api_preview_sandbox"
+    draft = save(root, ref=ref)
     calls = []
 
     def engine(binary, args, **kwargs):
@@ -155,10 +163,14 @@ def test_compile_uses_engine_reports_and_never_applies_or_materializes(editable,
         "review.inspection",
         actor="author",
         env="sandbox",
-        ref="main",
+        ref=ref,
         draft_id=draft["draft_id"],
         revision=1,
         allowed_sources={"gold.batch_release_metrics"},
+        required_ref=ref,
+        required_catalog="iceberg",
+        required_endpoint="http://trino:8080",
+        required_user="phlo_api_preview_sandbox",
         trusted_ca_file="/mounted/preview-ca.pem",
     )
     assert calls == ["check", "list", "plan"]
@@ -252,7 +264,32 @@ def test_engine_cannot_plan_through_an_unverified_catalog_or_connection(
             **constraints,
         )
     assert caught.value.status == 503
-    assert calls == ["check"]
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        {},
+        {
+            "required_ref": "main",
+            "required_catalog": "iceberg",
+            "required_endpoint": "http://trino:8080",
+            "required_user": "preview",
+        },
+        {
+            "required_ref": "release_test",
+            "required_catalog": "other",
+            "required_endpoint": "http://trino:8080",
+            "required_user": "preview",
+        },
+    ],
+)
+def test_custom_reference_requires_its_exact_complete_preview_binding(editable, binding):
+    root, _ = editable
+    with pytest.raises(editor.TransformEditorError) as caught:
+        editor.preview_settings(root, ref="release_test", **binding)
+    assert caught.value.status == 503
 
 
 def test_revision_history_is_principal_environment_ref_model_scoped_and_verified(editable):

@@ -29,6 +29,15 @@ def _provider():
         raise BackendUnavailableError("The candidate query provider is not installed.") from exc
 
 
+def preflight_candidate() -> None:
+    """Check local provider/configuration prerequisites without reserving or writing a candidate."""
+    try:
+        import_module("phlo_iceberg.catalog")
+        _provider().catalog_properties(project_root())
+    except (ImportError, OSError, ValueError) as exc:
+        raise BackendUnavailableError("Candidate provider configuration is unavailable.") from exc
+
+
 async def _nessie(method: str, path: str, **kwargs: Any) -> Any:
     from phlo_api.api.v1_branch_workflows import _nessie as request
 

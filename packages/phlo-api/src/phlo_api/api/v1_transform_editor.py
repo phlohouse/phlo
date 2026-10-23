@@ -15,6 +15,7 @@ from sqlglot.optimizer.scope import traverse_scope
 
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.operation_controls import (
+    MutationRejected,
     audit_operation,
     project_root,
     replay_or_execute_async,
@@ -270,6 +271,7 @@ async def v1_transform_model_compile(
         project_root(),
         model_id,
         allowed_sources=visible_sources,
+        required_ref=ref,
         required_catalog=catalog,
         required_endpoint=endpoint,
         required_user=f"phlo_api_preview_{env}",
@@ -385,11 +387,19 @@ async def v1_transform_model_execute(
     runtime = _runtime()
 
     async def execute() -> dict[str, Any]:
-        compiled = await v1_transform_model_compile(request, model_id, draft_id, revision, env)
-        if compiled.status != "ready":
-            raise HTTPException(
-                422, "The saved revision must compile successfully before candidate execution."
-            )
+        # Compilation is read-only. Its rejection cannot make a candidate write uncertain.
+        try:
+            compiled = await v1_transform_model_compile(request, model_id, draft_id, revision, env)
+            if compiled.status != "ready":
+                raise HTTPException(
+                    422, "The saved revision must compile successfully before candidate execution."
+                )
+        except HTTPException as exc:
+            raise MutationRejected(exc.status_code, exc.detail, headers=exc.headers) from exc
+        except Exception as exc:
+            raise MutationRejected(
+                503, "Native compilation prerequisites are unavailable."
+            ) from exc
         execution_id = str(uuid4())
         await _call(
             "prepare_model_execution",
