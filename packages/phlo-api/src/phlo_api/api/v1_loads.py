@@ -31,6 +31,9 @@ class _CsvObservationIdentity(TypedDict):
     upload_id: str
     review_version: int
     recipe_digest: str
+    upload_filename: str
+    upload_created_at: datetime
+    upload_actor: str
 
 
 class LoadObservation(WireModel):
@@ -42,6 +45,11 @@ class LoadObservation(WireModel):
     relation: str | None
     status: str
     observed_at: datetime | None
+    timestamp_basis: Literal[
+        "receipt", "materialization", "run_created", "run_started", "run_ended", "unavailable"
+    ] = "unavailable"
+    run_started_at: datetime | None = None
+    run_ended_at: datetime | None = None
     rows: int | None = Field(default=None, ge=0)
     rows_basis: str | None = None
     byte_count: int | None = Field(default=None, ge=0)
@@ -52,6 +60,9 @@ class LoadObservation(WireModel):
     ref_hash: str | None = None
     snapshot_id: str | None = None
     upload_id: str | None = None
+    upload_filename: str | None = None
+    upload_created_at: datetime | None = None
+    upload_actor: str | None = None
     review_version: int | None = None
     recipe_digest: str | None = None
     detail: str
@@ -103,6 +114,9 @@ async def _csv_observations(request: Request, env: Environment) -> list[LoadObse
             "upload_id": receipt.upload_id,
             "review_version": receipt.review_version,
             "recipe_digest": receipt.recipe_digest,
+            "upload_filename": upload.filename,
+            "upload_created_at": datetime.fromisoformat(upload.created_at),
+            "upload_actor": upload.actor,
         }
         if receipt.run_id is None or await _visible(request, "v1_run", run_id=receipt.run_id):
             items.append(
@@ -158,6 +172,17 @@ def _ingestion_observation(asset: assets.AssetView, run: jobs.Run, ref: str) -> 
         relation=asset.relation,
         status=f"run_{run.status.lower()}",
         observed_at=write.timestamp if write else run.ended_at or run.started_at or run.created_at,
+        timestamp_basis=(
+            "materialization"
+            if write
+            else "run_ended"
+            if run.ended_at
+            else "run_started"
+            if run.started_at
+            else "run_created"
+        ),
+        run_started_at=run.started_at,
+        run_ended_at=run.ended_at,
         rows=write.rows_inserted if write else None,
         rows_basis="Recorded rows inserted by this asset/run"
         if write and write.rows_inserted is not None

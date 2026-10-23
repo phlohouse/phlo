@@ -276,3 +276,64 @@ def test_unselected_qualifier_extension_preserves_existing_candidate_recipe_dige
         json.dumps(old, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert _recipe(record) == expected
+
+
+def test_private_inventory_and_archive_preserve_bytes_and_do_not_reclaim_quota(
+    project, monkeypatch
+):
+    import security_test_support
+    from phlo.rbac.models import CanonicalAction
+
+    monkeypatch.setitem(
+        security_test_support._ACTIONS_BY_PRINCIPAL,
+        "operator",
+        {
+            *security_test_support._ACTIONS_BY_PRINCIPAL["operator"],
+            CanonicalAction.ASSET_MANAGE.value,
+        },
+    )
+    monkeypatch.setattr(uploads, "MAX_UPLOADS", 1)
+    raw = b"id\n71\n"
+    original = retain(raw).json()
+    client = authenticated_client("operator")
+    path = f"/api/v1/uploads/csv/{original['upload_id']}"
+    listing = client.get("/api/v1/uploads/csv?env=sandbox").json()
+    assert listing["items"][0]["filename"] == "stability.csv"
+    assert listing["items"][0]["created_at"] == original["created_at"]
+    assert (
+        authenticated_client("viewer")
+        .post(path + "/archive?env=sandbox", json={"archived": True, "reason": "reviewed"})
+        .status_code
+        == 403
+    )
+    other = authenticated_client("operator")
+    other.headers["x-test-subject"] = "another"
+    assert other.get("/api/v1/uploads/csv?env=sandbox").json()["total"] == 0
+    assert (
+        other.post(
+            path + "/archive?env=sandbox", json={"archived": True, "reason": "reviewed"}
+        ).status_code
+        == 404
+    )
+    archived = client.post(
+        path + "/archive?env=sandbox",
+        json={"archived": True, "reason": "Superseded by signed batch"},
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["archived_at"] and archived.json()["version"] == original["version"]
+    assert client.get("/api/v1/uploads/csv?env=sandbox").json()["total"] == 0
+    assert client.get("/api/v1/uploads/csv?env=sandbox&include_archived=true").json()["total"] == 1
+    assert uploads._file_path(original["upload_id"]).read_bytes() == raw
+    assert (
+        client.put(
+            path + "/columns?env=sandbox",
+            json={"expected_version": 1, "columns": original["columns"]},
+        ).status_code
+        == 409
+    )
+    assert retain(b"id\n99\n").status_code == 422
+    restored = client.post(
+        path + "/archive?env=sandbox", json={"archived": False, "reason": "Reopen evidence"}
+    ).json()
+    assert restored["archived_at"] is None and restored["checksum"] == original["checksum"]
+    assert client.get(path + "?env=sandbox").json()["raw_rows"] == [{"id": "71"}]

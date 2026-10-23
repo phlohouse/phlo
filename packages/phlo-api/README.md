@@ -74,3 +74,35 @@ phlo services start --service phlo-api
 | `/api/quality`  | Quality check results     |
 | `/api/assets`   | Dagster asset information |
 | `/api/branches` | Nessie branch management  |
+
+## Retained CSV candidate lifecycle
+
+`GET /api/v1/uploads/csv?env=<environment>` lists the current actor's retained
+uploads with their original filename, checksum, and timestamps. The optional
+`include_archived=true` also returns archived uploads. Other actors' uploads
+are not visible.
+
+`POST /api/v1/uploads/csv/{upload_id}/archive?env=<environment>` accepts
+`{"archived": true, "reason": "Superseded review"}`. Use `false` to restore the
+upload. Archiving preserves the upload bytes, review recipe, generated source,
+candidate receipt, run evidence, and mutation fences. It neither reclaims
+disk space nor resets retained-byte and global collection limits. Archived
+uploads cannot change review, prepare a destination, plan, or load.
+
+The candidate endpoints below use the same upload path and environment:
+
+- `GET .../candidate/review` returns immutable evidence and a stale marker.
+  A changed base prevents release eligibility but permits a bounded preview
+  when the exact candidate hash and snapshot still verify. Candidate drift
+  or unavailable providers suppress rows rather than hiding the receipt.
+- `POST .../candidate/reconcile` verifies the confirmed Dagster run, immutable
+  plan identity, table snapshot, and reviewed row count before recording a
+  loaded result. It never launches a run or retries a write. Without an exact
+  run receipt, an uncertain launch remains unresolved. A partially prepared
+  catalog can recover only from a complete recorded binding with no later
+  branch writes. Reconciliation never adopts an unrecorded catalog.
+- `GET .../candidate/handoff` exports the attested contract and workflow files
+  with checksums and candidate evidence. The generated files remain
+  candidate-specific until a source review adapts and commits them. Existing
+  branch checks, trial merge, and signed merge remain separate authorised POST
+  operations. Export does not publish source or promote candidate data.

@@ -28,7 +28,8 @@ def setup_products(monkeypatch, tmp_path):
     authority = build_dataset_authority(str(tmp_path), surface=GovernanceSurface(tables={}))
     monkeypatch.setattr(products, "_authority", lambda: authority)
 
-    async def assets(*args, **kwargs):
+    async def assets(request, env):
+        products._target(request, env)
         return [
             SimpleNamespace(id="gold/batch_release_metrics", relation="gold.batch_release_metrics"),
             SimpleNamespace(id="silver/qc_results", relation="silver.qc_results"),
@@ -110,9 +111,20 @@ def test_updates_require_current_version_and_keep_original_creation(setup_produc
     )
 
 
-def test_atomic_cas_rejects_second_writer(setup_products, monkeypatch):
+@pytest.mark.parametrize("action", ["update", "archive", "restore"])
+def test_atomic_cas_rejects_second_writer(setup_products, monkeypatch, action):
     client = authenticated_client("operator")
     assert client.post("/api/v1/data-products?env=sandbox", json=setup_products).status_code == 201
+    expected_version = 1
+    if action == "restore":
+        assert (
+            client.post(
+                "/api/v1/data-products/batch-record-cgt04/archive?env=sandbox",
+                json={"expected_version": 1},
+            ).status_code
+            == 200
+        )
+        expected_version = 2
 
     async def visible(*args):
         return set(setup_products["member_dataset_ids"])
@@ -131,10 +143,27 @@ def test_atomic_cas_rejects_second_writer(setup_products, monkeypatch):
         barrier.wait()
         request = Request({"type": "http", "query_string": b"env=sandbox", "headers": []})
         payload = products.ProductDeclaration.model_validate(
-            {**setup_products, "expected_version": 1, "name": name}
+            {**setup_products, "expected_version": expected_version, "name": name}
         )
         try:
-            asyncio.run(products._write_product(request, "sandbox", payload))
+            if action == "update":
+                asyncio.run(
+                    products.v1_data_product_update(request, payload.product_id, payload, "sandbox")
+                )
+            else:
+                endpoint = (
+                    products.v1_data_product_archive
+                    if action == "archive"
+                    else products.v1_data_product_restore
+                )
+                asyncio.run(
+                    endpoint(
+                        request,
+                        payload.product_id,
+                        products.ProductLifecycleWrite(expected_version=expected_version),
+                        "sandbox",
+                    )
+                )
         except ConflictError:
             return 409
         return 200
@@ -142,7 +171,7 @@ def test_atomic_cas_rejects_second_writer(setup_products, monkeypatch):
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(save, ["Writer one", "Writer two"]))
     assert sorted(outcomes) == [200, 409]
-    assert products._records("sandbox")[0].version == 2
+    assert products._records("sandbox")[0].version == expected_version + 1
 
 
 def test_readers_and_anonymous_cannot_create_products(setup_products):
@@ -235,3 +264,160 @@ def test_product_collection_and_membership_are_bounded(setup_products):
         ).status_code
         == 422
     )
+
+    base = "/api/v1/data-products"
+    url = f"{base}/product-0"
+    archived = client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1})
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["version"] == 2 and archived.json()["status"] == "archived"
+    assert len(client.get(f"{base}?env=sandbox").json()["items"]) == 499
+    assert len(client.get(f"{base}?env=sandbox&include_archived=true").json()["items"]) == 500
+    assert client.post(f"{base}?env=sandbox", json=setup_products).status_code == 201
+    assert len(client.get(f"{base}?env=sandbox&include_archived=true").json()["items"]) == 501
+    assert (
+        client.post(f"{url}/restore?env=sandbox", json={"expected_version": 2}).status_code == 409
+    )
+    assert (
+        client.post(
+            f"{base}/product-1/archive?env=sandbox", json={"expected_version": 1}
+        ).status_code
+        == 200
+    )
+    restored = client.post(f"{url}/restore?env=sandbox", json={"expected_version": 2})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["status"] == "draft" and restored.json()["version"] == 3
+
+    products.mutate_collection(
+        products.project_root(),
+        products._COLLECTION,
+        products._legacy_path(),
+        lambda items: (
+            items
+            + [{**record, "product_id": f"archived-{i}", "status": "archived"} for i in range(498)]
+        ),
+    )
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 3}).status_code == 200
+    )
+    assert (
+        client.post(
+            f"{base}?env=sandbox", json={**setup_products, "product_id": "last-slot"}
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            f"{base}/last-slot/archive?env=sandbox", json={"expected_version": 1}
+        ).status_code
+        == 200
+    )
+    for index in range(3):
+        rejected = client.post(
+            f"{base}?env=sandbox", json={**setup_products, "product_id": f"overflow-{index}"}
+        )
+        assert rejected.status_code == 422 and "retained" in rejected.text
+    retained = client.get(f"{base}?env=sandbox&include_archived=true")
+    assert retained.status_code == 200 and len(retained.json()["items"]) == 1000
+    assert client.get(f"{url}/export?env=sandbox").json()["version"] == 4
+    assert (
+        client.post(f"{url}/restore?env=sandbox", json={"expected_version": 4}).status_code == 200
+    )
+
+
+def test_product_lifecycle_retains_definition_and_export_without_publication(
+    setup_products, monkeypatch, tmp_path
+):
+    import json
+
+    client = authenticated_client("operator")
+    base = "/api/v1/data-products"
+    url = f"{base}/batch-record-cgt04"
+    original = client.post(f"{base}?env=sandbox", json=setup_products).json()
+
+    async def no_assets(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(products, "_assets", no_assets)
+    archived = client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1})
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["created_at"] == original["created_at"]
+    assert archived.json()["status"] == "archived" and archived.json()["version"] == 2
+    assert all(member["canonical"] is None for member in archived.json()["members"])
+    assert client.get(f"{base}?env=sandbox").json()["items"] == []
+    assert (
+        client.get(f"{base}?env=sandbox&include_archived=true").json()["items"][0]["status"]
+        == "archived"
+    )
+    assert client.get(f"{url}?env=sandbox").json()["sharing_status"] == "unavailable"
+    assert (
+        client.put(f"{url}?env=sandbox", json={**setup_products, "expected_version": 2}).status_code
+        == 409
+    )
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code == 409
+    )
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 2}).status_code == 409
+    )
+    exported = authenticated_client("viewer").get(f"{url}/export?env=sandbox")
+    assert exported.status_code == 200, exported.text
+    assert exported.json() == {
+        "format": "phlo.product-draft",
+        "schema_version": 1,
+        "env": "sandbox",
+        "version": 2,
+        "status": "archived",
+        "definition": {
+            key: value for key, value in setup_products.items() if key != "expected_version"
+        },
+    }
+    # No live source is needed to restore retained metadata. Members remain unavailable.
+    restored = client.post(f"{url}/restore?env=sandbox", json={"expected_version": 2})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["version"] == 3 and restored.json()["status"] == "draft"
+    assert restored.json()["sharing_status"] == "unavailable"
+    records = [
+        json.loads(line)
+        for line in (tmp_path / ".phlo/audit/operations.jsonl").read_text().splitlines()
+    ]
+    evidence = [
+        r for r in records if r["operation"] in {"data_product.archive", "data_product.restore"}
+    ]
+    assert [r["result"] for r in evidence] == [
+        {"version": 2, "status": "archived"},
+        {"version": 3, "status": "draft"},
+    ]
+    assert all(r["subject"] == "test:operator" for r in evidence)
+
+
+def test_product_lifecycle_permissions_cas_and_environment(setup_products):
+    client = authenticated_client("operator")
+    base = "/api/v1/data-products"
+    url = f"{base}/batch-record-cgt04"
+    assert client.post(f"{base}?env=sandbox", json=setup_products).status_code == 201
+    for action in ("archive", "restore"):
+        assert (
+            authenticated_client("viewer")
+            .post(f"{url}/{action}?env=sandbox", json={"expected_version": 1})
+            .status_code
+            == 403
+        )
+        assert (
+            client.post(f"{url}/{action}?env=prod", json={"expected_version": 1}).status_code == 404
+        )
+    assert TestClient(app).get(f"{url}/export?env=sandbox").status_code == 401
+    assert client.get(f"{url}/export?env=prod").status_code == 404
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 0}).status_code == 422
+    )
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code == 200
+    )
+    assert (
+        client.put(f"{url}?env=sandbox", json={**setup_products, "expected_version": 2}).status_code
+        == 409
+    )
+    assert (
+        client.post(f"{url}/restore?env=sandbox", json={"expected_version": 1}).status_code == 409
+    )
+    assert client.get(f"{url}?env=sandbox").json()["version"] == 2

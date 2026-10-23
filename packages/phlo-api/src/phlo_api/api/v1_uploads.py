@@ -114,6 +114,20 @@ class CsvUpload(WireModel):
     errors: list[CsvColumnError] = Field(default_factory=list, max_length=100)
     reviewed_by: str | None = None
     reviewed_at: str | None = None
+    archived_at: str | None = None
+    archived_by: str | None = None
+    archive_reason: str | None = None
+
+
+class UploadArchive(WireModel):
+    archived: bool
+    reason: str = Field(min_length=1, max_length=1000, pattern=r"\S")
+
+
+class CsvUploadPage(WireModel):
+    env: Environment
+    items: list[CsvUpload]
+    total: int
 
 
 class CsvOutputColumn(WireModel):
@@ -311,6 +325,61 @@ def _audit(auth: dict[str, Any], record: CsvUpload, operation: str) -> None:
     )
 
 
+@router.get("/uploads/csv", response_model=CsvUploadPage)
+def v1_csv_upload_list(
+    request: Request, env: Environment = Query(), include_archived: bool = False
+) -> CsvUploadPage:
+    _target(request, env, allowed_query=frozenset({"env", "include_archived"}))
+    principal = get_request_principal(request)
+    if principal is None:
+        raise HTTPException(401, "Authentication is required.")
+    items = [
+        item
+        for item in _records()
+        if item.env == env
+        and item.actor == principal.subject
+        and (include_archived or not item.archived_at)
+    ]
+    items.sort(key=lambda item: item.created_at, reverse=True)
+    return CsvUploadPage(env=env, items=items, total=len(items))
+
+
+@router.post("/uploads/csv/{upload_id}/archive", response_model=CsvUpload)
+async def v1_csv_upload_archive(
+    request: Request, upload_id: str, payload: UploadArchive, env: Environment = Query()
+) -> CsvUpload:
+    """Hide or restore evidence; never remove workflow inputs or mutation fences."""
+    _target(request, env)
+    auth = _upload_auth(request)
+    async with _UPLOAD_LOCK:
+        record = _record(request, env, upload_id)
+        _verified_bytes(record)
+        updated = record.model_copy(
+            update={
+                "archived_at": datetime.now(UTC).isoformat() if payload.archived else None,
+                "archived_by": auth["subject"] if payload.archived else None,
+                "archive_reason": payload.reason if payload.archived else None,
+            }
+        )
+
+        def archive(items):
+            current = next(item for item in items if item.get("upload_id") == upload_id)
+            if CsvUpload.model_validate(current) != record:
+                raise ConflictError("Upload changed before archival; reload before continuing.")
+            return [updated.model_dump() if item is current else item for item in items]
+
+        mutate_collection(project_root(), _COLLECTION, _legacy_path(), archive)
+        audit_operation(
+            operation="csv_upload.archive" if payload.archived else "csv_upload.restore",
+            target=upload_id,
+            dry_run=False,
+            auth=auth,
+            payload={"reason": payload.reason, "checksum": record.checksum},
+            result={"archived_at": updated.archived_at, "evidence_retained": True},
+        )
+        return updated
+
+
 @router.post("/uploads/csv", response_model=CsvUploadView, status_code=201)
 async def v1_csv_upload(request: Request, env: Environment = Query()) -> CsvUploadView:
     _target(request, env)
@@ -396,6 +465,8 @@ def v1_csv_upload_review(
     _target(request, env)
     auth = _upload_auth(request)
     record = _record(request, env, upload_id)
+    if record.archived_at:
+        raise ConflictError("Restore the archived upload before changing its review.")
     data = _verified_bytes(record)
     candidates = load_collection(
         project_root(), "v1_csv_candidates", project_root() / ".phlo/csv-candidates.json"

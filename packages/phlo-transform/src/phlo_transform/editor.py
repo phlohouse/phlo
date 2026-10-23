@@ -109,6 +109,7 @@ def read_model_source(root: Path, model: str) -> dict[str, Any]:
     return {
         "model": model,
         "path": relative,
+        "project_path": (workspace.root / relative).relative_to(root.resolve()).as_posix(),
         "sql": files[relative].decode("utf-8"),
         "source_digest": _digest(files[relative]),
         "workspace_digest": _workspace_digest(files),
@@ -157,7 +158,7 @@ def save_model_draft(
 ) -> dict[str, Any]:
     if len(sql.encode("utf-8")) > _MAX_SOURCE_BYTES or not sql.strip():
         raise TransformEditorError("Provide non-empty SQL within the 256 KiB editor limit.")
-    _, relative, files = _source(root, model)
+    workspace, relative, files = _source(root, model)
     if _digest(files[relative]) != source_digest or _workspace_digest(files) != workspace_digest:
         raise TransformEditorError(
             "The source workspace changed. Reload before saving a draft.",
@@ -181,11 +182,15 @@ def save_model_draft(
         "env": env,
         "ref": ref,
         "path": relative,
+        "project_path": (workspace.root / relative).relative_to(root.resolve()).as_posix(),
         "source_digest": source_digest,
         "workspace_digest": workspace_digest,
         "revision_digest": _workspace_digest(files),
         "sql_digest": _digest(files[relative]),
         "created_at": datetime.now(UTC).isoformat(),
+        "archived_at": None,
+        "archived_by": None,
+        "archive_reason": None,
     }
     try:
         for name, content in files.items():
@@ -209,6 +214,12 @@ def save_model_draft(
                     "The draft changed. Reload its latest revision before saving.",
                     reason="conflict",
                     status=409,
+                )
+            if history and any(
+                item.get("archived_at") for item in history if item["revision"] == expected_revision
+            ):
+                raise TransformEditorError(
+                    "Restore the latest revision before editing this draft.", status=409
                 )
             if len(records) >= 1000:
                 raise TransformEditorError("The transform draft revision limit was reached.")
@@ -251,6 +262,35 @@ def read_model_draft(
             "Draft revision integrity verification failed.", reason="tampered", status=409
         )
     return {**found, "sql": files[found["path"]].decode("utf-8")}
+
+
+def archive_model_draft(
+    root: Path, model: str, *, archived: bool, reason: str, **identity: Any
+) -> dict[str, Any]:
+    """Preserve immutable source and its identity while changing retention visibility."""
+    saved = read_model_draft(root, model, **identity)
+    changes = {
+        "archived_at": datetime.now(UTC).isoformat() if archived else None,
+        "archived_by": identity["actor"] if archived else None,
+        "archive_reason": reason if archived else None,
+    }
+
+    def update(current):
+        records = _records(current)
+        record = next(
+            item
+            for item in records
+            if item["draft_id"] == saved["draft_id"] and item["revision"] == saved["revision"]
+        )
+        if any(saved[key] != value for key, value in record.items()):
+            raise TransformEditorError("Revision changed during archival.", status=409)
+        return {
+            "schema_version": 1,
+            "items": [{**item, **changes} if item is record else item for item in records],
+        }
+
+    get_settings_service().mutate(SettingsScope.GLOBAL, _namespace(root), update)
+    return {**saved, **changes}
 
 
 def preview_settings(
@@ -310,6 +350,8 @@ def compile_model_draft(
     **identity: Any,
 ) -> dict[str, Any]:
     record = read_model_draft(root, model, **identity)
+    if record.get("archived_at"):
+        raise TransformEditorError("Restore the archived revision before compiling it.", status=409)
     directory = _artifact(root, record["draft_id"], record["artifact_id"])
     settings = preview_settings(
         root,
@@ -397,7 +439,9 @@ def compile_model_draft(
     return result
 
 
-def list_model_drafts(root: Path, model: str, *, actor: str, env: str, ref: str) -> dict[str, Any]:
+def list_model_drafts(
+    root: Path, model: str, *, actor: str, env: str, ref: str, include_archived: bool = False
+) -> dict[str, Any]:
     """Return bounded, verified revision metadata from this exact principal scope."""
     state = get_settings_service().get(SettingsScope.GLOBAL, _namespace(root))
     records = [
@@ -407,6 +451,7 @@ def list_model_drafts(root: Path, model: str, *, actor: str, env: str, ref: str)
         and item.get("actor") == actor
         and item.get("env") == env
         and item.get("ref") == ref
+        and (include_archived or not item.get("archived_at"))
     ]
     records.sort(key=lambda item: (item["created_at"], item["revision"]), reverse=True)
     summaries = []
@@ -421,6 +466,9 @@ def list_model_drafts(root: Path, model: str, *, actor: str, env: str, ref: str)
         "source_digest",
         "revision_digest",
         "sql_digest",
+        "archived_at",
+        "archived_by",
+        "archive_reason",
     )
     for record in records[:100]:
         verified = read_model_draft(
@@ -432,7 +480,7 @@ def list_model_drafts(root: Path, model: str, *, actor: str, env: str, ref: str)
             draft_id=record["draft_id"],
             revision=record["revision"],
         )
-        summaries.append({key: verified[key] for key in keys})
+        summaries.append({key: verified.get(key) for key in keys})
     return {"items": summaries, "total": len(records), "truncated": len(records) > 100}
 
 

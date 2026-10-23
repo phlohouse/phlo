@@ -67,8 +67,23 @@ _OPERATIONS = (
     | {
         "v1_metric_model_create",
         "v1_metric_model_update",
+        "v1_metric_model_export",
+        "v1_metric_model_archive",
+        "v1_metric_model_restore",
         "v1_data_product_create",
         "v1_data_product_update",
+        "v1_data_product_export",
+        "v1_data_product_archive",
+        "v1_data_product_restore",
+        "v1_csv_upload_list",
+        "v1_csv_upload_archive",
+        "v1_csv_candidate_review",
+        "v1_csv_candidate_reconcile",
+        "v1_csv_candidate_handoff",
+        "v1_transform_model_draft_archive",
+        "v1_transform_model_draft_handoff",
+        "v1_transform_model_execution_archive",
+        "v1_transform_model_execution_reconcile",
     }
 )
 
@@ -112,9 +127,32 @@ def _native_preflight(env: Environment, target: EnvironmentTarget) -> None:
         ) from exc
 
 
+def _lifecycle_prerequisites(request: Request, operation: str) -> None:
+    """Archiving retained records does not need an executable engine or live query binding."""
+    if operation in {
+        "v1_csv_upload_archive",
+        "v1_csv_candidate_reconcile",
+        "v1_transform_model_draft_archive",
+        "v1_transform_model_execution_archive",
+        "v1_transform_model_execution_reconcile",
+    }:
+        require_scope(request, "project:write")
+    if operation in {"v1_csv_candidate_reconcile", "v1_transform_model_execution_reconcile"}:
+        require_scope(request, "lakehouse:operate")
+        import_module("phlo_api.candidate_runtime").preflight_candidate()
+    if operation in {
+        "v1_transform_model_draft_archive",
+        "v1_transform_model_draft_handoff",
+        "v1_transform_model_execution_archive",
+        "v1_transform_model_execution_reconcile",
+    }:
+        import_module("phlo_transform.editor")
+
+
 def _local_prerequisites(
     request: Request, env: Environment, target: EnvironmentTarget, operation: str
 ) -> None:
+    _lifecycle_prerequisites(request, operation)
     if operation in _QUERY:
         _mapped_catalog(request, env)
     if operation in _JOBS | _BRANCHES:

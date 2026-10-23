@@ -42,7 +42,12 @@ def _directory(root: Path, execution_id: str) -> Path:
 
 
 def _store(
-    root: Path, record: dict[str, Any], *, create: bool = False, expected_status: str | None = None
+    root: Path,
+    record: dict[str, Any],
+    *,
+    create: bool = False,
+    expected_status: str | None = None,
+    expected_record: dict[str, Any] | None = None,
 ) -> None:
     def update(current):
         records = _records(current)
@@ -51,6 +56,10 @@ def _store(
         )
         if expected_status and (existing is None or existing.get("status") != expected_status):
             raise TransformEditorError("Execution state changed; do not rerun it.", status=409)
+        if expected_record is not None and existing != expected_record:
+            raise TransformEditorError(
+                "Execution evidence changed; reload before continuing.", status=409
+            )
         if create and len(records) >= 1000:
             raise TransformEditorError("Execution history limit reached.", status=409)
         if create and existing:
@@ -70,9 +79,16 @@ def _store(
 
 
 def prepare_model_execution(
-    root: Path, model: str, *, execution_id: str, **identity: Any
+    root: Path,
+    model: str,
+    *,
+    execution_id: str,
+    operation_claim: dict[str, str] | None = None,
+    **identity: Any,
 ) -> dict[str, Any]:
     draft = read_model_draft(root, model, **identity)
+    if draft.get("archived_at"):
+        raise TransformEditorError("Restore the archived revision before execution.", status=409)
     files = _inputs(_artifact(root, draft["draft_id"], draft["artifact_id"]))
     directory = _directory(root, execution_id)
     if directory.parent.exists():
@@ -97,6 +113,10 @@ def prepare_model_execution(
             "candidate_ref": None,
             "candidate_catalog": None,
             "report": None,
+            "operation_claim": operation_claim,
+            "archived_at": None,
+            "archived_by": None,
+            "archive_reason": None,
         }
         _store(root, record, create=True)
     except Exception:
@@ -140,6 +160,8 @@ def execute_model_draft(
     **identity: Any,
 ) -> dict[str, Any]:
     record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    if record.get("archived_at"):
+        raise TransformEditorError("Archived executions cannot be run.", status=409)
     if record["status"] != "prepared":
         raise TransformEditorError(
             "Execution already started; read its recorded outcome instead of rerunning.", status=409
@@ -248,14 +270,73 @@ def execute_model_draft(
         raise
 
 
-def list_model_executions(root: Path, model: str, **identity: Any) -> list[dict[str, Any]]:
+def list_model_executions(
+    root: Path, model: str, *, include_archived: bool = False, **identity: Any
+) -> list[dict[str, Any]]:
     state = get_settings_service().get(SettingsScope.GLOBAL, _storage(root))
     return [
         read_model_execution(root, model, execution_id=item["execution_id"], **identity)
         for item in _records(state.settings if state else None)
         if item.get("model") == model
         and all(item.get(key) == value for key, value in identity.items())
+        and (include_archived or not item.get("archived_at"))
     ]
+
+
+def archive_model_execution(
+    root: Path, model: str, *, execution_id: str, archived: bool, reason: str, **identity: Any
+) -> dict[str, Any]:
+    record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    if record["status"] in {"prepared", "running"}:
+        raise TransformEditorError("An active execution cannot be archived.", status=409)
+    updated = {
+        **record,
+        "archived_at": datetime.now(UTC).isoformat() if archived else None,
+        "archived_by": identity["actor"] if archived else None,
+        "archive_reason": reason if archived else None,
+    }
+    _store(root, updated, expected_record=record)
+    return updated
+
+
+def reconcile_model_execution(
+    root: Path, model: str, *, execution_id: str, preview: dict[str, Any], **identity: Any
+) -> dict[str, Any]:
+    """Record provider readback only for an already attested immutable native success."""
+    record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    report = record.get("report") or {}
+    planned = (record.get("plan") or {}).get("models") or []
+    results = report.get("models") or []
+    if (
+        record["status"] not in {"passed", "unknown"}
+        or not record.get("candidate_result_hash")
+        or record["candidate_result_hash"] != preview.get("ref_hash")
+        or (
+            record.get("candidate_snapshot_id") is not None
+            and str(record["candidate_snapshot_id"]) != str(preview.get("snapshot_id"))
+        )
+        or not preview.get("snapshot_id")
+        or report.get("status") != "passed"
+        or not report.get("run_id")
+        or report.get("environment") != record["candidate_ref"]
+        or len(planned) != 1
+        or len(results) != 1
+        or results[0].get("model") != model
+        or results[0].get("target") != planned[0].get("target")
+        or not str(results[0].get("target", "")).startswith(record["candidate_catalog"] + ".")
+    ):
+        raise TransformEditorError(
+            "Native success and pinned provider evidence do not agree; the operation stays fenced.",
+            status=409,
+        )
+    updated = {
+        **record,
+        "status": "passed",
+        "preview": preview,
+        "candidate_snapshot_id": str(preview["snapshot_id"]),
+    }
+    _store(root, updated, expected_record=record)
+    return updated
 
 
 def record_execution_preview(

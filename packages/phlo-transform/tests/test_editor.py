@@ -362,3 +362,44 @@ def test_source_comparison_does_not_hide_a_final_newline_revision(editable):
     )
     assert comparison["added_lines"] == 1 and comparison["removed_lines"] == 0
     assert comparison["unified_diff"] and "+" in comparison["unified_diff"]
+
+
+def test_revision_archive_preserves_source_and_immutable_evidence(editable):
+    root, workspace = editable
+    original = (workspace.root / "transforms/inspection.sql").read_bytes()
+    draft = save(root)
+    identity = {
+        "actor": "author",
+        "env": "sandbox",
+        "ref": "main",
+        "draft_id": draft["draft_id"],
+        "revision": 1,
+    }
+    archived = editor.archive_model_draft(
+        root, "review.inspection", archived=True, reason="Superseded review", **identity
+    )
+    assert archived["archived_at"] and archived["revision_digest"] == draft["revision_digest"]
+    assert read(root, draft)["sql"] == draft["sql"]
+    assert (
+        editor.list_model_drafts(
+            root, "review.inspection", actor="author", env="sandbox", ref="main"
+        )["total"]
+        == 0
+    )
+    history = editor.list_model_drafts(
+        root, "review.inspection", actor="author", env="sandbox", ref="main", include_archived=True
+    )
+    assert history["total"] == 1 and history["items"][0]["archive_reason"] == "Superseded review"
+    with pytest.raises(editor.TransformEditorError, match="Restore"):
+        save(root, draft_id=draft["draft_id"], expected_revision=1)
+    with pytest.raises(editor.TransformEditorError, match="Restore"):
+        editor.compile_model_draft(root, "review.inspection", allowed_sources=set(), **identity)
+    restored = editor.archive_model_draft(
+        root, "review.inspection", archived=False, reason="Reopen source review", **identity
+    )
+    assert restored["archived_at"] is None
+    assert (
+        restored["project_path"]
+        == (workspace.root / "transforms/inspection.sql").relative_to(root).as_posix()
+    )
+    assert (workspace.root / "transforms/inspection.sql").read_bytes() == original

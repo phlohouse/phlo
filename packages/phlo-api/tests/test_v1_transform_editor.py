@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from phlo_api.api import v1_transform_editor as editor
+from phlo_api.candidate_runtime import release_handoff
 from phlo_api.main import app
 from security_test_support import authenticated_client
 
@@ -184,6 +185,7 @@ def candidate_mocks(setup_editor, monkeypatch, *, preview_fails=False):
                 "candidate_ref": None,
                 "candidate_catalog": None,
                 "report": None,
+                "operation_claim": kwargs.get("operation_claim"),
             }
             return state["record"]
         if method == "execute_model_draft":
@@ -242,16 +244,31 @@ def candidate_mocks(setup_editor, monkeypatch, *, preview_fails=False):
         }
 
     monkeypatch.setattr(editor, "_call", call)
-    monkeypatch.setattr(
-        editor,
-        "_runtime",
-        lambda: SimpleNamespace(
-            provision_candidate=provision,
-            verify_candidate=verify,
-            candidate_connection=lambda binding: {"endpoint": "http://trino:8080", "user": "phlo"},
-            preview_candidate=preview,
-        ),
+    runtime = SimpleNamespace(
+        provision_candidate=provision,
+        verify_candidate=verify,
+        candidate_connection=lambda binding: {"endpoint": "http://trino:8080", "user": "phlo"},
+        preview_candidate=preview,
+        release_handoff=release_handoff,
     )
+
+    async def evidence(binding, *, expected_hash):
+        try:
+            observed = await runtime.verify_candidate(binding, expected_hash=expected_hash)
+        except HTTPException:
+            observed = None
+        return {
+            "stale": observed is None,
+            "eligible_for_release": observed is not None,
+            "reason": None if observed else "Candidate drifted.",
+            "base_hash": "e" * 64,
+            "current_base_hash": "e" * 64,
+            "candidate_hash": expected_hash,
+            "observed_candidate_hash": observed,
+        }
+
+    runtime.candidate_evidence = evidence
+    monkeypatch.setattr(editor, "_runtime", lambda: runtime)
     return draft, state
 
 
@@ -445,6 +462,7 @@ def test_execution_history_retains_native_evidence_but_withholds_unverifiable_ro
     async def changed(binding, *, expected_hash=None):
         raise HTTPException(409, "Candidate head no longer matches")
 
+    original_verify = runtime.verify_candidate
     runtime.verify_candidate = changed
     monkeypatch.setattr(editor, "_call", call)
     monkeypatch.setattr(editor, "_runtime", lambda: runtime)
@@ -454,3 +472,152 @@ def test_execution_history_retains_native_evidence_but_withholds_unverifiable_ro
     assert item["report"]["run_id"] == "actual-run" and item["status"] == "passed"
     assert item["preview"] is None
     assert state["record"]["preview"]["rows"], "Listing history must not rewrite recorded evidence."
+    runtime.verify_candidate = original_verify
+    complete = client.get(endpoint + "&include_archived=true")
+    assert complete.status_code == 200, complete.text
+    assert complete.json()["items"][0]["preview"]["rows"]
+    assert complete.json()["items"][0]["evidence"]["eligible_for_release"] is True
+    handoff_url = f"{base}/drafts/{draft['draft_id']}/1/handoff?env=sandbox&execution_id={created.json()['execution_id']}"
+    handoff = client.get(handoff_url)
+    assert handoff.status_code == 200, handoff.text
+    assert handoff.json()["candidate_evidence"]["eligible_for_release"] is True
+
+    async def no_sources(request, env):
+        return []
+
+    monkeypatch.setattr(editor, "_assets", no_sources)
+    revoked = client.get(endpoint)
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["items"][0]["preview"] is None
+    assert revoked.json()["items"][0]["report"]["run_id"] == "actual-run"
+    assert revoked.json()["items"][0]["evidence"]["eligible_for_release"] is False
+    denied_handoff = client.get(handoff_url)
+    assert denied_handoff.status_code == 200, denied_handoff.text
+    assert denied_handoff.json()["candidate_evidence"]["eligible_for_release"] is False
+    assert "source" in denied_handoff.json()["candidate_evidence"]["reason"].lower()
+
+
+def test_reconcile_preserved_success_resolves_unknown_claim_without_native_retry(
+    setup_editor, monkeypatch
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    original_audit = editor.audit_operation
+    monkeypatch.setattr(
+        editor, "audit_operation", lambda **kwargs: (_ for _ in ()).throw(OSError("audit offline"))
+    )
+    base, _ = paths(draft)
+    path = f"{base}/drafts/{draft['draft_id']}/1/executions"
+    client = authenticated_client("operator")
+    payload = {"revision_digest": draft["revision_digest"], "base_hash": "e" * 64}
+    headers = {"Idempotency-Key": "lost-success-response"}
+    failed = client.post(path + "?env=sandbox", json=payload, headers=headers)
+    assert failed.status_code == 500 and state["runs"] == 1
+    assert client.post(path + "?env=sandbox", json=payload, headers=headers).status_code == 409
+    original_call = editor._call
+
+    async def call(method, *args, **kwargs):
+        if method == "reconcile_model_execution":
+            assert kwargs["preview"]["ref_hash"] == state["record"]["candidate_result_hash"]
+            return {**state["record"], "preview": kwargs["preview"]}
+        return await original_call(method, *args, **kwargs)
+
+    monkeypatch.setattr(editor, "_call", call)
+    monkeypatch.setattr(editor, "audit_operation", original_audit)
+    url = path + f"/{state['record']['execution_id']}/reconcile?env=sandbox"
+    assert authenticated_client("viewer").post(url).status_code == 403
+    reconciled = client.post(url)
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json()["reconciliation"]["resolution"] == "verified_success"
+    replayed = client.post(path + "?env=sandbox", json=payload, headers=headers)
+    assert replayed.status_code == 201, replayed.text
+    assert replayed.json()["execution_id"] == state["record"]["execution_id"]
+    assert state["runs"] == state["provisions"] == 1
+
+
+def test_unknown_execution_without_success_evidence_remains_fenced_on_reconcile(
+    setup_editor, monkeypatch
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    base, _ = paths(draft)
+    path = f"{base}/drafts/{draft['draft_id']}/1/executions"
+    client = authenticated_client("operator")
+    created = client.post(
+        path + "?env=sandbox",
+        json={"revision_digest": draft["revision_digest"], "base_hash": "e" * 64},
+        headers={"Idempotency-Key": "native-uncertain"},
+    ).json()
+    state["record"].update(status="unknown", report=None, candidate_result_hash=None, preview=None)
+    result = client.post(path + f"/{created['execution_id']}/reconcile?env=sandbox")
+    assert result.status_code == 200, result.text
+    assert (
+        result.json()["status"] == "unknown"
+        and result.json()["reconciliation"]["resolution"] == "unresolved"
+    )
+    assert result.json()["preview"] is None and state["runs"] == state["provisions"] == 1
+
+
+def test_transform_handoff_exports_saved_sql_to_source_review_without_publication(
+    setup_editor, monkeypatch
+):
+    import hashlib
+
+    draft, _ = setup_editor
+    draft["project_path"] = "workflows/transforms/native/transforms/inspection.sql"
+    base, _ = paths(draft)
+    monkeypatch.setattr(
+        editor, "_runtime", lambda: SimpleNamespace(release_handoff=release_handoff)
+    )
+    response = authenticated_client("operator").get(
+        f"{base}/drafts/{draft['draft_id']}/1/handoff?env=sandbox"
+    )
+    assert response.status_code == 200, response.text
+    handoff = response.json()
+    assert handoff["files"] == [
+        {
+            "path": draft["project_path"],
+            "content": draft["sql"],
+            "sha256": hashlib.sha256(draft["sql"].encode()).hexdigest(),
+        }
+    ]
+    assert handoff["candidate_evidence"] is None
+    assert handoff["source_review_required"] is True and handoff["automatic_promotion"] is False
+    assert (
+        handoff["release"]["requires_signature"] is True and handoff["release"]["merge_url"] is None
+    )
+
+
+def test_history_and_handoff_reject_missing_pinned_snapshot_despite_verified_head(
+    setup_editor, monkeypatch
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    base, _ = paths(draft)
+    path = f"{base}/drafts/{draft['draft_id']}/1"
+    client = authenticated_client("operator")
+    created = client.post(
+        path + "/executions?env=sandbox",
+        json={"revision_digest": draft["revision_digest"], "base_hash": "e" * 64},
+        headers={"Idempotency-Key": "pinned-snapshot-disappeared"},
+    )
+    assert created.status_code == 201, created.text
+
+    async def missing_snapshot(binding, target, **kwargs):
+        assert target.endswith(".review.inspection")
+        assert kwargs["expected_hash"] == "f" * 64
+        assert kwargs["expected_snapshot_id"] == "1234"
+        assert kwargs["require_current_base"] is False
+        raise HTTPException(409, "Pinned table metadata no longer exists")
+
+    editor._runtime().preview_candidate = missing_snapshot
+    detail = client.get(path + f"/executions/{created.json()['execution_id']}?env=sandbox")
+    assert detail.status_code == 200, detail.text
+    evidence = detail.json()["evidence"]
+    assert evidence["observed_candidate_hash"] == "f" * 64
+    assert evidence["eligible_for_release"] is False and evidence["stale"] is True
+    assert detail.json()["preview"] is None and detail.json()["report"]["run_id"] == "actual-run"
+    handoff = client.get(
+        path + f"/handoff?env=sandbox&execution_id={created.json()['execution_id']}"
+    )
+    assert handoff.status_code == 200, handoff.text
+    assert handoff.json()["candidate_evidence"]["eligible_for_release"] is False
+    assert "snapshot" in handoff.json()["release"]["blocked_reason"]
+    assert state["record"]["preview"]["rows"] and state["runs"] == 1

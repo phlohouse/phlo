@@ -63,6 +63,10 @@ def test_availability_distinguishes_read_query_and_write_policy(
     assert actions["v1_saved_query_create"]["allowed"] is can_write
     assert actions["v1_metric_model_create"]["allowed"] is can_write
     assert actions["v1_data_product_create"]["allowed"] is can_write
+    for kind in ("metric_model", "data_product"):
+        assert actions[f"v1_{kind}_export"]["allowed"] is True
+        assert actions[f"v1_{kind}_archive"]["allowed"] is can_write
+        assert actions[f"v1_{kind}_restore"]["allowed"] is can_write
     assert actions["v1_branch_create"]["allowed"] is can_write
     assert actions["v1_job_launch"]["allowed"] is False
     assert all(item["reason"] for item in actions.values() if not item["allowed"])
@@ -143,6 +147,16 @@ def test_native_and_csv_preflights_require_exact_preview_binding_and_candidate_r
     assert actions["v1_transform_model_compile"]["allowed"] is False
     assert actions["v1_csv_candidate_load"]["allowed"] is False
     assert actions["v1_csv_upload"]["allowed"] is True
+    # This actor has object.write, but no asset.manage grant for CSV lifecycle mutations.
+    assert actions["v1_csv_upload_archive"]["allowed"] is False
+    assert actions["v1_csv_candidate_reconcile"]["allowed"] is False
+    for operation in (
+        "v1_transform_model_draft_archive",
+        "v1_transform_model_execution_archive",
+    ):
+        assert actions[operation]["allowed"] is True
+    for operation in ("v1_csv_candidate_reconcile", "v1_transform_model_execution_reconcile"):
+        assert actions[operation]["allowed"] is False
     # Availability checks presence only; it must not execute the binary or contact providers.
     binary.touch()
     actions = client.get(path).json()["actions"]
@@ -154,6 +168,21 @@ def test_native_and_csv_preflights_require_exact_preview_binding_and_candidate_r
     actions = client.get(path).json()["actions"]
     assert actions["v1_transform_model_execute"]["allowed"] is True
     assert actions["v1_csv_candidate_load"]["allowed"] is True
+    assert actions["v1_csv_candidate_reconcile"]["allowed"] is False
+    assert actions["v1_transform_model_execution_reconcile"]["allowed"] is True
+    with monkeypatch.context() as multiple_processes:
+        multiple_processes.setenv("PHLO_V1_ACTIONS_SINGLE_PROCESS", "0")
+        actions = client.get(path).json()["actions"]
+        assert actions["v1_transform_model_execution_reconcile"]["allowed"] is True
+    with monkeypatch.context() as asset_manager:
+        asset_manager.setitem(
+            security_test_support._ACTIONS_BY_PRINCIPAL,
+            "operator",
+            security_test_support._ACTIONS_BY_PRINCIPAL["operator"] | {"asset.manage"},
+        )
+        actions = client.get(path).json()["actions"]
+        assert actions["v1_csv_upload_archive"]["allowed"] is True
+        assert actions["v1_csv_candidate_reconcile"]["allowed"] is True
     with monkeypatch.context() as missing_dagster:
         missing_dagster.setitem(sys.modules, "phlo_dagster", None)
         actions = client.get(path).json()["actions"]

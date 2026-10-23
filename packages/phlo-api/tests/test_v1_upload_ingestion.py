@@ -154,6 +154,63 @@ def test_candidate_head_drift_and_review_checksum_tampering_fail_closed(candidat
     assert client.get(path + "/candidate?env=sandbox").status_code == 409
 
 
+def test_operational_openapi_exposes_closed_typed_evidence_review_and_handoff():
+    from phlo_api.main import app
+
+    document = app.openapi()
+    schemas = document["components"]["schemas"]
+
+    def model(value):
+        if "anyOf" in value:
+            value = next(item for item in value["anyOf"] if item.get("type") != "null")
+        return schemas[value["$ref"].rsplit("/", 1)[-1]] if "$ref" in value else value
+
+    def response(path, method="get"):
+        return model(
+            document["paths"][path][method]["responses"]["200"]["content"]["application/json"][
+                "schema"
+            ]
+        )
+
+    upload = "/api/v1/uploads/csv/{upload_id}/candidate"
+    transform = "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}"
+    review = response(upload + "/review")
+    assert review == response(upload + "/reconcile", "post")
+    assert review["additionalProperties"] is False
+    assert set(review["required"]) == {"receipt", "evidence", "preview", "reconciliation"}
+    evidence = model(review["properties"]["evidence"])
+    assert evidence["additionalProperties"] is False
+    assert set(evidence["required"]) == {
+        "stale",
+        "eligible_for_release",
+        "reason",
+        "base_hash",
+        "current_base_hash",
+        "candidate_hash",
+        "observed_candidate_hash",
+    }
+    reconciliation = model(review["properties"]["reconciliation"])
+    assert reconciliation["properties"]["resolution"]["enum"] == ["verified_success", "unresolved"]
+    assert set(reconciliation["required"]) == {"resolution", "reason"}
+    execution = response(transform + "/executions/{execution_id}")
+    assert model(execution["properties"]["evidence"]) == evidence
+    assert model(execution["properties"]["reconciliation"]) == reconciliation
+    handoff = response(upload + "/handoff")
+    assert handoff == response(transform + "/handoff")
+    assert handoff["additionalProperties"] is False
+    assert handoff["properties"]["kind"]["enum"] == ["csv_candidate", "transform_revision"]
+    assert handoff["properties"]["automatic_promotion"]["const"] is False
+    assert handoff["properties"]["source_review_required"]["const"] is True
+    assert set(model(handoff["properties"]["files"]["items"])["required"]) == {
+        "path",
+        "content",
+        "sha256",
+    }
+    release = model(handoff["properties"]["release"])
+    assert release["additionalProperties"] is False
+    assert release["properties"]["requires_signature"]["const"] is True
+
+
 @pytest.mark.parametrize("occupied", ["candidate", "other_environment", "declared_asset"])
 def test_destination_asset_collision_is_rejected_before_artifacts(candidate, monkeypatch, occupied):
     client, _, _, root = candidate
@@ -399,3 +456,90 @@ def test_receipt_cas_normalizes_new_default_fields_without_replacing_identity(ca
     updated = receipt.model_copy(update={"status": "planned"})
     assert ingestion._save(updated, previous=receipt).attempts == []
     assert ingestion._all()[0].recipe_digest == receipt.recipe_digest
+
+
+def test_csv_reconciliation_historical_review_and_handoff_never_launch_or_promote(
+    candidate, monkeypatch
+):
+    import hashlib
+
+    receipt = prepare(candidate)
+    client, path, _, root = candidate
+    monkeypatch.setattr(
+        ingestion,
+        "candidate_evidence",
+        AsyncMock(
+            return_value={
+                "stale": True,
+                "eligible_for_release": False,
+                "reason": "Base changed.",
+                "base_hash": "base-head",
+                "current_base_hash": "later-base",
+                "candidate_hash": "result-head",
+                "observed_candidate_hash": "result-head",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        ingestion.v1_assets,
+        "v1_asset_materialize",
+        AsyncMock(side_effect=AssertionError("must not launch")),
+    )
+    unresolved = client.post(path + "/candidate/reconcile?env=sandbox")
+    assert unresolved.status_code == 200, unresolved.text
+    assert unresolved.json()["reconciliation"]["resolution"] == "unresolved"
+    assert ingestion._all()[0].status == "prepared"
+    current = ingestion._all()[0]
+    ingestion._save(
+        current.model_copy(update={"run_id": "confirmed-run", "status": "running"}),
+        previous=current,
+    )
+    monkeypatch.setattr(ingestion, "_run", AsyncMock(return_value=("SUCCESS", "9007199254740993")))
+    monkeypatch.setattr(ingestion, "_head", AsyncMock(return_value="later-base"))
+
+    async def preview(binding, relation, **kwargs):
+        assert kwargs["expected_snapshot_id"] == "9007199254740993"
+        if kwargs["expected_hash"] is not None:
+            assert kwargs["expected_hash"] == "result-head"
+        return {
+            "columns": ["id"],
+            "column_types": ["bigint"],
+            "rows": [{"id": 1}, {"id": 2}],
+            "has_more": False,
+            "row_count": 2,
+            "snapshot_id": "9007199254740993",
+            "ref_hash": "result-head",
+            "candidate_ref": receipt["candidate_ref"],
+            "relation": receipt["relation"],
+            "query_id": "review-query",
+        }
+
+    monkeypatch.setattr(ingestion, "preview_candidate", preview)
+    reconciled = client.post(path + "/candidate/reconcile?env=sandbox")
+    assert reconciled.status_code == 200, reconciled.text
+    result = reconciled.json()
+    assert result["reconciliation"]["resolution"] == "verified_success"
+    assert result["receipt"]["loaded"] is True and result["receipt"]["main_unchanged"] is False
+    assert (
+        result["evidence"]["stale"] is True and result["evidence"]["eligible_for_release"] is False
+    )
+    assert result["preview"]["snapshot_id"] == "9007199254740993"
+    handoff = client.get(path + "/candidate/handoff?env=sandbox").json()
+    assert handoff["source_review_required"] is True and handoff["automatic_promotion"] is False
+    assert handoff["release"]["requires_signature"] is True
+    assert handoff["release"]["source_ref"] == receipt["candidate_ref"]
+    for file in handoff["files"]:
+        assert file["content"].encode() == (root / file["path"]).read_bytes()
+        assert file["sha256"] == hashlib.sha256(file["content"].encode()).hexdigest()
+    assert len(handoff["files"]) == 2
+    assert (
+        client.post(
+            path + "/archive?env=sandbox", json={"archived": True, "reason": "Retain evidence"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(path + "/candidate/review?env=sandbox").json()["receipt"]["snapshot_id"]
+        == "9007199254740993"
+    )
+    assert client.post(path + "/candidate/plan?env=sandbox", json={}).status_code == 409

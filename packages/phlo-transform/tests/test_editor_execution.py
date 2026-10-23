@@ -154,6 +154,55 @@ def test_native_success_keeps_real_identity_and_never_reexecutes(
         **identity,
     )
     assert observed["candidate_result_hash"] == "actual-output-hash"
+    preview = {
+        "ref_hash": "actual-output-hash",
+        "snapshot_id": "9007199254740993",
+        "rows": [{"batch_id": "B71"}],
+    }
+    observed = execution.record_execution_preview(
+        root, "review.inspection", execution_id=options["execution_id"], preview=preview, **identity
+    )
+    # Simulate an uncertain operation response after success evidence was durably retained.
+    observed["status"] = "unknown"
+    execution._store(root, observed)
+    for changed in ({"ref_hash": "unrelated-head"}, {"snapshot_id": "9007199254740992"}):
+        with pytest.raises(editor.TransformEditorError, match="stays fenced"):
+            execution.reconcile_model_execution(
+                root,
+                "review.inspection",
+                execution_id=options["execution_id"],
+                preview={**preview, **changed},
+                **identity,
+            )
+    resolved = execution.reconcile_model_execution(
+        root, "review.inspection", execution_id=options["execution_id"], preview=preview, **identity
+    )
+    assert resolved["status"] == "passed" and resolved["report"]["run_id"] == "actual-run"
+    archived = execution.archive_model_execution(
+        root,
+        "review.inspection",
+        execution_id=options["execution_id"],
+        archived=True,
+        reason="Retain signed review evidence",
+        **identity,
+    )
+    assert archived["archived_at"] and archived["candidate_result_hash"] == "actual-output-hash"
+    assert execution.list_model_executions(root, "review.inspection", **identity) == []
+    retained = execution.list_model_executions(
+        root, "review.inspection", include_archived=True, **identity
+    )
+    assert retained[0]["preview"]["snapshot_id"] == "9007199254740993"
+    with pytest.raises(editor.TransformEditorError, match="Archived executions"):
+        execution.execute_model_draft(root, "review.inspection", **options)
+    restored = execution.archive_model_execution(
+        root,
+        "review.inspection",
+        execution_id=options["execution_id"],
+        archived=False,
+        reason="Reopen review",
+        **identity,
+    )
+    assert restored["archived_at"] is None and calls == ["plan", "run"]
 
 
 @pytest.mark.parametrize("status", ["prepared", "running", "passed", "failed", "unknown"])
@@ -183,3 +232,31 @@ def test_execution_history_checks_each_visible_source_digest_before_returning_ro
     assert execution.list_model_executions(root, "other.model", **identity) == []
     with pytest.raises(editor.TransformEditorError, match="integrity"):
         execution.list_model_executions(root, "review.inspection", **identity)
+
+
+@pytest.mark.parametrize("status", ["prepared", "running", "unknown", "failed"])
+def test_reconciliation_never_infers_success_from_table_existence_without_a_report(
+    editable, monkeypatch, status
+):
+    root, identity, options, record = prepared(editable, monkeypatch)
+    record.update(status=status)
+    execution._store(root, record)
+    monkeypatch.setattr(
+        execution,
+        "run_json",
+        lambda *args, **kwargs: pytest.fail("Reconciliation must not run the engine"),
+    )
+    with pytest.raises(editor.TransformEditorError, match="stays fenced"):
+        execution.reconcile_model_execution(
+            root,
+            "review.inspection",
+            execution_id=options["execution_id"],
+            preview={"ref_hash": "some-table-head", "snapshot_id": "1"},
+            **identity,
+        )
+    assert (
+        execution.read_model_execution(
+            root, "review.inspection", execution_id=options["execution_id"], **identity
+        )["status"]
+        == status
+    )

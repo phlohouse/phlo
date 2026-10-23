@@ -110,10 +110,32 @@ outcome remains blocked, including requests with a different key.
 Successful executions retain their native report. When the candidate result
 hash is recorded, the authorised execution preview endpoint can retry result
 readback without rerunning the model.
-Executions left `running` or `unknown` do not have a supported automatic
-reconciliation or retry path. Preserve their records, branches, and catalogs
-for operator investigation. Do not clear idempotency state or assume that a
-timeout means no write occurred.
+The authorised execution `POST .../executions/{execution_id}/reconcile`
+endpoint rereads the recorded report and pinned provider snapshot. It can
+resolve an uncertain operation response only when a durable native success
+report, output branch hash, source revision, and provider evidence agree.
+It never invokes the engine. A `running` execution, a missing report, or a
+missing output hash remains unresolved. Preserve those records, branches,
+and catalogs for operator investigation. Do not clear idempotency state or
+assume that a timeout means no write occurred.
+
+Execution history exposes stale evidence separately from current release
+eligibility. A changed base does not hide a pinned candidate result, but a
+changed candidate hash or revoked source access hides result rows.
+
+Draft revisions and terminal executions support authorised `POST .../archive`
+with `{"archived": true, "reason": "Superseded review"}`. Setting `archived` to
+`false` restores visibility. History accepts `include_archived=true`.
+Archiving retains all source bytes, reports, candidate bindings, and operation
+fences. It does not reclaim disk space or reset the global history limits.
+Archived revisions cannot compile, execute, or extend the draft until restored.
+
+`GET .../drafts/{draft_id}/{revision}/handoff` exports the saved SQL with its
+project-relative path and checksum. The optional `execution_id` includes
+candidate evidence and links to existing branch checks, trial merge, and
+signed merge operations. These links describe POST operations, not automatic
+actions. Source review and a source commit remain separate from the signed
+data release. The handoff never publishes SQL or promotes candidate data.
 
 ## CLI
 
