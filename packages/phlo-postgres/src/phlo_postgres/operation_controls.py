@@ -100,6 +100,22 @@ class PostgresOperationControls:
         with self._transaction():
             pass
 
+    @contextmanager
+    def reclamation_guard(self, identities: list[tuple[str, str]]) -> Iterator[None]:
+        """Hold the claim transaction lock while disposing only quiescent local payloads."""
+        with self._transaction() as cur:
+            for operation, target in identities:
+                cur.execute(
+                    "SELECT 1 FROM phlo_api_operations WHERE namespace=%s AND operation=%s "
+                    "AND (target=%s OR exclusion_target=%s) AND state IN ('pending','unknown') LIMIT 1",
+                    (self._namespace, operation, target, target),
+                )
+                if cur.fetchone() is not None:
+                    raise OperationExclusionConflict(
+                        "An unresolved mutation requires retained inputs"
+                    )
+            yield
+
     def claim_idempotency(
         self,
         key_hash: str,

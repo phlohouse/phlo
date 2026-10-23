@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (268)
+## Endpoints (273)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -174,6 +174,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `PUT` | `/api/v1/data-products/{product_id}` | V1 Data Product Update | `v1 data products` |
 | `POST` | `/api/v1/data-products/{product_id}/archive` | V1 Data Product Archive | `v1 data products` |
 | `GET` | `/api/v1/data-products/{product_id}/export` | V1 Data Product Export | `v1 data products` |
+| `POST` | `/api/v1/data-products/{product_id}/reclaim` | V1 Data Product Reclaim | `v1 data products` |
 | `POST` | `/api/v1/data-products/{product_id}/restore` | V1 Data Product Restore | `v1 data products` |
 | `GET` | `/api/v1/datasets` | V1 Datasets | `v1 datasets` |
 | `GET` | `/api/v1/environments` | V1 Environments | `v1` |
@@ -210,6 +211,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `POST` | `/api/v1/metric-models/{model_id}/archive` | V1 Metric Model Archive | `v1 metrics` |
 | `GET` | `/api/v1/metric-models/{model_id}/export` | V1 Metric Model Export | `v1 metrics` |
 | `POST` | `/api/v1/metric-models/{model_id}/preview-sql` | V1 Metric Model Preview | `v1 metrics` |
+| `POST` | `/api/v1/metric-models/{model_id}/reclaim` | V1 Metric Model Reclaim | `v1 metrics` |
 | `POST` | `/api/v1/metric-models/{model_id}/restore` | V1 Metric Model Restore | `v1 metrics` |
 | `GET` | `/api/v1/notifications` | V1 Notifications | `v1 notifications` |
 | `PUT` | `/api/v1/notifications/read-state` | V1 Notifications Read | `v1 notifications` |
@@ -261,8 +263,10 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}` | V1 Transform Model Execution | `v1 transform editor` |
 | `POST` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/archive` | V1 Transform Model Execution Archive | `v1 transform editor` |
 | `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/preview` | V1 Transform Model Execution Preview | `v1 transform editor` |
+| `POST` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim` | V1 Transform Model Execution Reclaim | `v1 transform editor` |
 | `POST` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reconcile` | V1 Transform Model Execution Reconcile | `v1 transform editor` |
 | `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/handoff` | V1 Transform Model Draft Handoff | `v1 transform editor` |
+| `POST` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim` | V1 Transform Model Draft Reclaim | `v1 transform editor` |
 | `GET` | `/api/v1/transform/models/{model_id}/source` | V1 Transform Model Source | `v1 transform editor` |
 | `POST` | `/api/v1/trino/query-completed` | V1 Trino Query Completed | `v1 usage` |
 | `GET` | `/api/v1/uploads/csv` | V1 Csv Upload List | `v1 CSV uploads` |
@@ -278,5 +282,6 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/uploads/csv/{upload_id}/candidate/review` | V1 Csv Candidate Review | `v1 CSV candidate ingestion` |
 | `PUT` | `/api/v1/uploads/csv/{upload_id}/columns` | V1 Csv Upload Review | `v1 CSV uploads` |
 | `POST` | `/api/v1/uploads/csv/{upload_id}/destination` | V1 Csv Destination | `v1 CSV candidate ingestion` |
+| `POST` | `/api/v1/uploads/csv/{upload_id}/reclaim` | V1 Csv Upload Reclaim | `v1 CSV uploads` |
 | `GET` | `/api/v1/wap/runs` | V1 Wap Runs | `v1 WAP` |
 | `GET` | `/health` | Health | none |

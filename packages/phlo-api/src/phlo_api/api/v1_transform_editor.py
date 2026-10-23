@@ -20,9 +20,11 @@ from phlo_api.api.operation_controls import (
     MutationRejected,
     audit_operation,
     project_root,
+    reclamation_guard,
     replay_or_execute_async,
     resolve_idempotency_claim,
     require_scope,
+    validate_payload_retention,
 )
 from phlo_api.api.v1 import _target
 from phlo_api.api.v1_assets import _assets, v1_transform
@@ -64,7 +66,15 @@ class TransformDraftWrite(WireModel):
     expected_revision: int = Field(default=0, ge=0)
 
 
-class TransformDraft(WireModel):
+class ReclaimedPayload(WireModel):
+    reclaim_started_at: str | None = None
+    reclaimed_at: str | None = None
+    reclaimed_by: str | None = None
+    reclaim_reason: str | None = None
+    reclaimed_bytes: int = 0
+
+
+class TransformDraft(ReclaimedPayload):
     env: Environment
     ref: str
     model: str
@@ -120,6 +130,7 @@ async def _call(method: str, *args: Any, **kwargs: Any) -> Any:
             "record_execution_preview",
             "record_execution_observation",
             "archive_model_execution",
+            "reclaim_model_execution",
             "reconcile_model_execution",
         }
         else _provider()
@@ -309,7 +320,7 @@ class TransformExecuteWrite(WireModel):
     base_hash: Annotated[str, StringConstraints(pattern=r"^[a-fA-F0-9]{8,128}$")]
 
 
-class TransformExecution(WireModel):
+class TransformExecution(ReclaimedPayload):
     execution_id: str
     model: str
     env: Environment
@@ -686,7 +697,7 @@ async def v1_transform_model_execution_preview(
     )
 
 
-class TransformDraftSummary(WireModel):
+class TransformDraftSummary(ReclaimedPayload):
     draft_id: str
     revision: int
     model: str
@@ -765,6 +776,133 @@ async def v1_transform_model_draft_compare(
         revision=revision,
     )
     return TransformDraftComparison(env=env, **payload)
+
+
+class TransformReclaim(WireModel):
+    confirmed: Literal[True]
+    expected_revision_digest: Digest
+    reason: str = Field(min_length=1, max_length=1000, pattern=r"\S")
+
+
+@router.post(
+    "/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim",
+    response_model=TransformDraft,
+)
+async def v1_transform_model_draft_reclaim(
+    request: Request,
+    model_id: ModelId,
+    draft_id: DraftId,
+    revision: Annotated[int, Path(ge=1)],
+    payload: TransformReclaim,
+    env: Environment = Query(),
+) -> TransformDraft:
+    auth = require_scope(request, "project:write")
+    identity = await _execution_identity(request, env, model_id, draft_id, revision)
+    executions = await _call(
+        "list_model_executions", project_root(), model_id, include_archived=True, **identity
+    )
+    draft = await _call("read_model_draft", project_root(), model_id, **identity)
+    validate_payload_retention(draft["created_at"])
+    if draft.get("archived_at"):
+        validate_payload_retention(draft["archived_at"])
+    guards = [
+        (
+            "transform.candidate.execute",
+            f"transform:{identity['actor']}:{env}:{draft_id}:{revision}",
+        )
+    ]
+    guards.extend(
+        ("transform.candidate.execute", item["operation_claim"]["target"])
+        for item in executions
+        if (item.get("operation_claim") or {}).get("target")
+    )
+    with reclamation_guard(guards):
+        audit_operation(
+            operation="transform.draft.reclaim_requested",
+            target=f"{env}:{model_id}:{draft_id}:{revision}",
+            dry_run=False,
+            auth=auth,
+            payload=payload.model_dump(),
+            result={"evidence_retained": True},
+        )
+        result = await _call(
+            "reclaim_model_draft",
+            project_root(),
+            model_id,
+            expected_revision_digest=payload.expected_revision_digest,
+            expected_record=draft,
+            reason=payload.reason,
+            **identity,
+        )
+    audit_operation(
+        operation="transform.draft.reclaim",
+        target=f"{env}:{model_id}:{draft_id}:{revision}",
+        dry_run=False,
+        auth=auth,
+        payload=payload.model_dump(),
+        result={"reclaimed_bytes": result["reclaimed_bytes"], "evidence_retained": True},
+    )
+    return _draft_view(result)
+
+
+@router.post(
+    "/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim",
+    response_model=TransformExecution,
+)
+async def v1_transform_model_execution_reclaim(
+    request: Request,
+    model_id: ModelId,
+    draft_id: DraftId,
+    revision: Annotated[int, Path(ge=1)],
+    execution_id: DraftId,
+    payload: TransformReclaim,
+    env: Environment = Query(),
+) -> TransformExecution:
+    auth = require_scope(request, "project:write")
+    identity = await _execution_identity(request, env, model_id, draft_id, revision)
+    record = await _call(
+        "read_model_execution", project_root(), model_id, execution_id=execution_id, **identity
+    )
+    validate_payload_retention(record["created_at"])
+    # Native outputs may be newer than preparation. Archival follows terminal execution.
+    if record.get("archived_at"):
+        validate_payload_retention(record["archived_at"])
+    guards = [
+        (
+            "transform.candidate.execute",
+            f"transform:{identity['actor']}:{env}:{draft_id}:{revision}",
+        )
+    ]
+    if (record.get("operation_claim") or {}).get("target"):
+        guards.append(("transform.candidate.execute", record["operation_claim"]["target"]))
+    with reclamation_guard(guards):
+        audit_operation(
+            operation="transform.execution.reclaim_requested",
+            target=f"{env}:{execution_id}",
+            dry_run=False,
+            auth=auth,
+            payload=payload.model_dump(),
+            result={"evidence_retained": True},
+        )
+        result = await _call(
+            "reclaim_model_execution",
+            project_root(),
+            model_id,
+            execution_id=execution_id,
+            expected_revision_digest=payload.expected_revision_digest,
+            expected_record=record,
+            reason=payload.reason,
+            **identity,
+        )
+    audit_operation(
+        operation="transform.execution.reclaim",
+        target=f"{env}:{execution_id}",
+        dry_run=False,
+        auth=auth,
+        payload=payload.model_dump(),
+        result={"reclaimed_bytes": result["reclaimed_bytes"], "evidence_retained": True},
+    )
+    return await _historical_execution(result, source_authorized=False)
 
 
 class TransformArchive(WireModel):

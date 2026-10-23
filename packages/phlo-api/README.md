@@ -107,6 +107,44 @@ The candidate endpoints below use the same upload path and environment:
   branch checks, trial merge, and signed merge remain separate authorised POST
   operations. Export does not publish source or promote candidate data.
 
+## Explicit payload reclamation
+
+Reclamation is irreversible and separate from archive. It requires an archived
+record, write authorisation, `confirmed: true`, a non-blank `reason`, and the
+current version, checksum, or revision digest. Provider tables, candidate
+branches, catalogues, release records, and operation claims are not deleted.
+
+All paths below have the `/api/v1` prefix and require `env`:
+
+| POST path | Required precondition | Local content reclaimed |
+| --- | --- | --- |
+| `/metric-models/{model_id}/reclaim` | `expected_version` | Full draft definition |
+| `/data-products/{product_id}/reclaim` | `expected_version` | Full draft definition |
+| `/uploads/csv/{upload_id}/reclaim` | `expected_checksum` | Raw retained CSV bytes |
+| `/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim` | `expected_revision_digest` | Copied workspace inputs |
+| `/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim` | `expected_revision_digest` | Local execution workspace |
+
+Metric and product definitions become compact permanent tombstones. Their IDs
+cannot be reused, and later definition reads, exports, or restores return 410.
+Reclamation frees one full-definition slot, not the retained identity evidence.
+CSV and native metadata remain available, but reclaimed payloads cannot be
+restored. Retained reports, checksums, SQL handoff evidence, and audit records
+remain. Completed cleanup frees the corresponding payload quota. Interrupted
+cleanup stays fenced until an explicit confirmed retry completes it.
+
+Pending or unknown mutations block reclamation. The operation-store guard
+holds the claim lock through local disposal, so a new claim cannot race the
+safety check. Unknown persisted metadata also blocks disposal rather than
+silently discarding a future fence or reference.
+
+When `audit.retention_years` is configured, explicit reclamation also preserves
+supporting payloads for that minimum period. Definition changes reset their
+retention age. CSV and native payloads must satisfy the minimum from both
+creation and their latest archival timestamp, so recent supporting activity
+cannot rely on an old creation date. Audit records and tombstones do not expire
+when payloads become eligible. An unset minimum does not bypass archive,
+identity, authorisation, or unresolved-mutation checks.
+
 ## Load observation pagination
 
 `GET /api/v1/loads?env=<environment>&limit=100` returns authorised private CSV

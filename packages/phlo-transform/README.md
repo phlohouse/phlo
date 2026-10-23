@@ -130,6 +130,28 @@ Archiving retains all source bytes, reports, candidate bindings, and operation
 fences. It does not reclaim disk space or reset the global history limits.
 Archived revisions cannot compile, execute, or extend the draft until restored.
 
+Archived revisions and terminal executions also support `POST .../reclaim` with
+`confirmed: true`, a reason, and `expected_revision_digest`. This action
+irreversibly deletes the local workspace copy. It retains SQL for source
+handoff, per-file checksums, revision identities, reports, candidate bindings,
+and operation claims. Completed reclamation frees a retained-workspace slot;
+archive alone does not. History still includes the durable tombstone.
+
+Reclamation refuses prepared, running, or unknown executions, unknown reference
+metadata, and pending or unknown operation claims. The API holds the operation
+claim transaction lock during local deletion. Repeating confirmed reclamation
+can finish interrupted local cleanup, but never reruns a provider mutation.
+Reclaimed revisions and executions cannot be restored or executed again.
+No remote branches, tables, catalogs, or live data are deleted.
+
+The API now applies configured `audit.retention_years` to supporting payloads
+as well as the existing audit-preservation checks. Native workspace age uses
+the later of creation and archival, since native output files can be newer
+than preparation. The minimum expires at the calendar-year anniversary;
+29 February expires on 1 March in a non-leap year. Unset retention adds no
+age minimum. Invalid timestamps or unavailable evidence block reclamation.
+This check does not expire audit records or tombstones.
+
 `GET .../drafts/{draft_id}/{revision}/handoff` exports the saved SQL with its
 project-relative path and checksum. The optional `execution_id` includes
 candidate evidence and links to existing branch checks, trial merge, and

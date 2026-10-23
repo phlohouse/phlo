@@ -24,11 +24,47 @@ from phlo_transform.editor import (
     _inputs,
     _namespace,
     _records,
+    _reclaim_workspace,
+    _reclaim_workspace_bytes,
+    _digest,
     _uuid,
     _workspace_digest,
     read_model_draft,
 )
 from phlo_transform.settings import get_settings
+
+_MAX_RETAINED_EXECUTIONS = 1000
+_EXECUTION_FIELDS = {
+    "execution_id",
+    "model",
+    "actor",
+    "env",
+    "ref",
+    "draft_id",
+    "revision",
+    "revision_digest",
+    "status",
+    "created_at",
+    "candidate_ref",
+    "candidate_catalog",
+    "report",
+    "operation_claim",
+    "archived_at",
+    "archived_by",
+    "archive_reason",
+    "candidate_binding",
+    "plan",
+    "preview",
+    "candidate_result_hash",
+    "candidate_snapshot_id",
+    "reclaim_started_at",
+    "reclaimed_at",
+    "reclaimed_by",
+    "reclaim_reason",
+    "reclaimed_bytes",
+    "reclaim_payload_bytes",
+    "retained_file_digests",
+}
 
 
 def _storage(root: Path) -> str:
@@ -50,7 +86,13 @@ def _store(
     expected_record: dict[str, Any] | None = None,
 ) -> None:
     def update(current):
-        records = _records(current)
+        records = _records(current, require_known_state=bool(record.get("reclaim_started_at")))
+        if record.get("reclaim_started_at") and any(
+            set(item) - _EXECUTION_FIELDS for item in records
+        ):
+            raise TransformEditorError(
+                "Unknown execution references prevent reclamation.", status=409
+            )
         existing = next(
             (item for item in records if item.get("execution_id") == record["execution_id"]), None
         )
@@ -60,7 +102,10 @@ def _store(
             raise TransformEditorError(
                 "Execution evidence changed; reload before continuing.", status=409
             )
-        if create and len(records) >= 1000:
+        if (
+            create
+            and sum(not item.get("reclaimed_at") for item in records) >= _MAX_RETAINED_EXECUTIONS
+        ):
             raise TransformEditorError("Execution history limit reached.", status=409)
         if create and existing:
             raise TransformEditorError(
@@ -143,7 +188,10 @@ def read_model_execution(
         raise TransformEditorError(
             "Execution was not found in this draft and principal scope.", status=404
         )
-    if _workspace_digest(_inputs(_directory(root, execution_id))) != found["revision_digest"]:
+    if (
+        not found.get("reclaim_started_at")
+        and _workspace_digest(_inputs(_directory(root, execution_id))) != found["revision_digest"]
+    ):
         raise TransformEditorError("Execution source integrity verification failed.", status=409)
     return deepcopy(found)
 
@@ -287,6 +335,10 @@ def archive_model_execution(
     root: Path, model: str, *, execution_id: str, archived: bool, reason: str, **identity: Any
 ) -> dict[str, Any]:
     record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    if record.get("reclaim_started_at"):
+        raise TransformEditorError(
+            "Reclamation is irreversible; execution cannot be restored.", status=409
+        )
     if record["status"] in {"prepared", "running"}:
         raise TransformEditorError("An active execution cannot be archived.", status=409)
     updated = {
@@ -297,6 +349,54 @@ def archive_model_execution(
     }
     _store(root, updated, expected_record=record)
     return updated
+
+
+def reclaim_model_execution(
+    root: Path,
+    model: str,
+    *,
+    execution_id: str,
+    expected_revision_digest: str,
+    reason: str,
+    expected_record: dict[str, Any] | None = None,
+    **identity: Any,
+) -> dict[str, Any]:
+    """Dispose only terminal archived execution workspaces, retaining recorded evidence."""
+    record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    if expected_record is not None and record != expected_record:
+        raise TransformEditorError("Execution changed after retention validation.", status=409)
+    if set(record) - _EXECUTION_FIELDS:
+        raise TransformEditorError("Unknown execution evidence prevents reclamation.", status=409)
+    if not record.get("archived_at") or record["revision_digest"] != expected_revision_digest:
+        raise TransformEditorError(
+            "An archived execution and exact digest are required.", status=409
+        )
+    if record["status"] not in {"passed", "failed"}:
+        raise TransformEditorError("Unresolved executions must retain their workspace.", status=409)
+    if record.get("reclaimed_at"):
+        return record
+    directory = (
+        root.resolve() / ".phlo/transform-editor/executions" / _uuid(execution_id) / "workspace"
+    )
+    started = {**record}
+    if not record.get("reclaim_started_at"):
+        started.update(
+            reclaim_started_at=datetime.now(UTC).isoformat(),
+            reclaimed_by=identity["actor"],
+            reclaim_reason=reason,
+            reclaim_payload_bytes=_reclaim_workspace_bytes(root, directory),
+            retained_file_digests={
+                name: _digest(data) for name, data in _inputs(directory).items()
+            },
+        )
+    size = started.get("reclaim_payload_bytes")
+    if type(size) is not int or size < 0:
+        raise TransformEditorError("Original reclamation byte evidence is unavailable.", status=409)
+    _store(root, started, expected_record=record)
+    _reclaim_workspace(root, directory)
+    finished = {**started, "reclaimed_at": datetime.now(UTC).isoformat(), "reclaimed_bytes": size}
+    _store(root, finished, expected_record=started)
+    return finished
 
 
 def reconcile_model_execution(

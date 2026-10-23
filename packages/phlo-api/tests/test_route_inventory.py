@@ -46,10 +46,12 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/data-products"): "v1_manifest",
     ("PUT", "/api/v1/data-products/{product_id}"): "v1_manifest",
     ("POST", "/api/v1/data-products/{product_id}/archive"): "v1_manifest",
+    ("POST", "/api/v1/data-products/{product_id}/reclaim"): "v1_manifest",
     ("POST", "/api/v1/data-products/{product_id}/restore"): "v1_manifest",
     ("POST", "/api/v1/metric-models"): "v1_manifest",
     ("PUT", "/api/v1/metric-models/{model_id}"): "v1_manifest",
     ("POST", "/api/v1/metric-models/{model_id}/archive"): "v1_manifest",
+    ("POST", "/api/v1/metric-models/{model_id}/reclaim"): "v1_manifest",
     ("POST", "/api/v1/metric-models/{model_id}/restore"): "v1_manifest",
     ("POST", "/api/v1/metric-models/{model_id}/preview-sql"): "v1_manifest",
     ("PUT", "/api/v1/notifications/read-state"): "v1_manifest",
@@ -68,7 +70,15 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ): "v1_manifest",
     (
         "POST",
+        "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim",
+    ): "v1_manifest",
+    (
+        "POST",
         "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/archive",
+    ): "v1_manifest",
+    (
+        "POST",
+        "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim",
     ): "v1_manifest",
     (
         "POST",
@@ -76,6 +86,7 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ): "v1_manifest",
     ("POST", "/api/v1/uploads/csv"): "v1_manifest",
     ("POST", "/api/v1/uploads/csv/{upload_id}/archive"): "v1_manifest",
+    ("POST", "/api/v1/uploads/csv/{upload_id}/reclaim"): "v1_manifest",
     ("PUT", "/api/v1/uploads/csv/{upload_id}/columns"): "v1_manifest",
     ("POST", "/api/v1/uploads/csv/{upload_id}/destination"): "v1_manifest",
     ("POST", "/api/v1/uploads/csv/{upload_id}/candidate/plan"): "v1_manifest",

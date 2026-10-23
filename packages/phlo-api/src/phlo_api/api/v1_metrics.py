@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
+import json
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import Field, StringConstraints, ValidationError, model_validator
 
 from phlo_api.api.authentication import get_request_principal
-from phlo_api.api.operation_controls import audit_operation, project_root
+from phlo_api.api.operation_controls import (
+    audit_operation,
+    project_root,
+    validate_payload_retention,
+)
 from phlo_api.api.v1 import _target
 from phlo_api.api.v1_assets import AssetDetail, v1_asset_detail
 from phlo_api.errors import ConflictError, NotFoundError, UnprocessableInputError
@@ -85,6 +91,20 @@ class MetricInventoryItem(MetricRecord):
     source_reason: str | None
 
 
+class MetricTombstone(WireModel):
+    model_id: ModelId
+    env: Environment
+    nessie_ref: str
+    asset_id: str
+    version: int = Field(ge=1)
+    status: Literal["reclaimed"] = "reclaimed"
+    definition_sha256: str
+    created_at: str
+    reclaimed_at: str
+    reclaimed_by: str
+    reason: str
+
+
 class MetricInventory(WireModel):
     env: Environment
     items: list[MetricInventoryItem]
@@ -93,6 +113,11 @@ class MetricInventory(WireModel):
 
 class MetricLifecycleWrite(WireModel):
     expected_version: int = Field(ge=1)
+
+
+class MetricReclaimWrite(MetricLifecycleWrite):
+    confirmed: Literal[True]
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
 
 
 class MetricExport(WireModel):
@@ -121,21 +146,36 @@ def _path() -> Path:
     return project_root() / ".phlo" / "metric-models.json"
 
 
-def _records(env: Environment, ref: str) -> list[MetricRecord]:
-    records = [
-        MetricRecord.model_validate(item)
-        for item in load_collection(project_root(), _COLLECTION, _path())
+def _stored_records(items: list[dict]) -> list[MetricRecord | MetricTombstone]:
+    return [
+        MetricTombstone.model_validate(item)
+        if item.get("status") == "reclaimed"
+        else MetricRecord.model_validate(item)
+        for item in items
     ]
+
+
+def _records(env: Environment, ref: str) -> list[MetricRecord | MetricTombstone]:
+    records = _stored_records(
+        load_collection(project_root(), _COLLECTION, _path(), require_known_state=True)
+    )
     return [record for record in records if record.env == env and record.nessie_ref == ref]
 
 
-def _record(request: Request, env: Environment, model_id: str) -> MetricRecord:
+async def _record(request: Request, env: Environment, model_id: str) -> MetricRecord:
     target = _target(request, env)
     record = next(
         (record for record in _records(env, target.nessie_ref) if record.model_id == model_id), None
     )
     if record is None:
         raise NotFoundError("Metric model was not found in this environment and ref.")
+    if isinstance(record, MetricTombstone):
+        await enforce_http_operation(
+            request, HTTP_ROUTE_MANIFEST["v1_asset_detail"], {"asset_id": record.asset_id}
+        )
+        raise HTTPException(
+            410, "The metric draft definition was reclaimed. Its identity is permanently reserved."
+        )
     return record
 
 
@@ -242,6 +282,8 @@ async def v1_metric_models(
     records = _records(env, target.nessie_ref)
     items = []
     for record in records:
+        if isinstance(record, MetricTombstone):
+            continue
         if record.status == "archived" and not include_archived:
             continue
         try:
@@ -276,14 +318,14 @@ async def _inventory_item(
 async def v1_metric_model(
     request: Request, model_id: ModelId, env: Environment = Query()
 ) -> MetricInventoryItem:
-    record = _record(request, env, model_id)
+    record = await _record(request, env, model_id)
     return await _inventory_item(request, env, record)
 
 
 async def _write(request: Request, env: Environment, payload: MetricWrite) -> MetricRecord:
     target = _target(request, env)
     if payload.expected_version:
-        current = _record(request, env, payload.model_id)
+        current = await _record(request, env, payload.model_id)
         if current.version != payload.expected_version:
             raise ConflictError("The metric model changed. Reload before saving.")
         await enforce_http_operation(
@@ -299,7 +341,7 @@ async def _write(request: Request, env: Environment, payload: MetricWrite) -> Me
 
     def change(items: list[dict]) -> list[dict]:
         nonlocal selected
-        records = [MetricRecord.model_validate(item) for item in items]
+        records = _stored_records(items)
         current = next(
             (
                 item
@@ -310,11 +352,13 @@ async def _write(request: Request, env: Environment, payload: MetricWrite) -> Me
             ),
             None,
         )
+        if isinstance(current, MetricTombstone):
+            raise ConflictError("The reclaimed metric model identity is permanently reserved.")
         if payload.expected_version != (current.version if current else 0):
             raise ConflictError("The metric model changed. Reload before saving.")
         if current is not None and current.status == "archived":
             raise ConflictError("Restore the archived metric model before editing.")
-        if current is None and len(records) >= 1000:
+        if current is None and sum(item.status != "reclaimed" for item in records) >= 1000:
             raise ConflictError(
                 "The 1000-record retained metric model limit was reached. "
                 "Archiving only frees active slots."
@@ -334,7 +378,7 @@ async def _write(request: Request, env: Environment, payload: MetricWrite) -> Me
             selected.model_dump()
         ]
 
-    mutate_collection(project_root(), _COLLECTION, _path(), change)
+    mutate_collection(project_root(), _COLLECTION, _path(), change, require_known_state=True)
     assert selected is not None
     principal = get_request_principal(request)
     audit_operation(
@@ -373,7 +417,7 @@ async def _set_status(
     payload: MetricLifecycleWrite,
     status: Literal["draft", "archived"],
 ) -> MetricRecord:
-    original = _record(request, env, model_id)
+    original = await _record(request, env, model_id)
     if original.version != payload.expected_version:
         raise ConflictError("The metric model changed. Reload before changing its status.")
     await enforce_http_operation(
@@ -383,14 +427,18 @@ async def _set_status(
 
     def change(items: list[dict]) -> list[dict]:
         nonlocal selected
-        records = [MetricRecord.model_validate(item) for item in items]
+        records = _stored_records(items)
         current = next(
             item
             for item in records
             if (item.env, item.nessie_ref, item.model_id)
             == (original.env, original.nessie_ref, original.model_id)
         )
-        if current.version != payload.expected_version or current.status == status:
+        if (
+            isinstance(current, MetricTombstone)
+            or current.version != payload.expected_version
+            or current.status == status
+        ):
             raise ConflictError("The metric model changed. Reload before changing its status.")
         if status == "draft" and sum(item.status == "draft" for item in records) >= 500:
             raise ConflictError("The 500-active-draft metric model limit was reached.")
@@ -405,7 +453,7 @@ async def _set_status(
             item.model_dump() if item is not current else selected.model_dump() for item in records
         ]
 
-    mutate_collection(project_root(), _COLLECTION, _path(), change)
+    mutate_collection(project_root(), _COLLECTION, _path(), change, require_known_state=True)
     assert selected is not None
     principal = get_request_principal(request)
     audit_operation(
@@ -433,11 +481,78 @@ async def v1_metric_model_restore(
     return await _set_status(request, env, model_id, payload, "draft")
 
 
+@router.post("/metric-models/{model_id}/reclaim", response_model=MetricTombstone)
+async def v1_metric_model_reclaim(
+    request: Request, model_id: ModelId, payload: MetricReclaimWrite, env: Environment = Query()
+) -> MetricTombstone:
+    """Compact an archived definition, retaining its identity and durable evidence forever."""
+    _target(request, env)
+    try:
+        original = await _record(request, env, model_id)
+    except ValidationError as exc:
+        raise ConflictError("Unknown record fields prevent safe reclamation.") from exc
+    if original.version != payload.expected_version or original.status != "archived":
+        raise ConflictError("Reclamation requires the current version of an archived metric model.")
+    await enforce_http_operation(
+        request, HTTP_ROUTE_MANIFEST["v1_asset_detail"], {"asset_id": original.asset_id}
+    )
+    principal = get_request_principal(request)
+    if principal is None:
+        raise HTTPException(401, "Authentication is required.")
+    selected: MetricTombstone | None = None
+
+    def change(items: list[dict]) -> list[dict]:
+        nonlocal selected
+        try:
+            records = _stored_records(items)
+        except ValidationError as exc:
+            raise ConflictError("Unknown record fields prevent safe reclamation.") from exc
+        current = next(
+            item
+            for item in records
+            if (item.env, item.nessie_ref, item.model_id) == (env, original.nessie_ref, model_id)
+        )
+        if (
+            not isinstance(current, MetricRecord)
+            or current.version != payload.expected_version
+            or current.status != "archived"
+        ):
+            raise ConflictError("The metric model changed. Reload before reclaiming.")
+        validate_payload_retention(current.updated_at)
+        selected = MetricTombstone(
+            model_id=model_id,
+            env=env,
+            nessie_ref=current.nessie_ref,
+            asset_id=current.asset_id,
+            version=current.version + 1,
+            created_at=current.created_at,
+            definition_sha256=sha256(
+                json.dumps(current.model_dump(), sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            reclaimed_at=datetime.now(UTC).isoformat(),
+            reclaimed_by=principal.subject,
+            reason=payload.reason,
+        )
+        return [selected.model_dump() if item is current else item.model_dump() for item in records]
+
+    mutate_collection(project_root(), _COLLECTION, _path(), change, require_known_state=True)
+    assert selected is not None
+    audit_operation(
+        operation="metric_model.reclaim",
+        target=f"{env}:{selected.nessie_ref}:{model_id}",
+        dry_run=False,
+        auth={"subject": principal.subject, "scopes": []},
+        payload=payload.model_dump(),
+        result=selected.model_dump(),
+    )
+    return selected
+
+
 @router.get("/metric-models/{model_id}/export", response_model=MetricExport)
 async def v1_metric_model_export(
     request: Request, model_id: ModelId, env: Environment = Query()
 ) -> MetricExport:
-    record = _record(request, env, model_id)
+    record = await _record(request, env, model_id)
     await enforce_http_operation(
         request, HTTP_ROUTE_MANIFEST["v1_asset_detail"], {"asset_id": record.asset_id}
     )
@@ -460,7 +575,7 @@ async def v1_metric_model_export(
 async def v1_metric_model_preview(
     request: Request, model_id: ModelId, payload: MetricPreviewRequest, env: Environment = Query()
 ) -> MetricPreview:
-    record = _record(request, env, model_id)
+    record = await _record(request, env, model_id)
     if record.status == "archived":
         raise ConflictError("Restore the archived metric model before previewing.")
     source = await _source(request, env, record)

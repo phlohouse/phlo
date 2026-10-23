@@ -1,10 +1,13 @@
 """Candidate ingestion preserves actor, immutable review and real run/result identity."""
 
 import sys
+import json
+import hashlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import httpx
 from graphql import parse, validate
 from dagster_graphql.schema import create_schema
 
@@ -51,7 +54,21 @@ def candidate(monkeypatch, tmp_path):
     }
     monkeypatch.setattr(ingestion, "provision_candidate", AsyncMock(return_value=binding))
     monkeypatch.setattr(ingestion, "verify_candidate", AsyncMock(return_value="base-head"))
-    monkeypatch.setattr(ingestion, "_reload", AsyncMock())
+    monkeypatch.setattr(ingestion, "resolve_dagster_url", lambda: "http://dagster.test")
+    monkeypatch.setattr(
+        ingestion,
+        "graphql_request",
+        AsyncMock(
+            side_effect=lambda url, query, variables, **kwargs: {
+                "data": {
+                    "reloadRepositoryLocation": {
+                        "loadStatus": "LOADED",
+                        "locationOrLoadError": {"name": variables["name"]},
+                    }
+                }
+            }
+        ),
+    )
     monkeypatch.setattr(ingestion.v1_assets, "_assets", AsyncMock(return_value=[]))
 
     def author(**kwargs):
@@ -60,6 +77,49 @@ def candidate(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ingestion, "create_workflow_with_provider", author)
     return client, path, upload, tmp_path
+
+
+def test_reload_timeout_is_unavailable_and_preserves_incomplete_registration(
+    candidate, monkeypatch
+):
+    client, path, upload, root = candidate
+    reload = AsyncMock(side_effect=httpx.ReadTimeout("private transport details"))
+    monkeypatch.setattr(ingestion, "graphql_request", reload)
+    response = client.post(
+        path + "/destination?env=sandbox", json={"expected_version": 2, "table": "reviewed_batch"}
+    )
+    assert response.status_code == 503, response.text
+    assert "retained" in response.text and "private transport" not in response.text
+    assert reload.await_count == 1 and reload.await_args.kwargs["timeout"] == 60.0
+    receipt = client.get(path + "/candidate?env=sandbox").json()
+    assert (
+        receipt["status"] == "preparing"
+        and receipt["loaded"] is False
+        and receipt["run_id"] is None
+    )
+    contract = root / f"contracts/uploads/{upload['upload_id']}.json"
+    source = root / f"workflows/uploads/{upload['upload_id']}.py"
+    retained = (contract.read_bytes(), source.read_bytes())
+    assert len(list((root / "contracts/uploads").iterdir())) == 1
+    reload.side_effect = None
+    reload.return_value = {
+        "data": {
+            "reloadRepositoryLocation": {
+                "loadStatus": "LOADED",
+                "locationOrLoadError": {"name": "sandbox_jobs"},
+            }
+        }
+    }
+    prepared = client.post(
+        path + "/destination?env=sandbox", json={"expected_version": 2, "table": "reviewed_batch"}
+    )
+    assert prepared.status_code == 200, prepared.text
+    assert (
+        prepared.json()["status"] == "prepared"
+        and prepared.json()["asset_id"] == receipt["asset_id"]
+    )
+    assert (contract.read_bytes(), source.read_bytes()) == retained
+    assert reload.await_count == 2
 
 
 def prepare(candidate):
@@ -212,7 +272,9 @@ def test_operational_openapi_exposes_closed_typed_evidence_review_and_handoff():
 
 
 @pytest.mark.parametrize("occupied", ["candidate", "other_environment", "declared_asset"])
-def test_destination_asset_collision_is_rejected_before_artifacts(candidate, monkeypatch, occupied):
+def test_upload_scoped_assets_allow_same_destination_without_identity_collisions(
+    candidate, monkeypatch, occupied
+):
     client, _, _, root = candidate
     env = "prod" if occupied == "other_environment" else "sandbox"
     if occupied != "declared_asset":
@@ -238,17 +300,163 @@ def test_destination_asset_collision_is_rejected_before_artifacts(candidate, mon
         json={"expected_version": 1, "columns": uploaded["columns"]},
     )
     assert reviewed.status_code == 200
-    rejected = client.post(
+    accepted = client.post(
         path + f"/destination?env={env}",
         json={"expected_version": 2, "table": "reviewed_batch"},
     )
-    assert rejected.status_code == 409, rejected.text
-    assert client.get(path + f"/candidate?env={env}").status_code == 404
-    assert not (root / f"contracts/uploads/{uploaded['upload_id']}.json").exists()
-    assert not (root / f"workflows/uploads/{uploaded['upload_id']}.py").exists()
+    assert accepted.status_code == 200, accepted.text
+    receipt = accepted.json()
+    assert receipt["asset_id"] == f"dlt_upload_{uploaded['upload_id']}"
+    assert len(receipt["asset_id"]) < 63
+    assert receipt["relation"] == "bronze.reviewed_batch"
+    assert client.get(path + f"/candidate?env={env}").json() == receipt
+    contract = json.loads((root / f"contracts/uploads/{uploaded['upload_id']}.json").read_text())
+    assert contract["asset_id"] == receipt["asset_id"]
+    assert (root / f"workflows/uploads/{uploaded['upload_id']}.py").exists()
     if occupied != "declared_asset":
+        assert original["asset_id"] != receipt["asset_id"]
         first_path = f"/api/v1/uploads/csv/{original['upload_id']}/candidate?env=sandbox"
         assert client.get(first_path).json() == original
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_reclaimed_upload_keeps_legacy_receipts_and_source_handoff_checksums(
+    candidate, monkeypatch, legacy
+):
+    client, path, upload, root = candidate
+    receipt = ingestion.CandidateReceipt.model_validate(prepare(candidate))
+    if legacy:
+        contract_path = root / receipt.files[0]
+        contract = json.loads(contract_path.read_bytes())
+        contract.pop("asset_id")
+        content = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
+        contract_path.write_bytes(content)
+        old = receipt.model_copy(
+            update={
+                "asset_id": f"dlt_{receipt.table}",
+                "contract_digest": hashlib.sha256(content).hexdigest(),
+            }
+        )
+        ingestion._save(old, previous=receipt)
+        receipt = old
+    monkeypatch.setattr(
+        ingestion,
+        "candidate_evidence",
+        AsyncMock(
+            return_value={
+                "base_hash": "base-head",
+                "current_base_hash": "base-head",
+                "candidate_hash": "base-head",
+                "observed_candidate_hash": None,
+                "stale": True,
+                "eligible_for_release": False,
+                "reason": "Archived",
+            }
+        ),
+    )
+    assert client.get(path + "/candidate?env=sandbox").json()["asset_id"] == receipt.asset_id
+    archived = client.post(
+        path + "/archive?env=sandbox", json={"archived": True, "reason": "Expired"}
+    )
+    assert archived.status_code == 200, archived.text
+    reclaimed = client.post(
+        path + "/reclaim?env=sandbox",
+        json={"confirmed": True, "expected_checksum": upload["checksum"], "reason": "Expired"},
+    )
+    assert reclaimed.status_code == 200, reclaimed.text
+    assert client.get(path + "/candidate?env=sandbox").json()["asset_id"] == receipt.asset_id
+    handoff = client.get(path + "/candidate/handoff?env=sandbox")
+    assert handoff.status_code == 200, handoff.text
+    for file in handoff.json()["files"]:
+        assert hashlib.sha256(file["content"].encode()).hexdigest() == file["sha256"]
+        assert (root / file["path"]).read_text() == file["content"]
+    assert handoff.json()["candidate_evidence"]["eligible_for_release"] is False
+    assert not (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").exists()
+
+
+@pytest.mark.parametrize("status", ["preparing", "queued", "running", "failed"])
+def test_reclamation_cannot_remove_inputs_for_unresolved_candidates(candidate, status):
+    client, path, upload, root = candidate
+    receipt = ingestion.CandidateReceipt.model_validate(prepare(candidate))
+    ingestion._save(receipt.model_copy(update={"status": status}), previous=receipt)
+    assert (
+        client.post(
+            path + "/archive?env=sandbox", json={"archived": True, "reason": "Hide"}
+        ).status_code
+        == 200
+    )
+    response = client.post(
+        path + "/reclaim?env=sandbox",
+        json={"confirmed": True, "expected_checksum": upload["checksum"], "reason": "Expired"},
+    )
+    assert response.status_code == 409, response.text
+    assert (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").exists()
+    assert client.get(path + "/candidate?env=sandbox").json()["status"] == status
+
+
+def test_reclamation_checks_collection_fences_inside_atomic_update(candidate, monkeypatch):
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api.observatory_durable_state import state_namespace
+
+    client, path, upload, root = candidate
+    prepare(candidate)
+    client.post(path + "/archive?env=sandbox", json={"archived": True, "reason": "Expired"})
+    original = ingestion.uploads.mutate_collection
+    namespace = state_namespace(root, ingestion.uploads._COLLECTION)
+    service = get_settings_service()
+
+    def race(*args, **kwargs):
+        service.mutate(
+            SettingsScope.GLOBAL, namespace, lambda state: {**state, "future_fence": True}
+        )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ingestion.uploads, "mutate_collection", race)
+    response = client.post(
+        path + "/reclaim?env=sandbox",
+        json={"confirmed": True, "expected_checksum": upload["checksum"], "reason": "Expired"},
+    )
+    assert response.status_code == 409, response.text
+    state = service.get(SettingsScope.GLOBAL, namespace).settings
+    assert state["future_fence"] is True and not state["items"][0].get("reclaim_started_at")
+    assert (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").exists()
+
+
+def test_interrupted_local_reclamation_resumes_without_freeing_quota_early(candidate, monkeypatch):
+    from pathlib import Path
+
+    client, path, upload, root = candidate
+    prepare(candidate)
+    monkeypatch.setattr(ingestion.uploads, "MAX_UPLOADS", 1)
+    client.post(path + "/archive?env=sandbox", json={"archived": True, "reason": "Expired"})
+    source = root / ".phlo/uploads" / upload["upload_id"] / "source.csv"
+    body = {"confirmed": True, "expected_checksum": upload["checksum"], "reason": "Expired"}
+    unlink = Path.unlink
+
+    def fail(path, *args, **kwargs):
+        if path == source:
+            raise OSError("temporary local disposal failure")
+        return unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", fail)
+        with pytest.raises(OSError, match="disposal failure"):
+            client.post(path + "/reclaim?env=sandbox", json=body)
+    tombstone = client.get("/api/v1/uploads/csv?env=sandbox&include_archived=true").json()["items"][
+        0
+    ]
+    assert tombstone["reclaim_started_at"] and tombstone["reclaimed_at"] is None
+    assert source.exists()
+    assert client.post("/api/v1/uploads/csv?env=sandbox", content=b"id\n9\n").status_code == 422
+    assert (
+        client.post(
+            path + "/archive?env=sandbox", json={"archived": False, "reason": "Restore"}
+        ).status_code
+        == 409
+    )
+    assert client.post(path + "/reclaim?env=sandbox", json=body).status_code == 200
+    assert not source.exists()
+    assert client.post("/api/v1/uploads/csv?env=sandbox", content=b"id\n9\n").status_code == 201
 
 
 def test_confirmed_load_is_idempotent_and_readback_pins_written_snapshot(candidate, monkeypatch):

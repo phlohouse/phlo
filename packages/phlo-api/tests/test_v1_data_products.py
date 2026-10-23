@@ -111,12 +111,12 @@ def test_updates_require_current_version_and_keep_original_creation(setup_produc
     )
 
 
-@pytest.mark.parametrize("action", ["update", "archive", "restore"])
+@pytest.mark.parametrize("action", ["update", "archive", "restore", "reclaim"])
 def test_atomic_cas_rejects_second_writer(setup_products, monkeypatch, action):
     client = authenticated_client("operator")
     assert client.post("/api/v1/data-products?env=sandbox", json=setup_products).status_code == 201
     expected_version = 1
-    if action == "restore":
+    if action in {"restore", "reclaim"}:
         assert (
             client.post(
                 "/api/v1/data-products/batch-record-cgt04/archive?env=sandbox",
@@ -150,6 +150,17 @@ def test_atomic_cas_rejects_second_writer(setup_products, monkeypatch, action):
                 asyncio.run(
                     products.v1_data_product_update(request, payload.product_id, payload, "sandbox")
                 )
+            elif action == "reclaim":
+                asyncio.run(
+                    products.v1_data_product_reclaim(
+                        request,
+                        payload.product_id,
+                        products.ProductReclaimWrite(
+                            expected_version=expected_version, confirmed=True, reason="Retire"
+                        ),
+                        "sandbox",
+                    )
+                )
             else:
                 endpoint = (
                     products.v1_data_product_archive
@@ -166,11 +177,13 @@ def test_atomic_cas_rejects_second_writer(setup_products, monkeypatch, action):
                 )
         except ConflictError:
             return 409
+        except products.HTTPException as exc:
+            return exc.status_code
         return 200
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(save, ["Writer one", "Writer two"]))
-    assert sorted(outcomes) == [200, 409]
+    assert sorted(outcomes) in ([200, 409], [200, 410])
     assert products._records("sandbox")[0].version == expected_version + 1
 
 
@@ -322,6 +335,34 @@ def test_product_collection_and_membership_are_bounded(setup_products):
     assert (
         client.post(f"{url}/restore?env=sandbox", json={"expected_version": 4}).status_code == 200
     )
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 5}).status_code == 200
+    )
+    receipt = client.post(
+        f"{url}/reclaim?env=sandbox",
+        json={"expected_version": 6, "confirmed": True, "reason": "Exported for handoff"},
+    )
+    assert receipt.status_code == 200, receipt.text
+    assert receipt.json()["version"] == 7 and receipt.json()["status"] == "reclaimed"
+    assert (
+        client.post(
+            f"{base}?env=sandbox", json={**setup_products, "product_id": "replacement"}
+        ).status_code
+        == 201
+    )
+    assert len(client.get(f"{base}?env=sandbox&include_archived=true").json()["items"]) == 1000
+    assert (
+        client.post(
+            f"{base}?env=sandbox", json={**setup_products, "product_id": "product-0"}
+        ).status_code
+        == 409
+    )
+    gone = client.get(f"{url}?env=sandbox")
+    assert gone.status_code == 410 and "permanently reserved" in gone.json()["error"]["message"]
+    assert client.get(f"{url}/export?env=sandbox").status_code == 410
+    assert (
+        client.post(f"{url}/restore?env=sandbox", json={"expected_version": 7}).status_code == 410
+    )
 
 
 def test_product_lifecycle_retains_definition_and_export_without_publication(
@@ -421,3 +462,175 @@ def test_product_lifecycle_permissions_cas_and_environment(setup_products):
         client.post(f"{url}/restore?env=sandbox", json={"expected_version": 1}).status_code == 409
     )
     assert client.get(f"{url}?env=sandbox").json()["version"] == 2
+
+
+def test_product_reclaim_preserves_canonical_members_and_identity_evidence(
+    setup_products, tmp_path
+):
+    import json
+    from hashlib import sha256
+
+    client = authenticated_client("operator")
+    base = "/api/v1/data-products"
+    url = f"{base}/batch-record-cgt04"
+    payload = {"expected_version": 2, "confirmed": True, "reason": "Exported for review"}
+    assert client.post(f"{base}?env=sandbox", json=setup_products).status_code == 201
+    assert (
+        client.post(
+            f"{url}/reclaim?env=sandbox", json={**payload, "expected_version": 1}
+        ).status_code
+        == 409
+    )
+    archived = client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).json()
+    assert (
+        client.post(f"{url}/reclaim?env=sandbox", json={"expected_version": 2}).status_code == 422
+    )
+    assert (
+        authenticated_client("viewer").post(f"{url}/reclaim?env=sandbox", json=payload).status_code
+        == 403
+    )
+    assert TestClient(app).post(f"{url}/reclaim?env=sandbox", json=payload).status_code == 401
+    assert client.post(f"{url}/reclaim?env=prod", json=payload).status_code == 404
+    assert (
+        client.post(
+            f"{url}/reclaim?env=sandbox", json={**payload, "expected_version": 3}
+        ).status_code
+        == 409
+    )
+    receipt = client.post(f"{url}/reclaim?env=sandbox", json=payload)
+    assert receipt.status_code == 200, receipt.text
+    tombstone = receipt.json()
+    definition = {
+        key: value
+        for key, value in archived.items()
+        if key not in {"members", "sharing_status", "sharing_reason"}
+    }
+    assert (
+        tombstone["definition_sha256"]
+        == sha256(
+            json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
+    assert tombstone["reclaimed_by"] == "test:operator" and tombstone["version"] == 3
+    assert products.load_collection(tmp_path, products._COLLECTION, products._legacy_path()) == [
+        tombstone
+    ]
+    assert (
+        client.put(f"{url}?env=sandbox", json={**setup_products, "expected_version": 3}).status_code
+        == 410
+    )
+    assert client.post(f"{base}?env=sandbox", json=setup_products).status_code == 409
+    replacement = client.post(
+        f"{base}?env=sandbox", json={**setup_products, "product_id": "another"}
+    )
+    assert replacement.status_code == 201 and replacement.json()["members"] == archived["members"]
+    assert client.get(f"{url}?env=sandbox").status_code == 410
+    assert tombstone in products.load_collection(
+        tmp_path, products._COLLECTION, products._legacy_path()
+    )
+    assert client.post(f"{base}?env=sandbox", json=setup_products).status_code == 409
+    audits = [
+        json.loads(line)
+        for line in (tmp_path / ".phlo/audit/operations.jsonl").read_text().splitlines()
+    ]
+    assert (
+        next(item for item in audits if item["operation"] == "data_product.reclaim")["result"]
+        == tombstone
+    )
+
+
+def test_product_reclaim_tombstone_survives_audit_append_failure(setup_products, monkeypatch):
+    client = authenticated_client("operator")
+    url = "/api/v1/data-products/batch-record-cgt04"
+    assert client.post("/api/v1/data-products?env=sandbox", json=setup_products).status_code == 201
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code == 200
+    )
+
+    def unavailable_audit(**kwargs):
+        raise OSError("Audit disk unavailable")
+
+    monkeypatch.setattr(products, "audit_operation", unavailable_audit)
+    with pytest.raises(OSError, match="Audit disk unavailable"):
+        client.post(
+            f"{url}/reclaim?env=sandbox",
+            json={"expected_version": 2, "confirmed": True, "reason": "Retire"},
+        )
+    retained = client.get(f"{url}?env=sandbox")
+    assert retained.status_code == 410
+    stored = products.load_collection(
+        products.project_root(), products._COLLECTION, products._legacy_path()
+    )
+    assert stored[0]["reclaimed_by"] == "test:operator" and stored[0]["reason"] == "Retire"
+    assert client.post("/api/v1/data-products?env=sandbox", json=setup_products).status_code == 409
+
+
+def test_product_reclaim_retains_recent_content_and_capacity_under_audit_policy(
+    setup_products, tmp_path
+):
+    import json
+
+    from phlo.plugins.observatory_settings import (
+        ADMIN_SETTINGS_NAMESPACE,
+        SettingsScope,
+        get_settings_service,
+    )
+
+    client = authenticated_client("operator")
+    base = "/api/v1/data-products"
+    url = f"{base}/batch-record-cgt04"
+    assert client.post(f"{base}?env=sandbox", json=setup_products).status_code == 201
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code == 200
+    )
+    archived = products.load_collection(tmp_path, products._COLLECTION, products._legacy_path())[0]
+    old_creation = {**archived, "created_at": "1990-01-01T00:00:00+00:00"}
+    products.mutate_collection(
+        tmp_path,
+        products._COLLECTION,
+        products._legacy_path(),
+        lambda items: (
+            [old_creation] + [{**old_creation, "product_id": f"retained-{i}"} for i in range(999)]
+        ),
+    )
+    get_settings_service().put(
+        SettingsScope.GLOBAL,
+        ADMIN_SETTINGS_NAMESPACE,
+        {"version": 1, "values": {"observatory.settings.audit.retention_years": 7}},
+    )
+    before = products.load_collection(tmp_path, products._COLLECTION, products._legacy_path())
+    audit_path = tmp_path / ".phlo/audit/operations.jsonl"
+    audit_before = audit_path.read_bytes()
+    payload = {"expected_version": 2, "confirmed": True, "reason": "Exported for handoff"}
+    denied = client.post(f"{url}/reclaim?env=sandbox", json=payload)
+    assert denied.status_code == 409 and "retention_minimum_not_elapsed" in denied.text
+    assert (
+        products.load_collection(tmp_path, products._COLLECTION, products._legacy_path()) == before
+    )
+    assert audit_path.read_bytes() == audit_before
+    assert client.get(f"{url}/export?env=sandbox").json()["version"] == 2
+    replacement = {**setup_products, "product_id": "replacement"}
+    assert client.post(f"{base}?env=sandbox", json=replacement).status_code == 422
+    products.mutate_collection(
+        tmp_path,
+        products._COLLECTION,
+        products._legacy_path(),
+        lambda items: [
+            {**item, "updated_at": "1991-01-01T00:00:00+00:00"}
+            if item["product_id"] == "batch-record-cgt04"
+            else item
+            for item in items
+        ],
+    )
+    receipt = client.post(f"{url}/reclaim?env=sandbox", json=payload)
+    assert receipt.status_code == 200, receipt.text
+    assert receipt.json()["version"] == 3
+    assert client.post(f"{base}?env=sandbox", json=replacement).status_code == 201
+    assert receipt.json() in products.load_collection(
+        tmp_path, products._COLLECTION, products._legacy_path()
+    )
+    evidence = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    assert (
+        next(item for item in evidence if item["operation"] == "data_product.reclaim")["result"]
+        == receipt.json()
+    )

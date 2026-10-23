@@ -67,6 +67,7 @@ def test_availability_distinguishes_read_query_and_write_policy(
         assert actions[f"v1_{kind}_export"]["allowed"] is True
         assert actions[f"v1_{kind}_archive"]["allowed"] is can_write
         assert actions[f"v1_{kind}_restore"]["allowed"] is can_write
+        assert actions[f"v1_{kind}_reclaim"]["allowed"] is can_write
     assert actions["v1_branch_create"]["allowed"] is can_write
     assert actions["v1_job_launch"]["allowed"] is False
     assert all(item["reason"] for item in actions.values() if not item["allowed"])
@@ -149,10 +150,13 @@ def test_native_and_csv_preflights_require_exact_preview_binding_and_candidate_r
     assert actions["v1_csv_upload"]["allowed"] is True
     # This actor has object.write, but no asset.manage grant for CSV lifecycle mutations.
     assert actions["v1_csv_upload_archive"]["allowed"] is False
+    assert actions["v1_csv_upload_reclaim"]["allowed"] is False
     assert actions["v1_csv_candidate_reconcile"]["allowed"] is False
     for operation in (
         "v1_transform_model_draft_archive",
+        "v1_transform_model_draft_reclaim",
         "v1_transform_model_execution_archive",
+        "v1_transform_model_execution_reclaim",
     ):
         assert actions[operation]["allowed"] is True
     for operation in ("v1_csv_candidate_reconcile", "v1_transform_model_execution_reconcile"):
@@ -182,6 +186,7 @@ def test_native_and_csv_preflights_require_exact_preview_binding_and_candidate_r
         )
         actions = client.get(path).json()["actions"]
         assert actions["v1_csv_upload_archive"]["allowed"] is True
+        assert actions["v1_csv_upload_reclaim"]["allowed"] is True
         assert actions["v1_csv_candidate_reconcile"]["allowed"] is True
     with monkeypatch.context() as missing_dagster:
         missing_dagster.setitem(sys.modules, "phlo_dagster", None)

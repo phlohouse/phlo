@@ -621,3 +621,89 @@ def test_history_and_handoff_reject_missing_pinned_snapshot_despite_verified_hea
     assert handoff.json()["candidate_evidence"]["eligible_for_release"] is False
     assert "snapshot" in handoff.json()["release"]["blocked_reason"]
     assert state["record"]["preview"]["rows"] and state["runs"] == 1
+
+
+def test_draft_reclamation_requires_authorization_and_resolved_revision_exclusion(
+    setup_editor, monkeypatch
+):
+    from phlo_api.api import operation_controls
+
+    draft, calls = setup_editor
+    base, _ = paths(draft)
+    draft.update(archived_at="2026-10-01T00:00:00Z")
+
+    async def call(method, *args, **kwargs):
+        calls.append((method, kwargs))
+        if method == "list_model_executions":
+            return []
+        if method == "reclaim_model_draft":
+            return {
+                **draft,
+                "reclaim_started_at": "2026-10-23T00:00:00Z",
+                "reclaimed_at": "2026-10-23T00:00:00Z",
+                "reclaimed_bytes": 1024,
+                "reclaimed_by": "test:operator",
+                "reclaim_reason": kwargs["reason"],
+            }
+        return draft
+
+    monkeypatch.setattr(editor, "_call", call)
+    path = f"{base}/drafts/{draft['draft_id']}/1/reclaim?env=sandbox"
+    body = {
+        "confirmed": True,
+        "expected_revision_digest": draft["revision_digest"],
+        "reason": "Expired",
+    }
+    assert authenticated_client("viewer").post(path, json=body).status_code == 403
+    response = authenticated_client("operator").post(path, json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["reclaimed_bytes"] == 1024 and response.json()["sql"] == draft["sql"]
+    before = len([call for call in calls if call[0] == "reclaim_model_draft"])
+    operation_controls._claim_idempotency_key(
+        key_hash="pending",
+        operation="transform.candidate.execute",
+        target="unknown-outcome",
+        exclusion_target=f"transform:test:operator:sandbox:{draft['draft_id']}:1",
+    )
+    operation_controls._fail_idempotency_claim(
+        key_hash="pending", operation="transform.candidate.execute", target="unknown-outcome"
+    )
+    blocked = authenticated_client("operator").post(path, json=body)
+    assert blocked.status_code == 409, blocked.text
+    assert "reclamation_requires_resolved_mutations" in blocked.text
+    assert len([call for call in calls if call[0] == "reclaim_model_draft"]) == before
+
+
+@pytest.mark.parametrize("kind", ["draft", "execution"])
+def test_reclamation_passes_full_retention_validated_record_to_provider(
+    setup_editor, monkeypatch, kind
+):
+    draft, calls = setup_editor
+    base, _ = paths(draft)
+    record = {**draft, "archived_at": "2020-01-01T00:00:00Z"}
+    method_name = "reclaim_model_draft" if kind == "draft" else "reclaim_model_execution"
+
+    async def call(method, *args, **kwargs):
+        calls.append((method, kwargs))
+        if method == "list_model_executions":
+            return []
+        if method == method_name:
+            assert kwargs["expected_record"] == record
+            raise HTTPException(409, "Record changed after retention validation")
+        return record
+
+    monkeypatch.setattr(editor, "_call", call)
+    path = f"{base}/drafts/{draft['draft_id']}/1"
+    if kind == "execution":
+        path += f"/executions/{uuid4()}"
+    response = authenticated_client("operator").post(
+        path + "/reclaim?env=sandbox",
+        json={
+            "confirmed": True,
+            "expected_revision_digest": draft["revision_digest"],
+            "reason": "Expired",
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert "changed after retention validation" in response.text
+    assert any(method == method_name for method, _ in calls)

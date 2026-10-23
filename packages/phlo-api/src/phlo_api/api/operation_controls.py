@@ -108,6 +108,67 @@ def operation_exclusion(operation: str, target: str):
         raise IdempotencyConflict({"error": "operation_in_progress"}, retry_after=2) from exc
 
 
+@contextmanager
+def reclamation_guard(identities: list[tuple[str, str]]):
+    """Inspect outcomes and exclusions under the same lock used to insert claims.
+
+    Callers keep this guard through local disposal. It does not resolve, expire
+    or rewrite any operation; unavailable storage must never authorize deletion.
+    """
+    store = shared_operation_controls()
+    try:
+        if store is not None:
+            with store.reclamation_guard(identities):
+                yield
+        else:
+            conn = _idempotency_connection()
+            try:
+                conn.execute("PRAGMA busy_timeout = 0")
+                conn.execute("BEGIN IMMEDIATE")
+                for operation, target in identities:
+                    active = conn.execute(
+                        "SELECT 1 FROM operations WHERE project=? AND operation=? "
+                        "AND (target=? OR exclusion_target=?) AND state IN ('pending','unknown') LIMIT 1",
+                        (str(project_root()), operation, target, target),
+                    ).fetchone()
+                    if active:
+                        raise OperationExclusionConflict(
+                            "An unresolved mutation requires retained inputs"
+                        )
+                yield
+            finally:
+                conn.close()
+    except OperationExclusionConflict as exc:
+        raise IdempotencyConflict({"error": "reclamation_requires_resolved_mutations"}) from exc
+    except sqlite3.Error as exc:
+        raise StorageUnavailableError("Operation evidence is unavailable for reclamation") from exc
+
+
+def validate_payload_retention(created_at: str) -> None:
+    """Do not dispose source evidence before the configured retention minimum."""
+    years = get_operational_settings().retention_years
+    try:
+        created = datetime.fromisoformat(created_at)
+        if created.tzinfo is None:
+            raise ValueError("A retention timestamp requires a timezone")
+        if years is None:
+            return
+        try:
+            deadline = created.replace(year=created.year + years)
+        except ValueError:
+            deadline = created.replace(year=created.year + years, day=28) + timedelta(days=1)
+    except (ValueError, TypeError) as exc:
+        raise StorageUnavailableError("Artifact retention evidence is unavailable") from exc
+    if datetime.now(UTC) < deadline:
+        unit = "year" if years == 1 else "years"
+        raise IdempotencyConflict(
+            {
+                "error": "retention_minimum_not_elapsed",
+                "message": f"Configured retention is {years} calendar {unit}. Payload reclamation is eligible no earlier than {deadline.isoformat()}.",
+            }
+        )
+
+
 class MutationSucceededAuditFailed(HTTPException):
     """Stable outcome when a provider mutation committed but its audit did not."""
 

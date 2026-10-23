@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 268,
+  "endpoint_count": 273,
   "endpoints": [
     {
       "method": "GET",
@@ -1444,6 +1444,15 @@
     },
     {
       "method": "POST",
+      "operation_id": "v1_data_product_reclaim_api_v1_data_products__product_id__reclaim_post",
+      "path": "/api/v1/data-products/{product_id}/reclaim",
+      "summary": "V1 Data Product Reclaim",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "POST",
       "operation_id": "v1_data_product_restore_api_v1_data_products__product_id__restore_post",
       "path": "/api/v1/data-products/{product_id}/restore",
       "summary": "V1 Data Product Restore",
@@ -1762,6 +1771,15 @@
       "operation_id": "v1_metric_model_preview_api_v1_metric_models__model_id__preview_sql_post",
       "path": "/api/v1/metric-models/{model_id}/preview-sql",
       "summary": "V1 Metric Model Preview",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_reclaim_api_v1_metric_models__model_id__reclaim_post",
+      "path": "/api/v1/metric-models/{model_id}/reclaim",
+      "summary": "V1 Metric Model Reclaim",
       "tags": [
         "v1 metrics"
       ]
@@ -2227,6 +2245,15 @@
     },
     {
       "method": "POST",
+      "operation_id": "v1_transform_model_execution_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reclaim_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim",
+      "summary": "V1 Transform Model Execution Reclaim",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
       "operation_id": "v1_transform_model_execution_reconcile_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reconcile_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reconcile",
       "summary": "V1 Transform Model Execution Reconcile",
@@ -2239,6 +2266,15 @@
       "operation_id": "v1_transform_model_draft_handoff_api_v1_transform_models__model_id__drafts__draft_id___revision__handoff_get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/handoff",
       "summary": "V1 Transform Model Draft Handoff",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_draft_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__reclaim_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim",
+      "summary": "V1 Transform Model Draft Reclaim",
       "tags": [
         "v1 transform editor"
       ]
@@ -2376,6 +2412,15 @@
       "summary": "V1 Csv Destination",
       "tags": [
         "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_upload_reclaim_api_v1_uploads_csv__upload_id__reclaim_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/reclaim",
+      "summary": "V1 Csv Upload Reclaim",
+      "tags": [
+        "v1 CSV uploads"
       ]
     },
     {

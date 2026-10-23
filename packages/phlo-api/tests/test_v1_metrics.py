@@ -369,6 +369,29 @@ def test_metric_archive_restore_capacity_export_and_evidence(metric_setup, tmp_p
     assert (
         client.post(f"{url}/restore?env=sandbox", json={"expected_version": 4}).status_code == 200
     )
+    assert (
+        client.post(f"{url}/archive?env=sandbox", json={"expected_version": 5}).status_code == 200
+    )
+    receipt = client.post(
+        f"{url}/reclaim?env=sandbox",
+        json={"expected_version": 6, "confirmed": True, "reason": "Exported for handoff"},
+    )
+    assert receipt.status_code == 200, receipt.text
+    assert receipt.json()["version"] == 7 and receipt.json()["status"] == "reclaimed"
+    assert (
+        client.post(
+            f"{base}?env=sandbox", json={**metric_setup, "model_id": "replacement"}
+        ).status_code
+        == 201
+    )
+    assert len(client.get(f"{base}?env=sandbox&include_archived=true").json()["items"]) == 1000
+    assert client.post(f"{base}?env=sandbox", json=metric_setup).status_code == 409
+    gone = client.get(f"{url}?env=sandbox")
+    assert gone.status_code == 410 and "permanently reserved" in gone.json()["error"]["message"]
+    assert client.get(f"{url}/export?env=sandbox").status_code == 410
+    assert (
+        client.post(f"{url}/restore?env=sandbox", json={"expected_version": 7}).status_code == 410
+    )
 
 
 @pytest.mark.parametrize("stale", ["missing", "schema", "relation"])
@@ -418,7 +441,7 @@ def test_stale_metric_can_be_read_repaired_and_exported(metric_setup, monkeypatc
     assert client.put(f"{url}?env=sandbox", json=payload).status_code == 409
 
 
-@pytest.mark.parametrize("operation", ["update", "archive"])
+@pytest.mark.parametrize("operation", ["update", "archive", "reclaim"])
 @pytest.mark.parametrize("expected_version", [1, 2])
 def test_metric_mutation_authorizes_the_exact_version(
     metric_setup, monkeypatch, operation, expected_version
@@ -427,6 +450,14 @@ def test_metric_mutation_authorizes_the_exact_version(
     base = "/api/v1/metric-models"
     url = f"{base}/batch_release"
     assert client.post(f"{base}?env=sandbox", json=metric_setup).status_code == 201
+    base_version = 1
+    if operation == "reclaim":
+        assert (
+            client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code
+            == 200
+        )
+        base_version = 2
+        expected_version += 1
     original_enforce = metrics.enforce_http_operation
     advanced = False
 
@@ -441,7 +472,8 @@ def test_metric_mutation_authorizes_the_exact_version(
                 metrics._COLLECTION,
                 metrics._path(),
                 lambda items: [
-                    {**item, "asset_id": "gold/forbidden", "version": 2} for item in items
+                    {**item, "asset_id": "gold/forbidden", "version": base_version + 1}
+                    for item in items
                 ],
             )
         return await original_enforce(request, spec, params)
@@ -452,13 +484,23 @@ def test_metric_mutation_authorizes_the_exact_version(
             f"{url}?env=sandbox", json={**metric_setup, "expected_version": expected_version}
         )
         if operation == "update"
-        else client.post(f"{url}/archive?env=sandbox", json={"expected_version": expected_version})
+        else client.post(
+            f"{url}/{operation}?env=sandbox",
+            json={
+                "expected_version": expected_version,
+                **(
+                    {"confirmed": True, "reason": "Retire archived draft"}
+                    if operation == "reclaim"
+                    else {}
+                ),
+            },
+        )
     )
     assert response.status_code == 409, response.text
     monkeypatch.setattr(metrics, "enforce_http_operation", original_enforce)
     retained = client.get(f"{url}/export?env=sandbox").json()
-    assert retained["status"] == "draft"
-    assert retained["version"] == (2 if advanced else 1)
+    assert retained["status"] == ("archived" if operation == "reclaim" else "draft")
+    assert retained["version"] == (base_version + 1 if advanced else base_version)
     assert retained["definition"]["asset_id"] == (
         "gold/forbidden" if advanced else metric_setup["asset_id"]
     )
@@ -513,4 +555,212 @@ def test_metric_lifecycle_and_repair_preserve_permissions_and_ref(metric_setup, 
     assert client.get(f"{url}/export?env=sandbox").status_code == 404
     assert (
         client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code == 404
+    )
+
+
+def test_metric_reclaim_requires_confirmation_version_and_asset_authorization(
+    metric_setup, monkeypatch, tmp_path
+):
+    from hashlib import sha256
+
+    client = authenticated_client("operator")
+    base = "/api/v1/metric-models"
+    url = f"{base}/batch_release"
+    payload = {"expected_version": 2, "confirmed": True, "reason": "  Exported for review  "}
+    assert client.post(f"{base}?env=sandbox", json=metric_setup).status_code == 201
+    assert (
+        client.post(
+            f"{url}/reclaim?env=sandbox", json={**payload, "expected_version": 1}
+        ).status_code
+        == 409
+    )
+    archived = client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).json()
+    for change in (
+        {"confirmed": False},
+        {"reason": "   "},
+        {"expected_version": 1},
+        {"expected_version": 3},
+    ):
+        assert client.post(
+            f"{url}/reclaim?env=sandbox", json={**payload, **change}
+        ).status_code == (422 if "expected_version" not in change else 409)
+    assert (
+        authenticated_client("viewer").post(f"{url}/reclaim?env=sandbox", json=payload).status_code
+        == 403
+    )
+    assert TestClient(app).post(f"{url}/reclaim?env=sandbox", json=payload).status_code == 401
+    assert client.post(f"{url}/reclaim?env=prod", json=payload).status_code == 404
+    original_enforce = metrics.enforce_http_operation
+
+    async def denied(*args, **kwargs):
+        raise HTTPException(403, "Denied")
+
+    monkeypatch.setattr(metrics, "enforce_http_operation", denied)
+    assert client.post(f"{url}/reclaim?env=sandbox", json=payload).status_code == 403
+    monkeypatch.setattr(metrics, "enforce_http_operation", original_enforce)
+
+    async def missing_source(*args, **kwargs):
+        raise NotFoundError("Removed source")
+
+    with monkeypatch.context() as stale_source:
+        stale_source.setattr(metrics, "v1_asset_detail", missing_source)
+        reclaimed = client.post(f"{url}/reclaim?env=sandbox", json=payload)
+    assert reclaimed.status_code == 200, reclaimed.text
+    receipt = reclaimed.json()
+    assert (
+        receipt["definition_sha256"]
+        == sha256(json.dumps(archived, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    )
+    assert receipt["reclaimed_by"] == "test:operator" and receipt["reason"] == "Exported for review"
+    assert receipt["created_at"] == archived["created_at"] and receipt["version"] == 3
+    stored = metrics.load_collection(metrics.project_root(), metrics._COLLECTION, metrics._path())
+    assert stored == [receipt] and "measures" not in receipt
+    assert client.post(f"{url}/preview-sql?env=sandbox", json={}).status_code == 410
+    assert (
+        client.put(f"{url}?env=sandbox", json={**metric_setup, "expected_version": 3}).status_code
+        == 410
+    )
+    assert client.get(f"{base}?env=sandbox&include_archived=true").json()["items"] == []
+    # Unrelated writes must carry the durable identity fence forward unchanged.
+    assert (
+        client.post(f"{base}?env=sandbox", json={**metric_setup, "model_id": "another"}).status_code
+        == 201
+    )
+    assert client.post(f"{base}?env=sandbox", json=metric_setup).status_code == 409
+    monkeypatch.setattr(metrics, "enforce_http_operation", denied)
+    hidden = client.get(f"{url}?env=sandbox")
+    assert hidden.status_code == 403 and receipt["definition_sha256"] not in hidden.text
+    monkeypatch.setattr(metrics, "enforce_http_operation", original_enforce)
+    audits = [
+        json.loads(line)
+        for line in (tmp_path / ".phlo/audit/operations.jsonl").read_text().splitlines()
+    ]
+    assert (
+        next(item for item in audits if item["operation"] == "metric_model.reclaim")["result"]
+        == receipt
+    )
+
+
+@pytest.mark.parametrize("fence", ["record", "collection", "legacy", "racing_collection"])
+def test_metric_reclaim_preserves_unknown_mutation_evidence(
+    metric_setup, tmp_path, fence, monkeypatch
+):
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api.observatory_durable_state import state_namespace
+
+    client = authenticated_client("operator")
+    base = "/api/v1/metric-models"
+    url = f"{base}/batch_release"
+    service = get_settings_service()
+    namespace = state_namespace(tmp_path, metrics._COLLECTION)
+    if fence == "legacy":
+        metrics._path().parent.mkdir(parents=True, exist_ok=True)
+        raw = json.dumps(
+            {"items": [], "unknown_mutation": {"state": "unknown", "key": "do-not-retry"}}
+        )
+        metrics._path().write_text(raw)
+    else:
+        assert client.post(f"{base}?env=sandbox", json=metric_setup).status_code == 201
+        assert (
+            client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code
+            == 200
+        )
+
+        def add_fence(current):
+            if fence == "record":
+                current["items"][0]["unknown_mutation"] = {"state": "unknown"}
+            else:
+                current["unknown_mutation"] = {"state": "unknown"}
+            return current
+
+        if fence == "racing_collection":
+            original_enforce = metrics.enforce_http_operation
+
+            async def racing_enforce(*args, **kwargs):
+                await original_enforce(*args, **kwargs)
+                service.mutate(SettingsScope.GLOBAL, namespace, add_fence)
+
+            monkeypatch.setattr(metrics, "enforce_http_operation", racing_enforce)
+            state = service.get(SettingsScope.GLOBAL, namespace).settings
+            before = json.dumps(add_fence(state), sort_keys=True)
+        else:
+            service.mutate(SettingsScope.GLOBAL, namespace, add_fence)
+            before = json.dumps(
+                service.get(SettingsScope.GLOBAL, namespace).settings, sort_keys=True
+            )
+    response = client.post(
+        f"{url}/reclaim?env=sandbox",
+        json={"expected_version": 2, "confirmed": True, "reason": "Retire"},
+    )
+    assert response.status_code == 409, response.text
+    if fence == "legacy":
+        assert metrics._path().read_text() == raw
+        assert service.get(SettingsScope.GLOBAL, namespace) is None
+    else:
+        assert (
+            json.dumps(service.get(SettingsScope.GLOBAL, namespace).settings, sort_keys=True)
+            == before
+        )
+
+
+def test_metric_reclaim_retains_recent_content_and_capacity_under_audit_policy(
+    metric_setup, tmp_path
+):
+    from phlo.plugins.observatory_settings import (
+        ADMIN_SETTINGS_NAMESPACE,
+        SettingsScope,
+        get_settings_service,
+    )
+
+    client = authenticated_client("operator")
+    base = "/api/v1/metric-models"
+    url = f"{base}/batch_release"
+    assert client.post(f"{base}?env=sandbox", json=metric_setup).status_code == 201
+    archived = client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).json()
+    old_creation = {**archived, "created_at": "1990-01-01T00:00:00+00:00"}
+    metrics.mutate_collection(
+        tmp_path,
+        metrics._COLLECTION,
+        metrics._path(),
+        lambda items: (
+            [old_creation] + [{**old_creation, "model_id": f"retained-{i}"} for i in range(999)]
+        ),
+    )
+    get_settings_service().put(
+        SettingsScope.GLOBAL,
+        ADMIN_SETTINGS_NAMESPACE,
+        {"version": 1, "values": {"observatory.settings.audit.retention_years": 7}},
+    )
+    before = metrics.load_collection(tmp_path, metrics._COLLECTION, metrics._path())
+    audit_path = tmp_path / ".phlo/audit/operations.jsonl"
+    audit_before = audit_path.read_bytes()
+    payload = {"expected_version": 2, "confirmed": True, "reason": "Exported for handoff"}
+    denied = client.post(f"{url}/reclaim?env=sandbox", json=payload)
+    assert denied.status_code == 409 and "retention_minimum_not_elapsed" in denied.text
+    assert metrics.load_collection(tmp_path, metrics._COLLECTION, metrics._path()) == before
+    assert audit_path.read_bytes() == audit_before
+    assert client.get(f"{url}/export?env=sandbox").json()["version"] == 2
+    replacement = {**metric_setup, "model_id": "replacement"}
+    assert client.post(f"{base}?env=sandbox", json=replacement).status_code == 409
+    # Existing content becomes eligible only after its latest update passes the minimum.
+    metrics.mutate_collection(
+        tmp_path,
+        metrics._COLLECTION,
+        metrics._path(),
+        lambda items: [
+            {**item, "updated_at": "1991-01-01T00:00:00+00:00"}
+            if item["model_id"] == "batch_release"
+            else item
+            for item in items
+        ],
+    )
+    receipt = client.post(f"{url}/reclaim?env=sandbox", json=payload)
+    assert receipt.status_code == 200, receipt.text
+    assert receipt.json()["version"] == 3
+    assert client.post(f"{base}?env=sandbox", json=replacement).status_code == 201
+    assert receipt.json() in metrics.load_collection(tmp_path, metrics._COLLECTION, metrics._path())
+    evidence = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    assert (
+        next(item for item in evidence if item["operation"] == "metric_model.reclaim")["result"]
+        == receipt.json()
     )

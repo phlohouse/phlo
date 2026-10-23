@@ -23,6 +23,7 @@ from phlo_transform.workspace import TransformWorkspace, load_workspace
 
 _MAX_SOURCE_BYTES = 256 * 1024
 _MAX_WORKSPACE_BYTES = 16 * 1024 * 1024
+_MAX_RETAINED_REVISIONS = 1000
 _INPUT_SUFFIXES = {".sql", ".toml", ".yaml", ".yml", ".json", ".csv"}
 _SKIPPED = {".git", ".phlo", ".venv", "node_modules", "target", "dbt_packages", "__pycache__"}
 
@@ -121,9 +122,15 @@ def _namespace(root: Path) -> str:
     return "transform.editor." + _digest(str(root.resolve()).encode())
 
 
-def _records(state: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _records(
+    state: dict[str, Any] | None, *, require_known_state: bool = False
+) -> list[dict[str, Any]]:
     if state is None:
         return []
+    if require_known_state and set(state) - {"schema_version", "items"}:
+        raise TransformEditorError(
+            "Unknown mutation or reference metadata prevents reclamation.", status=409
+        )
     if state.get("schema_version") != 1 or not isinstance(state.get("items"), list):
         raise TransformEditorError("Stored transform draft metadata is unavailable.", status=503)
     return state["items"]
@@ -221,7 +228,7 @@ def save_model_draft(
                 raise TransformEditorError(
                     "Restore the latest revision before editing this draft.", status=409
                 )
-            if len(records) >= 1000:
+            if sum(not item.get("reclaimed_at") for item in records) >= _MAX_RETAINED_REVISIONS:
                 raise TransformEditorError("The transform draft revision limit was reached.")
             return {"schema_version": 1, "items": [*records, record]}
 
@@ -251,6 +258,11 @@ def read_model_draft(
     )
     if found is None:
         raise TransformEditorError("Draft revision was not found in this scope.", status=404)
+    if found.get("reclaim_started_at"):
+        sql = found["retained_sql"]
+        if _digest(sql.encode()) != found["sql_digest"]:
+            raise TransformEditorError("Retained source checksum changed.", status=409)
+        return {**found, "sql": sql}
     directory = _artifact(root, found["draft_id"], found["artifact_id"])
     files = _inputs(directory)
     if (
@@ -269,6 +281,10 @@ def archive_model_draft(
 ) -> dict[str, Any]:
     """Preserve immutable source and its identity while changing retention visibility."""
     saved = read_model_draft(root, model, **identity)
+    if saved.get("reclaim_started_at"):
+        raise TransformEditorError(
+            "Reclamation is irreversible; revision cannot be restored.", status=409
+        )
     changes = {
         "archived_at": datetime.now(UTC).isoformat() if archived else None,
         "archived_by": identity["actor"] if archived else None,
@@ -291,6 +307,141 @@ def archive_model_draft(
 
     get_settings_service().mutate(SettingsScope.GLOBAL, _namespace(root), update)
     return {**saved, **changes}
+
+
+def _reclaim_workspace_bytes(root: Path, directory: Path) -> int:
+    """Measure only the literal retained workspace, never a symlink destination."""
+    if directory.absolute() != directory.resolve() or not directory.is_relative_to(
+        root.resolve() / ".phlo" / "transform-editor"
+    ):
+        raise TransformEditorError(
+            "Reclamation requires a contained non-symlink workspace.", status=409
+        )
+    return sum(
+        path.stat().st_size
+        for path in directory.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    )
+
+
+def _reclaim_workspace(root: Path, directory: Path) -> int:
+    """Remove only the literal retained workspace, never a symlink destination."""
+    size = _reclaim_workspace_bytes(root, directory)
+    if directory.exists():
+        shutil.rmtree(directory)
+    return size
+
+
+def reclaim_model_draft(
+    root: Path,
+    model: str,
+    *,
+    expected_revision_digest: str,
+    reason: str,
+    expected_record: dict[str, Any] | None = None,
+    **identity: Any,
+) -> dict[str, Any]:
+    """Reclaim an archived snapshot but retain SQL, file digests and all revision identities."""
+    from phlo_transform.editor_execution import _EXECUTION_FIELDS, _storage
+
+    saved = read_model_draft(root, model, **identity)
+    if expected_record is not None and saved != expected_record:
+        raise TransformEditorError("Revision changed after retention validation.", status=409)
+    known = {
+        "draft_id",
+        "artifact_id",
+        "revision",
+        "model",
+        "actor",
+        "env",
+        "ref",
+        "path",
+        "project_path",
+        "source_digest",
+        "workspace_digest",
+        "revision_digest",
+        "sql_digest",
+        "created_at",
+        "sql",
+        "archived_at",
+        "archived_by",
+        "archive_reason",
+        "reclaim_started_at",
+        "reclaimed_at",
+        "reclaimed_by",
+        "reclaim_reason",
+        "reclaimed_bytes",
+        "reclaim_payload_bytes",
+        "retained_sql",
+        "retained_file_digests",
+    }
+    if set(saved) - known:
+        raise TransformEditorError("Unknown revision evidence prevents reclamation.", status=409)
+    if not saved.get("archived_at") or saved["revision_digest"] != expected_revision_digest:
+        raise TransformEditorError(
+            "An archived revision and exact digest are required.", status=409
+        )
+    if saved.get("reclaimed_at"):
+        return saved
+    state = get_settings_service().get(SettingsScope.GLOBAL, _storage(root))
+    if any(
+        set(item) - _EXECUTION_FIELDS
+        or (
+            item.get("draft_id") == saved["draft_id"]
+            and item.get("revision") == saved["revision"]
+            and item.get("status") not in {"passed", "failed"}
+        )
+        for item in _records(state.settings if state else None, require_known_state=True)
+    ):
+        raise TransformEditorError(
+            "Unresolved executions must retain their source snapshot.", status=409
+        )
+    directory = (
+        root.resolve()
+        / ".phlo/transform-editor"
+        / saved["draft_id"]
+        / saved["artifact_id"]
+        / "workspace"
+    )
+    started = {key: value for key, value in saved.items() if key != "sql"}
+    if not saved.get("reclaim_started_at"):
+        started.update(
+            reclaim_started_at=datetime.now(UTC).isoformat(),
+            reclaimed_by=identity["actor"],
+            reclaim_reason=reason,
+            reclaim_payload_bytes=_reclaim_workspace_bytes(root, directory),
+            retained_sql=saved["sql"],
+            retained_file_digests={
+                name: _digest(data) for name, data in _inputs(directory).items()
+            },
+        )
+    size = started.get("reclaim_payload_bytes")
+    if type(size) is not int or size < 0:
+        raise TransformEditorError("Original reclamation byte evidence is unavailable.", status=409)
+
+    def store(record):
+        def update(current):
+            records = _records(current, require_known_state=True)
+            if any(set(item) - known for item in records):
+                raise TransformEditorError(
+                    "Unknown revision references prevent reclamation.", status=409
+                )
+            existing = next(item for item in records if item["artifact_id"] == saved["artifact_id"])
+            expected = {key: value for key, value in saved.items() if key != "sql"}
+            if existing != expected and existing != started:
+                raise TransformEditorError("Revision changed during reclamation.", status=409)
+            return {
+                "schema_version": 1,
+                "items": [record if item is existing else item for item in records],
+            }
+
+        get_settings_service().mutate(SettingsScope.GLOBAL, _namespace(root), update)
+
+    store(started)
+    _reclaim_workspace(root, directory)
+    finished = {**started, "reclaimed_at": datetime.now(UTC).isoformat(), "reclaimed_bytes": size}
+    store(finished)
+    return {**finished, "sql": saved["sql"]}
 
 
 def preview_settings(
@@ -469,6 +620,11 @@ def list_model_drafts(
         "archived_at",
         "archived_by",
         "archive_reason",
+        "reclaim_started_at",
+        "reclaimed_at",
+        "reclaimed_by",
+        "reclaim_reason",
+        "reclaimed_bytes",
     )
     for record in records[:100]:
         verified = read_model_draft(
@@ -480,7 +636,9 @@ def list_model_drafts(
             draft_id=record["draft_id"],
             revision=record["revision"],
         )
-        summaries.append({key: verified.get(key) for key in keys})
+        summaries.append(
+            {key: verified.get(key, 0 if key == "reclaimed_bytes" else None) for key in keys}
+        )
     return {"items": summaries, "total": len(records), "truncated": len(records) > 100}
 
 

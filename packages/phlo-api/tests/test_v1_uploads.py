@@ -337,3 +337,183 @@ def test_private_inventory_and_archive_preserve_bytes_and_do_not_reclaim_quota(
     ).json()
     assert restored["archived_at"] is None and restored["checksum"] == original["checksum"]
     assert client.get(path + "?env=sandbox").json()["raw_rows"] == [{"id": "71"}]
+
+    body = {
+        "confirmed": True,
+        "expected_checksum": original["checksum"],
+        "reason": "Retention expired",
+    }
+    assert client.post(path + "/reclaim?env=sandbox", json=body).status_code == 409
+    client.post(path + "/archive?env=sandbox", json={"archived": True, "reason": "Expired"})
+    assert (
+        authenticated_client("viewer").post(path + "/reclaim?env=sandbox", json=body).status_code
+        == 403
+    )
+    assert other.post(path + "/reclaim?env=sandbox", json=body).status_code == 404
+    assert (
+        client.post(
+            path + "/reclaim?env=sandbox", json={**body, "expected_checksum": "a" * 64}
+        ).status_code
+        == 409
+    )
+    reclaimed = client.post(path + "/reclaim?env=sandbox", json=body)
+    assert reclaimed.status_code == 200, reclaimed.text
+    tombstone = reclaimed.json()
+    assert tombstone["checksum"] == original["checksum"]
+    assert tombstone["reclaimed_at"] and tombstone["reclaimed_by"] == original["actor"]
+    assert tombstone["reclaimed_bytes"] == len(raw)
+    assert not uploads._file_path(original["upload_id"]).exists()
+    assert client.get(path + "?env=sandbox").status_code == 410
+    assert client.post(path + "/reclaim?env=sandbox", json=body).json() == tombstone
+    assert (
+        client.post(
+            path + "/archive?env=sandbox", json={"archived": False, "reason": "Restore"}
+        ).status_code
+        == 409
+    )
+    assert retain(b"id\n99\n").status_code == 201
+    items = client.get("/api/v1/uploads/csv?env=sandbox&include_archived=true").json()["items"]
+    assert (
+        len(items) == 2
+        and next(item for item in items if item["upload_id"] == original["upload_id"]) == tombstone
+    )
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "archived_at",
+        "archive_reason",
+        "reclaim_started_at",
+        "reclaimed_at",
+        "future_reference_fence",
+    ],
+)
+def test_stale_review_cannot_erase_concurrent_retention_fences(project, monkeypatch, fence):
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api.observatory_durable_state import state_namespace
+
+    record = retain(b"id\n71\n").json()
+    namespace = state_namespace(project, uploads._COLLECTION)
+    service = get_settings_service()
+    original = uploads.mutate_collection
+
+    def race(*args, **kwargs):
+        def inject(state):
+            state["items"][0][fence] = "2026-10-23T00:00:00Z"
+            return state
+
+        service.mutate(SettingsScope.GLOBAL, namespace, inject)
+        if fence == "reclaimed_at":
+            uploads._file_path(record["upload_id"]).unlink()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(uploads, "mutate_collection", race)
+    response = authenticated_client("operator").put(
+        f"/api/v1/uploads/csv/{record['upload_id']}/columns?env=sandbox",
+        json={"expected_version": 1, "columns": record["columns"]},
+    )
+    assert response.status_code == 409, response.text
+    current = service.get(SettingsScope.GLOBAL, namespace).settings["items"][0]
+    assert current[fence] == "2026-10-23T00:00:00Z" and current["version"] == 1
+
+
+def test_reclamation_rejects_unknown_sibling_references_inserted_inside_save(project, monkeypatch):
+    import security_test_support
+    from phlo.rbac.models import CanonicalAction
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api.observatory_durable_state import state_namespace
+
+    monkeypatch.setitem(
+        security_test_support._ACTIONS_BY_PRINCIPAL,
+        "operator",
+        {
+            *security_test_support._ACTIONS_BY_PRINCIPAL["operator"],
+            CanonicalAction.ASSET_MANAGE.value,
+        },
+    )
+    record = retain(b"id\n71\n").json()
+    sibling = retain(b"id\n92\n").json()
+    client = authenticated_client("operator")
+    path = f"/api/v1/uploads/csv/{record['upload_id']}"
+    client.post(path + "/archive?env=sandbox", json={"archived": True, "reason": "Expired"})
+    namespace = state_namespace(project, uploads._COLLECTION)
+    service = get_settings_service()
+    original = uploads.mutate_collection
+
+    def race(*args, **kwargs):
+        def inject(state):
+            other = next(
+                item for item in state["items"] if item["upload_id"] == sibling["upload_id"]
+            )
+            other["future_reference_fence"] = {"retain_upload": record["upload_id"]}
+            return state
+
+        service.mutate(SettingsScope.GLOBAL, namespace, inject)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(uploads, "mutate_collection", race)
+    response = client.post(
+        path + "/reclaim?env=sandbox",
+        json={"confirmed": True, "expected_checksum": record["checksum"], "reason": "Expired"},
+    )
+    assert response.status_code == 409, response.text
+    state = service.get(SettingsScope.GLOBAL, namespace).settings
+    assert state["items"][1]["future_reference_fence"] == {"retain_upload": record["upload_id"]}
+    assert not state["items"][0].get("reclaim_started_at")
+    assert uploads._file_path(record["upload_id"]).read_bytes() == b"id\n71\n"
+
+
+def test_csv_payload_retention_includes_recent_archive_with_inclusive_boundary(
+    project, monkeypatch
+):
+    from datetime import datetime
+
+    import security_test_support
+    from phlo.rbac.models import CanonicalAction
+    from phlo.plugins.observatory_settings import OperationalSettings
+    from phlo_api.api import operation_controls
+
+    monkeypatch.setitem(
+        security_test_support._ACTIONS_BY_PRINCIPAL,
+        "operator",
+        {
+            *security_test_support._ACTIONS_BY_PRINCIPAL["operator"],
+            CanonicalAction.ASSET_MANAGE.value,
+        },
+    )
+    record = retain(b"id\n71\n").json()
+    client = authenticated_client("operator")
+    path = f"/api/v1/uploads/csv/{record['upload_id']}"
+    client.post(path + "/archive?env=sandbox", json={"archived": True, "reason": "Expired"})
+
+    def age(items):
+        items[0].update(
+            created_at="2020-01-01T00:00:00+00:00", archived_at="2024-10-01T12:00:00+00:00"
+        )
+        return items
+
+    uploads.mutate_collection(project, uploads._COLLECTION, uploads._legacy_path(), age)
+    now = "2025-10-01T11:59:59.999999+00:00"
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(now)
+
+    monkeypatch.setattr(operation_controls, "datetime", Clock)
+    monkeypatch.setattr(
+        operation_controls,
+        "get_operational_settings",
+        lambda: OperationalSettings(**{"audit.retention_years": 1}),
+    )
+    body = {"confirmed": True, "expected_checksum": record["checksum"], "reason": "Expired"}
+    before = client.post(path + "/reclaim?env=sandbox", json=body)
+    assert before.status_code == 409 and "retention_minimum_not_elapsed" in before.text
+    assert "2025-10-01T12:00:00+00:00" in before.text
+    assert uploads._file_path(record["upload_id"]).exists()
+    assert uploads._records()[0].reclaim_started_at is None
+    now = "2025-10-01T12:00:00+00:00"
+    after = client.post(path + "/reclaim?env=sandbox", json=body)
+    assert after.status_code == 200, after.text
+    assert not uploads._file_path(record["upload_id"]).exists()

@@ -5,15 +5,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 from urllib.parse import quote
 
+import httpx
 from fastapi import APIRouter, Query, Request
 from pydantic import Field
 from phlo.workflow_authoring import create_workflow_with_provider
 from phlo.operations.csv_upload import csv_output_columns
 from phlo_api.api import v1_assets, v1_branch_workflows as branches, v1_uploads as uploads
-from phlo_api.api.operation_controls import audit_operation, project_root, require_scope
+from phlo_api.api.operation_controls import (
+    audit_operation,
+    operation_exclusion,
+    project_root,
+    require_scope,
+)
 from phlo_api.api.v1 import _target
 from phlo_api.candidate_runtime import (
     CandidateEvidence,
@@ -39,6 +46,14 @@ from phlo_api.v1_contract import Environment, WireModel
 router = APIRouter(tags=["v1 CSV candidate ingestion"])
 _COLLECTION = "v1_csv_candidates"
 _LOCK = asyncio.Lock()
+
+
+@asynccontextmanager
+async def candidate_lock(env: str, upload_id: str):
+    """Share lifecycle exclusion with reclamation across API replicas."""
+    async with _LOCK:
+        with operation_exclusion("csv.lifecycle", f"{env}:{upload_id}"):
+            yield
 
 
 def _require_load_runtime() -> None:
@@ -111,7 +126,8 @@ def _legacy():
 
 def _all() -> list[CandidateReceipt]:
     values = load_collection(project_root(), _COLLECTION, _legacy())
-    if len(values) > 100:
+    retained_ids = {item.upload_id for item in uploads._records() if not item.reclaimed_at}
+    if sum(value.get("upload_id") in retained_ids for value in values) > 100:
         raise BackendUnavailableError("CSV candidate collection exceeds its configured limit.")
     return [CandidateReceipt.model_validate(value) for value in values]
 
@@ -134,7 +150,8 @@ def _receipt(
     record = uploads._record(request, env, upload_id)
     if require_active and record.archived_at:
         raise ConflictError("Restore the archived upload before planning or loading it.")
-    uploads._verified_bytes(record)
+    if not record.reclaim_started_at:
+        uploads._verified_bytes(record)
     receipt = next(
         (
             item
@@ -163,7 +180,11 @@ def _save(receipt: CandidateReceipt, *, previous: CandidateReceipt | None) -> Ca
     def update(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         current = next((item for item in items if item.get("upload_id") == receipt.upload_id), None)
         if previous is None:
-            if current is not None or len(items) >= 100:
+            retained_ids = {item.upload_id for item in uploads._records() if not item.reclaimed_at}
+            if (
+                current is not None
+                or sum(item.get("upload_id") in retained_ids for item in items) >= 100
+            ):
                 raise ConflictError("CSV candidate already exists or collection is full.")
             if any(item.get("asset_id") == receipt.asset_id for item in items):
                 raise ConflictError(
@@ -216,11 +237,18 @@ async def _new_relation(ref: str, table: str) -> None:
 
 
 async def _reload(location: str) -> None:
-    value = await graphql_request(
-        resolve_dagster_url(),
-        "mutation Reload($name:String!){reloadRepositoryLocation(repositoryLocationName:$name){__typename ... on WorkspaceLocationEntry{loadStatus locationOrLoadError{__typename ... on RepositoryLocation{name}}}}}",
-        {"name": location},
-    )
+    try:
+        value = await graphql_request(
+            resolve_dagster_url(),
+            "mutation Reload($name:String!){reloadRepositoryLocation(repositoryLocationName:$name){__typename ... on WorkspaceLocationEntry{loadStatus locationOrLoadError{__typename ... on RepositoryLocation{name}}}}}",
+            {"name": location},
+            timeout=60.0,
+        )
+    except httpx.HTTPError as exc:
+        raise BackendUnavailableError(
+            "CSV files and candidate registration were retained, but Dagster reload could not be acknowledged. "
+            "Preparation remains incomplete; inspect the retained candidate before repeating preparation."
+        ) from exc
     entry = value.get("data", {}).get("reloadRepositoryLocation", {})
     if (
         entry.get("loadStatus") != "LOADED"
@@ -240,7 +268,7 @@ async def v1_csv_destination(
     require_scope(request, "lakehouse:operate")
     await _permission(request, "v1_csv_upload_review", upload_id=upload_id)
     await _permission(request, "v1_branch_create")
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         record = uploads._record(request, env, upload_id)
         if record.archived_at:
             raise ConflictError("Restore the archived upload before preparing its destination.")
@@ -264,7 +292,7 @@ async def v1_csv_destination(
                 return receipt
         else:
             if any(
-                asset.id == f"dlt_{payload.table}"
+                asset.id == f"dlt_upload_{upload_id}"
                 for asset in await v1_assets._assets(request, env)
             ):
                 raise ConflictError(
@@ -281,7 +309,7 @@ async def v1_csv_destination(
                 recipe_digest=_recipe(record),
                 table=payload.table,
                 relation=f"bronze.{payload.table}",
-                asset_id=f"dlt_{payload.table}",
+                asset_id=f"dlt_upload_{upload_id}",
                 candidate_ref=f"{env}-upload-{upload_id}",
                 base_ref=target.nessie_ref,
                 base_hash=base_hash,
@@ -324,6 +352,9 @@ async def v1_csv_destination(
             "table": receipt.table,
             "record_key": record_key,
         }
+        # Existing receipts keep their legacy identity and immutable contract bytes.
+        if receipt.asset_id != f"dlt_{receipt.table}":
+            manifest["asset_id"] = receipt.asset_id
         result = await asyncio.to_thread(
             create_workflow_with_provider,
             project_root=project_root(),
@@ -362,7 +393,7 @@ async def v1_csv_candidate(
     request: Request, upload_id: str, env: Environment = Query()
 ) -> CandidateReceipt:
     _target(request, env)
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         _, receipt = _receipt(request, env, upload_id)
         if receipt.run_id and not receipt.loaded:
             status, _ = await _run(receipt)
@@ -379,7 +410,7 @@ async def v1_csv_candidate_plan(
     _target(request, env)
     uploads._upload_auth(request)
     require_scope(request, "lakehouse:operate")
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         _, receipt = _receipt(request, env, upload_id, require_active=True)
         if receipt.status not in {"prepared", "planned", "failed", "queued", "running"}:
             raise ConflictError("Prepare the destination before estimating its one-off load.")
@@ -437,7 +468,7 @@ async def v1_csv_candidate_load(
     _target(request, env)
     auth = uploads._upload_auth(request)
     require_scope(request, "lakehouse:operate")
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         _, receipt = _receipt(request, env, upload_id, require_active=True)
         await _permission(request, "v1_asset_materialize", asset_id=receipt.asset_id)
         if (
@@ -561,7 +592,7 @@ async def v1_csv_candidate_preview(
     request: Request, upload_id: str, env: Environment = Query()
 ) -> CsvCandidatePreview:
     _target(request, env)
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         record, receipt = _receipt(request, env, upload_id)
         await _permission(request, "v1_asset_preview", asset_id=receipt.asset_id)
         if not receipt.run_id:
@@ -643,7 +674,7 @@ async def v1_csv_candidate_review(
     request: Request, upload_id: str, env: Environment = Query()
 ) -> dict[str, Any]:
     _target(request, env)
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         return await _candidate_review(request, env, upload_id)
 
 
@@ -655,7 +686,7 @@ async def v1_csv_candidate_reconcile(
     _target(request, env)
     auth = uploads._upload_auth(request)
     require_scope(request, "lakehouse:operate")
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         record, receipt = _receipt(request, env, upload_id)
         await _permission(request, "v1_asset_materialize", asset_id=receipt.asset_id)
         resolution = {
@@ -724,7 +755,7 @@ async def v1_csv_candidate_handoff(
     request: Request, upload_id: str, env: Environment = Query()
 ) -> dict[str, Any]:
     _target(request, env)
-    async with _LOCK:
+    async with candidate_lock(env, upload_id):
         review = await _candidate_review(request, env, upload_id)
         _, receipt = _receipt(request, env, upload_id)
         files = []

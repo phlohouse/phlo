@@ -836,3 +836,123 @@ def test_configured_shared_store_never_falls_back_on_outage(monkeypatch, tmp_pat
     assert "password" not in response.text
     assert "secret" not in response.text
     assert not (tmp_path / ".phlo" / "state" / "operations.sqlite").exists()
+
+
+@pytest.mark.parametrize("state", ["pending", "unknown"])
+@pytest.mark.parametrize("identity", ["outcome-target", "resource-exclusion"])
+def test_reclamation_guard_refuses_unresolved_outcomes_and_exclusions(
+    tmp_path, monkeypatch, state, identity
+):
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    claim = operation_controls._claim_idempotency_key(
+        key_hash="retained",
+        operation="write",
+        target="outcome-target",
+        exclusion_target="resource-exclusion",
+    )
+    assert claim.claimed
+    if state == "unknown":
+        operation_controls._fail_idempotency_claim(
+            key_hash="retained", operation="write", target="outcome-target"
+        )
+    with pytest.raises(IdempotencyConflict, match="reclamation_requires_resolved_mutations"):
+        with operation_controls.reclamation_guard([("write", identity)]):
+            pytest.fail("Unresolved inputs were disposed")
+    conn = operation_controls._idempotency_connection()
+    try:
+        assert (
+            conn.execute("SELECT state FROM operations WHERE key_hash='retained'").fetchone()[0]
+            == state
+        )
+    finally:
+        conn.close()
+
+
+def test_reclamation_guard_serializes_competing_claim_before_provider_io(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    started, provider = threading.Event(), threading.Event()
+    errors = []
+
+    def launch():
+        started.set()
+        try:
+            replay_or_execute(
+                idempotency_key="new",
+                operation="write",
+                target="new-outcome",
+                exclusion_target="resource",
+                execute=lambda: provider.set() or {"ok": True},
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    with operation_controls.reclamation_guard([("write", "resource")]):
+        thread = threading.Thread(target=launch)
+        thread.start()
+        assert started.wait(1)
+        assert not provider.wait(0.2)
+    thread.join(3)
+    assert not thread.is_alive() and not errors
+    assert provider.is_set()
+
+
+def test_reclamation_guard_never_falls_back_when_shared_evidence_is_unavailable(
+    tmp_path, monkeypatch
+):
+    from phlo.plugins.observatory_settings import StorageUnavailableError
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_API_OPERATION_CONTROLS_DB_URL", "postgresql://127.0.0.1:1/missing")
+    monkeypatch.setenv("PHLO_API_OPERATION_CONTROLS_NAMESPACE", "reclaim-outage")
+    with pytest.raises(StorageUnavailableError):
+        with operation_controls.reclamation_guard([("write", "resource")]):
+            pytest.fail("Storage outage authorized disposal")
+    assert not (tmp_path / ".phlo/state/operations.sqlite").exists()
+
+
+@pytest.mark.parametrize(
+    "created,now,allowed",
+    [
+        ("2024-10-01T12:00:00+00:00", "2025-10-01T11:59:59.999999+00:00", False),
+        ("2024-10-01T12:00:00+00:00", "2025-10-01T12:00:00+00:00", True),
+        ("2024-02-29T12:00:00+00:00", "2025-03-01T11:59:59.999999+00:00", False),
+        ("2024-02-29T12:00:00+00:00", "2025-03-01T12:00:00+00:00", True),
+    ],
+)
+def test_payload_retention_calendar_anniversary_is_inclusive_and_conservative_on_leap_day(
+    monkeypatch, created, now, allowed
+):
+    from phlo.plugins.observatory_settings import OperationalSettings
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(now)
+
+    monkeypatch.setattr(operation_controls, "datetime", Clock)
+    monkeypatch.setattr(
+        operation_controls,
+        "get_operational_settings",
+        lambda: OperationalSettings(**{"audit.retention_years": 1}),
+    )
+    if allowed:
+        operation_controls.validate_payload_retention(created)
+    else:
+        with pytest.raises(IdempotencyConflict, match="retention_minimum_not_elapsed") as rejected:
+            operation_controls.validate_payload_retention(created)
+        expected_date = (
+            "2025-03-01T12:00:00+00:00" if "02-29" in created else "2025-10-01T12:00:00+00:00"
+        )
+        assert expected_date in rejected.value.detail["message"]
+        assert "1 calendar year" in rejected.value.detail["message"]
+
+
+@pytest.mark.parametrize("created", ["not-a-date", "2024-01-01T00:00:00", None])
+def test_payload_retention_malformed_dates_fail_closed_even_without_minimum(monkeypatch, created):
+    from phlo.plugins.observatory_settings import OperationalSettings, StorageUnavailableError
+
+    monkeypatch.setattr(
+        operation_controls, "get_operational_settings", lambda: OperationalSettings()
+    )
+    with pytest.raises(StorageUnavailableError):
+        operation_controls.validate_payload_retention(created)

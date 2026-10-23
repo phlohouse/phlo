@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
+import json
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import Field, StringConstraints, ValidationError, model_validator
 
 from phlo.dataset_projection import DatasetAuthority, build_dataset_authority
 from phlo.dataset_state import DatasetStoreResolutionError
 from phlo.plugins.observatory_settings import StorageUnavailableError
 from phlo_api.api.authentication import get_request_principal
-from phlo_api.api.operation_controls import audit_operation, project_root
+from phlo_api.api.operation_controls import (
+    audit_operation,
+    project_root,
+    validate_payload_retention,
+)
 from phlo_api.api.v1 import _target
 from phlo_api.api.v1_assets import _assets
 from phlo_api.api.v1_datasets import DatasetProjection
@@ -80,6 +86,18 @@ class ProductMember(WireModel):
     reason: str | None
 
 
+class ProductTombstone(WireModel):
+    product_id: ProductId
+    env: Environment
+    version: int = Field(ge=1)
+    status: Literal["reclaimed"] = "reclaimed"
+    definition_sha256: str
+    created_at: str
+    reclaimed_at: str
+    reclaimed_by: str
+    reason: str
+
+
 class ProductView(ProductRecord):
     members: list[ProductMember]
     sharing_status: Literal["unavailable"] = "unavailable"
@@ -95,6 +113,11 @@ class ProductInventory(WireModel):
 
 class ProductLifecycleWrite(WireModel):
     expected_version: int = Field(ge=1)
+
+
+class ProductReclaimWrite(ProductLifecycleWrite):
+    confirmed: Literal[True]
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
 
 
 class ProductExport(WireModel):
@@ -160,9 +183,23 @@ async def _visible_relations(request: Request, env: Environment) -> set[str]:
     return visible
 
 
-def _records(env: Environment) -> list[ProductRecord]:
-    items = load_collection(project_root(), _COLLECTION, _legacy_path())
-    return [record for item in items if (record := ProductRecord.model_validate(item)).env == env]
+def _stored_records(items: list[dict[str, Any]]) -> list[ProductRecord | ProductTombstone]:
+    return [
+        ProductTombstone.model_validate(item)
+        if item.get("status") == "reclaimed"
+        else ProductRecord.model_validate(item)
+        for item in items
+    ]
+
+
+def _records(env: Environment) -> list[ProductRecord | ProductTombstone]:
+    return [
+        record
+        for record in _stored_records(
+            load_collection(project_root(), _COLLECTION, _legacy_path(), require_known_state=True)
+        )
+        if record.env == env
+    ]
 
 
 @router.get("/data-products", response_model=ProductInventory)
@@ -179,7 +216,7 @@ async def v1_data_products(
         items=[
             _view(record, authority, visible)
             for record in _records(env)
-            if record.status == "draft" or include_archived
+            if isinstance(record, ProductRecord) and (record.status == "draft" or include_archived)
         ],
     )
 
@@ -189,6 +226,10 @@ def _record(request: Request, env: Environment, product_id: str) -> ProductRecor
     record = next((item for item in _records(env) if item.product_id == product_id), None)
     if record is None:
         raise NotFoundError("Data product was not found in this environment.")
+    if isinstance(record, ProductTombstone):
+        raise HTTPException(
+            410, "The product draft definition was reclaimed. Its identity is permanently reserved."
+        )
     return record
 
 
@@ -220,12 +261,14 @@ async def _write_product(
 
     def change(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         nonlocal selected
-        records = [ProductRecord.model_validate(item) for item in items]
+        records = _stored_records(items)
         current = next(
             (item for item in records if item.env == env and item.product_id == payload.product_id),
             None,
         )
-        if current is None and len(records) >= 1000:
+        if isinstance(current, ProductTombstone):
+            raise ConflictError("The reclaimed product identity is permanently reserved.")
+        if current is None and sum(item.status != "reclaimed" for item in records) >= 1000:
             raise UnprocessableInputError(
                 "The project has reached its 1000-record retained product limit. "
                 "Archiving only frees active slots."
@@ -252,7 +295,7 @@ async def _write_product(
             if not (item.env == env and item.product_id == payload.product_id)
         ] + [selected.model_dump()]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change)
+    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True)
     assert selected is not None
     raw_scopes = principal.claims.get("scopes", [])
     scopes = (
@@ -308,9 +351,13 @@ async def _set_status(
 
     def change(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         nonlocal selected
-        records = [ProductRecord.model_validate(item) for item in items]
+        records = _stored_records(items)
         current = next(item for item in records if (item.env, item.product_id) == (env, product_id))
-        if current.version != payload.expected_version or current.status == status:
+        if (
+            isinstance(current, ProductTombstone)
+            or current.version != payload.expected_version
+            or current.status == status
+        ):
             raise ConflictError(
                 "The product declaration changed. Reload before changing its status."
             )
@@ -327,7 +374,7 @@ async def _set_status(
             item.model_dump() if item is not current else selected.model_dump() for item in records
         ]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change)
+    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True)
     assert selected is not None
     audit_operation(
         operation="data_product.archive" if status == "archived" else "data_product.restore",
@@ -358,6 +405,67 @@ async def v1_data_product_restore(
     env: Environment = Query(),
 ) -> ProductView:
     return await _set_status(request, env, product_id, payload, "draft")
+
+
+@router.post("/data-products/{product_id}/reclaim", response_model=ProductTombstone)
+async def v1_data_product_reclaim(
+    request: Request,
+    product_id: ProductId,
+    payload: ProductReclaimWrite,
+    env: Environment = Query(),
+) -> ProductTombstone:
+    """Remove only an archived local definition, never canonical Dataset state or policy."""
+    _target(request, env)
+    try:
+        original = _record(request, env, product_id)
+    except ValidationError as exc:
+        raise ConflictError("Unknown record fields prevent safe reclamation.") from exc
+    if original.version != payload.expected_version or original.status != "archived":
+        raise ConflictError("Reclamation requires the current version of an archived product.")
+    principal = get_request_principal(request)
+    if principal is None:
+        raise HTTPException(401, "Authentication is required.")
+    selected: ProductTombstone | None = None
+
+    def change(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        nonlocal selected
+        try:
+            records = _stored_records(items)
+        except ValidationError as exc:
+            raise ConflictError("Unknown record fields prevent safe reclamation.") from exc
+        current = next(item for item in records if (item.env, item.product_id) == (env, product_id))
+        if (
+            not isinstance(current, ProductRecord)
+            or current.version != payload.expected_version
+            or current.status != "archived"
+        ):
+            raise ConflictError("The product declaration changed. Reload before reclaiming.")
+        validate_payload_retention(current.updated_at)
+        selected = ProductTombstone(
+            product_id=product_id,
+            env=env,
+            version=current.version + 1,
+            created_at=current.created_at,
+            definition_sha256=sha256(
+                json.dumps(current.model_dump(), sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            reclaimed_at=datetime.now(UTC).isoformat(),
+            reclaimed_by=principal.subject,
+            reason=payload.reason,
+        )
+        return [selected.model_dump() if item is current else item.model_dump() for item in records]
+
+    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True)
+    assert selected is not None
+    audit_operation(
+        operation="data_product.reclaim",
+        target=f"{env}/{product_id}",
+        dry_run=False,
+        auth={"subject": principal.subject, "scopes": []},
+        payload=payload.model_dump(),
+        result=selected.model_dump(),
+    )
+    return selected
 
 
 @router.get("/data-products/{product_id}/export", response_model=ProductExport)

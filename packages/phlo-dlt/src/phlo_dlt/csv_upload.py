@@ -109,6 +109,7 @@ def register_csv_upload(root: Path, contract: str, expected_digest: str) -> None
 
     @phlo_ingestion(
         table_name=manifest["table"],
+        asset_key=manifest.get("asset_id", f"dlt_{manifest['table']}"),
         namespace="bronze",
         unique_key=manifest["record_key"],
         group="uploads",
