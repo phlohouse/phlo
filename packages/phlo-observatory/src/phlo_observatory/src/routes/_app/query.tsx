@@ -47,7 +47,8 @@ import {
 } from '@/components/query/result-views'
 import { EmptyState, PageSkeleton, RouteError } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { ActionGroup } from '@/components/ui/action-group'
 import {
   DropdownMenu,

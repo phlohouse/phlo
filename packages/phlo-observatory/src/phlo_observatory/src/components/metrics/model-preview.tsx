@@ -6,7 +6,7 @@ import type { QuerySession } from '@/lib/data/api/query'
 import { getMetricPreviewSql } from '@/lib/data/api/metrics'
 import { getQuerySession, submitQuery } from '@/lib/data/api/query'
 import { ResultsGrid } from '@/components/query/result-views'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { useActionPermission } from '@/components/phlo/action-availability'
 
 export function MetricModelPreview({

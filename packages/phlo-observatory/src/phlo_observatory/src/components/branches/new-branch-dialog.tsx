@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { GitBranchIcon, InfoIcon } from 'lucide-react'
 import type { BranchRef } from '@/lib/data/api/branches'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import {
   Dialog,
   DialogBody,

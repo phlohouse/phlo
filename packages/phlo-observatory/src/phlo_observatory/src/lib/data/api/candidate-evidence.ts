@@ -6,6 +6,11 @@ export const archiveMetadataSchema = z.object({
   archived_at: z.string().nullable().optional(),
   archived_by: z.string().nullable().optional(),
   archive_reason: z.string().nullable().optional(),
+  reclaimed_at: z.string().nullable().optional(),
+  reclaimed_by: z.string().nullable().optional(),
+  reclaim_reason: z.string().nullable().optional(),
+  reclaim_started_at: z.string().nullable().optional(),
+  reclaimed_bytes: z.number().int().nonnegative().optional(),
 })
 export const candidateEvidenceSchema = z.object({
   stale: z.boolean(),

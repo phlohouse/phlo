@@ -9,9 +9,17 @@ import { ActionAvailabilityProvider } from './action-availability'
 import type { SourceHandoff } from '@/lib/data/api/candidate-evidence'
 
 const changeMetric = vi.hoisted(() => vi.fn())
+const reclaimMetric = vi.hoisted(() => vi.fn())
+const reclaimProduct = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/data/api/metrics', () => ({
   changeMetricLifecycle: changeMetric,
   exportMetricDraft: vi.fn(),
+  reclaimMetricDraft: reclaimMetric,
+}))
+vi.mock('@/lib/data/api/data-products', () => ({
+  changeProductLifecycle: vi.fn(),
+  exportProductDraft: vi.fn(),
+  reclaimProductDraft: reclaimProduct,
 }))
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -26,6 +34,60 @@ afterEach(() => {
   cleanup()
   vi.resetAllMocks()
 })
+
+it.each(['metric', 'product'] as const)(
+  'requires identity and reason before %s reclaim, retains conflicts, and leaves only after server confirmation',
+  async (kind) => {
+    const reclaim = kind === 'metric' ? reclaimMetric : reclaimProduct
+    reclaim
+      .mockRejectedValueOnce(new Error('Version changed; reload.'))
+      .mockResolvedValueOnce({ status: 'reclaimed' })
+    const changed = vi.fn()
+    const reclaimed = vi.fn()
+    render(
+      <DraftLifecycleActions
+        kind={kind}
+        env="sandbox"
+        id="qc"
+        version={7}
+        status="archived"
+        onChanged={changed}
+        onReclaimed={reclaimed}
+      />,
+    )
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('button', { name: 'Reclaim draft definition' }),
+    )
+    const confirm = screen.getByRole<HTMLButtonElement>('button', {
+      name: 'Permanently reclaim',
+    })
+    expect(confirm.disabled).toBe(true)
+    await user.type(screen.getByLabelText('Confirmation identity'), 'qc')
+    expect(confirm.disabled).toBe(true)
+    await user.type(
+      screen.getByLabelText('Reason'),
+      '  Retention review complete  ',
+    )
+    await user.click(confirm)
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Version changed',
+    )
+    expect(reclaimed).not.toHaveBeenCalled()
+    await user.click(confirm)
+    expect(reclaim).toHaveBeenLastCalledWith({
+      data: {
+        env: 'sandbox',
+        id: 'qc',
+        expected_version: 7,
+        confirmed: true,
+        reason: 'Retention review complete',
+      },
+    })
+    expect(reclaimed).toHaveBeenCalledOnce()
+    expect(changed).not.toHaveBeenCalled()
+  },
+)
 
 it('requires a reason, preserves rejected archive intent and confirms restoration without deleting evidence', async () => {
   const user = userEvent.setup()
@@ -83,6 +145,7 @@ it('sends the selected draft version and keeps a conflict visible instead of rep
       version={7}
       status="draft"
       onChanged={changed}
+      onReclaimed={vi.fn()}
     />,
   )
   await userEvent.click(screen.getByRole('button', { name: 'Archive draft' }))

@@ -8,7 +8,7 @@ import {
   updateDataProduct,
 } from '@/lib/data/api/data-products'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 
 export function NewProduct({
   env,

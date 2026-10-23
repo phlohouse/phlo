@@ -3,6 +3,7 @@ import * as React from 'react'
 import { Link } from '@tanstack/react-router'
 import { DownloadIcon } from 'lucide-react'
 import type { LoadObservation, LoadsPage } from '@/lib/data/api/loads'
+import { getLoads } from '@/lib/data/api/loads'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
@@ -20,11 +21,24 @@ function formatBytes(bytes: number | null) {
   if (bytes === null) return 'Not recorded'
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`
 }
-function exportObservations(data: LoadsPage, items: Array<LoadObservation>) {
+function exportObservations(
+  data: LoadsPage,
+  items: Array<LoadObservation>,
+  pages: number,
+) {
   const url = URL.createObjectURL(
-    new Blob([JSON.stringify({ ...data, items }, null, 2)], {
-      type: 'application/json',
-    }),
+    new Blob(
+      [
+        JSON.stringify(
+          { ...data, items, scope: 'filtered_loaded_pages', pages },
+          null,
+          2,
+        ),
+      ],
+      {
+        type: 'application/json',
+      },
+    ),
   )
   const anchor = document.createElement('a')
   anchor.href = url
@@ -34,6 +48,19 @@ function exportObservations(data: LoadsPage, items: Array<LoadObservation>) {
 }
 
 export function LoadsInventory({ data }: { data: LoadsPage }) {
+  return (
+    <PagedLoadsInventory
+      key={JSON.stringify([data.env, data.observed_at])}
+      initial={data}
+    />
+  )
+}
+
+function PagedLoadsInventory({ initial }: { initial: LoadsPage }) {
+  const [data, setData] = React.useState(initial)
+  const [pages, setPages] = React.useState(1)
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState('')
   const [status, setStatus] = React.useState('all')
   const [source, setSource] = React.useState('all')
   const [search, setSearch] = React.useState('')
@@ -53,6 +80,39 @@ export function LoadsInventory({ data }: { data: LoadsPage }) {
   const selected = items.find((item) => item.id === selectedId) ?? items[0]
   const statuses = [...new Set(data.items.map((item) => item.status))].sort()
   const sources = [...new Set(data.items.map((item) => item.source))].sort()
+  async function more() {
+    if (loading || !data.next_cursor) return
+    setLoading(true)
+    setError('')
+    try {
+      const page = await getLoads({
+        data: { env: data.env, after: data.next_cursor },
+      })
+      setData((current) => ({
+        ...page,
+        items: [
+          ...current.items,
+          ...page.items.filter(
+            (item) =>
+              !current.items.some((existing) => existing.id === item.id),
+          ),
+        ],
+        truncated: current.truncated || page.truncated,
+        limitations: [
+          ...new Set([...current.limitations, ...page.limitations]),
+        ],
+      }))
+      setPages((count) => count + 1)
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'More load observations could not be read.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
   return (
     <div className="grid min-h-0 min-w-0 flex-1 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_340px]">
       <section aria-label="Load inventory" className="min-w-0 space-y-4 p-5">
@@ -95,13 +155,15 @@ export function LoadsInventory({ data }: { data: LoadsPage }) {
           </label>
           <Button
             variant="outline"
-            onClick={() => exportObservations(data, items)}
+            onClick={() => exportObservations(data, items, pages)}
           >
             <DownloadIcon className="size-4" /> Export observations
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          {items.length} visible observations
+          {items.length} visible observations from {data.items.length} loaded
+          across {pages} {pages === 1 ? 'page' : 'pages'}. Filters and export
+          apply only to loaded pages
           {data.truncated ? ' · bounded results, more may exist' : ''}. CSV
           receipts and ingestion runs have different grains; their row counts
           are not added together.
@@ -189,6 +251,35 @@ export function LoadsInventory({ data }: { data: LoadsPage }) {
             No authorized observations match these filters.
           </p>
         )}
+        {data.next_cursor ? (
+          <div className="grid justify-items-start gap-2">
+            <Button
+              variant="outline"
+              disabled={loading}
+              onClick={() => void more()}
+            >
+              {loading
+                ? 'Loading observations…'
+                : error
+                  ? 'Retry loading observations'
+                  : 'Load more observations'}
+            </Button>
+            <p role="status" className="m-0 text-xs text-muted-foreground">
+              More authorized observations may exist, even when this filter has
+              no matches.
+            </p>
+          </div>
+        ) : (
+          <p role="status" className="text-xs text-muted-foreground">
+            No continuation is available. Coverage may still be incomplete; see
+            evidence limits.
+          </p>
+        )}
+        {error ? (
+          <p role="alert" className="text-sm text-bad-text">
+            {error}
+          </p>
+        ) : null}
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer">
             Evidence coverage and limits

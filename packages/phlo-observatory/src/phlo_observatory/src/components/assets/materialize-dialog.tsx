@@ -14,7 +14,7 @@ import {
 } from '@/lib/data/api/assets'
 import { createBranch, getBranchesPage } from '@/lib/data/api/branches'
 import { NewBranchDialog } from '@/components/branches/new-branch-dialog'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { CheckLine, OptionCard, RadioGroup } from '@/components/ui/checkbox'
 import {
   Dialog,

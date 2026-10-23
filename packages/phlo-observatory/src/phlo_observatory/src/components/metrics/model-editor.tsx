@@ -7,7 +7,7 @@ import type {
   MetricSource,
 } from '@/lib/data/api/metrics'
 import { getMetricSource, saveMetricModel } from '@/lib/data/api/metrics'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 

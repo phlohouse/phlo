@@ -13,8 +13,9 @@ import {
   EvidenceStatus,
   SourceHandoffPanel,
 } from '@/components/phlo/retained-evidence'
-import { archiveCsvUpload } from '@/lib/data/api/uploads'
-import { Button } from '@/components/ui/button'
+import { archiveCsvUpload, reclaimCsvUpload } from '@/lib/data/api/uploads'
+import { ActionButton as Button } from '@/components/phlo/action-button'
+import { ReclaimAction } from '@/components/phlo/reclaim-action'
 import { ActionGroup } from '@/components/ui/action-group'
 import { Badge } from '@/components/ui/badge'
 
@@ -24,12 +25,14 @@ export function UploadInventory({
   total,
   archived,
   onArchived,
+  onReclaimed,
 }: {
   env: string
   items: Array<CsvUploadSummary>
   total: number
   archived: boolean
   onArchived: (value: boolean) => void
+  onReclaimed: () => void
 }) {
   return (
     <section
@@ -46,7 +49,8 @@ export function UploadInventory({
       </label>
       <p className="text-xs text-muted-foreground">
         {items.length} of {total} private retained files. Upload time is not
-        load time. Archives retain bytes, source and receipts.
+        load time. Archiving retains payloads; explicit reclamation removes only
+        local payloads, not provider data.
       </p>
       {items.length ? (
         <ul className="grid list-none gap-3 p-0">
@@ -56,15 +60,25 @@ export function UploadInventory({
               className="grid min-w-0 gap-2 rounded-lg border border-line p-4"
             >
               <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  to="/sources"
-                  search={{ env, tab: 'upload', upload: upload.upload_id }}
-                  className="break-all text-sm text-link"
-                >
-                  {upload.filename}
-                </Link>
+                {upload.reclaimed_at || upload.reclaim_started_at ? (
+                  <span className="break-all text-sm">{upload.filename}</span>
+                ) : (
+                  <Link
+                    to="/sources"
+                    search={{ env, tab: 'upload', upload: upload.upload_id }}
+                    className="break-all text-sm text-link"
+                  >
+                    {upload.filename}
+                  </Link>
+                )}
                 <Badge variant="neutral">
-                  {upload.archived_at ? 'Archived' : upload.status}
+                  {upload.reclaimed_at
+                    ? 'Payload reclaimed'
+                    : upload.reclaim_started_at
+                      ? 'Reclamation started'
+                      : upload.archived_at
+                        ? 'Archived'
+                        : upload.status}
                 </Badge>
               </div>
               <p className="m-0 text-xs text-muted-foreground">
@@ -80,6 +94,27 @@ export function UploadInventory({
                     : 'Original bytes retained'}
                 </p>
               </details>
+              {upload.reclaimed_at || upload.reclaim_started_at ? (
+                <>
+                  <p className="m-0 text-xs text-muted-foreground">
+                    {upload.reclaimed_at
+                      ? `${upload.reclaimed_bytes ?? 0} local bytes reclaimed by ${upload.reclaimed_by}. ${upload.reclaim_reason}`
+                      : 'Reclamation started. Original file review and restoration are unavailable.'}{' '}
+                    Identity, hashes, source handoff and operation receipts
+                    remain. Provider data is unchanged.
+                  </p>
+                  <UploadReclamation
+                    upload={upload}
+                    env={env}
+                    disabled={false}
+                    onReclaimed={onReclaimed}
+                  />
+                  <HistoricalUploadReview
+                    env={env}
+                    uploadId={upload.upload_id}
+                  />
+                </>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -92,16 +127,57 @@ export function UploadInventory({
   )
 }
 
+function UploadReclamation({
+  upload,
+  env,
+  disabled,
+  onReclaimed,
+}: {
+  upload: CsvUploadSummary
+  env: string
+  disabled: boolean
+  onReclaimed: () => void
+}) {
+  if (!upload.archived_at || upload.reclaimed_at) return null
+  return (
+    <ReclaimAction
+      identity={upload.upload_id}
+      label={
+        upload.reclaim_started_at
+          ? 'Retry payload reclamation'
+          : 'Reclaim file payload'
+      }
+      description="Permanently remove this archived upload's local CSV bytes and saved row payload. Identity, hashes, source handoff and operation receipts remain. This does not delete provider tables or catalogs, or release mutation fences."
+      operation="v1_csv_upload_reclaim"
+      disabled={disabled}
+      onReclaim={async (reason) => {
+        await reclaimCsvUpload({
+          data: {
+            env,
+            upload_id: upload.upload_id,
+            confirmed: true,
+            reason,
+            expected_checksum: upload.checksum,
+          },
+        })
+        onReclaimed()
+      }}
+    />
+  )
+}
+
 export function UploadRetention({
   upload,
   env,
   disabled,
   onChanged,
+  onReclaimed,
 }: {
   upload: CsvUpload
   env: string
   disabled: boolean
   onChanged: (value: CsvUpload) => void
+  onReclaimed: () => void
 }) {
   return (
     <div className="grid gap-2">
@@ -110,7 +186,10 @@ export function UploadRetention({
           archived={Boolean(upload.archived_at)}
           reason={upload.archive_reason}
           operation="v1_csv_upload_archive"
-          disabled={disabled}
+          disabled={
+            disabled ||
+            Boolean(upload.reclaimed_at || upload.reclaim_started_at)
+          }
           onChange={async (input) => {
             const result = await archiveCsvUpload({
               data: { env, upload_id: upload.upload_id, ...input },
@@ -122,6 +201,12 @@ export function UploadRetention({
               archive_reason: result.archive_reason,
             })
           }}
+        />
+        <UploadReclamation
+          upload={upload}
+          env={env}
+          disabled={disabled}
+          onReclaimed={onReclaimed}
         />
       </ActionGroup>
       {upload.archived_at ? (

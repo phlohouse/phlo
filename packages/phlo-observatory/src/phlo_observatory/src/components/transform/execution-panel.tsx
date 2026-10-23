@@ -10,10 +10,12 @@ import {
   executeTransformDraft,
   getTransformExecutions,
   getTransformHandoff,
+  reclaimTransformExecution,
   reconcileTransformExecution,
 } from '@/lib/data/api/transform-editor'
+import { ReclaimAction } from '@/components/phlo/reclaim-action'
 import { getBranchesPage } from '@/lib/data/api/branches'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
 import { Segmented } from '@/components/ui/toggle-group'
 import {
@@ -231,7 +233,11 @@ export function CandidateExecutionPanel(props: Props) {
           key={JSON.stringify([
             execution.execution_id,
             execution.archived_at,
+            execution.reclaimed_at,
+            execution.reclaim_started_at,
             props.draft.archived_at,
+            props.draft.reclaimed_at,
+            props.draft.reclaim_started_at,
           ])}
           execution={execution}
           onChanged={update}
@@ -408,6 +414,50 @@ function ExecutionHistory({
   )
 }
 
+function ExecutionReclamation({
+  execution,
+  disabled,
+  onChanged,
+}: {
+  execution: TransformExecution
+  disabled: boolean
+  onChanged: (value: TransformExecution) => void
+}) {
+  if (!execution.archived_at || execution.reclaimed_at) return null
+  return (
+    <ReclaimAction
+      identity={execution.execution_id}
+      label={
+        execution.reclaim_started_at
+          ? 'Retry payload reclamation'
+          : 'Reclaim execution payload'
+      }
+      description="Permanently remove local payloads for this archived native execution. Reports, source handoff, identity, hashes and operation claims remain. Provider tables and catalogs are unchanged; mutation fences are not released."
+      operation="v1_transform_model_execution_reclaim"
+      disabled={
+        disabled ||
+        ['prepared', 'running', 'unknown'].includes(execution.status)
+      }
+      onReclaim={async (reason) =>
+        onChanged(
+          await reclaimTransformExecution({
+            data: {
+              env: execution.env,
+              model: execution.model,
+              draft_id: execution.draft_id,
+              revision: execution.revision,
+              execution_id: execution.execution_id,
+              confirmed: true,
+              reason,
+              expected_revision_digest: execution.revision_digest,
+            },
+          }),
+        )
+      }
+    />
+  )
+}
+
 function ExecutionLifecycle({
   execution,
   onChanged,
@@ -454,7 +504,10 @@ function ExecutionLifecycle({
           operation="v1_transform_model_execution_archive"
           archived={Boolean(execution.archived_at)}
           reason={execution.archive_reason}
-          disabled={busy}
+          disabled={
+            busy ||
+            Boolean(execution.reclaimed_at || execution.reclaim_started_at)
+          }
           onChange={async (input) =>
             onChanged(
               await archiveTransformExecution({
@@ -463,7 +516,19 @@ function ExecutionLifecycle({
             )
           }
         />
+        <ExecutionReclamation
+          execution={execution}
+          disabled={busy}
+          onChanged={onChanged}
+        />
       </ActionGroup>
+      {execution.archived_at &&
+      ['prepared', 'running', 'unknown'].includes(execution.status) ? (
+        <p className="m-0 text-xs text-muted-foreground">
+          Active or unresolved execution payloads cannot be reclaimed. Reconcile
+          durable evidence first.
+        </p>
+      ) : null}
       <p className="m-0 text-xs text-muted-foreground">
         Reconciliation reads durable reports and provider snapshots. It never
         reruns a candidate or releases an unknown mutation fence.
@@ -481,6 +546,9 @@ function ExecutionLifecycle({
         <p className="m-0 text-xs text-muted-foreground">
           Archived {new Date(execution.archived_at).toLocaleString()} by{' '}
           {execution.archived_by}. {execution.archive_reason}
+          {execution.reclaimed_at || execution.reclaim_started_at
+            ? ` Local reclamation ${execution.reclaimed_at ? 'completed' : 'started'}; restoration is unavailable. ${execution.reclaimed_bytes ?? 0} local bytes reclaimed. Reports and source handoff remain.`
+            : ''}
         </p>
       ) : null}
       {error ? (

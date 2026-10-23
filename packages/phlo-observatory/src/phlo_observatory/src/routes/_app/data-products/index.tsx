@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { getDataProducts } from '@/lib/data/api/data-products'
 import { NewProduct } from '@/components/data-products/new-product'
 import { PageHeader } from '@/components/phlo/page'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 

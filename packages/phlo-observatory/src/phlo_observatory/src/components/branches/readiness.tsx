@@ -1,7 +1,7 @@
 /** Keeps observed pre-merge checks visible outside the approval dialog. */
 import { CircleCheckIcon, CircleDashedIcon, CircleXIcon } from 'lucide-react'
 import type { BranchCheck } from '@/lib/data/api/branches'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 
 export function BranchReadiness({
   checks,

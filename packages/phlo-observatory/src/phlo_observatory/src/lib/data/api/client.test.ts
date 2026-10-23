@@ -93,6 +93,52 @@ describe('Phlo API response boundary', () => {
     ).rejects.toThrow('Phlo API request failed (503).')
   })
 
+  it('translates only recognized reclamation guards without exposing arbitrary conflict details', async () => {
+    for (const [reason, explanation] of [
+      [
+        'retention_minimum_not_elapsed',
+        'The configured minimum audit retention period has not elapsed. Archiving alone does not permit reclamation.',
+      ],
+      [
+        'reclamation_requires_resolved_mutations',
+        'Reclamation requires resolved mutation evidence. Reconcile durable receipts first; do not retry an unknown mutation.',
+      ],
+    ]) {
+      await expect(
+        parseApiResponse({
+          response: Response.json(
+            {
+              error: {
+                code: 'bad_input',
+                message: `${reason}: token=private-backend-value`,
+              },
+            },
+            { status: 409 },
+          ),
+          schema: snapshot,
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        reasonCode: reason,
+        message: `Phlo API request failed (409). ${explanation} Reason: ${reason}.`,
+      })
+    }
+    await expect(
+      parseApiResponse({
+        response: Response.json(
+          {
+            error: {
+              code: 'bad_input',
+              message: 'Private SQL and connection details',
+            },
+          },
+          { status: 409 },
+        ),
+        schema: snapshot,
+      }),
+    ).rejects.toThrow(/^Phlo API request failed \(409\)\.$/)
+  })
+
   it('keeps malformed, oversized, and non-public error payloads generic', async () => {
     await expect(
       parseApiResponse({

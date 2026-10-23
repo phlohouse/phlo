@@ -1,7 +1,7 @@
 /** Retains exact CSV bytes and reviews all rows without loading or activating a source. */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { environmentSchema, phloApi } from './client'
+import { PhloApiError, environmentSchema, phloApi } from './client'
 import { archiveMetadataSchema } from './candidate-evidence'
 
 export const MAX_CSV_BYTES = 10 * 1024 * 1024
@@ -137,6 +137,24 @@ export const archiveCsvUpload = createServerFn({ method: 'POST' })
       { env, method: 'POST', body },
     ),
   )
+export const reclaimCsvUpload = createServerFn({ method: 'POST' })
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      upload_id: z.string().regex(/^[a-f0-9]{32}$/),
+      confirmed: z.literal(true),
+      reason: z.string().trim().min(1).max(1000),
+      expected_checksum: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
+  )
+  .handler(({ data: { env, upload_id, ...body } }) =>
+    phloApi(
+      `api/v1/uploads/csv/${upload_id}/reclaim?env=${encodeURIComponent(env)}`,
+      uploadSummarySchema,
+      { env, method: 'POST', body },
+    ),
+  )
+
 export const uploadReviewInputSchema = z
   .object({
     env: environmentSchema,
@@ -216,6 +234,22 @@ export const getCsvUpload = createServerFn({ method: 'GET' })
       { env: data.env },
     ),
   )
+// Preserve reclaimed status across server-function error serialization for navigation.
+export const getCsvUploadForNavigation = createServerFn({ method: 'GET' })
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      upload_id: z.string().regex(/^[a-f0-9]{32}$/),
+    }),
+  )
+  .handler(async ({ data }) => {
+    try {
+      return await getCsvUpload({ data })
+    } catch (error) {
+      if (error instanceof PhloApiError && error.status === 410) return null
+      throw error
+    }
+  })
 export const reviewCsvUpload = createServerFn({ method: 'POST' })
   .inputValidator(uploadReviewInputSchema)
   .handler(({ data: { env, upload_id, ...body } }) =>

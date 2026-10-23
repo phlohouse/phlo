@@ -21,7 +21,7 @@ import {
 import { SqlEditor } from '@/components/query/sql-editor'
 import { PageHeader } from '@/components/phlo/page'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Segmented } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { useActionPermission } from '@/components/phlo/action-availability'

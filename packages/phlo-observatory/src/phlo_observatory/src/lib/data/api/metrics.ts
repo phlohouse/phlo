@@ -126,6 +126,36 @@ export const changeMetricLifecycle = createServerFn({ method: 'POST' })
     ),
   )
 
+export const reclaimMetricDraft = createServerFn({ method: 'POST' })
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      id: z.string().min(1),
+      expected_version: z.number().int().positive(),
+      confirmed: z.literal(true),
+      reason: z.string().trim().min(1).max(1000),
+    }),
+  )
+  .handler(({ data: { env, id, ...body } }) =>
+    phloApi(
+      `api/v1/metric-models/${encodeURIComponent(id)}/reclaim?env=${env}`,
+      z.object({
+        env: environmentSchema,
+        model_id: z.string(),
+        nessie_ref: z.string(),
+        asset_id: z.string(),
+        version: z.number().int().positive(),
+        status: z.literal('reclaimed'),
+        definition_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        created_at: z.string(),
+        reclaimed_at: z.string(),
+        reclaimed_by: z.string(),
+        reason: z.string(),
+      }),
+      { env, method: 'POST', body },
+    ),
+  )
+
 export const exportMetricDraft = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ env: environmentSchema, id: z.string().min(1) }))
   .handler(({ data: { env, id } }) =>

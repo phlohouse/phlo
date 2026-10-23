@@ -13,7 +13,7 @@ import {
   prepareUploadDestination,
   previewUploadCandidate,
 } from '@/lib/data/api/upload-candidate'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
 import { ActionGroup } from '@/components/ui/action-group'
 

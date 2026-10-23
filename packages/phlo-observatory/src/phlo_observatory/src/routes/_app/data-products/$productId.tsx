@@ -7,7 +7,8 @@ import type { ApiAsset } from '@/lib/data/api/assets'
 import { getDataProduct, productQuery } from '@/lib/data/api/data-products'
 import { formatInventoryCount } from '@/lib/data/assets-table'
 import { PageHeader } from '@/components/phlo/page'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
 import { NewProduct } from '@/components/data-products/new-product'
 import { DraftLifecycleActions } from '@/components/phlo/draft-lifecycle'
@@ -22,6 +23,7 @@ export const Route = createFileRoute('/_app/data-products/$productId')({
 function ProductPage() {
   const { product, assets } = Route.useLoaderData()
   const router = useRouter()
+  const navigate = Route.useNavigate()
   const [editing, setEditing] = React.useState(false)
   const first = product.member_dataset_ids[0]
   const ready = product.members.filter(
@@ -54,6 +56,12 @@ function ProductPage() {
                 setEditing(false)
                 void router.invalidate()
               }}
+              onReclaimed={() =>
+                void navigate({
+                  to: '/data-products',
+                  search: { env: product.env },
+                })
+              }
             />
             {first ? (
               <Link

@@ -55,14 +55,7 @@ export function RevisionHistory({
     return () => {
       active = false
     }
-  }, [
-    env,
-    model,
-    draft?.draft_id,
-    draft?.revision,
-    draft?.archived_at,
-    archived,
-  ])
+  }, [env, model, draft, archived])
   const value = draft ? `${draft.draft_id}:${draft.revision}` : ''
   const choose = (selected: string) => {
     const entry = items.find(

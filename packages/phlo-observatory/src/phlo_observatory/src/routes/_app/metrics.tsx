@@ -11,7 +11,7 @@ import { MetricModelPreview } from '@/components/metrics/model-preview'
 import { PageHeader } from '@/components/phlo/page'
 import { PageSkeleton, RouteError } from '@/components/phlo/states'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/metrics')({
@@ -91,6 +91,12 @@ function MetricsPage() {
                 version={model.version}
                 status={model.status}
                 onChanged={() => void router.invalidate()}
+                onReclaimed={() => {
+                  setModels((items) =>
+                    items.filter((item) => item.model_id !== model.model_id),
+                  )
+                  select(undefined)
+                }}
               />
             ) : null}
             <Button

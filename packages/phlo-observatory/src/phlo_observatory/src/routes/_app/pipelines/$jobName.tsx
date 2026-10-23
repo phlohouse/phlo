@@ -15,7 +15,7 @@ import {
 import { Eyebrow, PageHeader } from '@/components/phlo/page'
 import { Mono } from '@/components/phlo/status'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,

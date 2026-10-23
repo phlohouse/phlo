@@ -4,10 +4,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CsvUploadReview } from './csv-upload'
+import { UploadInventory } from './upload-history'
 import type * as UploadModule from '@/lib/data/api/uploads'
 import type { CsvUpload } from '@/lib/data/api/uploads'
 import type * as CandidateModule from '@/lib/data/api/upload-candidate'
-import { archiveCsvUpload, reviewCsvUpload } from '@/lib/data/api/uploads'
+import {
+  archiveCsvUpload,
+  reclaimCsvUpload,
+  reviewCsvUpload,
+} from '@/lib/data/api/uploads'
 import {
   getUploadHandoff,
   reviewUploadCandidate,
@@ -17,6 +22,7 @@ vi.mock('@/lib/data/api/uploads', async (original) => ({
   ...(await original<typeof UploadModule>()),
   reviewCsvUpload: vi.fn(),
   archiveCsvUpload: vi.fn(),
+  reclaimCsvUpload: vi.fn(),
 }))
 vi.mock('@/lib/data/api/upload-candidate', async (original) => ({
   ...(await original<typeof CandidateModule>()),
@@ -59,6 +65,103 @@ const upload: CsvUpload = {
   loaded: false,
 }
 describe('retained CSV review', () => {
+  it('can resume confirmed interrupted cleanup from inventory without a broken file-detail link', async () => {
+    vi.mocked(reclaimCsvUpload).mockResolvedValue({
+      ...upload,
+      reclaimed_at: '2026-10-23T12:00:00Z',
+    })
+    const changed = vi.fn()
+    render(
+      <UploadInventory
+        env="sandbox"
+        items={[
+          {
+            ...upload,
+            archived_at: '2026-10-23T10:00:00Z',
+            reclaim_started_at: '2026-10-23T11:00:00Z',
+          },
+        ]}
+        total={1}
+        archived
+        onArchived={vi.fn()}
+        onReclaimed={changed}
+      />,
+    )
+    expect(screen.queryByRole('link', { name: upload.filename })).toBeNull()
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('button', { name: 'Retry payload reclamation' }),
+    )
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', {
+        name: 'Permanently reclaim',
+      }).disabled,
+    ).toBe(true)
+    await user.type(
+      screen.getByLabelText('Confirmation identity'),
+      upload.upload_id,
+    )
+    await user.type(
+      screen.getByLabelText('Reason'),
+      'Resume interrupted local cleanup',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Permanently reclaim' }),
+    )
+    expect(reclaimCsvUpload).toHaveBeenCalledWith({
+      data: {
+        env: 'sandbox',
+        upload_id: upload.upload_id,
+        confirmed: true,
+        reason: 'Resume interrupted local cleanup',
+        expected_checksum: upload.checksum,
+      },
+    })
+    expect(changed).toHaveBeenCalledOnce()
+  })
+  it('reclaims only an archived exact-checksum upload after explicit confirmation and clears private row payload', async () => {
+    vi.mocked(reclaimCsvUpload).mockResolvedValue({
+      ...upload,
+      archived_at: '2026-10-23T10:00:00Z',
+      reclaimed_at: '2026-10-23T12:00:00Z',
+      reclaimed_bytes: 10,
+    })
+    const reclaimed = vi.fn()
+    render(
+      <CsvUploadReview
+        env="sandbox"
+        initial={{ ...upload, archived_at: '2026-10-23T10:00:00Z' }}
+        onRetained={vi.fn()}
+        onReclaimed={reclaimed}
+      />,
+    )
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('button', { name: 'Reclaim file payload' }),
+    )
+    await user.type(
+      screen.getByLabelText('Confirmation identity'),
+      upload.upload_id,
+    )
+    await user.type(
+      screen.getByLabelText('Reason'),
+      'Retention review complete',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Permanently reclaim' }),
+    )
+    expect(reclaimCsvUpload).toHaveBeenCalledWith({
+      data: {
+        env: 'sandbox',
+        upload_id: upload.upload_id,
+        expected_checksum: upload.checksum,
+        confirmed: true,
+        reason: 'Retention review complete',
+      },
+    })
+    expect(reclaimed).toHaveBeenCalledOnce()
+    expect(screen.queryByText('First rows · saved review')).toBeNull()
+  })
   it('clears reviewed eligibility and downloadable handoff after upload archive', async () => {
     const evidence = {
       stale: false,

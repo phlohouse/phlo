@@ -3,12 +3,15 @@ import * as React from 'react'
 import {
   changeMetricLifecycle,
   exportMetricDraft,
+  reclaimMetricDraft,
 } from '@/lib/data/api/metrics'
 import {
   changeProductLifecycle,
   exportProductDraft,
+  reclaimProductDraft,
 } from '@/lib/data/api/data-products'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
+import { ReclaimAction } from '@/components/phlo/reclaim-action'
 import {
   Dialog,
   DialogBody,
@@ -25,6 +28,7 @@ export function DraftLifecycleActions({
   version,
   status,
   onChanged,
+  onReclaimed,
 }: {
   kind: 'metric' | 'product'
   env: string
@@ -32,6 +36,7 @@ export function DraftLifecycleActions({
   version: number
   status: 'draft' | 'archived'
   onChanged: () => void
+  onReclaimed: () => void
 }) {
   const [open, setOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
@@ -110,6 +115,30 @@ export function DraftLifecycleActions({
       >
         {status === 'archived' ? 'Restore draft' : 'Archive draft'}
       </Button>
+      {status === 'archived' ? (
+        <ReclaimAction
+          identity={id}
+          label="Reclaim draft definition"
+          description="Permanently remove this archived definition and free one retained-definition slot. A compact identity tombstone remains and this ID can never be reused. This does not delete datasets or provider data, or promise filesystem vacuum."
+          operation={`${prefix}_reclaim`}
+          disabled={busy}
+          onReclaim={async (reason) => {
+            const request = {
+              data: {
+                env,
+                id,
+                expected_version: version,
+                confirmed: true as const,
+                reason,
+              },
+            }
+            await (kind === 'metric'
+              ? reclaimMetricDraft(request)
+              : reclaimProductDraft(request))
+            onReclaimed()
+          }}
+        />
+      ) : null}
       {downloaded ? (
         <span role="status" className="max-w-sm text-xs text-muted-foreground">
           Definition exported for external review. No data, access grants or

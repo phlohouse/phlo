@@ -7,7 +7,7 @@ import {
   retainCsvUpload,
   reviewCsvUpload,
 } from '@/lib/data/api/uploads'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
 import { CsvDestination } from '@/components/sources/csv-destination'
 import { CsvColumnAssistance } from '@/components/sources/csv-column-assistance'
@@ -20,10 +20,12 @@ export function CsvUploadReview({
   env,
   initial,
   onRetained,
+  onReclaimed,
 }: {
   env: string
   initial: CsvUpload | null
   onRetained: (id: string) => void
+  onReclaimed?: () => void
 }) {
   const [upload, setUpload] = React.useState(initial)
   const [showFilePicker, setShowFilePicker] = React.useState(!initial)
@@ -144,6 +146,11 @@ export function CsvUploadReview({
               env={env}
               disabled={busy || dirty}
               onChanged={accept}
+              onReclaimed={() => {
+                setUpload(null)
+                setColumns([])
+                onReclaimed?.()
+              }}
             />
             {upload.archived_at ? (
               <UploadPreview upload={upload} />

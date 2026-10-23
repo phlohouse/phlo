@@ -47,13 +47,21 @@ export const loadsSchema = z.object({
   observed_at: z.string(),
   truncated: z.boolean(),
   limitations: z.array(z.string()),
+  next_cursor: z.string().nullable(),
 })
 export type LoadObservation = z.infer<typeof observationSchema>
 export type LoadsPage = z.infer<typeof loadsSchema>
 export const getLoads = createServerFn({ method: 'GET' })
-  .inputValidator(z.object({ env: environmentSchema }))
-  .handler(({ data }) =>
-    phloApi(`api/v1/loads?env=${encodeURIComponent(data.env)}`, loadsSchema, {
-      env: data.env,
+  .inputValidator(
+    z.object({
+      env: environmentSchema,
+      after: z.string().optional(),
+      limit: z.number().int().min(1).max(300).optional(),
     }),
   )
+  .handler(({ data: { env, after, limit } }) => {
+    const params = new URLSearchParams({ env })
+    if (after !== undefined) params.set('after', after)
+    if (limit !== undefined) params.set('limit', String(limit))
+    return phloApi(`api/v1/loads?${params}`, loadsSchema, { env })
+  })

@@ -3,10 +3,7 @@ import * as React from 'react'
 import { Button as ButtonPrimitive } from '@base-ui/react/button'
 import { cva } from 'class-variance-authority'
 import type { VariantProps } from 'class-variance-authority'
-import type { ActionContext } from '@/lib/data/api/action-availability'
 import { cn } from '@/lib/utils'
-import { useActionPermission } from '@/components/phlo/action-availability'
-import { useGroupedActionReason } from '@/components/ui/action-group'
 
 const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg text-[13.5px] font-medium transition-colors outline-none select-none cursor-pointer disabled:pointer-events-none disabled:opacity-45 data-[disabled]:pointer-events-none data-[disabled]:opacity-45 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
@@ -37,72 +34,15 @@ const buttonVariants = cva(
 )
 
 type ButtonProps = React.ComponentProps<typeof ButtonPrimitive> &
-  VariantProps<typeof buttonVariants> & {
-    operation?: string
-    actionContext?: ActionContext
-  }
+  VariantProps<typeof buttonVariants>
 
-function Button({
-  className,
-  variant,
-  size,
-  operation,
-  actionContext,
-  ...props
-}: ButtonProps) {
-  const permission = useActionPermission(operation, actionContext)
-  const reasonId = React.useId()
-  const label =
-    props['aria-label'] ??
-    React.Children.toArray(props.children)
-      .filter((child) => typeof child === 'string')
-      .join(' ')
-      .trim()
-  const grouped = useGroupedActionReason(
-    reasonId,
-    permission.allowed
-      ? undefined
-      : {
-          label: label || 'Action',
-          reason: permission.reason ?? 'This action is unavailable.',
-        },
-  )
-  const button = (
+function Button({ className, variant, size, ...props }: ButtonProps) {
+  return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size }), className)}
       {...props}
-      disabled={props.disabled || !permission.allowed}
-      aria-describedby={
-        [props['aria-describedby'], !permission.allowed ? reasonId : undefined]
-          .filter(Boolean)
-          .join(' ') || undefined
-      }
     />
-  )
-  if (grouped)
-    return (
-      <>
-        {button}
-        {!permission.allowed ? (
-          <span id={reasonId} className="sr-only">
-            {permission.reason ?? 'This action is unavailable.'}
-          </span>
-        ) : null}
-      </>
-    )
-  return permission.allowed ? (
-    button
-  ) : (
-    <span className="inline-flex min-w-0 max-w-full flex-col items-start gap-1">
-      {button}
-      <span
-        id={reasonId}
-        className="max-w-56 whitespace-normal text-xs font-normal text-muted-foreground"
-      >
-        {permission.reason ?? 'This action is unavailable.'}
-      </span>
-    </span>
   )
 }
 

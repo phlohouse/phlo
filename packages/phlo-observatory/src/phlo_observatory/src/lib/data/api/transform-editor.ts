@@ -236,6 +236,20 @@ const archiveInput = z.object({
   archived: z.boolean(),
   reason: z.string().trim().min(1).max(1000),
 })
+const reclaimInput = z.object({
+  confirmed: z.literal(true),
+  reason: z.string().trim().min(1).max(1000),
+  expected_revision_digest: z.string().regex(/^[a-f0-9]{64}$/),
+})
+export const reclaimTransformDraft = createServerFn({ method: 'POST' })
+  .inputValidator(draftIdentity.extend(reclaimInput.shape))
+  .handler(({ data: { env, model, draft_id, revision, ...body } }) =>
+    phloApi(
+      `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/reclaim?env=${env}`,
+      draftSchema,
+      { env, method: 'POST', body },
+    ),
+  )
 export const archiveTransformDraft = createServerFn({ method: 'POST' })
   .inputValidator(draftIdentity.extend(archiveInput.shape))
   .handler(({ data: { env, model, draft_id, revision, ...body } }) =>
@@ -259,6 +273,16 @@ export const getTransformHandoff = createServerFn({ method: 'GET' })
 const executionIdentity = draftIdentity.extend({
   execution_id: z.string().uuid(),
 })
+export const reclaimTransformExecution = createServerFn({ method: 'POST' })
+  .inputValidator(executionIdentity.extend(reclaimInput.shape))
+  .handler(
+    ({ data: { env, model, draft_id, revision, execution_id, ...body } }) =>
+      phloApi(
+        `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions/${execution_id}/reclaim?env=${env}`,
+        executionSchema,
+        { env, method: 'POST', body },
+      ),
+  )
 export const archiveTransformExecution = createServerFn({ method: 'POST' })
   .inputValidator(executionIdentity.extend(archiveInput.shape))
   .handler(

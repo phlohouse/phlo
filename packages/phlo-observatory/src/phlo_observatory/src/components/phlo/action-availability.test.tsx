@@ -10,7 +10,7 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ActionAvailabilityProvider } from './action-availability'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { getActionAvailability } from '@/lib/data/api/action-availability'
 import { ActionGroup } from '@/components/ui/action-group'
 

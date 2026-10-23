@@ -1,6 +1,11 @@
 /** Source inventory and explicit provider-backed authoring entry points. */
 import * as React from 'react'
-import { Link, createFileRoute } from '@tanstack/react-router'
+import {
+  Link,
+  createFileRoute,
+  redirect,
+  useRouter,
+} from '@tanstack/react-router'
 import {
   BracesIcon,
   DatabaseIcon,
@@ -14,7 +19,10 @@ import { getSources, sourceJobIds } from '@/lib/data/api/sources'
 import { PageHeader } from '@/components/phlo/page'
 import { getLoads } from '@/lib/data/api/loads'
 import { LoadsInventory } from '@/components/sources/loads'
-import { getCsvUpload, listCsvUploads } from '@/lib/data/api/uploads'
+import {
+  getCsvUploadForNavigation,
+  listCsvUploads,
+} from '@/lib/data/api/uploads'
 import { CsvUploadReview } from '@/components/sources/csv-upload'
 import { UploadInventory } from '@/components/sources/upload-history'
 import { RestApiForm } from '@/components/sources/rest-api-form'
@@ -51,7 +59,16 @@ export const Route = createFileRoute('/_app/sources')({
           })
         : null,
     upload: deps.upload
-      ? await getCsvUpload({ data: { env: deps.env, upload_id: deps.upload } })
+      ? await getCsvUploadForNavigation({
+          data: { env: deps.env, upload_id: deps.upload },
+        }).then((upload) => {
+          if (upload === null)
+            throw redirect({
+              to: '/sources',
+              search: { env: deps.env, tab: 'retained', archived: true },
+            })
+          return upload
+        })
       : null,
   }),
   head: () => ({ meta: [{ title: 'Sources · phlo' }] }),
@@ -124,6 +141,7 @@ function SourcesPage() {
   const data = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
+  const router = useRouter()
   const [showForm, setShowForm] = React.useState(false)
   if (search.tab === 'retained' && data.retained)
     return (
@@ -143,6 +161,7 @@ function SourcesPage() {
           items={data.retained.items}
           total={data.retained.total}
           archived={Boolean(search.archived)}
+          onReclaimed={() => void router.invalidate()}
           onArchived={(archived) =>
             void navigate({
               search: { env: data.env, tab: 'retained', archived },
@@ -196,6 +215,11 @@ function SourcesPage() {
           initial={data.upload}
           onRetained={(upload) =>
             void navigate({ search: { env: data.env, tab: 'upload', upload } })
+          }
+          onReclaimed={() =>
+            void navigate({
+              search: { env: data.env, tab: 'retained', archived: true },
+            })
           }
         />
       </>

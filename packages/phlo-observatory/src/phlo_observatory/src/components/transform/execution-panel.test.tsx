@@ -18,6 +18,8 @@ const api = vi.hoisted(() => ({
   reconcile: vi.fn(),
   archive: vi.fn(),
   handoff: vi.fn(),
+  reclaim: vi.fn(),
+  reclaimDraft: vi.fn(),
 }))
 vi.mock('@/lib/data/api/transform-editor', () => ({
   getTransformExecutions: api.list,
@@ -25,6 +27,8 @@ vi.mock('@/lib/data/api/transform-editor', () => ({
   reconcileTransformExecution: api.reconcile,
   archiveTransformExecution: api.archive,
   getTransformHandoff: api.handoff,
+  reclaimTransformExecution: api.reclaim,
+  reclaimTransformDraft: api.reclaimDraft,
 }))
 vi.mock('@/lib/data/api/branches', () => ({ getBranchesPage: api.branches }))
 afterEach(() => {
@@ -89,6 +93,138 @@ const result: TransformExecution = {
     snapshot_id: '9223372036854775807',
   },
 }
+it.each(['passed', 'unknown'] as const)(
+  'reclaims archived %s execution payloads only when terminal and retains native reports',
+  async (status) => {
+    const archived = {
+      ...result,
+      status,
+      archived_at: '2026-10-23T10:00:00Z',
+      preview: status === 'passed' ? result.preview : null,
+    }
+    api.list.mockResolvedValue({ items: [{ ...archived, archived_at: null }] })
+    api.archive.mockResolvedValue(archived)
+    api.reclaim.mockResolvedValue({
+      ...archived,
+      reclaimed_at: '2026-10-23T12:00:00Z',
+      reclaimed_bytes: 512,
+      preview: null,
+    })
+    render(
+      <CandidateExecutionPanel
+        env="sandbox"
+        model={draft.model}
+        draft={draft}
+        dirty={false}
+      />,
+    )
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole('button', { name: 'Archive evidence' }),
+    )
+    await user.type(
+      screen.getByLabelText('Reason'),
+      'Retention review complete',
+    )
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    const reclaim = await screen.findByRole<HTMLButtonElement>('button', {
+      name: 'Reclaim execution payload',
+    })
+    if (status === 'unknown') {
+      expect(reclaim.disabled).toBe(true)
+      expect(
+        screen.getByText(
+          /Active or unresolved execution payloads cannot be reclaimed/,
+        ),
+      ).toBeTruthy()
+      expect(api.reclaim).not.toHaveBeenCalled()
+      return
+    }
+    await user.click(reclaim)
+    await user.type(
+      screen.getByLabelText('Confirmation identity'),
+      result.execution_id,
+    )
+    await user.type(
+      screen.getByLabelText('Reason'),
+      'Retention review complete',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Permanently reclaim' }),
+    )
+    await screen.findByText(/512 local bytes reclaimed/)
+    expect(api.reclaim).toHaveBeenCalledWith({
+      data: {
+        env: 'sandbox',
+        model: draft.model,
+        draft_id: draft.draft_id,
+        revision: 3,
+        execution_id: result.execution_id,
+        expected_revision_digest: draft.revision_digest,
+        confirmed: true,
+        reason: 'Retention review complete',
+      },
+    })
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', {
+        name: 'Restore evidence',
+      }).disabled,
+    ).toBe(true)
+    expect(screen.getByText(/Native run actual-native-run/)).toBeTruthy()
+    expect(screen.queryByText('B01')).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'Prepare source handoff' }),
+    ).toBeTruthy()
+  },
+)
+it('reclaims the pinned revision workspace and keeps its source handoff readable but restoration disabled', async () => {
+  const archived = { ...draft, archived_at: '2026-10-23T10:00:00Z' }
+  const reclaimed = {
+    ...archived,
+    reclaimed_at: '2026-10-23T12:00:00Z',
+    reclaimed_bytes: 1024,
+  }
+  api.reclaimDraft.mockResolvedValue(reclaimed)
+  const changed = vi.fn()
+  const props = {
+    env: 'sandbox',
+    model: draft.model,
+    disabled: false,
+    onChanged: changed,
+  }
+  const view = render(<RevisionLifecycle {...props} draft={archived} />)
+  const user = userEvent.setup()
+  await user.click(
+    screen.getByRole('button', { name: 'Reclaim revision payload' }),
+  )
+  await user.type(
+    screen.getByLabelText('Confirmation identity'),
+    `${draft.draft_id}:3`,
+  )
+  await user.type(screen.getByLabelText('Reason'), 'Retention review complete')
+  await user.click(screen.getByRole('button', { name: 'Permanently reclaim' }))
+  expect(changed).toHaveBeenCalledWith(reclaimed)
+  expect(api.reclaimDraft).toHaveBeenCalledWith({
+    data: {
+      env: 'sandbox',
+      model: draft.model,
+      draft_id: draft.draft_id,
+      revision: 3,
+      expected_revision_digest: draft.revision_digest,
+      confirmed: true,
+      reason: 'Retention review complete',
+    },
+  })
+  view.rerender(<RevisionLifecycle {...props} draft={reclaimed} />)
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'Restore evidence' })
+      .disabled,
+  ).toBe(true)
+  expect(
+    screen.getByRole('button', { name: 'Prepare source handoff' }),
+  ).toBeTruthy()
+  expect(screen.getByText(/1024 local bytes reclaimed/)).toBeTruthy()
+})
 it('clears prepared handoff eligibility and download after execution archive and restore', async () => {
   const user = userEvent.setup()
   api.list.mockResolvedValue({ items: [result] })

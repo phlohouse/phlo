@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /** Filters real evidence and keeps unknown counts and private receipt identity visible. */
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -10,13 +11,19 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoadsInventory } from './loads'
 import type { LoadObservation, LoadsPage } from '@/lib/data/api/loads'
+import { getLoads } from '@/lib/data/api/loads'
+
+vi.mock('@/lib/data/api/loads', () => ({ getLoads: vi.fn() }))
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => (
     <a href="#evidence">{children}</a>
   ),
 }))
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.resetAllMocks()
+})
 const base: LoadObservation = {
   id: 'csv-success',
   evidence_kind: 'csv_candidate',
@@ -44,6 +51,7 @@ const data: LoadsPage = {
   env: 'sandbox',
   observed_at: '2026-10-22T20:00:00Z',
   truncated: false,
+  next_cursor: null,
   limitations: ['Bounded observations; no invented source packages.'],
   items: [
     base,
@@ -65,6 +73,94 @@ const data: LoadsPage = {
   ],
 }
 describe('Loads inventory', () => {
+  it('continues through empty pages, preserves loaded filters and retries the same failed cursor', async () => {
+    vi.mocked(getLoads)
+      .mockResolvedValueOnce({ ...data, items: [], next_cursor: 'scan-next' })
+      .mockRejectedValueOnce(new Error('Provider temporarily unavailable'))
+      .mockResolvedValueOnce({
+        ...data,
+        items: [{ ...base, id: 'older', name: 'older-results.csv' }],
+      })
+    render(<LoadsInventory data={{ ...data, next_cursor: 'first-next' }} />)
+    fireEvent.change(screen.getByLabelText('Find a file, table or run'), {
+      target: { value: 'older' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load more observations' }),
+    )
+    await screen.findByText(/loaded across 2 pages/)
+    expect(
+      screen.getByText('No authorized observations match these filters.'),
+    ).toBeTruthy()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load more observations' }),
+    )
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Provider temporarily unavailable',
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Retry loading observations' }),
+    )
+    expect(
+      await screen.findByRole('button', { name: /older-results.csv/ }),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/1 visible observations from 3 loaded across 3 pages/),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/Filters and export apply only to loaded pages/),
+    ).toBeTruthy()
+    expect(
+      screen.queryByRole('button', { name: 'Load more observations' }),
+    ).toBeNull()
+    expect(getLoads).toHaveBeenNthCalledWith(2, {
+      data: { env: 'sandbox', after: 'scan-next' },
+    })
+    expect(getLoads).toHaveBeenNthCalledWith(3, {
+      data: { env: 'sandbox', after: 'scan-next' },
+    })
+  })
+  it('does not append a late old-environment page to the new inventory', async () => {
+    let finish!: (page: LoadsPage) => void
+    vi.mocked(getLoads).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    const view = render(
+      <LoadsInventory data={{ ...data, next_cursor: 'old-cursor' }} />,
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load more observations' }),
+    )
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', {
+        name: 'Loading observations…',
+      }).disabled,
+    ).toBe(true)
+    view.rerender(
+      <LoadsInventory
+        data={{
+          ...data,
+          env: 'qa',
+          items: [{ ...base, name: 'qa-results.csv' }],
+        }}
+      />,
+    )
+    await act(() =>
+      finish({
+        ...data,
+        items: [{ ...base, id: 'late', name: 'late-old-results.csv' }],
+      }),
+    )
+    expect(screen.getByRole('button', { name: /qa-results.csv/ })).toBeTruthy()
+    expect(
+      screen.queryByRole('button', { name: /late-old-results.csv/ }),
+    ).toBeNull()
+    expect(
+      screen.getByText(/1 visible observations from 1 loaded across 1 page/),
+    ).toBeTruthy()
+  })
   it('opens the actual loaded receipt, preserves exact snapshot and avoids cross-grain totals', () => {
     render(<LoadsInventory data={data} />)
     const aside = screen.getByRole('complementary', {

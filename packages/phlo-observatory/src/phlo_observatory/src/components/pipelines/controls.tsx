@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router'
 import type { Env } from '@/lib/data/types'
 import type { ActionContext } from '@/lib/data/api/action-availability'
 import { retryRun } from '@/lib/data/api/pipelines'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 
 type ActionState =
   | { kind: 'idle' | 'pending' | 'accepted' }

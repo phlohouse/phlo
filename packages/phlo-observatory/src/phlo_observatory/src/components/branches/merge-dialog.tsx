@@ -6,7 +6,7 @@ import type {
   BranchCheck,
   BranchRef,
 } from '@/lib/data/api/branches'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { ActionGroup } from '@/components/ui/action-group'
 import {
   Dialog,
