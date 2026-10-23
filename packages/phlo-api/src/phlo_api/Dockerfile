@@ -13,7 +13,8 @@ RUN set -eux; \
     mkdir -p /opt/phlo-build-context/wheelhouse /opt/phlo-native; \
     if [ -n "$PHLO_TRANSFORM_BINARY" ]; then \
         test -n "$PHLO_TRANSFORM_SHA256"; \
-        printf '%s  %s\n' "$PHLO_TRANSFORM_SHA256" "$PHLO_TRANSFORM_BINARY" | sha256sum -c -; \
+        printf '%s  %s\n' "$PHLO_TRANSFORM_SHA256" "$PHLO_TRANSFORM_BINARY" > /tmp/phlo-transform.sha256; \
+        sha256sum -c /tmp/phlo-transform.sha256; \
         install -m 0755 "$PHLO_TRANSFORM_BINARY" /opt/phlo-native/phlo-transform; \
     fi
 
@@ -34,6 +35,7 @@ RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir \
         "setuptools==83.0.0" \
         "wheel==0.47.0" \

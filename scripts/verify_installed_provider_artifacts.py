@@ -318,11 +318,14 @@ def installed_compose_command(
 ) -> list[str]:
     """Resolve Compose through the installed wheel, including host and env layers."""
     script = """import json, pathlib, sys
+from phlo.cli.commands.services.utils import prepare_api_runtime_directories
 from phlo.cli.infrastructure import container_backend
 from phlo.cli.infrastructure.utils import get_project_name
 module_path = pathlib.Path(container_backend.__file__).resolve()
 if not module_path.is_relative_to(pathlib.Path(sys.prefix).resolve()):
     raise RuntimeError("Compose builder did not resolve from the installed environment")
+# Direct Compose probes bypass services start, so perform its private bind preparation.
+prepare_api_runtime_directories(pathlib.Path(sys.argv[1]), ["phlo-api"])
 print(json.dumps(container_backend._compose_base_cmd(
     binary="docker", phlo_dir=pathlib.Path(sys.argv[1]), project_name=get_project_name()
 )))
