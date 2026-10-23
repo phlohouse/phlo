@@ -1,4 +1,4 @@
-/** Reviewed source bytes flow into a separate real candidate table, never main. */
+/** Reviewed source bytes flow into a separate candidate, preserving its base ref. */
 import * as React from 'react'
 import type { CsvUpload } from '@/lib/data/api/uploads'
 import type {
@@ -289,9 +289,12 @@ function CandidatePreview({
         </span>
       </div>
       <p className="text-xs text-muted-foreground">
-        {preview.receipt.main_unchanged
-          ? 'Main reference is unchanged from preparation.'
-          : 'Main changed independently since preparation; no merge was performed here.'}{' '}
+        Base reference {preview.receipt.base_ref}{' '}
+        {preview.receipt.main_unchanged === true
+          ? 'is unchanged from preparation.'
+          : preview.receipt.main_unchanged === false
+            ? 'changed independently since preparation; no merge was performed here.'
+            : 'has not been checked for changes since preparation.'}{' '}
         Candidate remains separate.
       </p>
       <div className="min-w-0 max-w-full overflow-x-auto rounded-lg border border-line">

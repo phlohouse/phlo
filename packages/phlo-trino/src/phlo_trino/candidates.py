@@ -11,12 +11,25 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter, ValidationError
+from phlo.config_schema import EnvironmentId
 from trino.dbapi import connect
 from phlo_trino.settings import get_settings
 
 _ID = re.compile(r"^[a-f0-9]{32}$")
-_REF = re.compile(r"^(sandbox|staging|prod)-(upload|transform)-[a-f0-9]{32}$")
+_ENVIRONMENT = TypeAdapter(EnvironmentId)
 _PART = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _owned_ref(identity: str, ref: str) -> bool:
+    parts = ref.rsplit("-", 2)
+    if len(parts) != 3 or parts[1] not in {"upload", "transform"} or parts[2] != identity:
+        return False
+    try:
+        _ENVIRONMENT.validate_python(parts[0])
+    except ValidationError:
+        return False
+    return bool(_ID.fullmatch(identity))
 
 
 def _properties(path: Path) -> dict[str, str]:
@@ -66,7 +79,7 @@ def _digest(properties: dict[str, str]) -> str:
 
 def create_catalog(root: Path, identity: str, ref: str) -> dict[str, str]:
     """Create, never adopt, a catalog; its generated file must attest the binding."""
-    if not _REF.fullmatch(ref) or not ref.endswith(identity):
+    if not _owned_ref(identity, ref):
         raise ValueError("Candidate reference is not owned by this operation.")
     name, destination = _catalog(root, identity)
     source = root / ".phlo" / "trino" / "catalog" / f"{get_settings(root).trino_catalog}.properties"
@@ -101,7 +114,7 @@ def create_catalog(root: Path, identity: str, ref: str) -> dict[str, str]:
 
 def verify_catalog(root: Path, identity: str, ref: str, catalog: str, digest: str) -> None:
     expected, path = _catalog(root, identity)
-    if catalog != expected or not _REF.fullmatch(ref) or not ref.endswith(identity):
+    if catalog != expected or not _owned_ref(identity, ref):
         raise ValueError("Candidate catalog identity changed.")
     properties = _properties(path)
     if properties.get("iceberg.rest-catalog.prefix") != ref or _digest(properties) != digest:

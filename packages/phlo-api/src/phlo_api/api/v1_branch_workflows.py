@@ -1604,8 +1604,15 @@ async def v1_branch_merge(
         settings = await to_thread.run_sync(load_operational_settings)
         source = await _scoped_reference(branch_name, env, target_config, branch_only=True)
         target = await _scoped_reference(payload.target, env, target_config, branch_only=True)
-        if settings.require_merge_reason and target.name == "main" and not payload.message.strip():
-            raise HTTPException(422, "A non-blank reason is required for merges into main.")
+        if (
+            settings.require_merge_reason
+            and target.name == target_config.nessie_ref
+            and not payload.message.strip()
+        ):
+            raise HTTPException(
+                422,
+                "A non-blank reason is required for merges into the environment base reference.",
+            )
         if (
             source.hash != payload.expected_source_hash
             or target.hash != payload.expected_target_hash

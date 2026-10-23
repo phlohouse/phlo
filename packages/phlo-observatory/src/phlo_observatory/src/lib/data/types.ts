@@ -199,7 +199,7 @@ export interface Commit {
 export interface BranchGraph {
   base: string
   commits: Array<string>
-  /** Commits on main since the fork. */
+  /** Commits on the comparison target since the fork. */
   behind: number
   mergeable: boolean
 }

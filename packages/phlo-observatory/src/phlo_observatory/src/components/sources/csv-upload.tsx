@@ -393,7 +393,7 @@ function UploadSidebar({ upload }: { upload: CsvUpload | null }) {
       <p className="text-muted-foreground">
         The original file is retained as your private draft. After column
         review, choose a new bronze destination and confirm a separate candidate
-        load. Main changes only through a separate reviewed merge.
+        load. The base reference changes only through a separate reviewed merge.
       </p>
       {upload ? (
         <>

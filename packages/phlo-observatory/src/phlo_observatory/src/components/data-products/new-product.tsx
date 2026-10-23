@@ -125,7 +125,7 @@ export function NewProduct({
             {
               name: 'name',
               label: 'Product name',
-              placeholder: 'Batch record data · CGT-04',
+              placeholder: 'Product quality data',
             },
             {
               name: 'product_id',

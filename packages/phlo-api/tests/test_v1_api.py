@@ -453,7 +453,14 @@ def test_run_location_validation_never_returns_an_empty_success(client):
             "data": {
                 "runsOrError": {
                     "__typename": "Runs",
-                    "results": [{"runId": "orphan", "status": "SUCCESS", "repositoryOrigin": None}],
+                    "results": [
+                        {
+                            "runId": "orphan",
+                            "status": "SUCCESS",
+                            "repositoryOrigin": None,
+                            "tags": [{"key": "phlo/ref", "value": "main"}],
+                        }
+                    ],
                 }
             }
         }
@@ -485,7 +492,7 @@ def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch
     ]
 
     async def graphql(url, query, variables=None):
-        assert variables == {"filter": {"tags": [{"key": "phlo/ref", "value": "main"}]}}
+        assert variables == {"filter": {}}
         assert "RunsFilter!" in query
         return {"data": {"runsOrError": {"__typename": "Runs", "results": rows}}}
 
@@ -493,10 +500,12 @@ def test_recent_runs_require_ref_even_with_matching_location(client, monkeypatch
     assert asyncio.run(v1._runs("production_jobs", "main")) == {"main-ref": "STARTED"}
     rows[1]["tags"] = []
     monkeypatch.setattr(v1_assets, "_assets", lambda *args, **kwargs: asyncio.sleep(0, result=[]))
-    assert http.get("/api/v1/overview?env=prod").status_code == 503
+    assert asyncio.run(v1._runs("production_jobs", "main")) == {}
 
 
-def test_overview_ref_filter_excludes_legacy_history_before_validation(client, monkeypatch):
+def test_overview_inventory_excludes_uncorrelated_legacy_history_before_validation(
+    client, monkeypatch
+):
     from types import SimpleNamespace
 
     from phlo_api import incidents
@@ -527,16 +536,12 @@ def test_overview_ref_filter_excludes_legacy_history_before_validation(client, m
 
     async def graphql(_url, query, variables=None):
         assert "RunsFilter!" in query
-        assert variables == {"filter": {"tags": [{"key": "phlo/ref", "value": "main"}]}}
+        assert variables == {"filter": {}}
         return {
             "data": {
                 "runsOrError": {
                     "__typename": "Runs",
-                    "results": [
-                        row
-                        for row in old_runs + [other_ref, other_location, selected]
-                        if any(tag.get("value") == "main" for tag in row["tags"])
-                    ],
+                    "results": old_runs[:97] + [other_ref, other_location, selected],
                 }
             }
         }

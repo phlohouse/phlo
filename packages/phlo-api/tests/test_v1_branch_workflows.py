@@ -822,3 +822,36 @@ def test_branch_schema_diff_requires_read_scope_before_provider_access(
     )
     assert response.status_code == 403
     assert calls["paths"] == []
+
+
+def test_merge_reason_is_required_for_configured_primary_ref(branch_api, monkeypatch):
+    client, calls = branch_api
+    _enable_branch_mutations(monkeypatch)
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps({"prod": {"dagster_location": "prod_loc", "nessie_ref": "prod-target"}}),
+    )
+    monkeypatch.setattr(
+        v1_branch_workflows,
+        "load_operational_settings",
+        lambda: SimpleNamespace(require_merge_reason=True),
+    )
+
+    async def no_checks(**kwargs):
+        pytest.fail("A missing required reason must be rejected before premerge checks")
+
+    monkeypatch.setattr(v1_branch_workflows, "_premerge_checks", no_checks)
+    response = client.post(
+        "/api/v1/branches/prod-feature/merge?env=prod",
+        headers={"Idempotency-Key": "merge-custom-primary-missing-reason"},
+        json={
+            "target": "prod-target",
+            "expected_source_hash": "p2",
+            "expected_target_hash": "p1",
+            "signature_id": "unused-signature",
+            "message": "   ",
+        },
+    )
+    assert response.status_code == 422
+    assert "reason" in response.json()["error"]["message"].lower()
+    assert not any("/history/merge" in path for path in calls["paths"])

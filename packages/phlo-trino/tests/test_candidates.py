@@ -9,7 +9,8 @@ REF = "sandbox-upload-" + ID
 
 
 @pytest.fixture
-def provider(monkeypatch, tmp_path):
+def provider(monkeypatch, tmp_path, request):
+    ref = getattr(request, "param", REF)
     directory = tmp_path / ".phlo/trino/catalog"
     directory.mkdir(parents=True)
     (directory / "iceberg.properties").write_text(
@@ -31,7 +32,7 @@ def provider(monkeypatch, tmp_path):
                 assert "IF NOT EXISTS" not in sql
                 (directory / f"iceberg_candidate_{ID}.properties").write_text(
                     (directory / "iceberg.properties").read_text()
-                    + f"iceberg.rest-catalog.prefix={REF}\n"
+                    + f"iceberg.rest-catalog.prefix={ref}\n"
                 )
 
         def fetchall(self):
@@ -73,4 +74,27 @@ def test_catalog_owner_and_preview_relation_validation_precede_sql(provider):
     for relation in ("iceberg.bronze.raw", "bronze.raw;DROP", "raw"):
         with pytest.raises(ValueError):
             candidates.preview(root, "candidate", relation, 25)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [f"{env}-transform-{ID}" for env in ("development", "qa_eu-2", "a" * 63)],
+    indirect=True,
+)
+def test_custom_environment_catalog_is_created_and_verified(provider, request):
+    root, _, calls = provider
+    ref = request.node.callspec.params["provider"]
+    binding = candidates.create_catalog(root, ID, ref)
+    assert ref in calls[0][0]
+    candidates.verify_catalog(
+        root, ID, ref, binding["catalog"], binding["catalog_properties_digest"]
+    )
+
+
+@pytest.mark.parametrize("env", ["", "QA", "../dev", "dev/other", "a" * 64])
+def test_invalid_environment_ref_is_rejected_before_sql(provider, env):
+    root, _, calls = provider
+    with pytest.raises(ValueError, match="owned"):
+        candidates.create_catalog(root, ID, f"{env}-upload-{ID}")
     assert calls == []

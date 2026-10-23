@@ -112,6 +112,7 @@ describe('reviewed CSV candidate destination', () => {
       row_count: 96,
       snapshot_id: '9223372036854775801',
       candidate_hash: 'written',
+      base_ref: 'release_test',
       main_unchanged: true,
     }
     vi.mocked(previewUploadCandidate).mockResolvedValue({
@@ -159,7 +160,9 @@ describe('reviewed CSV candidate destination', () => {
     expect(await screen.findByText('Candidate loaded')).toBeTruthy()
     expect(screen.getByText('ND')).toBeTruthy()
     expect(screen.getByText(/9223372036854775801/)).toBeTruthy()
-    expect(screen.getByText(/Main reference is unchanged/)).toBeTruthy()
+    expect(
+      screen.getByText(/Base reference release_test is unchanged/),
+    ).toBeTruthy()
   })
 })
 

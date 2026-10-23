@@ -255,7 +255,7 @@ export function TransformEditor({
         <Badge variant="branch">SQL draft</Badge>
         <span>
           Revisions are stored separately from workspace source. Candidate runs
-          use a separate data branch and do not publish to main.
+          use a separate data branch and do not publish to the base reference.
         </span>
         {dirty ? <span className="text-warn-text">Unsaved changes</span> : null}
       </div>

@@ -87,7 +87,9 @@ describe('retained CSV review', () => {
       }).disabled,
     ).toBe(true)
     expect(
-      screen.getByText(/Main changes only through a separate reviewed merge/),
+      screen.getByText(
+        /The base reference changes only through a separate reviewed merge/,
+      ),
     ).toBeTruthy()
   })
   it('shows a validated review and offers destination preparation before loading', () => {

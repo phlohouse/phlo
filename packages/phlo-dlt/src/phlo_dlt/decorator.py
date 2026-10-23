@@ -65,6 +65,7 @@ from phlo.capabilities import (
     list_capabilities,
     resolve_capability,
 )
+from phlo.capabilities.specs import IsolatedWriteSpec
 from phlo.capabilities.history import HistoryPolicy
 from phlo.capabilities.runtime import RuntimeContext, routing_from_context
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
@@ -1037,6 +1038,9 @@ def phlo_ingestion(
             capability_overrides=dict(capabilities or {}),
             run=RunSpec(
                 fn=run,
+                isolated_write=IsolatedWriteSpec(ref=required_write_ref, actor=required_actor)
+                if required_write_ref is not None and required_actor is not None
+                else None,
                 max_runtime_seconds=max_runtime_seconds,
                 max_retries=max_retries,
                 retry_delay_seconds=retry_delay_seconds,

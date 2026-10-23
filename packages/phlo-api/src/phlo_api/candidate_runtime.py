@@ -9,12 +9,16 @@ from typing import Any
 from urllib.parse import quote
 import re
 
+from pydantic import TypeAdapter, ValidationError
+from phlo.config_schema import EnvironmentId
+
 from phlo_api.api.operation_controls import project_root
 from phlo_api.errors import BackendUnavailableError, ConflictError
 from phlo_api.observatory_api.observatory_durable_state import load_collection, mutate_collection
 
 _COLLECTION = "v1_owned_candidates"
 _ID = re.compile(r"^[a-f0-9]{32}$")
+_ENVIRONMENT = TypeAdapter(EnvironmentId)
 _PART = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -90,11 +94,11 @@ async def provision_candidate(
     *, env: str, actor: str, kind: str, operation_id: str, base_ref: str, base_hash: str
 ) -> dict[str, Any]:
     """Reserve ownership before IO; replay ready records, never adopt unknown outcomes."""
-    if (
-        env not in {"sandbox", "staging", "prod"}
-        or kind not in {"upload", "transform"}
-        or not _ID.fullmatch(operation_id)
-    ):
+    try:
+        _ENVIRONMENT.validate_python(env)
+    except ValidationError as exc:
+        raise ConflictError("Invalid candidate operation identity.") from exc
+    if kind not in {"upload", "transform"} or not _ID.fullmatch(operation_id):
         raise ConflictError("Invalid candidate operation identity.")
     existing = next((item for item in _records() if item.get("execution_id") == operation_id), None)
     expected = {

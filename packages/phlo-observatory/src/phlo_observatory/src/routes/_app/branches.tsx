@@ -144,12 +144,12 @@ function BranchEvidence({
   return (
     <div>
       <div className="pt-5 pb-2">
-        {target.name === 'main' &&
-        baseIndex >= 0 &&
+        {baseIndex >= 0 &&
         detail.comparison.merge_base !== null &&
         detail.comparison.behind !== null ? (
           <BranchGraph
             name={selected.name}
+            targetName={target.name}
             graph={{
               base: detail.comparison.merge_base,
               commits: detail.commits.items

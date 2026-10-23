@@ -50,10 +50,10 @@ def runtime(monkeypatch, tmp_path):
     return state, heads, calls, provider
 
 
-def prepare():
+def prepare(env="sandbox"):
     return asyncio.run(
         candidates.provision_candidate(
-            env="sandbox",
+            env=env,
             actor="owner",
             kind="upload",
             operation_id=IDENTITY,
@@ -178,3 +178,19 @@ def test_preview_snapshot_mismatch_stops_before_query(runtime, monkeypatch):
                 binding, "bronze.raw", expected_hash=BASE, expected_snapshot_id="9007199254740992"
             )
         )
+
+
+@pytest.mark.parametrize("env", ["development", "qa_eu-2", "a" * 63])
+def test_candidate_supports_configured_environment_ids(runtime, env):
+    binding = prepare(env)
+    assert binding["env"] == env
+    assert binding["candidate_ref"] == f"{env}-upload-{IDENTITY}"
+    assert prepare(env) == binding
+
+
+@pytest.mark.parametrize("env", ["", "QA", "../dev", "dev/other", "a" * 64])
+def test_invalid_environment_identity_is_rejected_before_io(runtime, env):
+    state, _, calls, _ = runtime
+    with pytest.raises(ConflictError, match="identity"):
+        prepare(env)
+    assert state == [] and calls == []

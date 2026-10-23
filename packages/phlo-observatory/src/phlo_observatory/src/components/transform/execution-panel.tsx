@@ -115,7 +115,7 @@ export function CandidateExecutionPanel(props: Props) {
           <p className="m-0 font-medium">Candidate execution</p>
           <p className="mb-0 text-muted-foreground">
             Build saved revision {props.draft.revision} on a separate data
-            branch. Main is preserved.
+            branch. The base reference is preserved.
           </p>
         </div>
         <Button

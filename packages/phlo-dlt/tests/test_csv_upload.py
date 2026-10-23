@@ -88,6 +88,8 @@ def test_candidate_runtime_rejects_wrong_actor_main_and_wap_before_source_read(a
         register_csv_upload(root, result["files"][0], result["metadata"]["contract_digest"])
         asset = get_ingestion_assets()[0]
         assert asset.run.cron is None and asset.partitions is None
+        assert asset.run.isolated_write.ref == manifest["candidate_ref"]
+        assert asset.run.isolated_write.actor == manifest["actor"]
         assert asset.metadata["phlo/relation"] == "bronze.reviewed_upload"
         (root / ".phlo/uploads" / manifest["upload_id"] / "source.csv").unlink()
         runtime = SimpleNamespace(tags=tags, partition_key=None, resources={}, run_id="run-1")
