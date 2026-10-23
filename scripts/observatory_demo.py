@@ -280,7 +280,8 @@ def fixture_run(config: golden.RunConfig) -> str:
     result = golden.graphql(
         url,
         """mutation Run($params:ExecutionParams!){launchRun(executionParams:$params){
-        __typename ... on LaunchRunSuccess{run{runId}}}}""",
+        __typename ... on LaunchRunSuccess{run{runId}}
+        ... on PythonError{message stack}}}""",
         {
             "params": {
                 "selector": {
@@ -296,7 +297,7 @@ def fixture_run(config: golden.RunConfig) -> str:
     )
     launched = result["data"]["launchRun"]
     if launched["__typename"] != "LaunchRunSuccess":
-        raise golden.CandidateError("Fixture job was not launched")
+        raise golden.CandidateError(f"Fixture job was not launched: {json.dumps(launched)}")
     run_id = launched["run"]["runId"]
     for _ in range(180):
         result = golden.graphql(
@@ -546,10 +547,15 @@ def main(argv: list[str] | None = None) -> int:
             "PASS Mission Control: real fixture run/query, denied viewer, CSV/native candidate snapshots; main unchanged"
         )
         return 0
-    except subprocess.CalledProcessError as error:
+    except (subprocess.CalledProcessError, RuntimeError) as error:
         if args.keep_project:
             diagnostics = root / "failure.log"
-            acceptance.private_file(diagnostics, (error.stdout or "") + (error.stderr or ""))
+            detail = (
+                (error.stdout or "") + (error.stderr or "")
+                if isinstance(error, subprocess.CalledProcessError)
+                else str(error)
+            )
+            acceptance.private_file(diagnostics, detail)
             report["private_diagnostics"] = str(diagnostics)
         raise
     finally:
@@ -574,7 +580,12 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (golden.CandidateError, subprocess.CalledProcessError, urllib.error.URLError) as error:
+    except (
+        golden.CandidateError,
+        subprocess.CalledProcessError,
+        urllib.error.URLError,
+        RuntimeError,
+    ) as error:
         print(
             f"Disposable demo failed: {type(error).__name__}; inspect private runtime diagnostics, not credentials",
             file=sys.stderr,
