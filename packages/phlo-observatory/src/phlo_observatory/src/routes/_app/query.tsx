@@ -60,6 +60,7 @@ import {
 import { Segmented } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { incidentOperationKey } from '@/lib/data/api/incidents'
+import { useActionPermission } from '@/components/phlo/action-availability'
 import {
   Dialog,
   DialogBody,
@@ -544,6 +545,7 @@ function QueryToolbar(props: QueryToolbarProps) {
         </DropdownMenu>
         {tab.saved ? (
           <Button
+            operation="v1_saved_query_delete"
             variant="outline"
             onClick={remove}
             disabled={isSubmitting}
@@ -552,10 +554,18 @@ function QueryToolbar(props: QueryToolbarProps) {
             <Trash2Icon />
           </Button>
         ) : null}
-        <Button variant="outline" onClick={persist} disabled={isSubmitting}>
+        <Button
+          operation={
+            tab.saved ? 'v1_saved_query_update' : 'v1_saved_query_create'
+          }
+          variant="outline"
+          onClick={persist}
+          disabled={isSubmitting}
+        >
           Save
         </Button>
         <Button
+          operation="v1_query_explain"
           variant="outline"
           onClick={() => start('plan')}
           disabled={Boolean(running) || isSubmitting}
@@ -564,6 +574,7 @@ function QueryToolbar(props: QueryToolbarProps) {
         </Button>
         {running ? (
           <Button
+            operation="v1_query_cancel"
             variant="outline"
             onClick={cancel}
             disabled={tab.session?.status === 'cancelling'}
@@ -571,7 +582,11 @@ function QueryToolbar(props: QueryToolbarProps) {
             <SquareIcon /> Cancel
           </Button>
         ) : (
-          <Button onClick={() => start('results')} disabled={isSubmitting}>
+          <Button
+            operation="v1_query_submit"
+            onClick={() => start('results')}
+            disabled={isSubmitting}
+          >
             <PlayIcon className="fill-current" />{' '}
             {isSubmitting ? 'Submitting…' : 'Run'}
           </Button>
@@ -918,6 +933,8 @@ function QueryWorkspace({
 }) {
   const { env } = Route.useSearch()
   const firstTable = firstCatalogTable(data.catalog.catalogs)
+  const submitPermission = useActionPermission('v1_query_submit')
+  const explainPermission = useActionPermission('v1_query_explain')
   const [savedQueries, setSavedQueries] = React.useState(data.saved)
   const [initial] = React.useState(() =>
     initialWorkspace(cacheKey, suppliedSql, firstTable),
@@ -998,6 +1015,8 @@ function QueryWorkspace({
     mode: Tab['mode'],
     showChart: false | 'chart' | 'pivot' = chart,
   ) => {
+    if (!(mode === 'plan' ? explainPermission : submitPermission).allowed)
+      return
     if (
       submitting.current.has(tab.id) ||
       (tab.session && !terminal.has(tab.session.status))

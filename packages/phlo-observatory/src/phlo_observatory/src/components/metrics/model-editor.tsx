@@ -253,6 +253,9 @@ export function MetricModelEditor({
         ) : null}
         <div className="flex gap-2">
           <Button
+            operation={
+              model ? 'v1_metric_model_update' : 'v1_metric_model_create'
+            }
             type="submit"
             disabled={busy || !source || !definition.measures.length}
           >

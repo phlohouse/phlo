@@ -39,7 +39,10 @@ function ProductsPage() {
         title="Data products"
         meta="Curated sets of Datasets with an owner and purpose"
         actions={
-          <Button onClick={() => setCreating(true)}>
+          <Button
+            operation="v1_data_product_create"
+            onClick={() => setCreating(true)}
+          >
             <PlusIcon />
             New data product
           </Button>

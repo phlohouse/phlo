@@ -67,6 +67,19 @@ export function startApiFixture({
       },
     }
     const responses = {
+      '/api/v1/action-availability': {
+        env,
+        actions: Object.fromEntries(
+          [
+            'v1_query_submit',
+            'v1_query_explain',
+            'v1_query_cancel',
+            'v1_saved_query_create',
+            'v1_saved_query_update',
+            'v1_saved_query_delete',
+          ].map((operation) => [operation, { allowed: true, reason: null }]),
+        ),
+      },
       '/api/v1/admin/settings': { version: 1, values: {} },
       '/api/v1/environments': {
         items: environments.filter(

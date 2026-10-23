@@ -7,6 +7,7 @@ import { getMetricPreviewSql } from '@/lib/data/api/metrics'
 import { getQuerySession, submitQuery } from '@/lib/data/api/query'
 import { ResultsGrid } from '@/components/query/result-views'
 import { Button } from '@/components/ui/button'
+import { useActionPermission } from '@/components/phlo/action-availability'
 
 export function MetricModelPreview({
   model,
@@ -20,6 +21,7 @@ export function MetricModelPreview({
   const [session, setSession] = React.useState<QuerySession>()
   const [error, setError] = React.useState<string>()
   const [busy, setBusy] = React.useState(false)
+  const queryPermission = useActionPermission('v1_query_submit')
   const active = React.useRef(true)
   React.useEffect(() => {
     active.current = true
@@ -98,9 +100,28 @@ export function MetricModelPreview({
           </label>
         ))}
       </fieldset>
-      <Button onClick={() => void preview()} disabled={busy}>
+      <Button
+        operation="v1_metric_model_preview"
+        onClick={() => void preview()}
+        disabled={
+          busy ||
+          model.source_status === 'unavailable' ||
+          !queryPermission.allowed
+        }
+      >
         {busy ? `Query ${session?.status ?? 'starting'}…` : 'Run preview'}
       </Button>
+      {model.source_status === 'unavailable' ? (
+        <p role="status" className="m-0 text-sm text-warn-text">
+          {model.source_reason ??
+            'The saved source is unavailable. Edit the draft to select an available source before previewing.'}
+        </p>
+      ) : null}
+      {!queryPermission.allowed ? (
+        <p className="m-0 text-xs text-muted-foreground">
+          {queryPermission.reason}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="m-0 text-sm text-bad-text">
           {error}

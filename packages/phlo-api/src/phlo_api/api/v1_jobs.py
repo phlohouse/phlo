@@ -443,7 +443,15 @@ def _run(row: Any, location: str, ref: str) -> Run | None:
         tags={
             tag["key"]: tag["value"]
             for tag in row["tags"]
-            if tag["key"] in {"dagster/schedule_name", "dagster/sensor_name", "phlo/operation"}
+            if tag["key"]
+            in {
+                "dagster/schedule_name",
+                "dagster/sensor_name",
+                "phlo/operation",
+                "phlo/project_id",
+                "phlo/run_id",
+                "phlo/attempt",
+            }
         },
         logs_url=f"/api/v1/runs/{run_id}/logs",
         resource_id=f"dagster-run:{location}:{run_id}",

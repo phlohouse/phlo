@@ -119,6 +119,7 @@ export function CandidateExecutionPanel(props: Props) {
           </p>
         </div>
         <Button
+          operation="v1_transform_model_execute"
           variant="outline"
           disabled={!ready || busy}
           onClick={() => void run()}

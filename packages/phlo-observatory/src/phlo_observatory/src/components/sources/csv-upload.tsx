@@ -172,7 +172,11 @@ export function CsvUploadReview({
                       validation checks every row.
                     </p>
                   </div>
-                  <Button disabled={busy} onClick={() => void validate()}>
+                  <Button
+                    operation="v1_csv_upload_review"
+                    disabled={busy}
+                    onClick={() => void validate()}
+                  >
                     Validate all {upload.row_count?.toLocaleString()} rows
                   </Button>
                 </div>
@@ -550,7 +554,7 @@ function RetainCsvForm({
           className="min-w-0 text-xs file:mr-3 file:rounded-md file:border file:border-line file:px-3 file:py-1.5"
         />
       </label>
-      <Button type="submit" disabled={busy}>
+      <Button operation="v1_csv_upload" type="submit" disabled={busy}>
         {busy ? 'Working…' : upload ? 'Retain replacement' : 'Retain file'}
       </Button>
       <p className="w-full text-xs text-muted-foreground">

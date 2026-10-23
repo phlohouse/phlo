@@ -1,5 +1,6 @@
 /** Shows collection metadata alongside real inventory and canonical member governance. */
-import { Link, createFileRoute } from '@tanstack/react-router'
+import * as React from 'react'
+import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { Share2Icon } from 'lucide-react'
 import type { DataProduct } from '@/lib/data/api/data-products'
 import type { ApiAsset } from '@/lib/data/api/assets'
@@ -8,6 +9,7 @@ import { formatInventoryCount } from '@/lib/data/assets-table'
 import { PageHeader } from '@/components/phlo/page'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { NewProduct } from '@/components/data-products/new-product'
 
 export const Route = createFileRoute('/_app/data-products/$productId')({
   loaderDeps: ({ search }) => ({ env: search.env }),
@@ -18,6 +20,8 @@ export const Route = createFileRoute('/_app/data-products/$productId')({
 })
 function ProductPage() {
   const { product, assets } = Route.useLoaderData()
+  const router = useRouter()
+  const [editing, setEditing] = React.useState(false)
   const first = product.member_dataset_ids[0]
   const ready = product.members.filter(
     (member) => member.canonical?.readiness.ready,
@@ -30,6 +34,13 @@ function ProductPage() {
         meta={`Draft · v${product.version}`}
         actions={
           <>
+            <Button
+              operation="v1_data_product_update"
+              variant="outline"
+              onClick={() => setEditing(true)}
+            >
+              Edit draft
+            </Button>
             {first ? (
               <Link
                 to="/query"
@@ -54,6 +65,19 @@ function ProductPage() {
       </div>
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6 p-5">
+          {editing ? (
+            <NewProduct
+              key={`${product.env}:${product.product_id}:${product.version}`}
+              env={product.env}
+              product={product}
+              assets={assets.items}
+              onCancel={() => setEditing(false)}
+              onCreated={() => {
+                setEditing(false)
+                void router.invalidate()
+              }}
+            />
+          ) : null}
           <p className="max-w-[75ch] text-sm leading-relaxed">
             {product.purpose}
           </p>

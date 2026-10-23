@@ -6,11 +6,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NewProduct } from './new-product'
 import type * as ProductsModule from '@/lib/data/api/data-products'
 import type { ApiAsset } from '@/lib/data/api/assets'
-import { createDataProduct } from '@/lib/data/api/data-products'
+import {
+  createDataProduct,
+  updateDataProduct,
+} from '@/lib/data/api/data-products'
 
 vi.mock('@/lib/data/api/data-products', async (original) => ({
   ...(await original<typeof ProductsModule>()),
   createDataProduct: vi.fn(),
+  updateDataProduct: vi.fn(),
 }))
 afterEach(() => {
   cleanup()
@@ -32,6 +36,72 @@ const assets: Array<ApiAsset> = [
   },
 ]
 describe('new product review', () => {
+  it('edits the existing version and preserves selections when returning from review', async () => {
+    const product: ProductsModule.DataProduct = {
+      product_id: 'batch-record',
+      env: 'sandbox',
+      name: 'Batch record',
+      purpose: 'Original purpose',
+      owner: 'Old owner',
+      classifications: ['internal'],
+      member_dataset_ids: ['gold.batch_release_metrics'],
+      version: 4,
+      status: 'draft',
+      created_at: '',
+      updated_at: '',
+      members: [],
+      sharing_status: 'unavailable',
+      sharing_reason: 'Draft only',
+    }
+    vi.mocked(updateDataProduct).mockResolvedValue({
+      ...product,
+      version: 5,
+      owner: 'New owner',
+    })
+    const saved = vi.fn()
+    render(
+      <NewProduct
+        env="sandbox"
+        product={product}
+        assets={assets}
+        onCancel={() => {}}
+        onCreated={saved}
+      />,
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('Product ID').disabled).toBe(
+      true,
+    )
+    fireEvent.change(screen.getByLabelText('Owner'), {
+      target: { value: 'New owner' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Review draft' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText<HTMLInputElement>('Owner').value).toBe(
+      'New owner',
+    )
+    expect(
+      screen.getByLabelText<HTMLInputElement>('gold.batch_release_metrics')
+        .checked,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Review draft' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save draft product' }),
+    )
+    expect(updateDataProduct).toHaveBeenCalledWith({
+      data: {
+        env: 'sandbox',
+        product_id: 'batch-record',
+        name: 'Batch record',
+        purpose: 'Original purpose',
+        owner: 'New owner',
+        classifications: ['internal'],
+        member_dataset_ids: ['gold.batch_release_metrics'],
+        expected_version: 4,
+      },
+    })
+    expect(saved).toHaveBeenCalledWith(expect.objectContaining({ version: 5 }))
+    expect(createDataProduct).not.toHaveBeenCalled()
+  })
   it('uses actual relation selections and leaves authorization failure visible without creating a product', async () => {
     const created = vi.fn()
     vi.mocked(createDataProduct).mockRejectedValue(

@@ -1,11 +1,43 @@
 // @vitest-environment jsdom
 /** Source edits remain local while immutable revision compilation uses its saved identity. */
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  render as renderComponent,
+  screen,
+  waitFor,
+} from '@testing-library/react'
+import {
+  RouterContextProvider,
+  createMemoryHistory,
+  createRouter,
+} from '@tanstack/react-router'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TransformEditor } from './editor'
 import type { TransformModel } from '@/lib/data/api/transform'
 import type { TransformDraftSummary } from '@/lib/data/api/transform-editor'
+import type { ReactElement } from 'react'
+import { routeTree } from '@/routeTree.gen'
+
+function render(element: ReactElement) {
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({
+      initialEntries: ['/transform?env=sandbox&model=review.inspection'],
+    }),
+  })
+  return {
+    ...renderComponent(element, {
+      wrapper: ({ children }) => (
+        <RouterContextProvider router={router}>
+          {children}
+        </RouterContextProvider>
+      ),
+    }),
+    router,
+  }
+}
 
 const api = vi.hoisted(() => ({
   source: vi.fn(),
@@ -87,6 +119,7 @@ const draft = {
 afterEach(() => {
   cleanup()
   vi.resetAllMocks()
+  vi.restoreAllMocks()
 })
 function setup(extra = {}, history: Array<TransformDraftSummary> = []) {
   api.history.mockResolvedValue({
@@ -110,6 +143,121 @@ function setup(extra = {}, history: Array<TransformDraftSummary> = []) {
 }
 
 describe('Transform source editor', () => {
+  it.each(['Save draft revision', 'Compile and plan'])(
+    'ignores a late %s response after selecting another revision',
+    async (action) => {
+      api.read.mockImplementation(({ data }: { data: { revision: number } }) =>
+        Promise.resolve({
+          ...draft,
+          revision: data.revision,
+          sql: `SELECT ${data.revision}`,
+        }),
+      )
+      let finish!: (value: unknown) => void
+      const pending = new Promise((resolve) => {
+        finish = resolve
+      })
+      api.save.mockReturnValue(pending)
+      api.compile.mockReturnValue(pending)
+      const onSaved = vi.fn()
+      const props = {
+        env: 'sandbox',
+        model,
+        focus: false,
+        draftId: draft.draft_id,
+        revision: 1,
+        onFocus: vi.fn(),
+        onClose: vi.fn(),
+        onSaved,
+      }
+      const view = setup(props)
+      const input = await screen.findByLabelText<HTMLTextAreaElement>(
+        'SQL source for review.inspection',
+      )
+      if (action === 'Save draft revision')
+        await userEvent.type(input, ' -- saved')
+      await userEvent.click(screen.getByRole('button', { name: action }))
+      view.rerender(<TransformEditor {...props} revision={2} />)
+      await waitFor(() =>
+        expect(
+          screen.getByLabelText<HTMLTextAreaElement>(
+            'SQL source for review.inspection',
+          ).value,
+        ).toBe('SELECT 2'),
+      )
+      await act(() =>
+        finish({
+          ...draft,
+          sql: 'SELECT 1',
+          status: 'ready',
+          diagnostics: [],
+          compiled_sql: 'OLD PLAN',
+        }),
+      )
+      expect(
+        screen.getByLabelText<HTMLTextAreaElement>(
+          'SQL source for review.inspection',
+        ).value,
+      ).toBe('SELECT 2')
+      expect(
+        screen.queryByRole('region', { name: 'Compiled model SQL' }),
+      ).toBeNull()
+      expect(onSaved).not.toHaveBeenCalled()
+    },
+  )
+  it('follows external revision changes and blocks a dirty history exit until discard is confirmed', async () => {
+    api.read.mockImplementation(({ data }: { data: { revision: number } }) =>
+      Promise.resolve({
+        ...draft,
+        revision: data.revision,
+        sql: `SELECT ${data.revision}`,
+      }),
+    )
+    const props = {
+      env: 'sandbox',
+      model,
+      focus: false,
+      draftId: draft.draft_id,
+      revision: 1,
+      onFocus: vi.fn(),
+      onClose: vi.fn(),
+      onSaved: vi.fn(),
+    }
+    const view = setup(props)
+    expect(
+      (
+        await screen.findByLabelText<HTMLTextAreaElement>(
+          'SQL source for review.inspection',
+        )
+      ).value,
+    ).toBe('SELECT 1')
+    view.rerender(<TransformEditor {...props} revision={2} />)
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText<HTMLTextAreaElement>(
+          'SQL source for review.inspection',
+        ).value,
+      ).toBe('SELECT 2'),
+    )
+    await userEvent.type(
+      screen.getByLabelText('SQL source for review.inspection'),
+      ' -- keep me',
+    )
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    act(() => view.router.history.push('/assets?env=sandbox'))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(view.router.history.location.pathname).toBe('/transform')
+    expect(
+      screen.getByLabelText<HTMLTextAreaElement>(
+        'SQL source for review.inspection',
+      ).value,
+    ).toBe('SELECT 2 -- keep me')
+    confirm.mockReturnValue(true)
+    act(() => view.router.history.push('/assets?env=sandbox'))
+    await waitFor(() =>
+      expect(view.router.history.location.pathname).toBe('/assets'),
+    )
+  })
   it('preserves edits made during a deferred save and compiles only the current saved revision', async () => {
     const user = userEvent.setup()
     let finish!: (value: typeof draft) => void

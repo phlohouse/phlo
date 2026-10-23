@@ -98,10 +98,18 @@ export function MergeDialog({
           </p>
           <ChecksSummary checks={checks} />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={busy} onClick={onChecks}>
+            <Button
+              operation="v1_branch_checks"
+              actionContext={{ branch_name: branch.name }}
+              variant="outline"
+              disabled={busy}
+              onClick={onChecks}
+            >
               Run checks
             </Button>
             <Button
+              operation="v1_branch_trial_merge"
+              actionContext={{ branch_name: branch.name }}
               variant="outline"
               disabled={busy || !message.trim()}
               onClick={() => onTrial(message.trim())}
@@ -156,6 +164,8 @@ export function MergeDialog({
             Cancel
           </Button>
           <Button
+            operation="v1_branch_merge"
+            actionContext={{ branch_name: branch.name }}
             disabled={busy || !message.trim() || !version}
             onClick={() => version && onMerge(message.trim(), version)}
           >

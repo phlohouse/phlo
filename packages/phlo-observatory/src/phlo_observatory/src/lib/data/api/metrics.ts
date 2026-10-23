@@ -33,6 +33,8 @@ const modelSchema = metricDefinitionSchema.extend({
   status: z.literal('draft'),
   created_at: z.string(),
   updated_at: z.string(),
+  source_status: z.enum(['available', 'unavailable']).optional(),
+  source_reason: z.string().nullable().optional(),
 })
 const inventorySchema = z.object({
   env: environmentSchema,

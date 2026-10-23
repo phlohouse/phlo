@@ -3,6 +3,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { incidentSchema } from './incidents'
 import { runSchema } from './pipelines'
+import { getActionAvailability } from './action-availability'
 import {
   environmentSchema,
   optionalRead,
@@ -66,31 +67,39 @@ export const getEnvironments = createServerFn({ method: 'GET' })
 export const getShell = createServerFn({ method: 'GET' })
   .inputValidator(environmentSchema)
   .handler(async ({ data: env }) => {
-    const [overview, serviceList, me, incidents] = await Promise.all([
-      optionalRead(
-        phloApi(`api/v1/overview?env=${env}`, overviewSchema, { env }),
-      ),
-      optionalRead(
-        phloApi(`api/v1/services?env=${env}`, servicesSchema, { env }),
-      ),
-      phloApi(
-        'api/v1/me',
-        z.object({
-          subject: z.string(),
-          email: z.string().nullable(),
-          principal_type: z.string(),
-          roles: z.array(z.string()),
-          permissions: z.record(z.string(), z.array(z.string())),
-        }),
-      ),
-      optionalRead(
-        phloApi(`api/v1/incidents?env=${env}&limit=100`, incidentsPageSchema, {
-          env,
-        }),
-      ),
-    ])
+    const [overview, serviceList, me, incidents, availability] =
+      await Promise.all([
+        optionalRead(
+          phloApi(`api/v1/overview?env=${env}`, overviewSchema, { env }),
+        ),
+        optionalRead(
+          phloApi(`api/v1/services?env=${env}`, servicesSchema, { env }),
+        ),
+        phloApi(
+          'api/v1/me',
+          z.object({
+            subject: z.string(),
+            email: z.string().nullable(),
+            principal_type: z.string(),
+            roles: z.array(z.string()),
+            permissions: z.record(z.string(), z.array(z.string())),
+          }),
+        ),
+        optionalRead(
+          phloApi(
+            `api/v1/incidents?env=${env}&limit=100`,
+            incidentsPageSchema,
+            {
+              env,
+            },
+          ),
+        ),
+        optionalRead(getActionAvailability({ data: { env } })),
+      ])
     return {
       env,
+      availability:
+        availability.state === 'available' ? availability.data : null,
       overview: overview.state === 'available' ? overview.data : null,
       services:
         serviceList.state === 'available' ? serviceList.data.items : null,

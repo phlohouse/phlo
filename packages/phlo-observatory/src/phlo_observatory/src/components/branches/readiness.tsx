@@ -7,10 +7,12 @@ export function BranchReadiness({
   checks,
   busy,
   onChecks,
+  branchName,
 }: {
   checks?: Array<BranchCheck>
   busy: boolean
   onChecks: () => void
+  branchName?: string
 }) {
   return (
     <section aria-label="Pre-merge checks" className="space-y-3">
@@ -18,7 +20,14 @@ export function BranchReadiness({
         <h3 className="m-0 text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Pre-merge checks
         </h3>
-        <Button variant="outline" size="sm" disabled={busy} onClick={onChecks}>
+        <Button
+          operation="v1_branch_checks"
+          actionContext={branchName ? { branch_name: branchName } : undefined}
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={onChecks}
+        >
           Run checks
         </Button>
       </div>

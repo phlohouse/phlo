@@ -183,7 +183,12 @@ function BranchEvidence({
             </Mono>
           </p>
           {!selected.protected ? (
-            <BranchReadiness checks={checks} busy={busy} onChecks={onChecks} />
+            <BranchReadiness
+              branchName={selected.name}
+              checks={checks}
+              busy={busy}
+              onChecks={onChecks}
+            />
           ) : null}
         </div>
         <div className="min-w-0 space-y-5">
@@ -273,6 +278,8 @@ function BranchActions({
   return (
     <>
       <Button
+        operation="v1_branch_rebase"
+        actionContext={{ branch_name: selected.name }}
         variant="outline"
         disabled={busy}
         onClick={() =>
@@ -302,14 +309,21 @@ function BranchActions({
       >
         <RefreshCwIcon /> Rebase
       </Button>
-      <Link
-        to="/branches"
-        search={{ env, branch: selected.name, dialog: 'merge' }}
-        className={buttonVariants()}
+      <Button
+        operation="v1_branch_merge"
+        actionContext={{ branch_name: selected.name }}
+        render={
+          <Link
+            to="/branches"
+            search={{ env, branch: selected.name, dialog: 'merge' }}
+          />
+        }
       >
         <GitMergeIcon /> Merge
-      </Link>
+      </Button>
       <Button
+        operation="v1_branch_delete"
+        actionContext={{ branch_name: selected.name }}
         variant="destructive"
         disabled={busy}
         onClick={() =>
@@ -356,16 +370,19 @@ function BranchHeader({
       }
       actions={
         view === 'wap' ? undefined : (
-          <Link
-            to="/branches"
-            search={{ env: data.env, dialog: 'new-branch' }}
-            className={cn(
-              buttonVariants({ variant: 'outline' }),
-              'h-10 lg:h-8',
-            )}
+          <Button
+            operation="v1_branch_create"
+            variant="outline"
+            className="h-10 lg:h-8"
+            render={
+              <Link
+                to="/branches"
+                search={{ env: data.env, dialog: 'new-branch' }}
+              />
+            }
           >
             <PlusIcon /> New branch
-          </Link>
+          </Button>
         )
       }
     />

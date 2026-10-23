@@ -90,6 +90,55 @@ beforeEach(() => {
 })
 
 describe('notification inbox', () => {
+  it('pages older activity and resets continuation when filtering unread events', async () => {
+    vi.mocked(getNotifications).mockImplementation(({ data }) =>
+      Promise.resolve({
+        env: data.env,
+        view: data.view ?? 'for_you',
+        unread: 1,
+        truncated: !data.after,
+        next_cursor: data.after ? null : 'opaque+/cursor=',
+        items: [
+          {
+            id: data.after ? 'event-2' : 'event-1',
+            incident_id: 'incident-1',
+            title: data.after
+              ? 'Older incident activity'
+              : 'Newest incident activity',
+            asset_id: 'silver/qc_results',
+            actor: 'actual-sensor',
+            kind: 'comment',
+            occurred_at: '2026-10-22T12:00:00Z',
+            read: false,
+          },
+        ],
+      }),
+    )
+    render(<NotificationsButton env="sandbox" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
+    await screen.findByText(/Newest incident activity/)
+    fireEvent.click(screen.getByRole('button', { name: 'Older activity' }))
+    await screen.findByText(/Older incident activity/)
+    expect(getNotifications).toHaveBeenLastCalledWith({
+      data: { env: 'sandbox', view: 'for_you', after: 'opaque+/cursor=' },
+    })
+    fireEvent.click(screen.getByLabelText('Unread only'))
+    await screen.findByText(/Newest incident activity/)
+    expect(getNotifications).toHaveBeenLastCalledWith({
+      data: { env: 'sandbox', view: 'for_you', unread_only: true },
+    })
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Newer activity' })
+        .disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all read' }))
+    await screen.findByText('0 unread in this list')
+    expect(screen.queryByText(/Newest incident activity/)).toBeNull()
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Older activity' })
+        .disabled,
+    ).toBe(false)
+  })
   it('loads only after opening, switches scoped filters and marks the listed event', async () => {
     render(<NotificationsButton env="sandbox" />)
     expect(getNotifications).not.toHaveBeenCalled()

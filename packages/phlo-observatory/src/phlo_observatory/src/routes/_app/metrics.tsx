@@ -59,11 +59,18 @@ function MetricsPage() {
         actions={
           <>
             {model ? (
-              <Button variant="outline" onClick={() => setEditor(model)}>
+              <Button
+                operation="v1_metric_model_update"
+                variant="outline"
+                onClick={() => setEditor(model)}
+              >
                 Edit draft
               </Button>
             ) : null}
-            <Button onClick={() => setEditor('new')}>
+            <Button
+              operation="v1_metric_model_create"
+              onClick={() => setEditor('new')}
+            >
               <PlusIcon />
               New model
             </Button>

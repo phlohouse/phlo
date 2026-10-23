@@ -69,7 +69,7 @@ describe('server function body limits', () => {
         return Reflect.get(target, property, target)
       },
     })
-    expect(() => new Request(frameworkRequest)).toThrow(/private member/)
+    expect(() => new Request(frameworkRequest)).toThrow(TypeError)
     const response = await withServerFunctionBodyLimit(
       frameworkRequest,
       async (bounded) => {

@@ -111,6 +111,7 @@ export function NewBranchDialog({
               Cancel
             </Button>
             <Button
+              operation="v1_branch_create"
               type="submit"
               size="lg"
               disabled={!valid || !fromRef || busy}

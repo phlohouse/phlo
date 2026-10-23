@@ -97,6 +97,19 @@ export const createDataProduct = createServerFn({ method: 'POST' })
       { env, method: 'POST', body: { ...data, expected_version: 0 } },
     ),
   )
+export const updateDataProduct = createServerFn({ method: 'POST' })
+  .inputValidator(
+    productInputSchema.extend({
+      expected_version: z.number().int().positive(),
+    }),
+  )
+  .handler(({ data: { env, ...data } }) =>
+    phloApi(
+      `api/v1/data-products/${encodeURIComponent(data.product_id)}?env=${encodeURIComponent(env)}`,
+      productSchema,
+      { env, method: 'PUT', body: data },
+    ),
+  )
 export function productQuery(table: string) {
   return `SELECT * FROM ${table
     .split('.')
