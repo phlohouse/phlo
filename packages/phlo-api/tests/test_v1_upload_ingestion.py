@@ -1,5 +1,6 @@
 """Candidate ingestion preserves actor, immutable review and real run/result identity."""
 
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -213,6 +214,12 @@ def test_confirmed_load_is_idempotent_and_readback_pins_written_snapshot(candida
         ).status_code
         == 409
     )
+    with monkeypatch.context() as missing_dagster:
+        missing_dagster.setitem(sys.modules, "phlo_dagster", None)
+        unavailable = client.post(path + "/candidate/load?env=sandbox", json=payload)
+        assert unavailable.status_code == 503, unavailable.text
+        assert "phlo-api[dagster]" in unavailable.text
+        assert client.get(path + "/candidate?env=sandbox").json()["status"] == "planned"
     launched = client.post(path + "/candidate/load?env=sandbox", json=payload)
     assert launched.status_code == 200, launched.text
     assert launched.json()["status"] == "queued" and not launched.json()["loaded"]

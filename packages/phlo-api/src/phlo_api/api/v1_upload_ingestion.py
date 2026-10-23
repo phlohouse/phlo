@@ -17,7 +17,11 @@ from phlo_api.api.operation_controls import audit_operation, project_root, requi
 from phlo_api.api.v1 import _target
 from phlo_api.candidate_runtime import provision_candidate, verify_candidate, preview_candidate
 from phlo_api.errors import BackendUnavailableError, ConflictError, NotFoundError
-from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
+from phlo_api.observatory_api.dagster import (
+    _dagster_operations,
+    graphql_request,
+    resolve_dagster_url,
+)
 from phlo_api.observatory_api.observatory_durable_state import load_collection, mutate_collection
 from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
 from phlo_api.v1_contract import Environment, WireModel
@@ -25,6 +29,15 @@ from phlo_api.v1_contract import Environment, WireModel
 router = APIRouter(tags=["v1 CSV candidate ingestion"])
 _COLLECTION = "v1_csv_candidates"
 _LOCK = asyncio.Lock()
+
+
+def _require_load_runtime() -> None:
+    try:
+        _dagster_operations()
+    except ImportError as exc:
+        raise BackendUnavailableError(
+            "CSV candidate loading requires 'phlo-api[dagster]'; install that extra."
+        ) from exc
 
 
 class DestinationRequest(WireModel):
@@ -426,6 +439,7 @@ async def v1_csv_candidate_load(
             return receipt
         if receipt.status != "planned":
             raise ConflictError("Estimate the candidate load before confirming.")
+        _require_load_runtime()
         await _assert_head(receipt)
         result = await v1_assets.v1_asset_materialize(
             request,

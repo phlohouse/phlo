@@ -19,8 +19,8 @@ from phlo_api.api.v1 import _target
 from phlo_api.api.v1_branch_workflows import _check_job_names, _require_branch_actions
 from phlo_api.api.v1_jobs import _require_single_replica_actions
 from phlo_api.api.v1_query import _mapped_catalog
+from phlo_api.api.v1_upload_ingestion import _require_load_runtime
 from phlo_api.errors import BackendUnavailableError
-from phlo_api.observatory_api.dagster import _dagster_operations
 from phlo_api.observatory_api.v1_preview import preview_catalog, resolve_trino_url
 from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
 from phlo_api.v1_contract import Environment, EnvironmentTarget, WireModel
@@ -134,7 +134,7 @@ def _local_prerequisites(
             require_scope(request, "lakehouse:operate")
             import_module("phlo_api.candidate_runtime").preflight_candidate()
         if operation == "v1_csv_candidate_load":
-            _dagster_operations()
+            _require_load_runtime()
     if operation in _TRANSFORM:
         import_module("phlo_transform.editor")
         if operation in {"v1_transform_model_draft_save", "v1_transform_model_execute"}:

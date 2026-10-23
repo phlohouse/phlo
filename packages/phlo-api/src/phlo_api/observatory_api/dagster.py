@@ -18,7 +18,6 @@ from phlo.security.service_identity import (
     build_service_headers,
     load_service_identity_credentials,
 )
-from phlo_api.errors import BackendUnavailableError
 from phlo_api.observatory_api.http_client import backend_client
 
 logger = get_logger(__name__)
@@ -32,7 +31,7 @@ def _dagster_operations() -> ModuleType:
     except ModuleNotFoundError as exc:
         if exc.name != "phlo_dagster":
             raise
-        raise BackendUnavailableError(
+        raise ImportError(
             "Dagster operations require 'phlo-api[dagster]'; install that extra"
         ) from exc
     return operations
