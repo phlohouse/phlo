@@ -1,0 +1,16 @@
+# Phlo project configuration.
+#
+# The local runner (src/source_to_report) builds the same assets and dbt project
+# on DuckDB, with no services. These capability defaults apply to the full stack.
+name: source-to-report
+description: "Reference source -> insight -> analysis -> report lakehouse"
+
+# The dbt project's marts live in `analytics`; the dlt assets own `raw`.
+# Locally the runner uses its own DuckDB profile with the same schema.
+env:
+  DBT_QUERY_SCHEMA: analytics
+
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
