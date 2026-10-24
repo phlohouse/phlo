@@ -199,14 +199,14 @@ def build(warehouse: Warehouse, out_dir: Path, *, db_path: Path, as_of: str) -> 
             title="NO2 annual mean against the 40 µg/m³ objective",
             threshold=40.0,
             threshold_label="objective 40 µg/m³",
-            colour=PALETTE[2],
+            colour=PALETTE[1],
         ),
         "pm25_days": bar_chart(
             [_month_label(month) for month in months],
             [float(value) for value in pm25_by_month],
             y_label="station-days above the limit",
             title="Days above the 24-hour PM2.5 objective",
-            colour=PALETTE[1],
+            colour=PALETTE[2],
             integer_ticks=True,
         ),
     }

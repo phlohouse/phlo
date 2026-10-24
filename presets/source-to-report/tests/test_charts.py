@@ -19,8 +19,8 @@ def test_line_chart_draws_one_line_and_point_per_value() -> None:
 
     assert svg.count("<polyline") == 2
     assert svg.count("<circle") == 6
-    assert 'stroke="#0f766e"' in svg
-    assert 'stroke="#b45309"' in svg
+    assert 'stroke="#2563eb"' in svg
+    assert 'stroke="#3f3f46"' in svg
     assert "Monthly mean" in svg
 
 
@@ -70,4 +70,4 @@ def test_mismatched_inputs_are_rejected() -> None:
 
 
 def test_palette_is_stable() -> None:
-    assert PALETTE[0] == "#0f766e"
+    assert PALETTE[0] == "#2563eb"

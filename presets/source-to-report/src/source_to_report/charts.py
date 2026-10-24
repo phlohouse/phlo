@@ -13,12 +13,12 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-PALETTE = ("#0f766e", "#b45309", "#475569", "#7c3aed", "#be123c")
-INK = "#1f2937"
-MUTED = "#64748b"
-GRID = "#e2e8f0"
-THRESHOLD = "#b91c1c"
-FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+PALETTE = ("#2563eb", "#3f3f46", "#d95f4b", "#7c3aed", "#0891b2")
+INK = "#0b0b0b"
+MUTED = "#8a8783"
+GRID = "#ecebe9"
+THRESHOLD = "#d95f4b"
+FONT = "Inter, 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 
 @dataclass(frozen=True)
