@@ -295,7 +295,7 @@ function SchemaDecisionWorkspace({
       active = false
     }
   }, [env, incidentId])
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     setChoices({})
   }, [context.schema])
   const schema = context.schema
