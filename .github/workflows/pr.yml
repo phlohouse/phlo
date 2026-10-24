@@ -101,15 +101,27 @@ jobs:
         with:
           version: "0.12.1"
           enable-cache: false
-      - name: Inventory new suppressions and skips
+      - name: Resolve security comparison base
+        id: base
         env:
           BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || github.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # A branch-creation push has no previous revision, like a manual run.
+          if [ "$BASE_SHA" = 0000000000000000000000000000000000000000 ]; then
+            BASE_SHA="$HEAD_SHA"
+          fi
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+      - name: Inventory new suppressions and skips
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
           HEAD_SHA: ${{ github.sha }}
         run: python3 scripts/check_new_suppressions.py --base "$BASE_SHA" --head "$HEAD_SHA"
       - name: Compare locked dependencies with the tested base
         id: assessment
         env:
-          BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || github.sha }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
           HEAD_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
