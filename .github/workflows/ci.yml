@@ -375,7 +375,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-      - uses: ./.github/actions/docker-mirror
+      - uses: ./.github/actions/build-minio-image
+        with:
+          image: ghcr.io/phlohouse/phlo-minio:0.17.2
       - uses: ./.github/actions/python-workspace
       - name: Measure required PostgreSQL controls without skips
         run: make test-coverage-postgres

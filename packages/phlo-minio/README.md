@@ -8,7 +8,7 @@ Provides S3-compatible object storage for the data lake. Stores Iceberg table da
 
 ## Container image
 
-The server and bucket setup use `ghcr.io/phlohouse/phlo-minio:0.17.1`.
+The server and bucket setup use `ghcr.io/phlohouse/phlo-minio:0.17.2`.
 One image contains both MinIO and `mc`, built from checksum-verified upstream
 source archives. New projects use `/bitnami/minio/data` and UID 1001.
 Older projects can retain `/data`; migrate their volume ownership before
@@ -20,15 +20,17 @@ The client release is `RELEASE.2025-08-13T08-35-41Z`.
 These pins and their SHA-256 checksums live in `src/phlo_minio/Dockerfile`.
 Review upstream releases and security advisories before changing the pins.
 The build also pins dependency updates for vulnerabilities in those releases.
-Image `0.17.1` updates `golang.org/x/net` to v0.60.0 in both binaries to fix
-CVE-2026-78669. Publish this image before publishing the Python plugin or
-upgrading consumers; the earlier `0.17.0` image remains immutable.
+Image `0.17.2` rebuilds both binaries with Go 1.26.10 and
+`github.com/klauspost/compress` v1.18.7 to fix CVE-2026-111943 and CVE-2026-63209.
+It retains the `golang.org/x/net` v0.60.0 fix for CVE-2026-78669.
+Publish this image before publishing the Python plugin or upgrading consumers;
+the earlier `0.17.0` and `0.17.1` images remain immutable.
 These are Phlo builds, not official upstream binaries. Phlo must maintain
 the dependency pins and runtime compatibility while it distributes this image.
 
 MinIO image versions are independent of both Phlo and the Python plugin.
 The initial image version is `0.17.0`. An image-only fix can advance to
-`0.17.1` without releasing either Python distribution. Published tags are
+`0.17.2` without releasing either Python distribution. Published tags are
 immutable. Phlo release staging consumes the published MinIO image by digest
 as a provider dependency and does not rebuild or promote it.
 
@@ -61,7 +63,7 @@ Registry and scanner failures still fail the rescan.
 
 The initial rollout requires publishing `phlo-minio` 0.16.1. This does not
 require a Phlo core release or publishing any lakehouse example. After this
-change merges to `main`, publish image `0.17.1` first, then dispatch the plugin publisher:
+change merges to `main`, publish image `0.17.2` first, then dispatch the plugin publisher:
 
 ```bash
 gh workflow run publish-minio-plugin.yml --repo phlohouse/phlo --ref main
