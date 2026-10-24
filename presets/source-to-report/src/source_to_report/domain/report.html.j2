@@ -101,7 +101,7 @@ h1 {
   letter-spacing: -.052em;
 }
 .standfirst {
-  max-width: 620px;
+  max-width: 940px;
   margin: 24px 0 0;
   color: #45423e;
   font-family: var(--serif);
@@ -208,15 +208,15 @@ h2 {
   letter-spacing: -.035em;
 }
 .lede {
-  max-width: 62ch;
+  max-width: 940px;
   margin: 12px 0 0;
   color: var(--muted);
   font-family: var(--serif);
   font-size: 17px;
   line-height: 1.55;
 }
-.prose { max-width: 760px; }
-.prose p { margin: 0 0 17px; color: var(--body); font-size: 15.5px; line-height: 1.68; }
+.prose { max-width: 940px; }
+.prose p { margin: 0 0 17px; color: var(--body); font-size: 16px; line-height: 1.68; }
 .prose p:first-of-type {
   font-family: var(--serif);
   font-size: 22px;
@@ -344,6 +344,7 @@ footer { margin-top: 84px; }
 }
 .colophon p { max-width: 560px; margin: 0; }
 .colophon strong { color: var(--muted); font-weight: 550; }
+.nowrap { white-space: nowrap; }
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -474,7 +475,7 @@ footer { margin-top: 84px; }
     <article class="card">
       <p class="value">{{ facts.summary("counts.pm25_station_days_over") }}</p>
       <div>
-        <p class="label">PM2.5 station-days over the 24-hour limit</p>
+        <p class="label">PM2.5 station-days over the <span class="nowrap">24-hour</span> limit</p>
         <p class="note">daily mean above {{ pm25.short_term_objective | n0 }} µg/m³</p>
       </div>
     </article>
