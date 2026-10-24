@@ -34,7 +34,7 @@ GATE_JOB = "integration"
 OPERATIONS_JOB = "operations"
 GATE_STEP = "Run PostgreSQL concurrency gates"
 API_GROUPS = ("api-contracts", "api-query-journey", "api-branch-journey")
-MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.1"
+MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.2"
 MINIO_IMAGE_ID = "sha256:" + "a" * 64
 GATE_DSN_ENV_VARS = (
     "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN",

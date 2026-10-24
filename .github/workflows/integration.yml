@@ -23,7 +23,7 @@ jobs:
     outputs:
       image_id: ${{ steps.export.outputs.image_id }}
     env:
-      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.1
+      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.2
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: 30
     env:
       UV_PYTHON: "3.12"
-      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.1
+      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.2
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -114,7 +114,7 @@ jobs:
         group: [api-contracts, api-query-journey, api-branch-journey]
     env:
       UV_PYTHON: "3.12"
-      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.1
+      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.2
       CONTRACT_GROUP: ${{ matrix.group }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
