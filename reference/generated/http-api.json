@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 217,
+  "endpoint_count": 273,
   "endpoints": [
     {
       "method": "GET",
@@ -949,6 +949,15 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_action_availability_api_v1_action_availability_get",
+      "path": "/api/v1/action-availability",
+      "summary": "V1 Action Availability",
+      "tags": [
+        "v1 readiness"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "activity_api_v1_activity_get",
       "path": "/api/v1/activity",
       "summary": "Activity",
@@ -1236,6 +1245,33 @@
       ]
     },
     {
+      "method": "POST",
+      "operation_id": "v1_validate_schema_api_v1_authoring_schemas_validate_post",
+      "path": "/api/v1/authoring/schemas/validate",
+      "summary": "V1 Validate Schema",
+      "tags": [
+        "v1 authoring"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_create_workflow_api_v1_authoring_workflows_post",
+      "path": "/api/v1/authoring/workflows",
+      "summary": "V1 Create Workflow",
+      "tags": [
+        "v1 authoring"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_validate_workflow_api_v1_authoring_workflows_validate_post",
+      "path": "/api/v1/authoring/workflows/validate",
+      "summary": "V1 Validate Workflow",
+      "tags": [
+        "v1 authoring"
+      ]
+    },
+    {
       "method": "GET",
       "operation_id": "v1_branches_api_v1_branches_get",
       "path": "/api/v1/branches",
@@ -1335,12 +1371,93 @@
       ]
     },
     {
+      "method": "GET",
+      "operation_id": "v1_branch_schema_diff_api_v1_branches__branch_name__schema_diff_get",
+      "path": "/api/v1/branches/{branch_name}/schema-diff",
+      "summary": "V1 Branch Schema Diff",
+      "tags": [
+        "v1 branches"
+      ]
+    },
+    {
       "method": "POST",
       "operation_id": "v1_branch_trial_merge_api_v1_branches__branch_name__trial_merge_post",
       "path": "/api/v1/branches/{branch_name}/trial-merge",
       "summary": "V1 Branch Trial Merge",
       "tags": [
         "v1 branches"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_data_products_api_v1_data_products_get",
+      "path": "/api/v1/data-products",
+      "summary": "V1 Data Products",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_data_product_create_api_v1_data_products_post",
+      "path": "/api/v1/data-products",
+      "summary": "V1 Data Product Create",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_data_product_api_v1_data_products__product_id__get",
+      "path": "/api/v1/data-products/{product_id}",
+      "summary": "V1 Data Product",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "v1_data_product_update_api_v1_data_products__product_id__put",
+      "path": "/api/v1/data-products/{product_id}",
+      "summary": "V1 Data Product Update",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_data_product_archive_api_v1_data_products__product_id__archive_post",
+      "path": "/api/v1/data-products/{product_id}/archive",
+      "summary": "V1 Data Product Archive",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_data_product_export_api_v1_data_products__product_id__export_get",
+      "path": "/api/v1/data-products/{product_id}/export",
+      "summary": "V1 Data Product Export",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_data_product_reclaim_api_v1_data_products__product_id__reclaim_post",
+      "path": "/api/v1/data-products/{product_id}/reclaim",
+      "summary": "V1 Data Product Reclaim",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_data_product_restore_api_v1_data_products__product_id__restore_post",
+      "path": "/api/v1/data-products/{product_id}/restore",
+      "summary": "V1 Data Product Restore",
+      "tags": [
+        "v1 data products"
       ]
     },
     {
@@ -1470,6 +1587,15 @@
       ]
     },
     {
+      "method": "GET",
+      "operation_id": "v1_incident_subscription_api_v1_incidents__incident_id__subscriptions_get",
+      "path": "/api/v1/incidents/{incident_id}/subscriptions",
+      "summary": "V1 Incident Subscription",
+      "tags": [
+        "v1 notifications"
+      ]
+    },
+    {
       "method": "PUT",
       "operation_id": "subscribe_incident_api_v1_incidents__incident_id__subscriptions_put",
       "path": "/api/v1/incidents/{incident_id}/subscriptions",
@@ -1561,6 +1687,15 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_loads_api_v1_loads_get",
+      "path": "/api/v1/loads",
+      "summary": "V1 Loads",
+      "tags": [
+        "v1 load observations"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_maintenance_windows_api_v1_maintenance_windows_get",
       "path": "/api/v1/maintenance-windows",
       "summary": "V1 Maintenance Windows",
@@ -1575,6 +1710,105 @@
       "summary": "V1 Me",
       "tags": [
         "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_metric_models_api_v1_metric_models_get",
+      "path": "/api/v1/metric-models",
+      "summary": "V1 Metric Models",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_create_api_v1_metric_models_post",
+      "path": "/api/v1/metric-models",
+      "summary": "V1 Metric Model Create",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_metric_model_api_v1_metric_models__model_id__get",
+      "path": "/api/v1/metric-models/{model_id}",
+      "summary": "V1 Metric Model",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "v1_metric_model_update_api_v1_metric_models__model_id__put",
+      "path": "/api/v1/metric-models/{model_id}",
+      "summary": "V1 Metric Model Update",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_archive_api_v1_metric_models__model_id__archive_post",
+      "path": "/api/v1/metric-models/{model_id}/archive",
+      "summary": "V1 Metric Model Archive",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_metric_model_export_api_v1_metric_models__model_id__export_get",
+      "path": "/api/v1/metric-models/{model_id}/export",
+      "summary": "V1 Metric Model Export",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_preview_api_v1_metric_models__model_id__preview_sql_post",
+      "path": "/api/v1/metric-models/{model_id}/preview-sql",
+      "summary": "V1 Metric Model Preview",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_reclaim_api_v1_metric_models__model_id__reclaim_post",
+      "path": "/api/v1/metric-models/{model_id}/reclaim",
+      "summary": "V1 Metric Model Reclaim",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_restore_api_v1_metric_models__model_id__restore_post",
+      "path": "/api/v1/metric-models/{model_id}/restore",
+      "summary": "V1 Metric Model Restore",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_notifications_api_v1_notifications_get",
+      "path": "/api/v1/notifications",
+      "summary": "V1 Notifications",
+      "tags": [
+        "v1 notifications"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "v1_notifications_read_api_v1_notifications_read_state_put",
+      "path": "/api/v1/notifications/read-state",
+      "summary": "V1 Notifications Read",
+      "tags": [
+        "v1 notifications"
       ]
     },
     {
@@ -1911,12 +2145,282 @@
       ]
     },
     {
+      "method": "GET",
+      "operation_id": "v1_transform_model_drafts_api_v1_transform_models__model_id__drafts_get",
+      "path": "/api/v1/transform/models/{model_id}/drafts",
+      "summary": "V1 Transform Model Drafts",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_draft_save_api_v1_transform_models__model_id__drafts_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts",
+      "summary": "V1 Transform Model Draft Save",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_draft_api_v1_transform_models__model_id__drafts__draft_id___revision__get",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}",
+      "summary": "V1 Transform Model Draft",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_draft_archive_api_v1_transform_models__model_id__drafts__draft_id___revision__archive_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/archive",
+      "summary": "V1 Transform Model Draft Archive",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_draft_compare_api_v1_transform_models__model_id__drafts__draft_id___revision__compare_get",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compare",
+      "summary": "V1 Transform Model Draft Compare",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_compile_api_v1_transform_models__model_id__drafts__draft_id___revision__compile_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compile",
+      "summary": "V1 Transform Model Compile",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_executions_api_v1_transform_models__model_id__drafts__draft_id___revision__executions_get",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions",
+      "summary": "V1 Transform Model Executions",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_execute_api_v1_transform_models__model_id__drafts__draft_id___revision__executions_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions",
+      "summary": "V1 Transform Model Execute",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_execution_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__get",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}",
+      "summary": "V1 Transform Model Execution",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_execution_archive_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__archive_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/archive",
+      "summary": "V1 Transform Model Execution Archive",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_execution_preview_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__preview_get",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/preview",
+      "summary": "V1 Transform Model Execution Preview",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_execution_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reclaim_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim",
+      "summary": "V1 Transform Model Execution Reclaim",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_execution_reconcile_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reconcile_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reconcile",
+      "summary": "V1 Transform Model Execution Reconcile",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_draft_handoff_api_v1_transform_models__model_id__drafts__draft_id___revision__handoff_get",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/handoff",
+      "summary": "V1 Transform Model Draft Handoff",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_draft_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__reclaim_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim",
+      "summary": "V1 Transform Model Draft Reclaim",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_source_api_v1_transform_models__model_id__source_get",
+      "path": "/api/v1/transform/models/{model_id}/source",
+      "summary": "V1 Transform Model Source",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
       "method": "POST",
       "operation_id": "v1_trino_query_completed_api_v1_trino_query_completed_post",
       "path": "/api/v1/trino/query-completed",
       "summary": "V1 Trino Query Completed",
       "tags": [
         "v1 usage"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_upload_list_api_v1_uploads_csv_get",
+      "path": "/api/v1/uploads/csv",
+      "summary": "V1 Csv Upload List",
+      "tags": [
+        "v1 CSV uploads"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_upload_api_v1_uploads_csv_post",
+      "path": "/api/v1/uploads/csv",
+      "summary": "V1 Csv Upload",
+      "tags": [
+        "v1 CSV uploads"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_upload_detail_api_v1_uploads_csv__upload_id__get",
+      "path": "/api/v1/uploads/csv/{upload_id}",
+      "summary": "V1 Csv Upload Detail",
+      "tags": [
+        "v1 CSV uploads"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_upload_archive_api_v1_uploads_csv__upload_id__archive_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/archive",
+      "summary": "V1 Csv Upload Archive",
+      "tags": [
+        "v1 CSV uploads"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_candidate_api_v1_uploads_csv__upload_id__candidate_get",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate",
+      "summary": "V1 Csv Candidate",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_candidate_handoff_api_v1_uploads_csv__upload_id__candidate_handoff_get",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/handoff",
+      "summary": "V1 Csv Candidate Handoff",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_candidate_load_api_v1_uploads_csv__upload_id__candidate_load_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/load",
+      "summary": "V1 Csv Candidate Load",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_candidate_plan_api_v1_uploads_csv__upload_id__candidate_plan_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/plan",
+      "summary": "V1 Csv Candidate Plan",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_candidate_preview_api_v1_uploads_csv__upload_id__candidate_preview_get",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/preview",
+      "summary": "V1 Csv Candidate Preview",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_candidate_reconcile_api_v1_uploads_csv__upload_id__candidate_reconcile_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/reconcile",
+      "summary": "V1 Csv Candidate Reconcile",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_candidate_review_api_v1_uploads_csv__upload_id__candidate_review_get",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/review",
+      "summary": "V1 Csv Candidate Review",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operation_id": "v1_csv_upload_review_api_v1_uploads_csv__upload_id__columns_put",
+      "path": "/api/v1/uploads/csv/{upload_id}/columns",
+      "summary": "V1 Csv Upload Review",
+      "tags": [
+        "v1 CSV uploads"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_destination_api_v1_uploads_csv__upload_id__destination_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/destination",
+      "summary": "V1 Csv Destination",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_upload_reclaim_api_v1_uploads_csv__upload_id__reclaim_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/reclaim",
+      "summary": "V1 Csv Upload Reclaim",
+      "tags": [
+        "v1 CSV uploads"
       ]
     },
     {
