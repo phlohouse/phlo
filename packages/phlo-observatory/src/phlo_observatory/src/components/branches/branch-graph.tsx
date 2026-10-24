@@ -1,4 +1,4 @@
-/** Lays out and renders branch commits and their relationship to main. */
+/** Lays out and renders branch commits and their relationship to the comparison target. */
 import '@xyflow/react/dist/base.css'
 import * as React from 'react'
 import { ClientOnly } from '@tanstack/react-router'
@@ -12,10 +12,11 @@ import { cn } from '@/lib/utils'
 
 type Props = {
   name: string
+  targetName: string
   graph: Graph
   /** Optional commit list; used for hover tooltips (hash + message). */
   commits?: Array<Commit>
-  /** Colour the branch as conflicting with main. */
+  /** Colour the branch as conflicting with the comparison target. */
   conflicting?: boolean
 }
 
@@ -126,11 +127,11 @@ function LabelView({ data }: NodeProps<LabelNode>) {
 
 const nodeTypes = { commit: CommitView, label: LabelView }
 
-function build({ name, graph, commits = [], conflicting }: Props) {
+function build({ name, targetName, graph, commits = [], conflicting }: Props) {
   const msg = new Map(commits.map((c) => [c.id, c.message]))
   const tip = (h: string) => (msg.has(h) ? `${h} · ${msg.get(h)}` : h)
-  const isMain = name === 'main'
-  const hasBranch = graph.commits.length > 0 || !isMain
+  const isTarget = name === targetName
+  const hasBranch = graph.commits.length > 0 || !isTarget
   const n = graph.commits.length
   const behindShown = Math.min(graph.behind, 3)
   const nodes: Array<CommitNode | LabelNode> = []
@@ -170,7 +171,7 @@ function build({ name, graph, commits = [], conflicting }: Props) {
   const mainStroke = 'var(--border-strong)'
   const branchStroke = conflicting ? 'var(--bad)' : 'var(--branch)'
 
-  // main: two earlier commits, the fork point, then whatever landed since.
+  // Target: two earlier commits, the fork point, then whatever landed since.
   commit('m0', 0, { kind: 'main', lane: 'main' })
   commit('m1', 1, { kind: 'main', lane: 'main' })
   commit('base', 2, {
@@ -189,7 +190,7 @@ function build({ name, graph, commits = [], conflicting }: Props) {
     commit(id, 3 + i, {
       kind: 'main',
       lane: 'main',
-      caption: last ? `+${graph.behind} on main` : undefined,
+      caption: last ? `+${graph.behind} on ${targetName}` : undefined,
     })
     line(mainTip, id, mainStroke)
     mainTip = id
@@ -199,7 +200,7 @@ function build({ name, graph, commits = [], conflicting }: Props) {
     id: 'label:main',
     type: 'label',
     position: { x: -DX + 12, y: MAIN_Y - 10 },
-    data: { text: 'main', lane: 'main' },
+    data: { text: targetName, lane: 'main' },
     selectable: false,
   })
 
@@ -246,7 +247,7 @@ function build({ name, graph, commits = [], conflicting }: Props) {
         kind: 'ghost',
         lane: 'main',
         caption: 'merge',
-        tip: `Merging ${name} into main`,
+        tip: `Merging ${name} into ${targetName}`,
       })
       edges.push({
         id: 'merge',
@@ -259,7 +260,7 @@ function build({ name, graph, commits = [], conflicting }: Props) {
         style: { stroke: branchStroke, strokeWidth: 2, strokeDasharray: '4 4' },
         focusable: false,
       })
-      // main carries on to where the merge would land
+      // The target carries on to where the merge would land
       line(mainTip, 'merge', mainStroke, {
         style: { stroke: mainStroke, strokeWidth: 2, strokeDasharray: '4 4' },
       })
@@ -280,7 +281,13 @@ function Flow(props: Props & { label: string }) {
   const { theme } = useTheme()
   const { nodes, edges, width, baseLeft } = React.useMemo(
     () => build(props),
-    [props.name, props.graph, props.commits, props.conflicting],
+    [
+      props.name,
+      props.targetName,
+      props.graph,
+      props.commits,
+      props.conflicting,
+    ],
   )
   // Phones: draw at full size in a native scroller so touches scroll the page rather than the canvas.
   const [narrow] = React.useState(
@@ -289,7 +296,7 @@ function Flow(props: Props & { label: string }) {
   const scroller = React.useRef<HTMLDivElement>(null)
   React.useLayoutEffect(() => {
     const el = scroller.current
-    if (el) el.scrollLeft = baseLeft - 80 // open on the fork point rather than old main history
+    if (el) el.scrollLeft = baseLeft - 80 // open on the fork point rather than old target history
   }, [narrow, baseLeft])
   const flow = (
     <ReactFlow
@@ -333,17 +340,23 @@ function Flow(props: Props & { label: string }) {
   )
 }
 
-/** Fork-and-merge sketch: main along the bottom lane, the branch above it. */
-export function BranchGraph({ name, graph, commits, conflicting }: Props) {
+/** Fork-and-merge sketch: the comparison target along the bottom lane, the branch above it. */
+export function BranchGraph({
+  name,
+  targetName,
+  graph,
+  commits,
+  conflicting,
+}: Props) {
   const n = graph.commits.length
   const label =
-    name === 'main'
-      ? `main at commit ${graph.base}.`
-      : `Branch ${name} forks from main at commit ${graph.base} and adds ${n} commit${n === 1 ? '' : 's'}; ${
+    name === targetName
+      ? `${targetName} at commit ${graph.base}.`
+      : `Branch ${name} forks from ${targetName} at commit ${graph.base} and adds ${n} commit${n === 1 ? '' : 's'}; ${
           graph.behind
-            ? `main has ${graph.behind} new commits since.`
-            : 'main has no new commits since.'
-        }${graph.mergeable ? ' It can merge into main.' : ''}${conflicting ? ' It conflicts with main.' : ''}`
+            ? `${targetName} has ${graph.behind} new commits since.`
+            : `${targetName} has no new commits since.`
+        }${graph.mergeable ? ` It can merge into ${targetName}.` : ''}${conflicting ? ` It conflicts with ${targetName}.` : ''}`
   const msg = new Map((commits ?? []).map((c) => [c.id, c.message]))
   return (
     <div>
@@ -352,13 +365,14 @@ export function BranchGraph({ name, graph, commits, conflicting }: Props) {
         aria-label={label}
         className={cn(
           'max-w-[820px]',
-          n > 0 || name !== 'main' ? 'h-[132px]' : 'h-[88px]',
+          n > 0 || name !== targetName ? 'h-[132px]' : 'h-[88px]',
         )}
       >
         <ClientOnly fallback={<Skeleton className="h-full w-full" />}>
           <Flow
-            key={name}
+            key={`${name}:${targetName}`}
             name={name}
+            targetName={targetName}
             graph={graph}
             commits={commits}
             conflicting={conflicting}
@@ -370,7 +384,7 @@ export function BranchGraph({ name, graph, commits, conflicting }: Props) {
         <p>{label}</p>
         <ul>
           <li>
-            main: fork point {graph.base}
+            {targetName}: fork point {graph.base}
             {msg.get(graph.base) ? ` (${msg.get(graph.base)})` : ''}
             {graph.behind ? `, then ${graph.behind} newer commits` : ''}
           </li>

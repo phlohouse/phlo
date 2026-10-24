@@ -33,7 +33,7 @@ export function PageHeader({
           <React.Fragment key={c.to}>
             <Link
               to={c.to}
-              search={(previous) => previous}
+              search={(previous) => ({ env: previous.env })}
               className="text-sm whitespace-nowrap text-muted-foreground hover:text-foreground"
             >
               {c.label}

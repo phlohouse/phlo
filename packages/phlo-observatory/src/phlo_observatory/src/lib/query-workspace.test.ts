@@ -1,6 +1,7 @@
 /** Verifies query drafts, tabs, and responses remain scoped to their workspace. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  applySavedQueryToDraft,
   clearQueryWorkspaces,
   clearQueryWorkspacesForOtherActors,
   closeQueryTab,
@@ -15,7 +16,9 @@ import {
   restoreQueryWorkspace,
   storeQueryWorkspace,
 } from './query-workspace'
+import { queryViewSchema, savedQueryMetadata } from './data/api/query-view'
 import type { QueryTab } from './query-workspace'
+import type { SavedQuery } from './data/api/query'
 
 const tab = (id: string, sql: string): QueryTab => ({
   id,
@@ -221,6 +224,76 @@ describe('query workspace', () => {
       tabs: [tab('fresh', '')],
       activeId: 'fresh',
       closed: tab('a', ''),
+    })
+  })
+})
+
+describe('saving query drafts', () => {
+  const saved = (
+    view = queryViewSchema.parse({ view: 'chart', group: 'product' }),
+  ): SavedQuery => ({
+    id: 'saved-id',
+    env: 'sandbox',
+    nessie_ref: 'main',
+    name: 'Potency',
+    sql: 'SELECT potency FROM gold.qc',
+    version: 2,
+    created_at: '',
+    updated_at: '',
+    metadata: savedQueryMetadata(view),
+  })
+
+  it('retains newer SQL and chart edits when a pending save completes', async () => {
+    const submitted: QueryTab = {
+      ...tab('draft', 'SELECT potency FROM gold.qc'),
+      name: 'Potency',
+      view: queryViewSchema.parse({ view: 'chart', group: 'product' }),
+      dirty: true,
+    }
+    let current = submitted
+    let finish!: (value: SavedQuery) => void
+    const response = new Promise<SavedQuery>((resolve) => {
+      finish = resolve
+    })
+    const completion = response.then((value) => {
+      current = applySavedQueryToDraft(current, value, submitted)
+    })
+    current = {
+      ...current,
+      sql: 'SELECT revised FROM gold.qc',
+      view: { ...submitted.view!, operation: 'max', type: 'bar' },
+    }
+    finish(saved())
+    await completion
+    expect(current).toMatchObject({
+      id: 'saved-id',
+      saved: { version: 2 },
+      sql: 'SELECT revised FROM gold.qc',
+      view: { operation: 'max', type: 'bar' },
+      dirty: true,
+    })
+  })
+
+  it('accepts saved canonical fields only when the submitted draft is still current', () => {
+    const response = saved()
+    const submitted: QueryTab = {
+      ...tab('draft', response.sql),
+      name: response.name,
+      view: queryViewSchema.parse({ view: 'chart', group: 'product' }),
+      dirty: true,
+    }
+    expect(
+      applySavedQueryToDraft(submitted, response, submitted),
+    ).toMatchObject({
+      id: 'saved-id',
+      saved: { version: 2 },
+      view: { group: 'product' },
+      dirty: false,
+    })
+    const renamed = { ...submitted, name: 'New unsaved name' }
+    expect(applySavedQueryToDraft(renamed, response, submitted)).toMatchObject({
+      name: 'New unsaved name',
+      dirty: true,
     })
   })
 })

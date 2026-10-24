@@ -65,6 +65,7 @@ from phlo.capabilities import (
     list_capabilities,
     resolve_capability,
 )
+from phlo.capabilities.specs import IsolatedWriteSpec
 from phlo.capabilities.history import HistoryPolicy
 from phlo.capabilities.runtime import RuntimeContext, routing_from_context
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
@@ -520,6 +521,12 @@ def _validate_ingestion_options(
         raise PhloConfigError(message="Validation batch and sample sizes must be positive")
 
 
+def _require_reviewed_actor(runtime: RuntimeContext, required_actor: str | None) -> None:
+    """Reject another actor before the retained source function can read bytes."""
+    if required_actor is not None and runtime.tags.get("phlo/actor") != required_actor:
+        raise PhloConfigError(message="This ingestion is restricted to its reviewed actor.")
+
+
 def phlo_ingestion(
     table_name: str,
     unique_key: str,
@@ -548,6 +555,9 @@ def phlo_ingestion(
     validation_mode: ValidationMode = "materialized",
     validation_batch_size: int = 65_536,
     validation_sample_size: int = 1_000,
+    required_write_ref: str | None = None,
+    required_actor: str | None = None,
+    namespace: str | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register a function as a DLT-backed ingestion asset.
 
@@ -714,6 +724,7 @@ def phlo_ingestion(
         group_name=group,
         partition_spec=partition_spec,
         schema_policy=schema_policy,
+        namespace=namespace,
     )
     normalized_consumers = normalize_consumers(consumers)
 
@@ -798,6 +809,7 @@ def phlo_ingestion(
                 :func:`phlo_dlt.dlt_helpers.get_write_branch_from_context`: WAP handling
 
             """
+            _require_reviewed_actor(runtime, required_actor)
             partition_date = _ingestion_partition(runtime, partitioned)
 
             branch_name = get_branch_from_context(runtime)
@@ -805,6 +817,12 @@ def phlo_ingestion(
                 runtime,
                 strict_validation=strict_validation,
             )
+            if required_write_ref is not None and (
+                branch_name != required_write_ref or write_branch_name != required_write_ref
+            ):
+                raise PhloConfigError(
+                    message="This ingestion is restricted to its reviewed candidate reference."
+                )
             routing = routing_from_context(runtime)
             run_id = routing.run_id or "unknown"
             project_id = routing.project_id
@@ -943,6 +961,9 @@ def phlo_ingestion(
                         },
                         "unique_key": table_config.unique_key,
                         "table_name": table_config.full_table_name,
+                        "snapshot_id": str(result.metadata["snapshot_id"])
+                        if result.metadata.get("snapshot_id") is not None
+                        else None,
                         "table_store": table_store_name,
                         "total_elapsed_seconds": result.metadata.get("total_elapsed_seconds", 0.0),
                         "dropped_source_columns": dropped_source_columns,
@@ -1017,6 +1038,9 @@ def phlo_ingestion(
             capability_overrides=dict(capabilities or {}),
             run=RunSpec(
                 fn=run,
+                isolated_write=IsolatedWriteSpec(ref=required_write_ref, actor=required_actor)
+                if required_write_ref is not None and required_actor is not None
+                else None,
                 max_runtime_seconds=max_runtime_seconds,
                 max_retries=max_retries,
                 retry_delay_seconds=retry_delay_seconds,

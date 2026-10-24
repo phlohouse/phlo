@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/chart'
 import { Input } from '@/components/ui/input'
 import { Segmented } from '@/components/ui/toggle-group'
+import { formatInventoryAge } from '@/lib/data/assets-table'
 import { PanelUnavailable } from '@/components/phlo/states'
 
 type Range = z.infer<typeof overviewRangeSchema>
@@ -103,6 +104,17 @@ export function runBuckets(
   return rows
 }
 
+function runSuccessSummary(succeeded: number, total: number) {
+  return total
+    ? `${((succeeded / total) * 100).toFixed(1)}% success`
+    : 'No runs observed'
+}
+
+function formatRunDuration(seconds: number | null) {
+  if (seconds === null) return 'unavailable'
+  return seconds < 60 ? `${seconds.toFixed(1)} s` : formatInventoryAge(seconds)
+}
+
 function OverviewKpis({ data }: { data: Overview }) {
   const { overview, range, observedAt } = data
   const fresh = overview.freshness_counts
@@ -151,11 +163,16 @@ function OverviewKpis({ data }: { data: Overview }) {
       <KpiCard
         label="Dagster runs"
         value={runs.length}
-        qualifier={`${failed} failed · observed`}
+        qualifier={`${failed} failed`}
         qualifierTone={failed ? 'bad' : 'muted'}
         to="/pipelines/timeline"
         env={overview.env}
-        footer={`${succeeded} succeeded · median ${median === null ? 'unavailable' : `${median.toFixed(1)} s`} · latest 100 records only`}
+        footer={
+          <span title="Computed from the latest 100 observed run records in this range.">
+            {runSuccessSummary(succeeded, runs.length)} · median{' '}
+            {formatRunDuration(median)}
+          </span>
+        }
       />
       <KpiCard
         label="Audits"
@@ -378,7 +395,7 @@ function ReadyOverview({ data }: { data: Overview }) {
           </>
         }
       />
-      <PageBody>
+      <PageBody className="gap-5">
         {allClear(overview) ? (
           <div className="flex items-center gap-3 rounded-xl border border-ok-line bg-ok-wash px-4 py-3 text-ok-ink">
             <CircleCheckIcon className="size-5" />
@@ -399,14 +416,14 @@ function ReadyOverview({ data }: { data: Overview }) {
               Sources through each layer, as of the last materialization
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col items-stretch gap-2.5 lg:flex-row">
+          <CardContent className="flex flex-col items-stretch gap-2.5 pt-3 lg:flex-row">
             <div className="flex shrink-0 flex-col gap-2 rounded-[10px] bg-sunken p-3.5 lg:w-[230px]">
               <Eyebrow>Sources</Eyebrow>
               {data.sources.items.length ? (
                 data.sources.items.map((source) => (
                   <div
                     key={source.id}
-                    className="flex min-w-0 items-center gap-2 text-[13.5px] text-foreground"
+                    className="flex min-w-0 items-center gap-2 text-[13px] text-foreground"
                   >
                     <Dot tone="neutral" />
                     <Link
@@ -415,8 +432,22 @@ function ReadyOverview({ data }: { data: Overview }) {
                       search={{ env: overview.env }}
                       className="truncate hover:text-link"
                     >
-                      {source.id}
+                      {source.id
+                        .replace(/^[^./]+[./]/, '')
+                        .replaceAll('_', ' ')}
                     </Link>
+                    <time
+                      dateTime={source.last_materialization_at ?? undefined}
+                      title={
+                        source.last_materialization_at ??
+                        'No materialization observed'
+                      }
+                      className="ml-auto shrink-0 font-mono text-xs text-muted-foreground"
+                    >
+                      {source.last_materialization_at
+                        ? `${formatInventoryAge((Date.parse(observedAt) - Date.parse(source.last_materialization_at)) / 1000)} ago`
+                        : 'Unobserved'}
+                    </time>
                   </div>
                 ))
               ) : (
@@ -424,7 +455,7 @@ function ReadyOverview({ data }: { data: Overview }) {
                   No source assets registered
                 </span>
               )}
-              <span className="text-xs text-muted-foreground">
+              <span className="sr-only">
                 Source lag is not observed
                 {data.sources.next_cursor ? ' · more sources available' : ''}.
               </span>
@@ -441,12 +472,6 @@ function ReadyOverview({ data }: { data: Overview }) {
               ),
             )}
           </CardContent>
-          <div className="px-6 pb-4 text-xs text-muted-foreground">
-            {overview.asset_count} total assets ·{' '}
-            {overview.materialized_asset_count} verified materializations. Layer
-            counts require explicit layer metadata or a Bronze, Silver or Gold
-            group. Other groups remain unclassified.
-          </div>
         </Card>
         <div className="grid shrink-0 grid-cols-1 gap-4 lg:flex-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <RunsByHour data={data} />
@@ -508,6 +533,10 @@ function ReadyOverview({ data }: { data: Overview }) {
             </CardContent>
           </Card>
         </div>
+        <p className="m-0 text-xs text-muted-foreground">
+          Run totals use up to 100 recent records. Freshness requires a
+          configured SLA and an observation. Layer counts use declared metadata.
+        </p>
         <details id="services" className="shrink-0 text-sm">
           <summary className="cursor-pointer text-muted-foreground">
             Environment services ·{' '}
@@ -560,12 +589,12 @@ function LayerCard({ layer, data }: { layer: Layer; data: Overview }) {
         <span className="text-sm font-medium">
           {layer[0].toUpperCase() + layer.slice(1)}
         </span>
-        <span className="ml-auto text-[13px] text-muted-foreground">
+        <span className="ml-auto hidden text-[12px] text-muted-foreground xl:inline">
           {layer === 'bronze'
-            ? 'Raw'
+            ? 'raw, append-only'
             : layer === 'silver'
-              ? 'Cleaned'
-              : 'Curated'}
+              ? 'cleaned, conformed'
+              : 'business-ready'}
         </span>
       </div>
       <div className="flex items-baseline gap-1.5">
@@ -679,7 +708,7 @@ function RunsByHour({ data }: { data: Overview }) {
               </span>
             ))}
         </div>
-        <p className="m-0 text-xs text-muted-foreground">
+        <p className="sr-only">
           Counts use the latest {data.runs.items.length} observed records from a
           bounded API read, not complete history.
         </p>

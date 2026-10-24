@@ -274,6 +274,9 @@ def initialize_incidents() -> None:
         cursor.execute(
             schema.with_name("003_incident_query_parity.sql").read_text(encoding="utf-8")
         )
+        cursor.execute(
+            schema.with_name("004_notification_read_state.sql").read_text(encoding="utf-8")
+        )
 
 
 def _actor(request: Request) -> str:

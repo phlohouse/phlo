@@ -113,6 +113,16 @@ and reports setup guidance together. An intentionally unconfigured preview is
 disabled. A valid local configuration remains `enforcement_unverified`.
 The aggregate readiness and Query setup UI consume the same assessment.
 
+The authenticated readiness endpoint additionally probes the configured backend.
+After a successful probe, Observatory shows one neutral **Query preview connected**
+status. This confirms an authenticated connection, not completion of the deployment
+checklist below. A failed probe or invalid prerequisite remains actionable.
+Local development uses the same read-only and resource protections; the absence
+of deployment acceptance evidence alone does not mean a local query has failed.
+The status does not infer a security exemption from an environment's name or a
+loopback browser URL. Operator acceptance checks must be repeated for a different
+deployment or after configuration and credential changes.
+
 Verify one API replica and one worker in the actual deployment before setting
 `PHLO_V1_QUERY_SINGLE_REPLICA=1` and `PHLO_V1_QUERY_SINGLE_PROCESS=1` in the process
 environment. `WEB_CONCURRENCY` must equal `1`. Verify the installed coordinator

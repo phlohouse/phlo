@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (217)
+## Endpoints (252)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -151,6 +151,9 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `POST` | `/api/v1/assets/{asset_id}/row-count` | V1 Asset Exact Row Count | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/runs` | V1 Asset Runs | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/usage` | V1 Asset Usage | `v1 assets` |
+| `POST` | `/api/v1/authoring/schemas/validate` | V1 Validate Schema | `v1 authoring` |
+| `POST` | `/api/v1/authoring/workflows` | V1 Create Workflow | `v1 authoring` |
+| `POST` | `/api/v1/authoring/workflows/validate` | V1 Validate Workflow | `v1 authoring` |
 | `GET` | `/api/v1/branches` | V1 Branches | `v1 branches` |
 | `POST` | `/api/v1/branches` | V1 Branch Create | `v1 branches` |
 | `GET` | `/api/v1/branches/refs` | V1 Branch Refs | `v1 branches` |
@@ -162,7 +165,12 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/branches/{branch_name}/diff` | V1 Branch Diff | `v1 branches` |
 | `POST` | `/api/v1/branches/{branch_name}/merge` | V1 Branch Merge | `v1 branches` |
 | `POST` | `/api/v1/branches/{branch_name}/rebase` | V1 Branch Rebase | `v1 branches` |
+| `GET` | `/api/v1/branches/{branch_name}/schema-diff` | V1 Branch Schema Diff | `v1 branches` |
 | `POST` | `/api/v1/branches/{branch_name}/trial-merge` | V1 Branch Trial Merge | `v1 branches` |
+| `GET` | `/api/v1/data-products` | V1 Data Products | `v1 data products` |
+| `POST` | `/api/v1/data-products` | V1 Data Product Create | `v1 data products` |
+| `GET` | `/api/v1/data-products/{product_id}` | V1 Data Product | `v1 data products` |
+| `PUT` | `/api/v1/data-products/{product_id}` | V1 Data Product Update | `v1 data products` |
 | `GET` | `/api/v1/datasets` | V1 Datasets | `v1 datasets` |
 | `GET` | `/api/v1/environments` | V1 Environments | `v1` |
 | `GET` | `/api/v1/events` | V1 Events | `v1` |
@@ -177,6 +185,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `PATCH` | `/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}` | Update Follow Up | `v1 incidents` |
 | `GET` | `/api/v1/incidents/{incident_id}/schema-decisions` | List Schema Decisions | `v1 incidents` |
 | `POST` | `/api/v1/incidents/{incident_id}/schema-decisions` | Create Schema Decision | `v1 incidents` |
+| `GET` | `/api/v1/incidents/{incident_id}/subscriptions` | V1 Incident Subscription | `v1 notifications` |
 | `PUT` | `/api/v1/incidents/{incident_id}/subscriptions` | Subscribe Incident | `v1 incidents` |
 | `GET` | `/api/v1/incidents/{incident_id}/timeline` | Incident Timeline | `v1 incidents` |
 | `POST` | `/api/v1/invitations/accept` | V1 Invitation Accept | `v1 admin identity` |
@@ -187,8 +196,16 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/jobs/{job_id}/schedules` | V1 Job Schedules | `v1 jobs and runs` |
 | `GET` | `/api/v1/jobs/{job_id}/summary` | V1 Job Summary | `v1 jobs and runs` |
 | `GET` | `/api/v1/layers` | V1 Layers | `v1 assets` |
+| `GET` | `/api/v1/loads` | V1 Loads | `v1 load observations` |
 | `GET` | `/api/v1/maintenance-windows` | V1 Maintenance Windows | `v1 jobs and runs` |
 | `GET` | `/api/v1/me` | V1 Me | `v1` |
+| `GET` | `/api/v1/metric-models` | V1 Metric Models | `v1 metrics` |
+| `POST` | `/api/v1/metric-models` | V1 Metric Model Create | `v1 metrics` |
+| `GET` | `/api/v1/metric-models/{model_id}` | V1 Metric Model | `v1 metrics` |
+| `PUT` | `/api/v1/metric-models/{model_id}` | V1 Metric Model Update | `v1 metrics` |
+| `POST` | `/api/v1/metric-models/{model_id}/preview-sql` | V1 Metric Model Preview | `v1 metrics` |
+| `GET` | `/api/v1/notifications` | V1 Notifications | `v1 notifications` |
+| `PUT` | `/api/v1/notifications/read-state` | V1 Notifications Read | `v1 notifications` |
 | `GET` | `/api/v1/overview` | V1 Overview | `v1 assets` |
 | `GET` | `/api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report` | V1 Run Report | `observatory` |
 | `POST` | `/api/v1/queries` | V1 Query Submit | `v1 query workspace` |
@@ -226,6 +243,24 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/tables/{table_name}/schema-history` | V1 Table Schema History | `v1 assets` |
 | `GET` | `/api/v1/tables/{table_name}/snapshots` | V1 Table Snapshots | `v1 assets` |
 | `GET` | `/api/v1/transform` | V1 Transform | `v1 assets` |
+| `GET` | `/api/v1/transform/models/{model_id}/drafts` | V1 Transform Model Drafts | `v1 transform editor` |
+| `POST` | `/api/v1/transform/models/{model_id}/drafts` | V1 Transform Model Draft Save | `v1 transform editor` |
+| `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}` | V1 Transform Model Draft | `v1 transform editor` |
+| `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compare` | V1 Transform Model Draft Compare | `v1 transform editor` |
+| `POST` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compile` | V1 Transform Model Compile | `v1 transform editor` |
+| `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions` | V1 Transform Model Executions | `v1 transform editor` |
+| `POST` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions` | V1 Transform Model Execute | `v1 transform editor` |
+| `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}` | V1 Transform Model Execution | `v1 transform editor` |
+| `GET` | `/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/preview` | V1 Transform Model Execution Preview | `v1 transform editor` |
+| `GET` | `/api/v1/transform/models/{model_id}/source` | V1 Transform Model Source | `v1 transform editor` |
 | `POST` | `/api/v1/trino/query-completed` | V1 Trino Query Completed | `v1 usage` |
+| `POST` | `/api/v1/uploads/csv` | V1 Csv Upload | `v1 CSV uploads` |
+| `GET` | `/api/v1/uploads/csv/{upload_id}` | V1 Csv Upload Detail | `v1 CSV uploads` |
+| `GET` | `/api/v1/uploads/csv/{upload_id}/candidate` | V1 Csv Candidate | `v1 CSV candidate ingestion` |
+| `POST` | `/api/v1/uploads/csv/{upload_id}/candidate/load` | V1 Csv Candidate Load | `v1 CSV candidate ingestion` |
+| `POST` | `/api/v1/uploads/csv/{upload_id}/candidate/plan` | V1 Csv Candidate Plan | `v1 CSV candidate ingestion` |
+| `GET` | `/api/v1/uploads/csv/{upload_id}/candidate/preview` | V1 Csv Candidate Preview | `v1 CSV candidate ingestion` |
+| `PUT` | `/api/v1/uploads/csv/{upload_id}/columns` | V1 Csv Upload Review | `v1 CSV uploads` |
+| `POST` | `/api/v1/uploads/csv/{upload_id}/destination` | V1 Csv Destination | `v1 CSV candidate ingestion` |
 | `GET` | `/api/v1/wap/runs` | V1 Wap Runs | `v1 WAP` |
 | `GET` | `/health` | Health | none |

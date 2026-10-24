@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
 import { getIncidentList, updateIncident } from './incidents'
 import { readinessSchema } from './readiness'
+import { queryViewSchema, savedQueryMetadata } from './query-view'
 
 const columnSchema = z.object({ name: z.string(), type: z.string().nullable() })
 const resultSchema = z.object({
@@ -81,6 +82,7 @@ const saveInputSchema = queryInputSchema.extend({
   name: z.string().min(1).max(120),
   version: z.number().int().positive().optional(),
   idempotencyKey: z.string().min(1),
+  view: queryViewSchema.optional(),
 })
 
 export type QuerySession = z.infer<typeof sessionSchema>
@@ -244,7 +246,7 @@ export const saveQuery = createServerFn({ method: 'POST' })
       env: data.env,
       name: data.name,
       sql: data.sql,
-      metadata: {},
+      metadata: savedQueryMetadata(data.view),
       ...(data.version ? { expected_version: data.version } : {}),
     }
     return phloApi(

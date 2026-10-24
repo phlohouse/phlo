@@ -22,6 +22,8 @@ import { MergeDialog } from '@/components/branches/merge-dialog'
 import { NewBranchDialog } from '@/components/branches/new-branch-dialog'
 import { BranchGraph } from '@/components/branches/branch-graph'
 import { WapRuns } from '@/components/branches/wap-runs'
+import { BranchTableChanges } from '@/components/branches/table-changes'
+import { BranchReadiness } from '@/components/branches/readiness'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -121,7 +123,13 @@ function BranchEvidence({
   selected,
   env,
   after,
+  checks,
+  busy,
+  onChecks,
 }: {
+  checks?: Array<BranchCheck>
+  busy: boolean
+  onChecks: () => void
   detail?: BranchDetail
   target: Branch
   selected: Branch
@@ -136,12 +144,12 @@ function BranchEvidence({
   return (
     <div>
       <div className="pt-5 pb-2">
-        {target.name === 'main' &&
-        baseIndex >= 0 &&
+        {baseIndex >= 0 &&
         detail.comparison.merge_base !== null &&
         detail.comparison.behind !== null ? (
           <BranchGraph
             name={selected.name}
+            targetName={target.name}
             graph={{
               base: detail.comparison.merge_base,
               commits: detail.commits.items
@@ -174,32 +182,12 @@ function BranchEvidence({
               {(detail.comparison.merge_base ?? 'unknown').slice(0, 12)}
             </Mono>
           </p>
-          <Eyebrow className="mt-6">
-            Changes{detail.diff.truncated ? ' (first 500)' : ''}
-          </Eyebrow>
-          {detail.diff.items.length ? (
-            <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-border-card p-0">
-              {detail.diff.items.map((change) => (
-                <li
-                  key={change.key}
-                  className="border-b border-line-soft px-3.5 py-3 text-sm last:border-0"
-                >
-                  <Badge variant="outline">{change.status}</Badge>{' '}
-                  <Mono>{change.key}</Mono>
-                  <div className="text-xs text-muted-foreground">
-                    {change.from_content_id ?? 'none'} →{' '}
-                    {change.to_content_id ?? 'none'}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState title="No table changes" className="mt-2">
-              The API returned no changes against {target.name}.
-            </EmptyState>
-          )}
+          {!selected.protected ? (
+            <BranchReadiness checks={checks} busy={busy} onChecks={onChecks} />
+          ) : null}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 space-y-5">
+          <BranchTableChanges env={env} diff={detail.diff} />
           <Eyebrow>Commit history</Eyebrow>
           {detail.commits.items.length ? (
             <div
@@ -541,6 +529,9 @@ function BranchesPage() {
                     selected={selected}
                     env={env}
                     after={after}
+                    checks={checks}
+                    busy={busy}
+                    onChecks={() => void run(checkBranch)}
                   />
                 </div>
                 {error && dialog !== 'merge' ? (

@@ -789,6 +789,7 @@ class DltIngester(BaseIngester):
                 rows_deleted=merge_metrics.get("rows_deleted", 0),
                 metadata={
                     **merge_metrics,
+                    "snapshot_id": after_state["snapshot_id"],
                     "dlt_elapsed_seconds": dlt_elapsed,
                     "parquet_path": str(parquet_paths[0]),
                     "parquet_paths": [str(parquet_path) for parquet_path in parquet_paths],

@@ -1,5 +1,6 @@
 /** Defines the incident detail route and loads its timeline and follow-ups. */
 import { createFileRoute } from '@tanstack/react-router'
+import { shortIncidentId } from '@/lib/incident-id'
 import { getIncidentDetail } from '@/lib/data/api/incidents'
 import { PageHeader } from '@/components/phlo/page'
 import { IncidentDetail } from '@/components/incidents/resolved'
@@ -13,7 +14,7 @@ export const Route = createFileRoute('/_app/incidents/$incidentId')({
     meta: [
       {
         title: loaderData
-          ? `#${loaderData.incident.id} ${loaderData.incident.title} · phlo`
+          ? `#${shortIncidentId(loaderData.incident.id)} ${loaderData.incident.title} · phlo`
           : 'Incident · phlo',
       },
     ],
@@ -28,7 +29,11 @@ function IncidentPage() {
     <>
       <PageHeader
         crumbs={[{ label: 'Incidents', to: '/incidents' }]}
-        title={`#${data.incident.id} ${data.incident.title}`}
+        title={
+          <span title={data.incident.id}>
+            #{shortIncidentId(data.incident.id)} {data.incident.title}
+          </span>
+        }
         actions={<IncidentActions env={env} incident={data.incident} />}
       />
       <IncidentDetail env={env} {...data} />

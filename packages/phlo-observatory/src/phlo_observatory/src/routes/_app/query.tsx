@@ -17,10 +17,12 @@ import {
   Trash2Icon,
   XIcon,
 } from 'lucide-react'
+import type { QueryView } from '@/lib/data/api/query-view'
 import type { QueryTab, QueryTable } from '@/lib/query-workspace'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import type { QuerySession } from '@/lib/data/api/query'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
+import { restoreQueryView } from '@/lib/data/api/query-view'
 import {
   cancelQuery,
   deleteSavedQuery,
@@ -35,18 +37,15 @@ import {
 } from '@/lib/data/api/query'
 import { CatalogTree } from '@/components/query/catalog-tree'
 import { QueryHistory } from '@/components/query/history'
+import { QueryPreviewStatus } from '@/components/query/preview-status'
 import { SqlEditor } from '@/components/query/sql-editor'
 import {
   PlanView,
   ResultsChart,
   ResultsGrid,
+  ResultsPivot,
 } from '@/components/query/result-views'
-import {
-  EmptyState,
-  PageSkeleton,
-  PanelUnavailable,
-  RouteError,
-} from '@/components/phlo/states'
+import { EmptyState, PageSkeleton, RouteError } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -72,6 +71,7 @@ import {
 import { Select } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import {
+  applySavedQueryToDraft,
   closeQueryTab,
   isCurrentQueryResponse,
   nextQueryTabFocus,
@@ -236,15 +236,17 @@ function QueryOutput({
   running,
   result,
   cancelled,
+  onConfigChange,
 }: {
   tab: Tab
-  chart: boolean
+  chart: false | 'chart' | 'pivot'
   env: string
   refName?: string
   isSubmitting: boolean
   running: boolean | undefined
   result: QuerySession['result'] | null
   cancelled: boolean
+  onConfigChange: (config: QueryView) => void
 }) {
   if (isSubmitting || running)
     return (
@@ -259,8 +261,18 @@ function QueryOutput({
       <div className="flex min-h-[420px] flex-1 flex-col lg:min-h-0">
         {tab.mode === 'plan' ? (
           <PlanView result={result} />
+        ) : chart === 'pivot' ? (
+          <ResultsPivot
+            result={result}
+            config={tab.view}
+            onConfigChange={onConfigChange}
+          />
         ) : chart ? (
-          <ResultsChart result={result} />
+          <ResultsChart
+            result={result}
+            config={tab.view}
+            onConfigChange={onConfigChange}
+          />
         ) : result.rows.length ? (
           <ResultsGrid result={result} />
         ) : (
@@ -680,17 +692,20 @@ function usePersistQueryWorkspace(
 }
 
 function changeQueryView(
-  view: 'results' | 'chart' | 'plan',
+  view: 'results' | 'chart' | 'pivot' | 'plan',
   mode: Tab['mode'],
-  start: (mode: Tab['mode'], showChart?: boolean) => Promise<void>,
-  setChart: (showChart: boolean) => void,
+  start: (
+    mode: Tab['mode'],
+    showChart?: false | 'chart' | 'pivot',
+  ) => Promise<void>,
+  setChart: (showChart: false | 'chart' | 'pivot') => void,
 ) {
   if (view === 'plan') {
     void start('plan')
     return
   }
-  if (mode === 'plan') void start('results', view === 'chart')
-  else setChart(view === 'chart')
+  if (mode === 'plan') void start('results', view === 'results' ? false : view)
+  else setChart(view === 'results' ? false : view)
 }
 
 function queryDisplayState(tab: Tab, pending: Array<string>) {
@@ -728,14 +743,7 @@ function QueryPage() {
           </a>{' '}
           to configure its deployment, trust and credentials, then check again.
         </p>
-        {checks.map((check, index) => (
-          <PanelUnavailable
-            key={index}
-            title="Query preview"
-            status={check.state}
-            message={`${check.message} ${check.remediation}\nReason: ${check.reason_code}. Reference: ${result.readiness.correlation_id}.`}
-          />
-        ))}
+        <QueryPreviewStatus checks={checks} />
         <QueryHistory key={env} env={env} />
       </div>
     )
@@ -880,6 +888,16 @@ function PinQueryDialog({
   )
 }
 
+function queryChartView(view?: QueryView) {
+  return view?.view === 'chart' || view?.view === 'pivot' ? view.view : false
+}
+function changedQueryView(
+  current: QueryView | undefined,
+  view: false | 'chart' | 'pivot',
+): QueryView {
+  return { ...(current ?? restoreQueryView()), view: view || 'results' }
+}
+
 function QueryWorkspace({
   data,
   checks,
@@ -908,8 +926,6 @@ function QueryWorkspace({
   const [activeId, setActiveId] = React.useState(
     initial.activeId || initial.tabs[0].id,
   )
-  const [chart, setChart] = React.useState(false)
-  React.useEffect(() => setChart(false), [activeId, env])
   const [selected, setSelected] = React.useState(initial.selected)
   const [renaming, setRenaming] = React.useState(false)
   const [renameValue, setRenameValue] = React.useState('')
@@ -932,6 +948,12 @@ function QueryWorkspace({
       ),
     [],
   )
+
+  const chart = queryChartView(tab.view)
+  const setChart = (view: false | 'chart' | 'pivot') =>
+    patch(tab.id, {
+      view: changedQueryView(tab.view, view),
+    })
 
   React.useEffect(() => {
     setSavedQueries(data.saved)
@@ -972,7 +994,10 @@ function QueryWorkspace({
     }
   }, [env, patch, tab.id, tab.session?.id])
 
-  const start = async (mode: Tab['mode'], showChart = false) => {
+  const start = async (
+    mode: Tab['mode'],
+    showChart: false | 'chart' | 'pivot' = chart,
+  ) => {
     if (
       submitting.current.has(tab.id) ||
       (tab.session && !terminal.has(tab.session.status))
@@ -1012,7 +1037,14 @@ function QueryWorkspace({
     if (!tabs.some((item) => item.id === id))
       setTabs((items) => [
         ...items,
-        { id, name: saved.name, sql: saved.sql, saved, mode: 'results' },
+        {
+          id,
+          name: saved.name,
+          sql: saved.sql,
+          saved,
+          mode: 'results',
+          view: restoreQueryView(saved.metadata),
+        },
       ])
     setActiveId(id)
     setTreeOpen(false)
@@ -1065,6 +1097,7 @@ function QueryWorkspace({
           version: tab.saved?.version,
           name: tab.name,
           sql: tab.sql,
+          view: tab.view,
           idempotencyKey: crypto.randomUUID(),
         },
       })
@@ -1072,7 +1105,13 @@ function QueryWorkspace({
         ...items.filter((item) => item.id !== saved.id),
         saved,
       ])
-      patch(tab.id, { id: saved.id, saved, name: saved.name, dirty: false })
+      setTabs((items) =>
+        items.map((current) =>
+          current.id === tab.id
+            ? applySavedQueryToDraft(current, saved, tab)
+            : current,
+        ),
+      )
       setActiveId(saved.id)
     } catch (error) {
       patch(tab.id, {
@@ -1180,23 +1219,18 @@ function QueryWorkspace({
         onOpenSaved={openSaved}
         activeSaved={tab.saved?.id}
       />
-      <QueryHistory key={env} env={env} />
+      <details className="mt-3 border-t border-line pt-3">
+        <summary className="cursor-pointer px-2 text-xs text-primary">
+          All query history
+        </summary>
+        <QueryHistory key={env} env={env} />
+      </details>
     </>
   )
 
   return (
     <>
-      {checks
-        .filter((check) => check.state !== 'ready')
-        .map((check, index) => (
-          <div
-            role="status"
-            key={index}
-            className="border-b border-warn bg-warn-soft px-4 py-2 text-xs"
-          >
-            {check.message} {check.remediation} Reason: {check.reason_code}.
-          </div>
-        ))}
+      <QueryPreviewStatus checks={checks} />
       <QueryToolbar
         tab={tab}
         tabs={tabs}
@@ -1253,7 +1287,10 @@ function QueryWorkspace({
             onRun={() => start('results')}
             catalog={data.catalog.catalogs}
             label={`SQL for ${tab.name}`}
-            className="h-[264px] shrink-0 lg:h-[328px]"
+            className={cn(
+              'shrink-0',
+              chart ? 'h-[180px]' : 'h-[264px] lg:h-[328px]',
+            )}
           />
           <QueryStatus
             tab={tab}
@@ -1267,8 +1304,8 @@ function QueryWorkspace({
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
             <Segmented
               aria-label="Result view"
-              value={tab.mode === 'plan' ? 'plan' : chart ? 'chart' : 'results'}
-              onValueChange={(view: 'results' | 'chart' | 'plan') =>
+              value={tab.mode === 'plan' ? 'plan' : chart || 'results'}
+              onValueChange={(view: 'results' | 'chart' | 'pivot' | 'plan') =>
                 changeQueryView(view, tab.mode, start, setChart)
               }
               options={[
@@ -1277,6 +1314,7 @@ function QueryWorkspace({
                   label: `Results${result && tab.mode === 'results' ? ` · ${result.rows.length}` : ''}`,
                 },
                 { value: 'chart', label: 'Chart' },
+                { value: 'pivot', label: 'Pivot' },
                 { value: 'plan', label: 'Plan' },
               ]}
             />
@@ -1284,6 +1322,7 @@ function QueryWorkspace({
           <QueryOutput
             tab={tab}
             chart={chart}
+            onConfigChange={(view) => patch(tab.id, { view, dirty: true })}
             env={env}
             refName={data.refs[0]?.name}
             isSubmitting={isSubmitting}

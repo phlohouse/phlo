@@ -136,3 +136,47 @@ def test_run_cli_reports_missing_executable(tmp_path: Path) -> None:
 
     with pytest.raises(PhloCapabilitySetupError, match="executable not found"):
         run_cli(missing, ["check"], settings=settings, root=tmp_path)
+
+
+def test_private_credentials_reach_subprocess_but_not_logs_or_invocation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    captured = {}
+    messages = []
+
+    def invoke(command, **kwargs):
+        captured.update(command=command, environment=kwargs["env"])
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    monkeypatch.setattr(binary_module.subprocess, "run", invoke)
+    monkeypatch.setattr(
+        binary_module.logger, "debug", lambda *args, **kwargs: messages.append(kwargs)
+    )
+    result = run_cli(
+        tmp_path / "engine",
+        ["plan", "--trino-password", "argv-secret", "--nessie-token=token-secret"],
+        settings=TransformSettings(),
+        root=tmp_path,
+        environment={"PHLO_TRINO_PASSWORD": "environment-secret"},
+    )
+    assert captured["environment"]["PHLO_TRINO_PASSWORD"] == "environment-secret"
+    assert "argv-secret" in captured["command"]
+    assert "argv-secret" not in str(messages) + str(result)
+    assert "token-secret" not in str(messages) + str(result)
+    assert "environment-secret" not in str(messages) + str(result)
+
+
+def test_timeout_exception_and_cause_redact_command_credentials(tmp_path, monkeypatch):
+    def invoke(command, **kwargs):
+        raise binary_module.subprocess.TimeoutExpired(command, 1)
+
+    monkeypatch.setattr(binary_module.subprocess, "run", invoke)
+    with pytest.raises(PhloCapabilitySetupError) as caught:
+        run_cli(
+            tmp_path / "engine",
+            ["plan", "--trino-password=private-secret"],
+            settings=TransformSettings(),
+            root=tmp_path,
+        )
+    assert "private-secret" not in str(caught.value)
+    assert "private-secret" not in str(caught.value.__cause__)

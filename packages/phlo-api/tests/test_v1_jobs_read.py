@@ -245,18 +245,20 @@ def test_run_trigger_tags_do_not_expose_arbitrary_definition_values(api):
     assert run["tags"] == {"dagster/schedule_name": "daily"}
 
 
-def test_wrong_location_and_ref_do_not_leak_and_missing_ref_fails_closed(api):
+def test_wrong_location_and_ref_do_not_leak_and_unverified_inventory_is_excluded(api):
     client, state, _ = api
     assert client.get("/api/v1/runs/stage-run?env=prod").status_code == 404
     assert client.get("/api/v1/runs/wrong-ref?env=prod").status_code == 404
     state["runs"] = [_run("unverified", "prod_loc", None)]
     response = client.get("/api/v1/runs?env=prod")
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "backend_unavailable"
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert client.get("/api/v1/runs/unverified?env=prod").status_code == 503
     duplicate = _run("duplicate", "prod_loc", "main")
     duplicate["tags"].append({"key": "phlo/ref", "value": "main"})
     state["runs"] = [duplicate]
-    assert client.get("/api/v1/runs?env=prod").status_code == 503
+    assert client.get("/api/v1/runs?env=prod").json()["items"] == []
+    assert client.get("/api/v1/runs/duplicate?env=prod").status_code == 503
 
 
 def test_malformed_and_outage_responses_are_not_empty_success(api):
@@ -282,7 +284,7 @@ def test_scans_and_responses_are_bounded(api):
     assert state["calls"][-1][1] == {
         "limit": 200,
         "cursor": None,
-        "filter": {"tags": [{"key": "phlo/ref", "value": "main"}], "pipelineName": "orders"},
+        "filter": {"pipelineName": "orders"},
     }
     state["runs"] = [_run(str(index), "prod_loc", "main") for index in range(201)]
     assert client.get("/api/v1/jobs/orders/patterns?env=prod").json()["scanned_runs"] == 200

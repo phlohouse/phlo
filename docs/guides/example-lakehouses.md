@@ -19,6 +19,7 @@ The repository contains complete, standalone examples under `examples/lakehouses
 | [Public Data Research](../../examples/lakehouses/public-data-research/README.md) | Public-shaped feeds | Multiple replay APIs and research-oriented transforms |
 | [Healthcare Claims](../../examples/lakehouses/healthcare-claims/README.md) | Regulated-domain modelling | Claims, eligibility, provider data, privacy contracts, and quality |
 | [Federated Domains](../../examples/lakehouses/federated-domains/README.md) | Team boundaries | Independent domain projects and explicit federation constraints |
+| [Mission Control](../../examples/lakehouses/mission-control/README.md) | Observatory workflow acceptance | Synthetic CGT-04 sources, reviewed CSV and isolated native candidates |
 | [Polaris Streaming](../../examples/lakehouses/polaris-streaming/README.md) | Streaming stack exploration | Kafka, Airbyte, Polaris, and supporting control planes |
 | [WAP Failure Lab](../../examples/lakehouses/wap-failure-lab/README.md) | Failure and recovery | Deliberate write-audit-publish failures with recorded evidence |
 

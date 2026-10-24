@@ -1,4 +1,6 @@
 /** Keeps query drafts in this browser session without writing SQL or rows to storage. */
+import { restoreQueryView } from './data/api/query-view'
+import type { QueryView } from './data/api/query-view'
 import type { QuerySession, SavedQuery } from './data/api/query'
 
 export type QueryTable = {
@@ -9,6 +11,7 @@ export type QueryTable = {
 
 export type QueryTab = {
   id: string
+  view?: QueryView
   name: string
   sql: string
   saved?: SavedQuery
@@ -157,4 +160,27 @@ export function nextQueryTabFocus(key: string, count: number, current: number) {
   if (key === 'ArrowRight') return (current + 1) % count
   if (key === 'ArrowLeft') return (current - 1 + count) % count
   return current
+}
+
+/** Commits saved identity/version while retaining edits made after the request started. */
+export function applySavedQueryToDraft(
+  current: QueryTab,
+  saved: SavedQuery,
+  submitted: Pick<QueryTab, 'sql' | 'name' | 'view'>,
+): QueryTab {
+  const unchanged =
+    current.sql === submitted.sql &&
+    current.name === submitted.name &&
+    JSON.stringify(current.view) === JSON.stringify(submitted.view)
+  const identity = { id: saved.id, saved }
+  return unchanged
+    ? {
+        ...current,
+        ...identity,
+        sql: saved.sql,
+        name: saved.name,
+        view: restoreQueryView(saved.metadata),
+        dirty: false,
+      }
+    : { ...current, ...identity, dirty: true }
 }

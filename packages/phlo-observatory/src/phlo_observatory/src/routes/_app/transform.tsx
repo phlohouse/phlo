@@ -2,6 +2,8 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { SparklesIcon } from 'lucide-react'
 import type { TransformModel } from '@/lib/data/api/transform'
+import { TransformEditor } from '@/components/transform/editor'
+import { transformSearchSchema } from '@/components/transform/search'
 import { getTransformWorkspace } from '@/lib/data/api/transform'
 import { Eyebrow, PageBody, PageHeader } from '@/components/phlo/page'
 import { EmptyState } from '@/components/phlo/states'
@@ -10,6 +12,7 @@ import { Stat } from '@/components/phlo/kpi'
 import { Badge } from '@/components/ui/badge'
 
 export const Route = createFileRoute('/_app/transform')({
+  validateSearch: transformSearchSchema,
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: ({ deps }) => getTransformWorkspace({ data: deps.env }),
   head: () => ({ meta: [{ title: 'Transform · phlo' }] }),
@@ -64,7 +67,13 @@ function ModelRow({ model, env }: { model: TransformModel; env: string }) {
         </Link>
       </td>
       <td className="px-3 py-2.5 align-top break-words">
-        <Mono>{model.model}</Mono>
+        <Link
+          to="/transform"
+          search={{ env, model: model.model, focus: '0' }}
+          className="font-mono text-link"
+        >
+          {model.model}
+        </Link>
       </td>
       <td className="px-3 py-2.5 align-top whitespace-nowrap text-muted-foreground">
         {model.materialization ?? '—'}
@@ -102,6 +111,49 @@ function ModelRow({ model, env }: { model: TransformModel; env: string }) {
 
 function TransformPage() {
   const data = Route.useLoaderData()
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const selected = data.models.find((model) => model.model === search.model)
+  if (selected)
+    return (
+      <TransformEditor
+        key={`${data.env}:${selected.model}`}
+        env={data.env}
+        model={selected}
+        focus={search.focus === '1'}
+        draftId={search.draft}
+        revision={search.revision}
+        onFocus={() =>
+          void navigate({
+            search: (previous) => ({
+              ...previous,
+              focus: previous.focus === '1' ? '0' : '1',
+            }),
+          })
+        }
+        onClose={() =>
+          void navigate({
+            search: (previous) => ({
+              ...previous,
+              model: undefined,
+              focus: '0',
+              draft: undefined,
+              revision: undefined,
+            }),
+          })
+        }
+        onSaved={(draft) =>
+          void navigate({
+            search: (previous) => ({
+              ...previous,
+              draft: draft.draft_id,
+              revision: draft.revision,
+            }),
+            replace: true,
+          })
+        }
+      />
+    )
 
   if (data.status === 'unavailable') {
     return (

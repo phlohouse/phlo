@@ -693,7 +693,7 @@ def _asset_run_view(
         raise ValueError
     if location != repository_location or repository_name != asset.repository_name:
         return None
-    if not _run_on_ref(row, ref, required=True):
+    if not _run_on_ref(row, ref, required=True, wap_promoted_only=False):
         return None
     selection = row.get("assetSelection")
     if selection is None:
@@ -2647,7 +2647,12 @@ async def v1_asset_materialize(
         raise HTTPException(status_code=422, detail="Confirm the materialization before executing.")
     if payload.mode == "full" and not payload.dry_run:
         _require_full_refresh_mfa(request)
-    tags = {"environment": env, "phlo/ref": write_ref}
+    principal = get_request_principal(request)
+    tags = {
+        "environment": env,
+        "phlo/ref": write_ref,
+        "phlo/actor": principal.subject if principal else auth["subject"],
+    }
 
     async def execute() -> dict[str, Any]:
         if payload.mode is not None:
@@ -3493,9 +3498,9 @@ def _check_execution_run_scope(
         or not ref_values[0]
     ):
         return False, False
-    if ref_values[0] != ref:
-        return False, True
-    return True, True
+    # Checks on an isolated WAP ref establish a released verdict only after
+    # its immutable launch binding and promoted lifecycle are verified.
+    return _run_on_ref(run, ref), True
 
 
 async def _overview_quality_checks(
@@ -3925,6 +3930,6 @@ async def v1_overview(request: Request, env: Environment = Query()) -> OverviewR
         incident_counts=stats.counts,
         freshness_counts=freshness,
         run_status_counts=run_status_counts,
-        run_history_truncated=len(runs) == 100,
+        run_history_truncated=getattr(runs, "scan_limited", len(runs) == 100),
         quality_checks=quality_checks,
     )

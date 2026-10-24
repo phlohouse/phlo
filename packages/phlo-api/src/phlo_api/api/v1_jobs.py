@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
 from phlo_api.api.operation_controls import shared_operation_controls
-from phlo_api.api.v1 import _target
+from phlo_api.api.v1 import _run_on_ref, _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, ConflictError, NotFoundError
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.settings import get_deployment_settings, get_process_settings
@@ -390,7 +390,7 @@ def _identity(row: dict[str, Any], location: str, ref: str) -> bool:
     refs = [tag["value"] for tag in tags if tag["key"] == "phlo/ref"]
     if len(refs) != 1:
         raise BackendUnavailableError("Dagster run has no verified ref identity.")
-    return refs[0] == ref
+    return _run_on_ref(row, ref, required=True, wap_promoted_only=False)
 
 
 def _assets(value: Any) -> list[list[str]]:
@@ -458,7 +458,7 @@ async def _run_page(
     job_id: str | None = None,
     status: RunStatus | None = None,
 ) -> tuple[list[Run], str | None]:
-    filters: dict[str, Any] = {"tags": [{"key": "phlo/ref", "value": ref}]}
+    filters: dict[str, Any] = {}
     if job_id is not None:
         filters["pipelineName"] = job_id
     if status is not None:
@@ -471,7 +471,14 @@ async def _run_page(
     rows = value.get("results")
     if not isinstance(rows, list) or len(rows) > limit:
         raise BadGatewayError("Dagster returned an invalid run list.")
-    items = [run for row in rows if (run := _run(row, location, ref)) is not None]
+    if any(not isinstance(row, dict) for row in rows):
+        raise BadGatewayError("Dagster returned an invalid run list.")
+    items = [
+        run
+        for row in rows
+        if _run_on_ref(row, ref, wap_promoted_only=False)
+        and (run := _run(row, location, ref)) is not None
+    ]
     items = [
         run
         for run in items
@@ -486,8 +493,11 @@ async def _run_page(
 async def _scoped_runs(location: str, ref: str, limit: int, job_id: str | None = None) -> list[Run]:
     items: list[Run] = []
     cursor = None
-    while len(items) < limit:
-        page, cursor = await _run_page(location, ref, limit - len(items), cursor, job_id)
+    scanned = 0
+    while len(items) < limit and scanned < _INVENTORY_LIMIT:
+        page_limit = min(limit - len(items), _INVENTORY_LIMIT - scanned)
+        page, cursor = await _run_page(location, ref, page_limit, cursor, job_id)
+        scanned += page_limit
         items.extend(page)
         if cursor is None:
             break

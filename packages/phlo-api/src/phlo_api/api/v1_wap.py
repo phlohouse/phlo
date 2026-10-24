@@ -62,6 +62,8 @@ class _Report(BaseModel):
     strategy: Literal["branch", "snapshot"]
     status: str = Field(min_length=1, max_length=128)
     updated_at: AwareDatetime
+    context: dict[str, str] | None = None
+    target_branch: str | None = None
 
 
 def _read_json(path: Path) -> bytes:
@@ -93,7 +95,8 @@ def _report(
         valid = (
             hashlib.sha256(raw).hexdigest() == report.launch_manifest_checksum
             and isinstance(binding, dict)
-            and binding.get("schema_version") == "phlo.wap_launch_manifest.v1"
+            and binding.get("schema_version")
+            in {"phlo.wap_launch_manifest.v1", "phlo.wap_launch_manifest.v2"}
             and binding.get("logical_run_id") == logical_id == report.run_id
             and binding.get("dagster_run_id") == run_id == report.dagster_run_id
             and binding.get("branch") == tags["phlo/wap_branch"] == report.branch
@@ -104,9 +107,61 @@ def _report(
                 for key in ("phlo/run_id", "phlo/wap_branch", "phlo/ref", "phlo/project_id")
             )
         )
+        if valid and binding["schema_version"] == "phlo.wap_launch_manifest.v2":
+            context = binding.get("context")
+            valid = (
+                isinstance(context, dict)
+                and set(context)
+                == {"environment", "target_ref", "location", "backend_id", "strategy"}
+                and all(isinstance(value, str) and value for value in context.values())
+                and context == report.context
+                and context["target_ref"] == binding.get("target_branch") == report.target_branch
+                and context["strategy"] == report.strategy
+                and re.fullmatch(r"[a-f0-9]{64}", context["backend_id"]) is not None
+                and all(
+                    tags.get(key, context["environment"]) == context["environment"]
+                    for key in ("environment", "env")
+                )
+                and all(tags.get(key, report.branch) == report.branch for key in ("ref", "branch"))
+            )
     except (OSError, ValueError, UnicodeDecodeError):
         return None, "invalid"
     return (report, "verified") if valid else (None, "invalid")
+
+
+def _publication_ref(row: dict[str, Any], *, promoted_only: bool = False) -> str | None:
+    """Correlate WAP's staging run to its immutable configured publication target."""
+    from phlo_api.api.v1 import _targets
+
+    tags = _launch_tags(row)
+    logical_id = tags.get("phlo/run_id", "")
+    branch = tags.get("phlo/wap_branch")
+    if (
+        not _LOGICAL_ID.fullmatch(logical_id)
+        or branch != f"pipeline-run-{logical_id}"
+        or tags.get("phlo/ref") != branch
+        or not tags.get("phlo/project_id")
+    ):
+        return None
+    run_id = row.get("runId")
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    report, state = _report(logical_id, run_id, tags)
+    if state != "verified" or report is None or report.context is None:
+        return None
+    context = report.context
+    target = _targets().get(context["environment"])
+    origin = row.get("repositoryOrigin")
+    if (
+        target is None
+        or target.nessie_ref != context["target_ref"]
+        or target.dagster_location != context["location"]
+        or not isinstance(origin, dict)
+        or origin.get("repositoryLocationName") != context["location"]
+        or (promoted_only and report.status != "promoted")
+    ):
+        return None
+    return target.nessie_ref
 
 
 def _launch_tags(row: Any) -> dict[str, str]:
@@ -153,7 +208,7 @@ async def _references() -> tuple[dict[str, str], bool]:
 
 
 async def _observation(
-    row: Any, location: str, references: dict[str, str], catalog_available: bool
+    row: Any, location: str, references: dict[str, str], catalog_available: bool, ref: str
 ) -> WapRun | None:
     tags = _launch_tags(row)
     staging_ref = tags.get("phlo/wap_branch")
@@ -175,6 +230,12 @@ async def _observation(
     run = v1_jobs._run(row, location, staging_ref)
     assert run is not None
     report, report_state = await run_sync(_report, logical_id, run.run_id, tags)
+    if (
+        (report is not None and report.context is not None)
+        or "phlo/wap_binding" in tags
+        or "environment" in tags
+    ) and _publication_ref(row) != ref:
+        return None
     catalog_system = tags.get("phlo/catalog_system")
     strategy: Literal["branch", "snapshot", "unknown"] = report.strategy if report else "unknown"
     branch_state: Literal["present", "absent", "unknown", "not_applicable"] = "unknown"
@@ -216,7 +277,9 @@ async def v1_wap_runs(request: Request, env: Environment = Query()) -> WapRunPag
     items = []
     seen: set[str] = set()
     for row in rows:
-        item = await _observation(row, target.dagster_location, references, catalog_available)
+        item = await _observation(
+            row, target.dagster_location, references, catalog_available, target.nessie_ref
+        )
         if item is not None:
             if item.run_id in seen:
                 raise BadGatewayError("Dagster returned duplicate WAP runs.")

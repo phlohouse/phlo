@@ -1,6 +1,9 @@
 /** Defines the primary Observatory navigation destinations and icons. */
 import {
+  BarChart3Icon,
+  BoxIcon,
   DatabaseIcon,
+  DownloadIcon,
   GitBranchIcon,
   LayoutGridIcon,
   SlidersHorizontalIcon,
@@ -16,6 +19,9 @@ type NavItem = {
     | '/'
     | '/incidents'
     | '/assets'
+    | '/sources'
+    | '/data-products'
+    | '/metrics'
     | '/query'
     | '/pipelines'
     | '/transform'
@@ -51,6 +57,27 @@ export const navItems: Array<NavItem> = [
     mobile: true,
   },
   {
+    to: '/sources',
+    label: 'Sources',
+    Icon: DownloadIcon,
+    exact: false,
+    mobile: false,
+  },
+  {
+    to: '/data-products',
+    label: 'Data products',
+    Icon: BoxIcon,
+    exact: false,
+    mobile: false,
+  },
+  {
+    to: '/metrics',
+    label: 'Metrics',
+    Icon: BarChart3Icon,
+    exact: false,
+    mobile: false,
+  },
+  {
     to: '/query',
     label: 'Query',
     Icon: SquareTerminalIcon,
@@ -59,7 +86,7 @@ export const navItems: Array<NavItem> = [
   },
   {
     to: '/pipelines',
-    label: 'Jobs',
+    label: 'Pipelines',
     Icon: WorkflowIcon,
     exact: false,
     mobile: true,

@@ -132,7 +132,9 @@ async def _locations() -> set[str]:
     return {node["location"]["name"] for node in nodes}
 
 
-def _run_on_ref(run: dict[str, Any], ref: str, *, required: bool = False) -> bool:
+def _run_on_ref(
+    run: dict[str, Any], ref: str, *, required: bool = False, wap_promoted_only: bool = True
+) -> bool:
     tags = run.get("tags")
     matches = (
         [tag["value"] for tag in tags if tag["key"] == "phlo/ref"]
@@ -147,7 +149,22 @@ def _run_on_ref(run: dict[str, Any], ref: str, *, required: bool = False) -> boo
     )
     if len(matches) != 1 and required:
         raise BackendUnavailableError("Dagster run has no verified ref identity.")
-    return len(matches) == 1 and matches[0] == ref
+    if len(matches) != 1 or not isinstance(tags, list):
+        return False
+    staging = [tag["value"] for tag in tags if tag["key"] == "phlo/wap_branch"]
+    if staging and (len(staging) != 1 or staging[0] != matches[0]):
+        return False
+    if matches[0] == ref:
+        return True
+    from phlo_api.api.v1_wap import _publication_ref
+
+    return _publication_ref(run, promoted_only=wap_promoted_only) == ref
+
+
+class _RunStatusInventory(dict[str, str]):
+    """Keep source scan completeness separate from scoped run counts."""
+
+    scan_limited: bool = False
 
 
 async def _runs(location: str, ref: str) -> dict[str, str]:
@@ -155,17 +172,22 @@ async def _runs(location: str, ref: str) -> dict[str, str]:
         payload = await graphql_request(
             resolve_dagster_url(),
             _RUN_QUERY,
-            {"filter": {"tags": [{"key": "phlo/ref", "value": ref}]}},
+            {"filter": {}},
         )
     except (httpx.HTTPError, OSError, RuntimeError) as exc:
         raise BackendUnavailableError("Dagster is unavailable.") from exc
     value = _source_data(payload, "runsOrError", "Runs")
     rows = value.get("results")
-    if not isinstance(rows, list):
+    if not isinstance(rows, list) or len(rows) > 100:
         raise BadGatewayError("Dagster returned an invalid run list.")
-    runs: dict[str, str] = {}
+    runs = _RunStatusInventory()
+    runs.scan_limited = len(rows) == 100
     for row in rows:
-        if not isinstance(row, dict) or not isinstance(row.get("repositoryOrigin"), dict):
+        if not isinstance(row, dict):
+            raise BadGatewayError("Dagster returned an invalid run.")
+        if not _run_on_ref(row, ref, wap_promoted_only=False):
+            continue
+        if not isinstance(row.get("repositoryOrigin"), dict):
             raise BadGatewayError("Dagster run has no location identity.")
         origin = row["repositoryOrigin"].get("repositoryLocationName")
         if (
@@ -174,7 +196,7 @@ async def _runs(location: str, ref: str) -> dict[str, str]:
             or row.get("status") not in _RUN_STATUSES
         ):
             raise BadGatewayError("Dagster returned an invalid run.")
-        if origin == location and _run_on_ref(row, ref, required=True):
+        if origin == location and _run_on_ref(row, ref, required=True, wap_promoted_only=False):
             runs[row["runId"]] = row["status"]
     return runs
 

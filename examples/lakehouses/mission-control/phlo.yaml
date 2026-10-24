@@ -1,0 +1,20 @@
+name: mission-control
+description: Synthetic CGT-04 source-backed Observatory review and isolated candidate execution
+capabilities:
+  defaults:
+    table_store: iceberg
+    query_engine: trino
+env:
+  PHLO_PROJECT: mission-control
+  PHLO_TRANSFORM_ROOT: transforms
+environments:
+  sandbox:
+    dagster_location: phlo_dagster.framework.definitions
+    nessie_ref: main
+    compose_project: mission-control
+default_environment: sandbox
+services:
+  phlo-api:
+    enabled: true
+  observatory:
+    enabled: true
