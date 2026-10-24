@@ -68,9 +68,11 @@ describe('the AppLayout shell', () => {
     for (const name of ['Primary navigation', 'Mobile navigation']) {
       const navigation = within(screen.getByRole('navigation', { name }))
       expect(
-        navigation.getByRole('link', { name: 'Jobs' }).getAttribute('href'),
+        navigation
+          .getByRole('link', { name: 'Pipelines' })
+          .getAttribute('href'),
       ).toBe('/pipelines')
-      expect(navigation.queryByRole('link', { name: 'Pipelines' })).toBeNull()
+      expect(navigation.queryByRole('link', { name: 'Jobs' })).toBeNull()
     }
     const main = screen.getByRole('main')
     expect(main.id).toBe('main-content')

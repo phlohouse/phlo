@@ -10,9 +10,11 @@ import { navItems } from './nav-items'
 import { Dot } from './status'
 import { ThemeSwitch } from './theme-switch'
 import { useCommandPalette } from './command-palette'
+import { KeyboardShortcuts } from './keyboard-shortcuts'
 import type { ObservatoryServiceList } from '@/lib/data/api/client'
 import type { IncidentRecord } from '@/lib/data/api/incidents'
 import type { Env } from '@/lib/data/types'
+import { NotificationsButton } from '@/components/notifications/inbox'
 import {
   environmentServices,
   serviceHealthLabel,
@@ -154,7 +156,10 @@ export function Sidebar({
       className="flex h-full w-[248px] shrink-0 flex-col gap-[18px] px-2.5 py-3.5"
     >
       <EnvSwitcher env={env} />
-      <QuickActionsButton />
+      <div className="flex items-center gap-2">
+        <QuickActionsButton />
+        <NotificationsButton key={env} env={env} />
+      </div>
 
       <div
         role="region"
@@ -162,7 +167,7 @@ export function Sidebar({
         aria-label="Primary navigation and open incidents"
         className="min-h-0 flex-1 overflow-y-auto outline-none focus-visible:outline-2 focus-visible:outline-ring"
       >
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 pb-4">
           {navItems.map(({ to, label, Icon, exact }) => {
             return (
               <Link
@@ -278,6 +283,7 @@ export function Sidebar({
           <div>{identity.roles.join(', ') || 'No assigned roles'}</div>
         </div>
         <ThemeSwitch className="mt-1" />
+        <KeyboardShortcuts env={env} />
       </div>
     </nav>
   )

@@ -1,19 +1,22 @@
 /** Renders resolved incident details, timeline events, and follow-ups. */
 import * as React from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
-import { GitBranchIcon } from 'lucide-react'
+import { ExternalLinkIcon, GitBranchIcon } from 'lucide-react'
+import { incidentEvidence, incidentEvidenceValue } from './evidence'
+import { IncidentSignals } from './signals'
 import type {
   IncidentFollowUp,
   IncidentRecord,
   IncidentTimelineEvent,
   getIncidentDetail,
 } from '@/lib/data/api/incidents'
+import { shortIncidentId } from '@/lib/incident-id'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input, Textarea } from '@/components/ui/input'
 import { EmptyState } from '@/components/phlo/states'
-import { Eyebrow, KeyValues } from '@/components/phlo/page'
+import { KeyValues } from '@/components/phlo/page'
 import { Stat } from '@/components/phlo/kpi'
 import { Mono } from '@/components/phlo/status'
 import { Card } from '@/components/ui/card'
@@ -45,39 +48,19 @@ const payloadText = (payload: IncidentTimelineEvent['payload']) => {
     ? JSON.stringify(payload, null, 2)
     : undefined
 }
-function signalEvidence(timeline: Array<IncidentTimelineEvent>) {
-  const signal = timeline.find((event) => event.kind === 'signal')?.payload
-    .evidence
-  return typeof signal === 'object' && signal !== null && !Array.isArray(signal)
-    ? signal
-    : {}
-}
-const evidenceValue = (
-  timeline: Array<IncidentTimelineEvent>,
-  keys: Array<string>,
-) => {
-  for (const event of timeline) {
-    for (const key of keys) {
-      const value = event.payload[key]
-      if (typeof value === 'string' && value.trim()) return value
-      const evidence = event.payload.evidence
-      if (
-        typeof evidence === 'object' &&
-        evidence !== null &&
-        !Array.isArray(evidence)
-      ) {
-        const nested = evidence[key]
-        if (typeof nested === 'string' && nested.trim()) return nested
-      }
-    }
-  }
-}
+const evidenceValue = incidentEvidenceValue
 
 function linkedIncidentEvidence(
   timeline: Array<IncidentTimelineEvent>,
   env: string,
 ) {
-  const branch = evidenceValue(timeline, ['branch', 'branch_name', 'ref'])
+  const branch = evidenceValue(timeline, [
+    'branch',
+    'branch_name',
+    'source_ref',
+    'source',
+    'ref',
+  ])
   const job = evidenceValue(timeline, ['job', 'job_name', 'pipeline'])
   const items: Array<[React.ReactNode, React.ReactNode]> = []
   if (branch)
@@ -149,6 +132,38 @@ function IncidentSummary({
   onSaveOwner: () => void
   onAddComment: () => void
 }) {
+  const metadata = (
+    <KeyValues
+      keyWidth={90}
+      className="items-center gap-y-3"
+      items={[
+        [
+          'Asset',
+          <span className="flex flex-col gap-1">
+            {(incident.asset_ids.length
+              ? incident.asset_ids
+              : [incident.asset_id]
+            ).map((asset) => (
+              <Link
+                key={asset}
+                to="/assets/$assetId"
+                params={{ assetId: asset }}
+                search={{ env }}
+                className="break-all font-mono text-xs"
+              >
+                {asset}
+              </Link>
+            ))}
+          </span>,
+        ],
+        ['Owner', incident.owner ?? 'Unassigned'],
+        ['Created', formatDate(incident.created_at)],
+        ['Updated', formatDate(incident.updated_at)],
+        ['Version', String(incident.version)],
+        ...linkedEvidence,
+      ]}
+    />
+  )
   return (
     <aside
       aria-label="Summary"
@@ -156,8 +171,11 @@ function IncidentSummary({
     >
       <div className="flex flex-col gap-2.5 px-4 pt-5 pb-4 lg:px-6 lg:pt-[22px]">
         <div className="flex flex-wrap items-center gap-2">
-          <Mono className="text-[13px] text-muted-foreground">
-            #{incident.id}
+          <Mono
+            className="max-w-36 truncate text-[13px] text-muted-foreground"
+            title={incident.id}
+          >
+            #{shortIncidentId(incident.id)}
           </Mono>
           <Badge
             variant={
@@ -193,39 +211,17 @@ function IncidentSummary({
               : 'Investigation is active. This view only shows evidence persisted by the incident service.')}
         </p>
       </div>
-      <div className="border-t border-line-soft px-4 py-4 lg:px-6">
-        <KeyValues
-          keyWidth={90}
-          className="items-center gap-y-3"
-          items={[
-            [
-              'Asset',
-              <span className="flex flex-col gap-1">
-                {(incident.asset_ids.length
-                  ? incident.asset_ids
-                  : [incident.asset_id]
-                ).map((asset) => (
-                  <Link
-                    key={asset}
-                    to="/assets/$assetId"
-                    params={{ assetId: asset }}
-                    search={{ env }}
-                    className="break-all font-mono text-xs"
-                  >
-                    {asset}
-                  </Link>
-                ))}
-              </span>,
-            ],
-            ['Owner', incident.owner ?? 'Unassigned'],
-            ['Created', formatDate(incident.created_at)],
-            ['Updated', formatDate(incident.updated_at)],
-            ['Version', String(incident.version)],
-            ...linkedEvidence,
-          ]}
-        />
+      <div className="hidden border-t border-line-soft px-4 py-4 lg:block lg:px-6">
+        {metadata}
       </div>
-      <div className="grid grid-cols-2 gap-2.5 border-t border-line-soft px-4 py-4 lg:px-6">
+      <details className="border-t border-line-soft px-4 py-2 text-xs lg:hidden">
+        <summary className="cursor-pointer text-muted-foreground">
+          {incident.owner ?? 'Unassigned'} · {timeline.length} events · Incident
+          details
+        </summary>
+        <div className="pt-3 pb-2">{metadata}</div>
+      </details>
+      <div className="hidden grid-cols-2 gap-2.5 border-t border-line-soft px-4 py-4 lg:grid lg:px-6">
         <Stat label="Activity" value={timeline.length} sub="persisted events" />
         <Stat
           label="Follow-ups"
@@ -234,42 +230,46 @@ function IncidentSummary({
           tone={followUps.some((item) => !item.completed_at) ? 'warn' : 'ok'}
         />
       </div>
-      <div className="flex flex-col gap-3 border-t border-line px-4 py-5 lg:px-6">
-        <Eyebrow>Update incident</Eyebrow>
-        <label className="text-sm">
-          Owner
-          <Input
-            className="mt-1.5"
-            value={owner}
-            maxLength={512}
-            onChange={(event) => onOwnerChange(event.target.value)}
-          />
-        </label>
-        <Button
-          variant="outline"
-          disabled={pending || owner === (incident.owner ?? '')}
-          onClick={onSaveOwner}
-        >
-          Save owner
-        </Button>
-        <label className="text-sm">
-          Comment
-          <Textarea
-            className="mt-1.5"
-            rows={3}
-            value={comment}
-            onChange={(event) => onCommentChange(event.target.value)}
-          />
-        </label>
-        <Button disabled={pending || !comment.trim()} onClick={onAddComment}>
-          Add comment
-        </Button>
-        {error ? (
-          <p role="alert" className="m-0 text-sm text-bad-text">
-            {error}
-          </p>
-        ) : null}
-      </div>
+      <details className="border-t border-line px-4 py-4 lg:px-6">
+        <summary className="cursor-pointer text-sm font-medium">
+          Update incident
+        </summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <label className="text-sm">
+            Owner
+            <Input
+              className="mt-1.5"
+              value={owner}
+              maxLength={512}
+              onChange={(event) => onOwnerChange(event.target.value)}
+            />
+          </label>
+          <Button
+            variant="outline"
+            disabled={pending || owner === (incident.owner ?? '')}
+            onClick={onSaveOwner}
+          >
+            Save owner
+          </Button>
+          <label className="text-sm">
+            Comment
+            <Textarea
+              className="mt-1.5"
+              rows={3}
+              value={comment}
+              onChange={(event) => onCommentChange(event.target.value)}
+            />
+          </label>
+          <Button disabled={pending || !comment.trim()} onClick={onAddComment}>
+            Add comment
+          </Button>
+          {error ? (
+            <p role="alert" className="m-0 text-sm text-bad-text">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </details>
     </aside>
   )
 }
@@ -283,7 +283,7 @@ function FreshnessInvestigation({
   Awaited<ReturnType<typeof getIncidentDetail>>,
   'incident' | 'timeline' | 'investigation'
 > & {
-  evidence: IncidentTimelineEvent['payload']
+  evidence: Record<string, unknown>
 }) {
   return (
     <>
@@ -302,7 +302,10 @@ function FreshnessInvestigation({
           value={
             typeof evidence.freshness_sla_seconds === 'number'
               ? `${evidence.freshness_sla_seconds / 60} min`
-              : 'Not configured'
+              : 'asset' in investigation &&
+                  investigation.asset.freshness_sla_seconds
+                ? `${investigation.asset.freshness_sla_seconds / 60} min`
+                : 'Not configured'
           }
         />
       </div>
@@ -340,19 +343,20 @@ function IncidentInvestigation({
   incident,
   timeline,
   investigation,
+  runs,
 }: Pick<
   Awaited<ReturnType<typeof getIncidentDetail>>,
-  'incident' | 'timeline' | 'investigation'
+  'incident' | 'timeline' | 'investigation' | 'runs'
 > & { env: string }) {
   const kind = incident.kind.toLowerCase()
   const heading = kind.includes('freshness')
     ? 'Freshness investigation'
-    : kind.includes('schema')
+    : /schema|merge/.test(kind)
       ? 'Schema investigation'
       : /audit|check|quality/.test(kind)
         ? 'Audit investigation'
         : 'Investigation & evidence'
-  const evidence = signalEvidence(timeline)
+  const evidence = incidentEvidence(timeline)
   return (
     <section className="flex flex-col gap-4">
       <div>
@@ -361,6 +365,13 @@ function IncidentInvestigation({
           Observed asset state and persisted incident evidence in {env}.
         </p>
       </div>
+      <IncidentSignals
+        env={env}
+        incident={incident}
+        evidence={evidence}
+        runs={runs}
+        investigation={investigation}
+      />
       {investigation.kind === 'unavailable' ? (
         <EmptyState title={`${heading} unavailable`}>
           {investigation.message}
@@ -619,6 +630,99 @@ function IncidentRuns({
   )
 }
 
+function IncidentEventBody({ event }: { event: IncidentTimelineEvent }) {
+  if (typeof event.payload.text === 'string') return event.payload.text
+  if (typeof event.payload.comment === 'string') return event.payload.comment
+  return (
+    <details>
+      <summary className="cursor-pointer text-xs text-muted-foreground">
+        View recorded evidence
+      </summary>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-sunken p-3 text-xs">
+        {payloadText(event.payload)}
+      </pre>
+    </details>
+  )
+}
+
+function IncidentAssetLineage({
+  env,
+  investigation,
+}: {
+  env: string
+  investigation: Awaited<ReturnType<typeof getIncidentDetail>>['investigation']
+}) {
+  return (
+    <>
+      {'asset' in investigation ? (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Observed dependencies for this asset in {env}.
+          </p>
+          {[
+            [
+              'Upstream',
+              investigation.asset.dependencies.map((key) => key.join('/')),
+            ],
+            [
+              'Downstream',
+              (investigation.asset.downstream ?? []).map((asset) => asset.id),
+            ],
+          ].map(([label, ids]) => (
+            <section key={String(label)} className="space-y-2">
+              <h3 className="text-sm font-medium">{label}</h3>
+              {Array.isArray(ids) && ids.length ? (
+                <ul className="space-y-2">
+                  {ids.map((id) => (
+                    <li key={id}>
+                      <Link
+                        to="/assets/$assetId"
+                        params={{ assetId: id }}
+                        search={{ env }}
+                        className="break-all font-mono text-xs"
+                      >
+                        {id}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No {String(label).toLowerCase()} assets returned.
+                </p>
+              )}
+            </section>
+          ))}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+function incidentInitialTab(status: IncidentRecord['status']) {
+  return status === 'resolved' ? 'postmortem' : 'summary'
+}
+
+function incidentTabs(status: IncidentRecord['status']) {
+  return status === 'resolved'
+    ? ([
+        'postmortem',
+        'summary',
+        'activity',
+        'runs',
+        'lineage',
+        'snapshots',
+      ] as const)
+    : ([
+        'summary',
+        'activity',
+        'runs',
+        'lineage',
+        'snapshots',
+        'postmortem',
+      ] as const)
+}
+
 export function IncidentDetail({
   env,
   incident,
@@ -637,10 +741,10 @@ export function IncidentDetail({
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [tab, setTab] = React.useState<
-    'summary' | 'postmortem' | 'activity' | 'runs' | 'lineage'
-  >(incident.status === 'resolved' ? 'postmortem' : 'summary')
+    'summary' | 'postmortem' | 'activity' | 'runs' | 'lineage' | 'snapshots'
+  >(incidentInitialTab(incident.status))
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([])
-  const tabs = ['summary', 'postmortem', 'activity', 'runs', 'lineage'] as const
+  const tabs = incidentTabs(incident.status)
   const linkedEvidence = linkedIncidentEvidence(timeline, env)
   async function run(action: () => Promise<unknown>, clear?: () => void) {
     if (pending) return
@@ -708,7 +812,7 @@ export function IncidentDetail({
     clearIncidentOperationKey(env, incident.id, 'follow-up-create', intent)
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[400px_minmax(0,1fr)] lg:overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[320px_minmax(0,1fr)] lg:overflow-hidden">
       <IncidentSummary
         env={env}
         incident={incident}
@@ -729,7 +833,10 @@ export function IncidentDetail({
           )
         }
       />
-      <main className="flex shrink-0 flex-col lg:min-h-0 lg:overflow-hidden">
+      <section
+        aria-label="Incident investigation"
+        className="flex shrink-0 flex-col lg:min-h-0 lg:overflow-hidden"
+      >
         <div
           role="tablist"
           aria-label="Incident details"
@@ -837,12 +944,14 @@ export function IncidentDetail({
                 incident={incident}
                 timeline={timeline}
                 investigation={investigation}
+                runs={runs}
               />
               <SchemaDecisions
                 key={`${env}:${incident.id}`}
                 env={env}
                 incidentId={incident.id}
                 kind={incident.kind}
+                assetId={incident.asset_id}
               />
             </>
           ) : null}
@@ -865,9 +974,9 @@ export function IncidentDetail({
                         </span>
                       </div>
                       {payloadText(event.payload) ? (
-                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-sunken p-3 text-xs text-text-2">
-                          {payloadText(event.payload)}
-                        </pre>
+                        <div className="mt-2 text-sm leading-relaxed text-text-2">
+                          <IncidentEventBody event={event} />
+                        </div>
                       ) : null}
                     </li>
                   ))}
@@ -977,9 +1086,27 @@ export function IncidentDetail({
               </form>
             </section>
           ) : null}
+          {tab === 'snapshots' ? (
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-medium">Iceberg snapshots</h2>
+              <p className="text-sm text-muted-foreground">
+                Inspect retained table versions and their recorded
+                materializations.
+              </p>
+              <Link
+                to="/assets/$assetId"
+                params={{ assetId: incident.asset_id }}
+                search={{ env, tab: 'snapshots' }}
+                className="inline-flex items-center gap-2 text-sm"
+              >
+                <ExternalLinkIcon className="size-4" /> Open asset snapshots
+              </Link>
+            </section>
+          ) : null}
           {tab === 'lineage' ? (
             <section className="flex flex-col gap-3">
               <h2 className="m-0 text-[15px] font-medium">Lineage</h2>
+              <IncidentAssetLineage env={env} investigation={investigation} />
               {linkedEvidence.length ? (
                 <Card className="p-4">
                   <KeyValues keyWidth={90} items={linkedEvidence} />
@@ -992,7 +1119,7 @@ export function IncidentDetail({
             </section>
           ) : null}
         </div>
-      </main>
+      </section>
     </div>
   )
 }

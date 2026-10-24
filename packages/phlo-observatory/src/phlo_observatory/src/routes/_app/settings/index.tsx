@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { PanelUnavailable } from '@/components/phlo/states'
 import { getReadiness } from '@/lib/data/api/readiness'
+import { QueryPreviewStatus } from '@/components/query/preview-status'
 
 export const Route = createFileRoute('/_app/settings/')({
   loaderDeps: ({ search }) => ({ env: search.env }),
@@ -419,22 +420,28 @@ function FeatureReadinessCard({
           </p>
           {Object.entries(readiness.data.capabilities).map(([name, checks]) => (
             <div key={name} className="border-t border-border py-3">
-              <h3 className="text-sm font-medium">
-                {name.replaceAll('_', ' ')}
-              </h3>
-              {checks.map((check, index) =>
-                check.state === 'ready' ? (
-                  <p key={index} className="text-xs">
-                    {check.message} Reason: {check.reason_code}.
-                  </p>
-                ) : (
-                  <PanelUnavailable
-                    key={index}
-                    title={name.replaceAll('_', ' ')}
-                    status={check.state}
-                    message={`${check.message} ${check.remediation}\nReason: ${check.reason_code}.`}
-                  />
-                ),
+              {name === 'query_preview' ? (
+                <QueryPreviewStatus checks={checks} />
+              ) : (
+                <>
+                  <h3 className="text-sm font-medium">
+                    {name.replaceAll('_', ' ')}
+                  </h3>
+                  {checks.map((check, index) =>
+                    check.state === 'ready' ? (
+                      <p key={index} className="text-xs">
+                        {check.message} Reason: {check.reason_code}.
+                      </p>
+                    ) : (
+                      <PanelUnavailable
+                        key={index}
+                        title={name.replaceAll('_', ' ')}
+                        status={check.state}
+                        message={`${check.message} ${check.remediation}\nReason: ${check.reason_code}.`}
+                      />
+                    ),
+                  )}
+                </>
               )}
             </div>
           ))}

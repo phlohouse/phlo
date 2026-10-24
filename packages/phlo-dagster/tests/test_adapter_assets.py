@@ -169,3 +169,140 @@ def test_user_failure_and_non_dagster_exception_leave_scopes(execution):
     with pytest.raises(ValueError, match="broken"):
         next(_execute(broken))
     assert active == []
+
+
+@pytest.fixture
+def candidate_environments(monkeypatch):
+    monkeypatch.setattr(
+        "phlo.config.project.get_environment_targets",
+        lambda: {"research": SimpleNamespace(nessie_ref="release_test")},
+    )
+
+
+def test_source_owned_candidate_executes_with_wap_enabled(
+    execution, monkeypatch, candidate_environments
+):
+    from phlo.capabilities.specs import IsolatedWriteSpec
+
+    writes = []
+    monkeypatch.setattr(
+        "phlo.infrastructure.load_wap_config", lambda: SimpleNamespace(enabled=True)
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.wap_launch.verify_wap_execution",
+        lambda *args, **kwargs: pytest.fail("Candidate must not enter WAP promotion"),
+    )
+    spec = AssetSpec(
+        key="reviewed_csv",
+        group=None,
+        description=None,
+        run=RunSpec(
+            fn=lambda runtime: writes.append(runtime.tags["phlo/ref"]),
+            isolated_write=IsolatedWriteSpec(ref="sandbox-upload-abc", actor="alice"),
+        ),
+    )
+    context = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="candidate-run",
+            tags={"phlo/ref": "sandbox-upload-abc", "phlo/actor": "alice"},
+        )
+    )
+    assert len(list(adapter._execute_asset(context, spec))) == 1
+    assert writes == ["sandbox-upload-abc"]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"phlo/ref": "main"},
+        {"phlo/ref": "other-candidate"},
+        {"phlo/actor": "bob"},
+        {"phlo/actor": ""},
+        {"phlo/wap_branch": "sandbox-upload-abc"},
+        {"phlo/wap_binding": "forged-binding"},
+    ],
+)
+def test_isolated_candidate_rejects_identity_or_promotion_tag_changes(
+    execution, monkeypatch, candidate_environments, changes
+):
+    from phlo.capabilities.specs import IsolatedWriteSpec
+    from phlo.exceptions import PhloConfigError
+
+    monkeypatch.setattr(
+        "phlo.infrastructure.load_wap_config", lambda: SimpleNamespace(enabled=True)
+    )
+    writes = []
+    spec = AssetSpec(
+        key="reviewed_csv",
+        group=None,
+        description=None,
+        run=RunSpec(
+            fn=lambda runtime: writes.append("write"),
+            isolated_write=IsolatedWriteSpec(ref="sandbox-upload-abc", actor="alice"),
+        ),
+    )
+    tags = {"phlo/ref": "sandbox-upload-abc", "phlo/actor": "alice", **changes}
+    context = SimpleNamespace(run=SimpleNamespace(run_id="candidate-run", tags=tags))
+    with pytest.raises(PhloConfigError, match="restricted"):
+        list(adapter._execute_asset(context, spec))
+    assert writes == []
+
+
+def test_caller_tags_cannot_exempt_ordinary_asset_from_wap(execution, monkeypatch):
+    monkeypatch.setattr(
+        "phlo.infrastructure.load_wap_config", lambda: SimpleNamespace(enabled=True)
+    )
+    verified = []
+
+    def require_manifest(run, **kwargs):
+        verified.append(run.run_id)
+        raise ValueError("Missing WAP manifest")
+
+    monkeypatch.setattr("phlo_dagster.wap_launch.verify_wap_execution", require_manifest)
+    writes = []
+    spec = AssetSpec(
+        key="ordinary",
+        group=None,
+        description=None,
+        run=RunSpec(fn=lambda runtime: writes.append("write")),
+    )
+    tags = {
+        "phlo/ref": "sandbox-upload-abc",
+        "phlo/actor": "alice",
+        "phlo/isolated_write": "true",
+        "phlo/skip_wap": "true",
+    }
+    context = SimpleNamespace(run=SimpleNamespace(run_id="ordinary-run", tags=tags))
+    with pytest.raises(ValueError, match="Missing WAP manifest"):
+        list(adapter._execute_asset(context, spec))
+    assert verified == ["ordinary-run"]
+    assert writes == []
+
+
+def test_isolated_contract_cannot_write_configured_custom_primary(
+    execution, monkeypatch, candidate_environments
+):
+    from phlo.capabilities.specs import IsolatedWriteSpec
+    from phlo.exceptions import PhloConfigError
+
+    monkeypatch.setattr(
+        "phlo.infrastructure.load_wap_config", lambda: SimpleNamespace(enabled=True)
+    )
+    writes = []
+    spec = AssetSpec(
+        key="unsafe_direct_write",
+        group=None,
+        description=None,
+        run=RunSpec(
+            fn=lambda runtime: writes.append("write"),
+            isolated_write=IsolatedWriteSpec(ref="release_test", actor="alice"),
+        ),
+    )
+    context = SimpleNamespace(
+        run=SimpleNamespace(
+            run_id="candidate-run", tags={"phlo/ref": "release_test", "phlo/actor": "alice"}
+        )
+    )
+    with pytest.raises(PhloConfigError, match="restricted"):
+        list(adapter._execute_asset(context, spec))
+    assert writes == []

@@ -1,0 +1,142 @@
+"""Load observations never widen actor/asset/run scope or invent per-file counts."""
+
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from fastapi import HTTPException
+
+from phlo_api.api import v1_loads as loads
+from phlo_api.api.v1_assets import AssetView, AssetWriteCount
+from phlo_api.api.v1_jobs import Run
+from phlo_api.errors import BackendUnavailableError
+from security_test_support import authenticated_client
+
+NOW = datetime(2026, 10, 22, 12, tzinfo=UTC)
+
+
+@pytest.fixture
+def observations(monkeypatch, tmp_path):
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS", '{"sandbox":{"dagster_location":"sandbox","nessie_ref":"main"}}'
+    )
+    asset = AssetView(
+        id="bronze/lims",
+        key=["bronze", "lims"],
+        description=None,
+        compute_kind="csv",
+        group_name="bronze",
+        is_source=False,
+        is_ingestion=True,
+        dependencies=[],
+        last_materialization_at=NOW,
+        last_run_id="main-run",
+        relation="bronze.lims",
+        source_name="LIMS",
+        job_names=["ingest_lims"],
+        materializations=[AssetWriteCount(run_id="main-run", timestamp=NOW, rows_inserted=96)],
+    )
+    run = Run(
+        run_id="main-run",
+        job_id="ingest_lims",
+        status="SUCCESS",
+        created_at=NOW,
+        started_at=NOW,
+        ended_at=NOW,
+        duration_seconds=1,
+        selected_assets=[["bronze", "lims"]],
+        tags={},
+        logs_url="/run",
+        resource_id="run",
+    )
+    monkeypatch.setattr(loads.assets, "_assets", AsyncMock(return_value=[asset]))
+    monkeypatch.setattr(loads.jobs, "_scoped_runs", AsyncMock(return_value=[run]))
+    upload = SimpleNamespace(
+        upload_id="own", actor="test:operator", env="sandbox", filename="lims.csv", byte_count=123
+    )
+    receipt = SimpleNamespace(
+        upload_id="own",
+        actor="test:operator",
+        env="sandbox",
+        asset_id="dlt_review",
+        relation="bronze.review",
+        checksum="checksum",
+        candidate_ref="sandbox-upload-own",
+        review_version=2,
+        recipe_digest="recipe",
+        run_id="candidate-run",
+        status="loaded",
+        row_count=96,
+        loaded=True,
+        job_name="replanned-new-job",
+        candidate_hash="written",
+        snapshot_id="9007199254740993",
+        attempts=[SimpleNamespace(run_id="failed-run", status="FAILURE", launch_ref_hash="base")],
+    )
+    other = SimpleNamespace(upload_id="other", actor="other", env="sandbox")
+    monkeypatch.setattr(loads.uploads, "_records", lambda: [upload, other])
+    monkeypatch.setattr(loads.candidates, "_all", lambda: [receipt, other])
+    return asset, run, receipt
+
+
+def test_actual_receipts_and_ingestion_counts_preserve_identity_and_grain(observations):
+    response = authenticated_client("operator").get("/api/v1/loads?env=sandbox")
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert len(items) == 3
+    private = next(item for item in items if item["evidence_kind"] == "csv_candidate")
+    assert private["rows"] == 96 and private["snapshot_id"] == "9007199254740993"
+    assert private["observed_at"] is None and private["byte_count"] == 123
+    failed = next(item for item in items if item["evidence_kind"] == "csv_attempt")
+    assert failed["rows"] is None and failed["snapshot_id"] is None
+    assert failed["job_id"] is None  # A replanned receipt job does not identify the old attempt.
+    main = next(item for item in items if item["evidence_kind"] == "ingestion_run")
+    assert main["rows"] == 96 and main["byte_count"] is None and main["checksum"] is None
+    assert main["status"] == "run_success" and "not a per-file" in main["detail"]
+    assert all(item["upload_id"] != "other" for item in items)
+
+
+def test_per_asset_and_run_denials_are_filtered_before_return(observations, monkeypatch):
+    original = loads.enforce_http_operation
+
+    async def deny(request, spec, params):
+        if params.get("run_id") == "failed-run" or params.get("asset_id") == "bronze/lims":
+            raise HTTPException(403, "denied")
+        return await original(request, spec, params)
+
+    monkeypatch.setattr(loads, "enforce_http_operation", deny)
+    response = authenticated_client("operator").get("/api/v1/loads?env=sandbox")
+    assert response.status_code == 200, response.text
+    assert [item["run_id"] for item in response.json()["items"]] == ["candidate-run"]
+
+
+def test_cross_actor_receipts_are_private_even_with_project_read(observations):
+    client = authenticated_client("operator")
+    client.headers["x-test-subject"] = "different"
+    response = client.get("/api/v1/loads?env=sandbox")
+    assert response.status_code == 200, response.text
+    assert [item["evidence_kind"] for item in response.json()["items"]] == ["ingestion_run"]
+
+
+def test_failed_run_without_write_evidence_never_invents_zero_loaded_rows(observations):
+    asset, run, _ = observations
+    asset.materializations = []
+    run.status = "FAILURE"
+    run.selected_assets = []  # A job-level run with declared membership is still traceable.
+    response = authenticated_client("operator").get("/api/v1/loads?env=sandbox")
+    item = next(row for row in response.json()["items"] if row["evidence_kind"] == "ingestion_run")
+    assert item["status"] == "run_failure" and item["rows"] is None
+
+
+def test_unavailable_inventory_fails_closed_and_anonymous_is_denied(observations, monkeypatch):
+    from fastapi.testclient import TestClient
+    from phlo_api.main import app
+
+    assert TestClient(app).get("/api/v1/loads?env=sandbox").status_code == 401
+    monkeypatch.setattr(
+        loads.assets, "_assets", AsyncMock(side_effect=BackendUnavailableError("unavailable"))
+    )
+    response = authenticated_client("operator").get("/api/v1/loads?env=sandbox")
+    assert response.status_code == 503

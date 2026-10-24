@@ -1,0 +1,8 @@
+[transform]
+default_namespace = "review"
+default_schema = "review"
+default_materialization = "table"
+
+[phlo_transform.sources]
+"gold.batch_release_metrics" = "gold.batch_release_metrics"
+"bronze.bioreactor_telemetry" = "bronze.bioreactor_telemetry"

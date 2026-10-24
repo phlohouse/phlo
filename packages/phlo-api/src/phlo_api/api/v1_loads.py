@@ -1,0 +1,212 @@
+"""Bounded authorized load observations; private CSV receipts and scoped ingestion runs."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Literal, TypedDict
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import Field
+
+from phlo_api.api import v1_assets as assets, v1_jobs as jobs, v1_upload_ingestion as candidates
+from phlo_api.api import v1_uploads as uploads
+from phlo_api.api.authentication import get_request_principal
+from phlo_api.api.v1 import _target
+from phlo_api.security_manifest import HTTP_ROUTE_MANIFEST, enforce_http_operation
+from phlo_api.v1_contract import Environment, WireModel
+
+router = APIRouter(tags=["v1 load observations"])
+MAX_RUNS = 100
+MAX_ITEMS = 300
+
+
+class _CsvObservationIdentity(TypedDict):
+    name: str
+    source: str
+    asset_id: str
+    relation: str
+    byte_count: int
+    checksum: str
+    ref: str
+    upload_id: str
+    review_version: int
+    recipe_digest: str
+
+
+class LoadObservation(WireModel):
+    id: str
+    evidence_kind: Literal["csv_candidate", "csv_attempt", "ingestion_run"]
+    name: str
+    source: str
+    asset_id: str
+    relation: str | None
+    status: str
+    observed_at: datetime | None
+    rows: int | None = Field(default=None, ge=0)
+    rows_basis: str | None = None
+    byte_count: int | None = Field(default=None, ge=0)
+    checksum: str | None = None
+    run_id: str | None = None
+    job_id: str | None = None
+    ref: str
+    ref_hash: str | None = None
+    snapshot_id: str | None = None
+    upload_id: str | None = None
+    review_version: int | None = None
+    recipe_digest: str | None = None
+    detail: str
+
+
+class LoadPage(WireModel):
+    env: Environment
+    items: list[LoadObservation]
+    observed_at: datetime
+    truncated: bool
+    limitations: list[str]
+
+
+async def _visible(request: Request, operation: str, **params: str) -> bool:
+    try:
+        await enforce_http_operation(request, HTTP_ROUTE_MANIFEST[operation], params)
+    except HTTPException as exc:
+        if exc.status_code in {403, 404}:
+            return False
+        raise
+    return True
+
+
+async def _csv_observations(request: Request, env: Environment) -> list[LoadObservation]:
+    principal = get_request_principal(request)
+    if principal is None:
+        raise HTTPException(401, "Authentication is required.")
+    # Filter creator and environment before looking up related metadata. No raw CSV is read.
+    private = {
+        item.upload_id: item
+        for item in uploads._records()
+        if item.env == env and item.actor == principal.subject
+    }
+    items = []
+    for receipt in candidates._all():
+        upload = private.get(receipt.upload_id)
+        if receipt.env != env or receipt.actor != principal.subject or upload is None:
+            continue
+        if not await _visible(request, "v1_asset_detail", asset_id=receipt.asset_id):
+            continue
+        common: _CsvObservationIdentity = {
+            "name": upload.filename,
+            "source": "Reviewed CSV",
+            "asset_id": receipt.asset_id,
+            "relation": receipt.relation,
+            "byte_count": upload.byte_count,
+            "checksum": receipt.checksum,
+            "ref": receipt.candidate_ref,
+            "upload_id": receipt.upload_id,
+            "review_version": receipt.review_version,
+            "recipe_digest": receipt.recipe_digest,
+        }
+        if receipt.run_id is None or await _visible(request, "v1_run", run_id=receipt.run_id):
+            items.append(
+                LoadObservation(
+                    id=f"csv:{receipt.upload_id}:{receipt.run_id or 'prepared'}",
+                    evidence_kind="csv_candidate",
+                    status=receipt.status,
+                    observed_at=None,
+                    rows=receipt.row_count if receipt.loaded else None,
+                    rows_basis="Verified candidate table total" if receipt.loaded else None,
+                    run_id=receipt.run_id,
+                    job_id=receipt.job_name,
+                    ref_hash=receipt.candidate_hash,
+                    snapshot_id=receipt.snapshot_id,
+                    detail=(
+                        "Recorded private receipt; exact run and candidate snapshot were verified before Loaded. "
+                        "Open the upload to recheck current evidence. Main is separate."
+                        if receipt.loaded
+                        else "Recorded candidate state; this is not evidence that rows were loaded. "
+                        "Open the upload to refresh the exact run."
+                    ),
+                    **common,
+                )
+            )
+        for attempt in receipt.attempts:
+            if not await _visible(request, "v1_run", run_id=attempt.run_id):
+                continue
+            items.append(
+                LoadObservation(
+                    id=f"csv-attempt:{receipt.upload_id}:{attempt.run_id}",
+                    evidence_kind="csv_attempt",
+                    status=attempt.status.lower(),
+                    observed_at=None,
+                    run_id=attempt.run_id,
+                    job_id=None,
+                    ref_hash=attempt.launch_ref_hash,
+                    detail="Retained prior attempt. Failure does not establish zero staged rows or a loaded table; "
+                    "partial candidate evidence is preserved. Timestamp and loaded row count are unavailable in this receipt.",
+                    **common,
+                )
+            )
+    return items
+
+
+def _ingestion_observation(asset: assets.AssetView, run: jobs.Run, ref: str) -> LoadObservation:
+    write = next((item for item in asset.materializations if item.run_id == run.run_id), None)
+    return LoadObservation(
+        id=f"run:{run.run_id}:{asset.id}",
+        evidence_kind="ingestion_run",
+        name=asset.source_name or asset.id,
+        source=asset.source_name or asset.compute_kind or "Ingestion",
+        asset_id=asset.id,
+        relation=asset.relation,
+        status=f"run_{run.status.lower()}",
+        observed_at=write.timestamp if write else run.ended_at or run.started_at or run.created_at,
+        rows=write.rows_inserted if write else None,
+        rows_basis="Recorded rows inserted by this asset/run"
+        if write and write.rows_inserted is not None
+        else None,
+        run_id=run.run_id,
+        job_id=run.job_id,
+        ref=ref,
+        ref_hash=run.tags.get("phlo/ref_hash"),
+        detail="Scoped ingestion run observation, not a per-file receipt. File identity, bytes, held/rejected rows "
+        "and source-load package IDs are unavailable unless separately recorded. Run status may cover other assets; "
+        "a failed run alone does not establish this asset's loaded or rejected rows.",
+    )
+
+
+@router.get("/loads", response_model=LoadPage)
+async def v1_loads(request: Request, env: Environment = Query()) -> LoadPage:
+    target = _target(request, env)
+    # Both backend inventories must be available before returning a partial success.
+    inventory = await assets._assets(request, env)
+    runs = await jobs._scoped_runs(target.dagster_location, target.nessie_ref, MAX_RUNS)
+    items = await _csv_observations(request, env)
+    ingestion_assets = [asset for asset in inventory if asset.is_ingestion or asset.is_source]
+    readable_runs = {
+        run.run_id: await _visible(request, "v1_run", run_id=run.run_id) for run in runs
+    }
+    for asset in ingestion_assets[:100]:
+        if not await _visible(request, "v1_asset_detail", asset_id=asset.id):
+            continue
+        for run in runs:
+            materialized = any(write.run_id == run.run_id for write in asset.materializations)
+            selected = asset.key in run.selected_assets
+            declared_job = run.job_id in asset.job_names and not run.selected_assets
+            if not (materialized or selected or declared_job):
+                continue
+            if not readable_runs[run.run_id]:
+                continue
+            items.append(_ingestion_observation(asset, run, target.nessie_ref))
+    items.sort(
+        key=lambda item: (item.observed_at or datetime.min.replace(tzinfo=UTC), item.id),
+        reverse=True,
+    )
+    return LoadPage(
+        env=env,
+        items=items[:MAX_ITEMS],
+        observed_at=datetime.now(UTC),
+        truncated=len(runs) >= MAX_RUNS or len(items) > MAX_ITEMS or len(ingestion_assets) > 100,
+        limitations=[
+            "Bounded observations: up to 100 scoped runs, 100 ingestion assets and 300 rows; asset write-count history covers the last seven days.",
+            "CSV receipts are creator-private recorded state; timestamps absent from the receipt remain unavailable.",
+            "Ingestion observations are asset/run evidence, not invented file/extract or DLT package records. Counts are not summed across these different grains.",
+        ],
+    )

@@ -475,6 +475,32 @@ def _asset_policies(spec: AssetSpec) -> dict[str, Any]:
     }
 
 
+def _verify_isolated_write(runtime: DagsterRuntime, spec: AssetSpec) -> bool:
+    """Validate the source-owned contract before bypassing promotion-only WAP checks."""
+    isolation = spec.run.isolated_write if spec.run else None
+    if isolation is None:
+        return False
+    from phlo.config.project import get_environment_targets
+
+    # A custom deployed primary ref is as protected as main. Resolve the
+    # complete configured map before trusting an isolated-write declaration;
+    # missing or invalid configuration must fail closed.
+    protected_refs = {target.nessie_ref for target in get_environment_targets().values()}
+    tags = runtime.tags
+    if (
+        isolation.ref in protected_refs
+        or tags.get("phlo/ref") != isolation.ref
+        or tags.get("phlo/actor") != isolation.actor
+        or any(key.startswith("phlo/wap") for key in tags)
+    ):
+        from phlo.exceptions import PhloConfigError
+
+        raise PhloConfigError(
+            message="This isolated ingestion is restricted to its reviewed candidate reference and actor, without WAP promotion."
+        )
+    return True
+
+
 def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterable[Any]:
     """Collect scoped results, then yield checks before propagating a deferred failure."""
     # Dagster's multiprocess worker replaces root handlers after module
@@ -485,7 +511,7 @@ def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterab
     runtime = DagsterRuntime(context, asset_capability_overrides=dict(spec.capability_overrides))
     from phlo.infrastructure import load_wap_config
 
-    if (
+    if not _verify_isolated_write(runtime, spec) and (
         load_wap_config().enabled
         or runtime.tags.get("phlo/wap_branch")
         or runtime.tags.get("phlo/ref", "").startswith("pipeline-run-")

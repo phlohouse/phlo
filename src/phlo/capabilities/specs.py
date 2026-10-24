@@ -93,6 +93,29 @@ class PartitionSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class IsolatedWriteSpec:
+    """Source-owned candidate write contract; execution never promotes its ref.
+
+    Providers declaring this contract must enforce the same ref and actor before
+    reading source data or writing. Run tags cannot declare this exemption.
+    """
+
+    ref: str
+    actor: str
+
+    def __post_init__(self) -> None:
+        if (
+            not self.ref.strip()
+            or self.ref != self.ref.strip()
+            or self.ref == "main"
+            or self.ref.startswith("pipeline-run-")
+            or not self.actor.strip()
+            or self.actor != self.actor.strip()
+        ):
+            raise ValueError("An isolated write requires a candidate ref and an exact actor.")
+
+
+@dataclass(frozen=True, slots=True)
 class RunSpec:
     """Execution details for an asset."""
 
@@ -102,6 +125,7 @@ class RunSpec:
     retry_delay_seconds: int | None = None
     cron: str | None = None
     freshness_hours: tuple[int, int] | None = None
+    isolated_write: IsolatedWriteSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)

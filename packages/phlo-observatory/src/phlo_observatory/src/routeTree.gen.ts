@@ -14,13 +14,17 @@ import { Route as HealthzRouteImport } from './routes/healthz'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppBranchesRouteImport } from './routes/_app/branches'
 import { Route as AppDatasetsRouteImport } from './routes/_app/datasets'
+import { Route as AppMetricsRouteImport } from './routes/_app/metrics'
 import { Route as AppQueryRouteImport } from './routes/_app/query'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
+import { Route as AppSourcesRouteImport } from './routes/_app/sources'
 import { Route as AppStagingRouteImport } from './routes/_app/staging'
 import { Route as AppStatesRouteImport } from './routes/_app/states'
 import { Route as AppTransformRouteImport } from './routes/_app/transform'
 import { Route as AppAssetsIndexRouteImport } from './routes/_app/assets/index'
 import { Route as AppAssetsAssetIdRouteImport } from './routes/_app/assets/$assetId'
+import { Route as AppDataProductsIndexRouteImport } from './routes/_app/data-products/index'
+import { Route as AppDataProductsProductIdRouteImport } from './routes/_app/data-products/$productId'
 import { Route as AppIncidentsIndexRouteImport } from './routes/_app/incidents/index'
 import { Route as AppIncidentsIncidentIdRouteImport } from './routes/_app/incidents/$incidentId'
 import { Route as AppPipelinesIndexRouteImport } from './routes/_app/pipelines/index'
@@ -55,6 +59,11 @@ const AppDatasetsRoute = AppDatasetsRouteImport.update({
   path: '/datasets',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMetricsRoute = AppMetricsRouteImport.update({
+  id: '/metrics',
+  path: '/metrics',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppQueryRoute = AppQueryRouteImport.update({
   id: '/query',
   path: '/query',
@@ -63,6 +72,11 @@ const AppQueryRoute = AppQueryRouteImport.update({
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSourcesRoute = AppSourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
   getParentRoute: () => AppRoute,
 } as any)
 const AppStagingRoute = AppStagingRouteImport.update({
@@ -90,6 +104,17 @@ const AppAssetsAssetIdRoute = AppAssetsAssetIdRouteImport.update({
   path: '/assets/$assetId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDataProductsIndexRoute = AppDataProductsIndexRouteImport.update({
+  id: '/data-products/',
+  path: '/data-products/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDataProductsProductIdRoute =
+  AppDataProductsProductIdRouteImport.update({
+    id: '/data-products/$productId',
+    path: '/data-products/$productId',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppIncidentsIndexRoute = AppIncidentsIndexRouteImport.update({
   id: '/incidents/',
   path: '/incidents/',
@@ -142,18 +167,22 @@ export interface FileRoutesByFullPath {
   '/healthz': typeof HealthzRoute
   '/branches': typeof AppBranchesRoute
   '/datasets': typeof AppDatasetsRoute
+  '/metrics': typeof AppMetricsRoute
   '/query': typeof AppQueryRoute
   '/reports': typeof AppReportsRoute
+  '/sources': typeof AppSourcesRoute
   '/staging': typeof AppStagingRoute
   '/states': typeof AppStatesRoute
   '/transform': typeof AppTransformRoute
   '/assets/$assetId': typeof AppAssetsAssetIdRoute
+  '/data-products/$productId': typeof AppDataProductsProductIdRoute
   '/incidents/$incidentId': typeof AppIncidentsIncidentIdRoute
   '/pipelines/$jobName': typeof AppPipelinesJobNameRoute
   '/pipelines/timeline': typeof AppPipelinesTimelineRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/members': typeof AppSettingsMembersRoute
   '/assets/': typeof AppAssetsIndexRoute
+  '/data-products/': typeof AppDataProductsIndexRoute
   '/incidents/': typeof AppIncidentsIndexRoute
   '/pipelines/': typeof AppPipelinesIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
@@ -163,19 +192,23 @@ export interface FileRoutesByTo {
   '/healthz': typeof HealthzRoute
   '/branches': typeof AppBranchesRoute
   '/datasets': typeof AppDatasetsRoute
+  '/metrics': typeof AppMetricsRoute
   '/query': typeof AppQueryRoute
   '/reports': typeof AppReportsRoute
+  '/sources': typeof AppSourcesRoute
   '/staging': typeof AppStagingRoute
   '/states': typeof AppStatesRoute
   '/transform': typeof AppTransformRoute
   '/': typeof AppIndexRoute
   '/assets/$assetId': typeof AppAssetsAssetIdRoute
+  '/data-products/$productId': typeof AppDataProductsProductIdRoute
   '/incidents/$incidentId': typeof AppIncidentsIncidentIdRoute
   '/pipelines/$jobName': typeof AppPipelinesJobNameRoute
   '/pipelines/timeline': typeof AppPipelinesTimelineRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/members': typeof AppSettingsMembersRoute
   '/assets': typeof AppAssetsIndexRoute
+  '/data-products': typeof AppDataProductsIndexRoute
   '/incidents': typeof AppIncidentsIndexRoute
   '/pipelines': typeof AppPipelinesIndexRoute
   '/settings': typeof AppSettingsIndexRoute
@@ -187,19 +220,23 @@ export interface FileRoutesById {
   '/healthz': typeof HealthzRoute
   '/_app/branches': typeof AppBranchesRoute
   '/_app/datasets': typeof AppDatasetsRoute
+  '/_app/metrics': typeof AppMetricsRoute
   '/_app/query': typeof AppQueryRoute
   '/_app/reports': typeof AppReportsRoute
+  '/_app/sources': typeof AppSourcesRoute
   '/_app/staging': typeof AppStagingRoute
   '/_app/states': typeof AppStatesRoute
   '/_app/transform': typeof AppTransformRoute
   '/_app/': typeof AppIndexRoute
   '/_app/assets/$assetId': typeof AppAssetsAssetIdRoute
+  '/_app/data-products/$productId': typeof AppDataProductsProductIdRoute
   '/_app/incidents/$incidentId': typeof AppIncidentsIncidentIdRoute
   '/_app/pipelines/$jobName': typeof AppPipelinesJobNameRoute
   '/_app/pipelines/timeline': typeof AppPipelinesTimelineRoute
   '/_app/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/_app/settings/members': typeof AppSettingsMembersRoute
   '/_app/assets/': typeof AppAssetsIndexRoute
+  '/_app/data-products/': typeof AppDataProductsIndexRoute
   '/_app/incidents/': typeof AppIncidentsIndexRoute
   '/_app/pipelines/': typeof AppPipelinesIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
@@ -212,18 +249,22 @@ export interface FileRouteTypes {
     | '/healthz'
     | '/branches'
     | '/datasets'
+    | '/metrics'
     | '/query'
     | '/reports'
+    | '/sources'
     | '/staging'
     | '/states'
     | '/transform'
     | '/assets/$assetId'
+    | '/data-products/$productId'
     | '/incidents/$incidentId'
     | '/pipelines/$jobName'
     | '/pipelines/timeline'
     | '/settings/audit-log'
     | '/settings/members'
     | '/assets/'
+    | '/data-products/'
     | '/incidents/'
     | '/pipelines/'
     | '/settings/'
@@ -233,19 +274,23 @@ export interface FileRouteTypes {
     | '/healthz'
     | '/branches'
     | '/datasets'
+    | '/metrics'
     | '/query'
     | '/reports'
+    | '/sources'
     | '/staging'
     | '/states'
     | '/transform'
     | '/'
     | '/assets/$assetId'
+    | '/data-products/$productId'
     | '/incidents/$incidentId'
     | '/pipelines/$jobName'
     | '/pipelines/timeline'
     | '/settings/audit-log'
     | '/settings/members'
     | '/assets'
+    | '/data-products'
     | '/incidents'
     | '/pipelines'
     | '/settings'
@@ -256,19 +301,23 @@ export interface FileRouteTypes {
     | '/healthz'
     | '/_app/branches'
     | '/_app/datasets'
+    | '/_app/metrics'
     | '/_app/query'
     | '/_app/reports'
+    | '/_app/sources'
     | '/_app/staging'
     | '/_app/states'
     | '/_app/transform'
     | '/_app/'
     | '/_app/assets/$assetId'
+    | '/_app/data-products/$productId'
     | '/_app/incidents/$incidentId'
     | '/_app/pipelines/$jobName'
     | '/_app/pipelines/timeline'
     | '/_app/settings/audit-log'
     | '/_app/settings/members'
     | '/_app/assets/'
+    | '/_app/data-products/'
     | '/_app/incidents/'
     | '/_app/pipelines/'
     | '/_app/settings/'
@@ -317,6 +366,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDatasetsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/metrics': {
+      id: '/_app/metrics'
+      path: '/metrics'
+      fullPath: '/metrics'
+      preLoaderRoute: typeof AppMetricsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/query': {
       id: '/_app/query'
       path: '/query'
@@ -329,6 +385,13 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sources': {
+      id: '/_app/sources'
+      path: '/sources'
+      fullPath: '/sources'
+      preLoaderRoute: typeof AppSourcesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/staging': {
@@ -364,6 +427,20 @@ declare module '@tanstack/react-router' {
       path: '/assets/$assetId'
       fullPath: '/assets/$assetId'
       preLoaderRoute: typeof AppAssetsAssetIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/data-products/': {
+      id: '/_app/data-products/'
+      path: '/data-products'
+      fullPath: '/data-products/'
+      preLoaderRoute: typeof AppDataProductsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/data-products/$productId': {
+      id: '/_app/data-products/$productId'
+      path: '/data-products/$productId'
+      fullPath: '/data-products/$productId'
+      preLoaderRoute: typeof AppDataProductsProductIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/incidents/': {
@@ -435,19 +512,23 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppBranchesRoute: typeof AppBranchesRoute
   AppDatasetsRoute: typeof AppDatasetsRoute
+  AppMetricsRoute: typeof AppMetricsRoute
   AppQueryRoute: typeof AppQueryRoute
   AppReportsRoute: typeof AppReportsRoute
+  AppSourcesRoute: typeof AppSourcesRoute
   AppStagingRoute: typeof AppStagingRoute
   AppStatesRoute: typeof AppStatesRoute
   AppTransformRoute: typeof AppTransformRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAssetsAssetIdRoute: typeof AppAssetsAssetIdRoute
+  AppDataProductsProductIdRoute: typeof AppDataProductsProductIdRoute
   AppIncidentsIncidentIdRoute: typeof AppIncidentsIncidentIdRoute
   AppPipelinesJobNameRoute: typeof AppPipelinesJobNameRoute
   AppPipelinesTimelineRoute: typeof AppPipelinesTimelineRoute
   AppSettingsAuditLogRoute: typeof AppSettingsAuditLogRoute
   AppSettingsMembersRoute: typeof AppSettingsMembersRoute
   AppAssetsIndexRoute: typeof AppAssetsIndexRoute
+  AppDataProductsIndexRoute: typeof AppDataProductsIndexRoute
   AppIncidentsIndexRoute: typeof AppIncidentsIndexRoute
   AppPipelinesIndexRoute: typeof AppPipelinesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
@@ -457,19 +538,23 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppBranchesRoute: AppBranchesRoute,
   AppDatasetsRoute: AppDatasetsRoute,
+  AppMetricsRoute: AppMetricsRoute,
   AppQueryRoute: AppQueryRoute,
   AppReportsRoute: AppReportsRoute,
+  AppSourcesRoute: AppSourcesRoute,
   AppStagingRoute: AppStagingRoute,
   AppStatesRoute: AppStatesRoute,
   AppTransformRoute: AppTransformRoute,
   AppIndexRoute: AppIndexRoute,
   AppAssetsAssetIdRoute: AppAssetsAssetIdRoute,
+  AppDataProductsProductIdRoute: AppDataProductsProductIdRoute,
   AppIncidentsIncidentIdRoute: AppIncidentsIncidentIdRoute,
   AppPipelinesJobNameRoute: AppPipelinesJobNameRoute,
   AppPipelinesTimelineRoute: AppPipelinesTimelineRoute,
   AppSettingsAuditLogRoute: AppSettingsAuditLogRoute,
   AppSettingsMembersRoute: AppSettingsMembersRoute,
   AppAssetsIndexRoute: AppAssetsIndexRoute,
+  AppDataProductsIndexRoute: AppDataProductsIndexRoute,
   AppIncidentsIndexRoute: AppIncidentsIndexRoute,
   AppPipelinesIndexRoute: AppPipelinesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,

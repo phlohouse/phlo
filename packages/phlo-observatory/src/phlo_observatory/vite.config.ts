@@ -7,6 +7,8 @@ import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   server: { port: 3000 },
+  // /assets/:id is an application route; keep compiled files elsewhere.
+  build: { assetsDir: '_build' },
   resolve: { tsconfigPaths: true },
   plugins: [
     tailwindcss(),

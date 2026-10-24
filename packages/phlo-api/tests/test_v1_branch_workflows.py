@@ -750,3 +750,108 @@ def test_signed_schema_merge_binds_the_signature_to_durable_decisions(
     assert applied_request[3]["isDryRun"] is False
     assert "dryRun" not in applied_request[3]
     assert applied_request[3]["keyMergeModes"] == [{"key": {"elements": ["sales", "orders"]}}]
+
+
+def test_branch_schema_diff_binds_observed_scoped_heads(branch_api, monkeypatch) -> None:
+    client, _ = branch_api
+    observed = []
+
+    async def read(**kwargs):
+        observed.append(kwargs)
+        return [
+            {
+                "name": "potency",
+                "source": {
+                    "name": "potency",
+                    "field_id": 1,
+                    "type": "double",
+                    "required": False,
+                    "doc": None,
+                },
+                "target": None,
+            }
+        ]
+
+    monkeypatch.setattr(v1_branch_workflows, "read_schema_comparison", read)
+    response = client.get(
+        "/api/v1/branches/prod-feature/schema-diff?env=prod&target=main&source_hash=p2&target_hash=p3&table_key=silver.qc_results"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["columns"][0]["source"]["type"] == "double"
+    assert observed[0]["source_hash"] == "p2"
+    assert observed[0]["target_hash"] == "p3"
+    assert observed[0]["key"] == "silver.qc_results"
+
+
+@pytest.mark.parametrize(
+    "source,target,source_hash,status",
+    [
+        ("staging-feature", "main", "s1", 404),
+        ("prod-feature", "candidate", "p2", 404),
+        ("prod-feature", "main", "old", 409),
+    ],
+)
+def test_branch_schema_diff_rejects_scope_escape_and_stale_heads(
+    branch_api, monkeypatch, source, target, source_hash, status
+) -> None:
+    client, _ = branch_api
+
+    async def forbidden(**kwargs):
+        pytest.fail("Provider schema reads must not run for unscoped or stale revisions")
+
+    monkeypatch.setattr(v1_branch_workflows, "read_schema_comparison", forbidden)
+    response = client.get(
+        f"/api/v1/branches/{source}/schema-diff?env=prod&target={target}&source_hash={source_hash}&target_hash=p3&table_key=silver.qc_results"
+    )
+    assert response.status_code == status, response.text
+
+
+def test_branch_schema_diff_requires_read_scope_before_provider_access(
+    branch_api, monkeypatch
+) -> None:
+    from fastapi import HTTPException
+
+    client, calls = branch_api
+
+    def deny(*args):
+        raise HTTPException(status_code=403, detail="Denied")
+
+    monkeypatch.setattr(v1_branch_workflows, "require_scope", deny)
+    response = client.get(
+        "/api/v1/branches/prod-feature/schema-diff?env=prod&target=main&source_hash=p2&target_hash=p3&table_key=silver.qc_results"
+    )
+    assert response.status_code == 403
+    assert calls["paths"] == []
+
+
+def test_merge_reason_is_required_for_configured_primary_ref(branch_api, monkeypatch):
+    client, calls = branch_api
+    _enable_branch_mutations(monkeypatch)
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        json.dumps({"prod": {"dagster_location": "prod_loc", "nessie_ref": "prod-target"}}),
+    )
+    monkeypatch.setattr(
+        v1_branch_workflows,
+        "load_operational_settings",
+        lambda: SimpleNamespace(require_merge_reason=True),
+    )
+
+    async def no_checks(**kwargs):
+        pytest.fail("A missing required reason must be rejected before premerge checks")
+
+    monkeypatch.setattr(v1_branch_workflows, "_premerge_checks", no_checks)
+    response = client.post(
+        "/api/v1/branches/prod-feature/merge?env=prod",
+        headers={"Idempotency-Key": "merge-custom-primary-missing-reason"},
+        json={
+            "target": "prod-target",
+            "expected_source_hash": "p2",
+            "expected_target_hash": "p1",
+            "signature_id": "unused-signature",
+            "message": "   ",
+        },
+    )
+    assert response.status_code == 422
+    assert "reason" in response.json()["error"]["message"].lower()
+    assert not any("/history/merge" in path for path in calls["paths"])

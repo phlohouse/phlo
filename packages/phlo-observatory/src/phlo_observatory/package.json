@@ -8,6 +8,7 @@
     "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
+    "test:cache": "node --test scripts/cache-headers.test.mjs",
     "lint": "eslint src --ext .ts,.tsx",
     "knip": "knip --no-progress",
     "format": "prettier"
@@ -37,7 +38,7 @@
     "react-dom": "^19.3.0",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

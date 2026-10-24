@@ -186,6 +186,27 @@ replace = "{name}=={next_version}"
 expected_matches = 1
 
 [[release.replacements]]
+files = ["examples/lakehouses/mission-control/pyproject.toml"]
+packages = [
+    "phlo",
+    "phlo-api",
+    "phlo-core-plugins",
+    "phlo-dagster",
+    "phlo-dlt",
+    "phlo-iceberg",
+    "phlo-minio",
+    "phlo-nessie",
+    "phlo-observatory",
+    "phlo-pandera",
+    "phlo-postgres",
+    "phlo-transform",
+    "phlo-trino",
+]
+search = "{name}=={current_version}"
+replace = "{name}=={next_version}"
+expected_matches = 1
+
+[[release.replacements]]
 files = ["examples/lakehouses/clickhouse-ops/pyproject.toml"]
 packages = ["phlo-clickhouse"]
 search = "{name}=={current_version}"

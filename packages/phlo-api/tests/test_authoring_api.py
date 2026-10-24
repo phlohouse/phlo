@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -67,8 +69,9 @@ def test_authoring_routes_create_and_list_templates(monkeypatch, tmp_path) -> No
     assert any(item["name"] == "csv-batch" for item in templates.json()["items"])
 
 
+@pytest.mark.parametrize("authoring_base", ["/api/authoring", "/api/v1/authoring"])
 def test_authoring_create_workflow_returns_conflict_for_existing_files(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, authoring_base
 ) -> None:
     from phlo_api.api import authoring
 
@@ -86,17 +89,21 @@ def test_authoring_create_workflow_returns_conflict_for_existing_files(
     )
 
     response = authenticated_client("operator").post(
-        "/api/authoring/workflows",
+        f"{authoring_base}/workflows",
         json={"domain": "demo", "table": "orders", "unique_key": "id"},
         headers={"Authorization": "Bearer project-token"},
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == {
-        "error": "workflow_already_exists",
-        "message": "Files already exist:\n  - workflows/ingestion/demo/orders.py",
-        "target": "demo/orders",
-    }
+    if authoring_base == "/api/v1/authoring":
+        assert response.json()["error"]["code"] == "bad_input"
+        assert "workflow_already_exists" in response.json()["error"]["message"]
+    else:
+        assert response.json()["detail"] == {
+            "error": "workflow_already_exists",
+            "message": "Files already exist:\n  - workflows/ingestion/demo/orders.py",
+            "target": "demo/orders",
+        }
     audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
     assert "workflow_already_exists" in audit_path.read_text(encoding="utf-8")
 
@@ -144,7 +151,10 @@ def test_authoring_create_workflow_uses_project_root_and_provider(monkeypatch, t
     assert response.json()["provider"] == "sling"
 
 
-def test_authoring_unknown_effect_blocks_unkeyed_retry(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("authoring_base", ["/api/authoring", "/api/v1/authoring"])
+def test_authoring_unknown_effect_blocks_unkeyed_retry(
+    monkeypatch, tmp_path, authoring_base
+) -> None:
     from phlo_api.api import authoring
 
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
@@ -158,14 +168,20 @@ def test_authoring_unknown_effect_blocks_unkeyed_retry(monkeypatch, tmp_path) ->
     monkeypatch.setattr(authoring, "create_workflow_with_provider", lose_response)
     client = authenticated_client("operator")
     payload = {"domain": "demo", "table": "orders", "unique_key": "id"}
-    assert client.post("/api/authoring/workflows", json=payload).status_code == 504
-    retry = client.post("/api/authoring/workflows", json=payload)
+    assert client.post(f"{authoring_base}/workflows", json=payload).status_code == 504
+    retry = client.post(f"{authoring_base}/workflows", json=payload)
     assert retry.status_code == 409
-    assert retry.json()["detail"]["error"] == "operation_unknown"
+    if authoring_base == "/api/v1/authoring":
+        assert "operation_unknown" in retry.json()["error"]["message"]
+    else:
+        assert retry.json()["detail"]["error"] == "operation_unknown"
     assert effect.read_text(encoding="utf-8") == "created\n"
 
 
-def test_authoring_write_routes_require_project_write_scope(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("authoring_base", ["/api/authoring", "/api/v1/authoring"])
+def test_authoring_write_routes_require_project_write_scope(
+    monkeypatch, tmp_path, authoring_base
+) -> None:
     from phlo_api.api import authoring
 
     monkeypatch.setattr("phlo_api.api.operation_controls.requires_http_authorization", lambda: True)
@@ -181,10 +197,10 @@ def test_authoring_write_routes_require_project_write_scope(monkeypatch, tmp_pat
 
     client = authenticated_client("operator")
     missing = TestClient(app).post(
-        "/api/authoring/workflows/validate", json={"workflow_path": str(workflow_file)}
+        f"{authoring_base}/workflows/validate", json={"workflow_path": str(workflow_file)}
     )
     forbidden = client.post(
-        "/api/authoring/workflows/validate",
+        f"{authoring_base}/workflows/validate",
         json={"workflow_path": str(workflow_file)},
         headers={
             "Authorization": "Bearer read-token",
@@ -192,7 +208,7 @@ def test_authoring_write_routes_require_project_write_scope(monkeypatch, tmp_pat
         },
     )
     allowed = client.post(
-        "/api/authoring/workflows/validate",
+        f"{authoring_base}/workflows/validate",
         json={"workflow_path": str(workflow_file)},
         headers={"Authorization": "Bearer project-token"},
     )
@@ -226,7 +242,10 @@ def test_unregulated_authoring_validation_uses_development_identity(monkeypatch,
     assert '"subject": "development:anonymous"' in audit_path.read_text(encoding="utf-8")
 
 
-def test_authoring_validation_rejects_paths_outside_project(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("authoring_base", ["/api/authoring", "/api/v1/authoring"])
+def test_authoring_validation_rejects_paths_outside_project(
+    monkeypatch, tmp_path, authoring_base
+) -> None:
     from phlo_api.api import authoring
 
     project_root = tmp_path / "project"
@@ -241,7 +260,7 @@ def test_authoring_validation_rejects_paths_outside_project(monkeypatch, tmp_pat
     monkeypatch.setattr(authoring, "_validate_workflow_file", lambda path: None)
 
     response = authenticated_client("operator").post(
-        "/api/authoring/workflows/validate",
+        f"{authoring_base}/workflows/validate",
         json={"workflow_path": str(outside_file)},
         headers={"Authorization": "Bearer project-token"},
     )

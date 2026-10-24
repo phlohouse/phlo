@@ -62,7 +62,7 @@ def wap_api(branch_api, monkeypatch, tmp_path):
     return client, runs, references, tmp_path, calls
 
 
-def _write_report(root: Path, row: dict, strategy="branch", **overrides):
+def _write_report(root: Path, row: dict, strategy="branch", context=None, **overrides):
     tags = {tag["key"]: tag["value"] for tag in row["tags"]}
     logical_id = tags["phlo/run_id"]
     report_root = root / ".phlo" / "wap-reports"
@@ -75,6 +75,12 @@ def _write_report(root: Path, row: dict, strategy="branch", **overrides):
         "branch": tags["phlo/wap_branch"],
         "tags": tags,
     }
+    if context is not None:
+        binding.update(
+            schema_version="phlo.wap_launch_manifest.v2",
+            context=context,
+            target_branch=context["target_ref"],
+        )
     raw = json.dumps(binding).encode()
     checksum = hashlib.sha256(raw).hexdigest()
     run_key = hashlib.sha256(logical_id.encode()).hexdigest()[:24]
@@ -92,6 +98,8 @@ def _write_report(root: Path, row: dict, strategy="branch", **overrides):
         "updated_at": "2026-10-03T09:11:12Z",
         **overrides,
     }
+    if context is not None:
+        report.update(context=context, target_branch=context["target_ref"])
     (report_root / f"{logical_id}.json").write_text(json.dumps(report))
     return launch_path
 
@@ -245,3 +253,193 @@ def test_real_launch_report_writer_is_compatible(wap_api):
     assert write_wap_report("prod-one", status="promoted")
     item = client.get("/api/v1/wap/runs?env=prod").json()["items"][0]
     assert item["lifecycle_status"] == "promoted"
+
+
+def _context(**overrides):
+    return {
+        "environment": "laboratory",
+        "target_ref": "release_test",
+        "location": "prod_loc",
+        "backend_id": "a" * 64,
+        "strategy": "branch",
+        **overrides,
+    }
+
+
+def _custom_targets(monkeypatch):
+    from phlo_api.api import v1
+    from phlo_api.v1_contract import EnvironmentTarget
+
+    monkeypatch.setattr(
+        v1,
+        "_targets",
+        lambda: {
+            "laboratory": EnvironmentTarget(dagster_location="prod_loc", nessie_ref="release_test"),
+            "other": EnvironmentTarget(dagster_location="prod_loc", nessie_ref="release_other"),
+        },
+    )
+
+
+def test_verified_v2_wap_run_belongs_to_immutable_target_not_staging_or_other_env(
+    wap_api, monkeypatch
+):
+    from phlo_api.api import v1
+
+    _, rows, _, root, _ = wap_api
+    _custom_targets(monkeypatch)
+    row = rows[0]
+    _write_report(root, row, context=_context(), status="promoted")
+    tags = {tag["key"]: tag["value"] for tag in row["tags"]}
+    assert v1_wap._report("prod-one", row["runId"], tags)[1] == "verified"
+    assert v1._run_on_ref(row, "release_test")
+    assert v1_jobs._identity(row, "prod_loc", "release_test")
+    assert not v1._run_on_ref(row, "release_other")
+    assert not v1_jobs._identity(row, "stage_loc", "release_test")
+
+
+def test_staged_wap_run_visible_in_history_without_claiming_published_materialization(
+    wap_api, monkeypatch
+):
+    from phlo_api.api import v1
+
+    _, rows, _, root, _ = wap_api
+    _custom_targets(monkeypatch)
+    row = rows[0]
+    _write_report(root, row, context=_context(), status="checks_failed")
+    assert v1_jobs._identity(row, "prod_loc", "release_test")
+    assert not v1._run_on_ref(row, "release_test")
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["digest", "report_context", "environment", "target", "location", "backend", "tag_env"],
+)
+def test_invalid_or_foreign_v2_wap_manifest_never_broadens_run_visibility(
+    wap_api, monkeypatch, damage
+):
+    from phlo_api.api import v1
+
+    _, rows, _, root, _ = wap_api
+    _custom_targets(monkeypatch)
+    row = rows[0]
+    context = _context()
+    if damage in {"environment", "target", "location", "backend"}:
+        key = {
+            "environment": "environment",
+            "target": "target_ref",
+            "location": "location",
+            "backend": "backend_id",
+        }[damage]
+        context[key] = "foreign"
+    if damage == "tag_env":
+        row["tags"].append({"key": "environment", "value": "other"})
+    launch = _write_report(root, row, context=context, status="promoted")
+    if damage == "digest":
+        launch.write_text(launch.read_text() + " ")
+    if damage == "report_context":
+        path = root / ".phlo/wap-reports/prod-one.json"
+        report = json.loads(path.read_text())
+        report["context"]["target_ref"] = "release_other"
+        path.write_text(json.dumps(report))
+    assert not v1._run_on_ref(row, "release_test")
+    assert not v1_jobs._identity(row, "prod_loc", "release_other")
+
+
+def test_v2_run_page_includes_verified_wap_and_keeps_bounded_cursor(wap_api, monkeypatch):
+    import asyncio
+
+    _, rows, _, root, calls = wap_api
+    _custom_targets(monkeypatch)
+    _write_report(root, rows[0], context=_context(), status="promoted")
+    items, cursor = asyncio.run(v1_jobs._run_page("prod_loc", "release_test", 2))
+    assert [item.run_id for item in items] == [rows[0]["runId"]]
+    assert cursor == rows[-1]["runId"]
+    assert calls["graphql"][-1][1]["filter"] == {}
+
+
+def test_wap_inventory_v2_context_excludes_same_location_foreign_env_and_damaged_manifest(
+    wap_api, monkeypatch
+):
+    import asyncio
+
+    _, rows, _, root, _ = wap_api
+    _custom_targets(monkeypatch)
+    row = rows[0]
+    row["tags"].append({"key": "environment", "value": "laboratory"})
+    path = _write_report(root, row, context=_context(), status="promoted")
+    assert asyncio.run(v1_wap._observation(row, "prod_loc", {}, False, "release_test")) is not None
+    assert asyncio.run(v1_wap._observation(row, "prod_loc", {}, False, "release_other")) is None
+    path.write_text(path.read_text() + " ")
+    assert asyncio.run(v1_wap._observation(row, "prod_loc", {}, False, "release_test")) is None
+
+
+def test_overview_counts_verified_v2_wap_target_and_excludes_uncorrelated_runs(
+    wap_api, monkeypatch
+):
+    import asyncio
+    from phlo_api.api import v1
+
+    _, rows, _, root, _ = wap_api
+    _custom_targets(monkeypatch)
+    _write_report(root, rows[0], context=_context(), status="promoted")
+
+    async def graphql(*args, **kwargs):
+        return {"data": {"runsOrError": {"__typename": "Runs", "results": rows + [{"tags": []}]}}}
+
+    monkeypatch.setattr(v1, "graphql_request", graphql)
+    assert asyncio.run(v1._runs("prod_loc", "release_test")) == {rows[0]["runId"]: "SUCCESS"}
+    assert asyncio.run(v1._runs("prod_loc", "release_other")) == {}
+
+
+def test_overview_scan_limit_is_retained_after_foreign_runs_are_excluded(wap_api, monkeypatch):
+    import asyncio
+    from phlo_api.api import v1
+
+    _custom_targets(monkeypatch)
+
+    async def graphql(*args, **kwargs):
+        return {"data": {"runsOrError": {"__typename": "Runs", "results": [{"tags": []}] * 100}}}
+
+    monkeypatch.setattr(v1, "graphql_request", graphql)
+    runs = asyncio.run(v1._runs("prod_loc", "release_test"))
+    assert runs == {}
+    assert runs.scan_limited is True
+
+
+@pytest.mark.parametrize("lifecycle,published", [("promoted", True), ("checks_failed", False)])
+def test_wap_check_verdict_uses_verified_publication_and_keeps_staging_scope(
+    wap_api, monkeypatch, lifecycle, published
+):
+    from phlo_api.api import v1_assets
+
+    _, rows, _, root, _ = wap_api
+    _custom_targets(monkeypatch)
+    row = rows[0]
+    row["repositoryOrigin"]["repositoryName"] = "repo"
+    path = _write_report(root, row, context=_context(), status=lifecycle)
+    execution = {
+        "runId": row["runId"],
+        "run": row,
+        "status": "SUCCEEDED",
+        "timestamp": 1791023400,
+        "evaluation": {"success": True, "severity": "ERROR", "metadataEntries": []},
+    }
+    normalized, verified = v1_assets._normalize_check_execution(
+        execution, "prod_loc", "repo", "release_test", "readings_valid"
+    )
+    assert verified and (normalized is not None) == published
+    assert v1_assets._normalize_check_execution(
+        execution, "prod_loc", "repo", "release_other", "readings_valid"
+    ) == (None, True)
+    assert v1_assets._normalize_check_execution(
+        execution, "stage_loc", "repo", "release_test", "readings_valid"
+    ) == (None, True)
+    staged, verified = v1_assets._normalize_check_execution(
+        execution, "prod_loc", "repo", "pipeline-run-prod-one", "readings_valid"
+    )
+    assert verified and staged is not None
+    path.write_text(path.read_text() + " ")
+    normalized, verified = v1_assets._normalize_check_execution(
+        execution, "prod_loc", "repo", "release_test", "readings_valid"
+    )
+    assert verified and normalized is None

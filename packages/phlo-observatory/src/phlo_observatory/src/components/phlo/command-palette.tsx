@@ -6,6 +6,8 @@ import {
   CornerDownLeftIcon,
   DatabaseIcon,
   FileWarningIcon,
+  GitBranchIcon,
+  PlusIcon,
   SearchIcon,
   WorkflowIcon,
 } from 'lucide-react'
@@ -67,17 +69,40 @@ const iconCls =
   'inline-flex size-6 shrink-0 items-center justify-center rounded-md'
 
 function buildCommands(env: Env): Array<Cmd> {
-  return navItems.map(({ to, label, Icon }) => ({
-    id: to,
-    group: 'Navigation',
-    label,
-    icon: (
-      <span className={cn(iconCls, 'bg-soft text-muted-foreground')}>
-        <Icon className="size-3.5" />
-      </span>
-    ),
-    run: (nav) => nav({ to, search: { env } }),
-  }))
+  const actions: Array<Cmd> = [
+    {
+      id: 'new-incident',
+      group: 'Actions',
+      label: 'New incident',
+      hint: 'Review before creating',
+      icon: <PlusIcon className="size-4" />,
+      run: (nav) =>
+        nav({ to: '/incidents', search: { env, dialog: 'new-incident' } }),
+    },
+    {
+      id: 'new-branch',
+      group: 'Actions',
+      label: 'New branch',
+      hint: 'Choose a starting ref',
+      icon: <GitBranchIcon className="size-4" />,
+      run: (nav) =>
+        nav({ to: '/branches', search: { env, dialog: 'new-branch' } }),
+    },
+  ]
+  return [
+    ...actions,
+    ...navItems.map(({ to, label, Icon }): Cmd => ({
+      id: to,
+      group: 'Navigation',
+      label,
+      icon: (
+        <span className={cn(iconCls, 'bg-soft text-muted-foreground')}>
+          <Icon className="size-3.5" />
+        </span>
+      ),
+      run: (nav) => nav({ to, search: { env } }),
+    })),
+  ]
 }
 
 function Highlight({ text, q }: { text: string; q: string }) {
@@ -190,7 +215,7 @@ function CommandPalette({
     }
   }, [open, env])
   const all = React.useMemo(
-    () => [...targets, ...buildCommands(env)],
+    () => [...buildCommands(env), ...targets],
     [targets, env],
   )
   const results = React.useMemo(() => {

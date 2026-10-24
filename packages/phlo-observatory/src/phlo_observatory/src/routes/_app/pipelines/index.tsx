@@ -12,6 +12,7 @@ import {
   SlidersHorizontalIcon,
 } from 'lucide-react'
 import type { ApiRun } from '@/lib/data/api/pipelines'
+import { CompactPipelines } from '@/components/pipelines/compact'
 import { getPipelineList } from '@/lib/data/api/pipelines'
 import { Eyebrow, PageHeader } from '@/components/phlo/page'
 import {
@@ -40,7 +41,7 @@ export const Route = createFileRoute('/_app/pipelines/')({
   validateSearch: pipelineSearchSchema,
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: ({ deps }) => getPipelineList({ data: deps.env }),
-  head: () => ({ meta: [{ title: 'Jobs · phlo' }] }),
+  head: () => ({ meta: [{ title: 'Pipelines · phlo' }] }),
   component: PipelinesPage,
 })
 
@@ -68,6 +69,9 @@ function PipelinesPage() {
   const navigate = Route.useNavigate()
   const router = useRouter()
   const [open, setOpen] = React.useState<Set<string>>(() => new Set())
+  const [layout, setLayout] = React.useState(() =>
+    jobs.length <= 12 ? 'compact' : 'grouped',
+  )
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const observed = React.useMemo<Array<ObservedJob>>(
     () =>
@@ -271,7 +275,7 @@ function PipelinesPage() {
   return (
     <>
       <PageHeader
-        title="Jobs"
+        title="Pipelines"
         meta={`${jobs.length} jobs · ${runs.length} observed runs · ${env}`}
         actions={
           <>
@@ -282,6 +286,15 @@ function PipelinesPage() {
               Durable reports
             </Button>
             {searchBox('job-search', 'hidden w-[220px] lg:flex')}
+            <Segmented
+              aria-label="Pipeline layout"
+              value={layout}
+              onValueChange={setLayout}
+              options={[
+                { value: 'compact', label: 'Compact' },
+                { value: 'grouped', label: 'Grouped' },
+              ]}
+            />
             <span className="hidden text-[13px] text-muted-foreground sm:inline">
               Group by
             </span>
@@ -308,183 +321,197 @@ function PipelinesPage() {
           </>
         }
       />
-      <div className="hidden shrink-0 items-center gap-4 border-b border-line px-5 py-3 md:flex">
-        <HealthMix
-          className="h-2.5 flex-1 gap-0.5"
-          label={`${failed} failing runs, ${success} succeeded runs, ${runs.length - success - failed} other runs`}
-          parts={[
-            { n: failed, cls: 'bg-bad' },
-            { n: success, cls: 'bg-sla-ok' },
-            { n: runs.length - success - failed, cls: 'bg-skip-line' },
-          ]}
-        />
-        <Legend cls="bg-bad">{failed} failed runs</Legend>
-        <Legend cls="bg-sla-ok">{success} succeeded runs</Legend>
-        <Legend cls="bg-skip-line">{unknown} jobs unknown</Legend>
-      </div>
-      <div className="flex shrink-0 flex-col gap-3 border-b border-line px-4 py-3 lg:hidden">
-        <div className="flex gap-2">
-          {searchBox('job-search-mobile', 'h-10 flex-1')}
-          <button
-            type="button"
-            aria-expanded={filtersOpen}
-            onClick={() => setFiltersOpen((v) => !v)}
-            className="flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-[13.5px]"
-          >
-            <SlidersHorizontalIcon className="size-3.5" /> Filters
-          </button>
-        </div>
-        {filtersOpen ? (
-          <div className="grid gap-4 sm:grid-cols-2">{facets}</div>
-        ) : null}
-      </div>
-      <div className="flex min-h-0 flex-1">
-        <aside
-          aria-label="Filters"
-          className="hidden w-[216px] shrink-0 flex-col gap-[18px] overflow-y-auto border-r border-line px-2.5 py-3.5 lg:flex"
-        >
-          {facets}
-        </aside>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 md:hidden">
-          <Card className="gap-2.5 p-3.5">
-            <div className="text-[14.5px] font-medium">
-              {jobs.length} jobs ·{' '}
-              <span className="text-bad-text">
-                {attention.length} need attention
-              </span>
-            </div>
-            <div className="text-[12.5px] text-muted-foreground">
-              Latest run states from paginated environment-scoped history.
-            </div>
-          </Card>
-          <MobileSection
-            title={`Needs attention · ${attention.length}`}
-            jobs={attention}
-            env={env}
-          />
-          {grouped.map((group) => (
-            <MobileSection
-              key={group.name}
-              title={`${group.name} · ${group.jobs.length}`}
-              jobs={group.jobs}
-              env={env}
-              expanded={open.has(group.name)}
-              onToggle={() => toggleGroup(group.name)}
+      {layout === 'compact' ? (
+        <CompactPipelines jobs={visible} runs={runs} env={env} />
+      ) : (
+        <>
+          <div className="hidden shrink-0 items-center gap-4 border-b border-line px-5 py-3 md:flex">
+            <HealthMix
+              className="h-2.5 flex-1 gap-0.5"
+              label={`${failed} failing runs, ${success} succeeded runs, ${runs.length - success - failed} other runs`}
+              parts={[
+                { n: failed, cls: 'bg-bad' },
+                { n: success, cls: 'bg-sla-ok' },
+                { n: runs.length - success - failed, cls: 'bg-skip-line' },
+              ]}
             />
-          ))}
-        </div>
-        <section
-          aria-label="Jobs"
-          className="hidden min-h-0 min-w-0 flex-1 flex-col overflow-y-auto md:flex"
-        >
-          <div
-            className={cn(
-              rowGrid,
-              'sticky top-0 z-10 h-8 border-b border-line-soft bg-raised text-xs text-muted-foreground',
-            )}
-          >
-            <span />
-            <span>Job</span>
-            <span>Domain</span>
-            <span>Why it's here</span>
-            <span>Last 24 observed</span>
-            <span className="text-right">Last run</span>
-            <span>Owner</span>
+            <Legend cls="bg-bad">{failed} failed runs</Legend>
+            <Legend cls="bg-sla-ok">{success} succeeded runs</Legend>
+            <Legend cls="bg-skip-line">{unknown} jobs unknown</Legend>
           </div>
-          {attention.length ? (
-            <>
-              <div className="flex items-center gap-2.5 px-4 pt-2.5 pb-2">
-                <h2 className="text-[13.5px] font-medium">Needs attention</h2>
-                <span className="text-[13px] text-muted-foreground">
-                  {attention.length} jobs, pinned to the top
-                </span>
-              </div>
-              {attention.map((job) => (
-                <JobRow key={job.id} job={job} env={env} />
-              ))}
-            </>
-          ) : null}
-          {grouped.length ? (
-            <>
-              <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-1.5">
-                <h2 className="text-[13.5px] font-medium">
-                  Other observed jobs
-                </h2>
-                <span className="text-[13px] text-muted-foreground">
-                  Grouped by {by}; missing history remains unknown
-                </span>
-              </div>
-              {grouped.map((group) => {
-                const expanded = open.has(group.name)
-                return (
-                  <div key={group.name}>
-                    <button
-                      type="button"
-                      aria-expanded={expanded}
-                      onClick={() => toggleGroup(group.name)}
-                      className={cn(
-                        rowGrid,
-                        'h-[38px] w-full border-b border-line-soft text-left text-[13.5px] hover:bg-raised',
-                        expanded && 'bg-raised',
-                      )}
-                    >
-                      <ChevronRightIcon
-                        className={cn(
-                          'size-3 text-faint transition-transform',
-                          expanded && 'rotate-90',
-                        )}
-                      />
-                      <span className="truncate font-medium">{group.name}</span>
-                      <span className="text-muted-foreground">
-                        {group.jobs.length} jobs
-                      </span>
-                      <span className="truncate text-muted-foreground">
-                        Status from latest observed run
-                      </span>
-                      <GroupRuns jobs={group.jobs} />
-                      <span className="text-right font-mono text-xs text-muted-foreground">
-                        {group.jobs
-                          .flatMap((job) =>
-                            job.latest ? [job.latest.created_at] : [],
-                          )
-                          .sort()
-                          .at(-1)
-                          ?.slice(11, 16) ?? 'Unknown'}
-                      </span>
-                      <span
-                        className="truncate text-muted-foreground"
-                        title={[
-                          ...new Set(group.jobs.flatMap((job) => job.owners)),
-                        ].join(' · ')}
-                      >
-                        {[
-                          ...new Set(group.jobs.flatMap((job) => job.owners)),
-                        ].join(' · ') || 'Unknown owner'}
-                      </span>
-                    </button>
-                    {expanded ? (
-                      <div className="bg-sunken">
-                        {group.jobs.map((job) => (
-                          <JobRow key={job.id} job={job} env={env} />
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </>
-          ) : null}
-          {!visible.length ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              No jobs match these filters.
+          <div className="flex shrink-0 flex-col gap-3 border-b border-line px-4 py-3 lg:hidden">
+            <div className="flex gap-2">
+              {searchBox('job-search-mobile', 'h-10 flex-1')}
+              <button
+                type="button"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen((v) => !v)}
+                className="flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-[13.5px]"
+              >
+                <SlidersHorizontalIcon className="size-3.5" /> Filters
+              </button>
             </div>
-          ) : null}
-          <div className="mt-auto flex min-h-11 items-center border-t border-line px-4 text-[13px] text-muted-foreground">
-            Showing {visible.length} of {jobs.length} · {runs.length}{' '}
-            environment-scoped runs
+            {filtersOpen ? (
+              <div className="grid gap-4 sm:grid-cols-2">{facets}</div>
+            ) : null}
           </div>
-        </section>
-      </div>
+          <div className="flex min-h-0 flex-1">
+            <aside
+              aria-label="Filters"
+              className="hidden w-[216px] shrink-0 flex-col gap-[18px] overflow-y-auto border-r border-line px-2.5 py-3.5 lg:flex"
+            >
+              {facets}
+            </aside>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 md:hidden">
+              <Card className="gap-2.5 p-3.5">
+                <div className="text-[14.5px] font-medium">
+                  {jobs.length} jobs ·{' '}
+                  <span className="text-bad-text">
+                    {attention.length} need attention
+                  </span>
+                </div>
+                <div className="text-[12.5px] text-muted-foreground">
+                  Latest run states from paginated environment-scoped history.
+                </div>
+              </Card>
+              <MobileSection
+                title={`Needs attention · ${attention.length}`}
+                jobs={attention}
+                env={env}
+              />
+              {grouped.map((group) => (
+                <MobileSection
+                  key={group.name}
+                  title={`${group.name} · ${group.jobs.length}`}
+                  jobs={group.jobs}
+                  env={env}
+                  expanded={open.has(group.name)}
+                  onToggle={() => toggleGroup(group.name)}
+                />
+              ))}
+            </div>
+            <section
+              aria-label="Jobs"
+              className="hidden min-h-0 min-w-0 flex-1 flex-col overflow-y-auto md:flex"
+            >
+              <div
+                className={cn(
+                  rowGrid,
+                  'sticky top-0 z-10 h-8 border-b border-line-soft bg-raised text-xs text-muted-foreground',
+                )}
+              >
+                <span />
+                <span>Job</span>
+                <span>Domain</span>
+                <span>Why it's here</span>
+                <span>Last 24 observed</span>
+                <span className="text-right">Last run</span>
+                <span>Owner</span>
+              </div>
+              {attention.length ? (
+                <>
+                  <div className="flex items-center gap-2.5 px-4 pt-2.5 pb-2">
+                    <h2 className="text-[13.5px] font-medium">
+                      Needs attention
+                    </h2>
+                    <span className="text-[13px] text-muted-foreground">
+                      {attention.length} jobs, pinned to the top
+                    </span>
+                  </div>
+                  {attention.map((job) => (
+                    <JobRow key={job.id} job={job} env={env} />
+                  ))}
+                </>
+              ) : null}
+              {grouped.length ? (
+                <>
+                  <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-1.5">
+                    <h2 className="text-[13.5px] font-medium">
+                      Other observed jobs
+                    </h2>
+                    <span className="text-[13px] text-muted-foreground">
+                      Grouped by {by}; missing history remains unknown
+                    </span>
+                  </div>
+                  {grouped.map((group) => {
+                    const expanded = open.has(group.name)
+                    return (
+                      <div key={group.name}>
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() => toggleGroup(group.name)}
+                          className={cn(
+                            rowGrid,
+                            'h-[38px] w-full border-b border-line-soft text-left text-[13.5px] hover:bg-raised',
+                            expanded && 'bg-raised',
+                          )}
+                        >
+                          <ChevronRightIcon
+                            className={cn(
+                              'size-3 text-faint transition-transform',
+                              expanded && 'rotate-90',
+                            )}
+                          />
+                          <span className="truncate font-medium">
+                            {group.name}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {group.jobs.length} jobs
+                          </span>
+                          <span className="truncate text-muted-foreground">
+                            Status from latest observed run
+                          </span>
+                          <GroupRuns jobs={group.jobs} />
+                          <span className="text-right font-mono text-xs text-muted-foreground">
+                            {group.jobs
+                              .flatMap((job) =>
+                                job.latest ? [job.latest.created_at] : [],
+                              )
+                              .sort()
+                              .at(-1)
+                              ?.slice(11, 16) ?? 'Unknown'}
+                          </span>
+                          <span
+                            className="truncate text-muted-foreground"
+                            title={[
+                              ...new Set(
+                                group.jobs.flatMap((job) => job.owners),
+                              ),
+                            ].join(' · ')}
+                          >
+                            {[
+                              ...new Set(
+                                group.jobs.flatMap((job) => job.owners),
+                              ),
+                            ].join(' · ') || 'Unknown owner'}
+                          </span>
+                        </button>
+                        {expanded ? (
+                          <div className="bg-sunken">
+                            {group.jobs.map((job) => (
+                              <JobRow key={job.id} job={job} env={env} />
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </>
+              ) : null}
+              {!visible.length ? (
+                <div className="p-6 text-sm text-muted-foreground">
+                  No jobs match these filters.
+                </div>
+              ) : null}
+              <div className="mt-auto flex min-h-11 items-center border-t border-line px-4 text-[13px] text-muted-foreground">
+                Showing {visible.length} of {jobs.length} · {runs.length}{' '}
+                environment-scoped runs
+              </div>
+            </section>
+          </div>
+        </>
+      )}
     </>
   )
 }

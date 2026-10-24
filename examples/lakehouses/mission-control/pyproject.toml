@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phlo-mission-control-example"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "phlo==0.18.0",
+    "phlo-api==0.18.0",
+    "phlo-core-plugins==0.16.1",
+    "phlo-dagster==0.18.0",
+    "phlo-dlt==0.17.0",
+    "phlo-iceberg==0.17.0",
+    "phlo-minio==0.17.0",
+    "phlo-nessie==0.17.0",
+    "phlo-observatory==0.18.0",
+    "phlo-pandera==0.16.1",
+    "phlo-postgres==0.17.0",
+    "phlo-transform==0.1.0",
+    "phlo-trino==0.17.0",
+    "pandas>=2.3,<3.1",
+    "pyarrow>=26,<27",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["workflows*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+# Every Phlo distribution resolves to this checkout, including transitive providers.
+[tool.uv.sources]
+phlo = { path = "../../..", editable = true }
+phlo-airbyte = { path = "../../../packages/phlo-airbyte", editable = true }
+phlo-alerting = { path = "../../../packages/phlo-alerting", editable = true }
+phlo-alloy = { path = "../../../packages/phlo-alloy", editable = true }
+phlo-api = { path = "../../../packages/phlo-api", editable = true }
+phlo-clickhouse = { path = "../../../packages/phlo-clickhouse", editable = true }
+phlo-clickstack = { path = "../../../packages/phlo-clickstack", editable = true }
+phlo-core-plugins = { path = "../../../packages/phlo-core-plugins", editable = true }
+phlo-dagster = { path = "../../../packages/phlo-dagster", editable = true }
+phlo-dbt = { path = "../../../packages/phlo-dbt", editable = true }
+phlo-delta = { path = "../../../packages/phlo-delta", editable = true }
+phlo-dlt = { path = "../../../packages/phlo-dlt", editable = true }
+phlo-grafana = { path = "../../../packages/phlo-grafana", editable = true }
+phlo-hasura = { path = "../../../packages/phlo-hasura", editable = true }
+phlo-iceberg = { path = "../../../packages/phlo-iceberg", editable = true }
+phlo-kafka = { path = "../../../packages/phlo-kafka", editable = true }
+phlo-lineage = { path = "../../../packages/phlo-lineage", editable = true }
+phlo-loki = { path = "../../../packages/phlo-loki", editable = true }
+phlo-mcp = { path = "../../../packages/phlo-mcp", editable = true }
+phlo-minio = { path = "../../../packages/phlo-minio", editable = true }
+phlo-nessie = { path = "../../../packages/phlo-nessie", editable = true }
+phlo-oauth2-proxy = { path = "../../../packages/phlo-oauth2-proxy", editable = true }
+phlo-observatory = { path = "../../../packages/phlo-observatory", editable = true }
+phlo-observatory-example = { path = "../../../packages/phlo-observatory-example", editable = true }
+phlo-observe-plugin = { path = "../../../packages/phlo-observe-plugin", editable = true }
+phlo-openmetadata = { path = "../../../packages/phlo-openmetadata", editable = true }
+phlo-otel = { path = "../../../packages/phlo-otel", editable = true }
+phlo-pandera = { path = "../../../packages/phlo-pandera", editable = true }
+phlo-pgweb = { path = "../../../packages/phlo-pgweb", editable = true }
+phlo-polaris = { path = "../../../packages/phlo-polaris", editable = true }
+phlo-postgres = { path = "../../../packages/phlo-postgres", editable = true }
+phlo-postgrest = { path = "../../../packages/phlo-postgrest", editable = true }
+phlo-prometheus = { path = "../../../packages/phlo-prometheus", editable = true }
+phlo-rustfs = { path = "../../../packages/phlo-rustfs", editable = true }
+phlo-sling = { path = "../../../packages/phlo-sling", editable = true }
+phlo-superset = { path = "../../../packages/phlo-superset", editable = true }
+phlo-testing = { path = "../../../packages/phlo-testing", editable = true }
+phlo-traefik = { path = "../../../packages/phlo-traefik", editable = true }
+phlo-transform = { path = "../../../packages/phlo-transform", editable = true }
+phlo-trino = { path = "../../../packages/phlo-trino", editable = true }

@@ -169,23 +169,23 @@ async def _preview_readiness(request: Request, env: str, ref: str) -> list[Readi
         )
         if result.get("rows") != [{"phlo_readiness": 1}]:
             raise PreviewUnavailable("Readiness probe returned an invalid result.")
-        checks.append(
+        checks = [
             ReadinessCheck(
                 state="configured",
                 reason_code="backend_reachable",
-                message="Authenticated preview probe succeeded. Deployment enforcement remains unverified.",
-                remediation="Complete the deployment enforcement checks before claiming readiness.",
+                message="Authenticated query preview connection verified.",
+                remediation="Connection verification does not verify read-only enforcement, query limits or recovery. These controls also apply during local development; complete the deployment checklist before sharing a deployment.",
             )
-        )
+        ]
     except (PreviewUnavailable, PreviewLimitExceeded, TimeoutError):
-        checks.append(
+        checks = [
             ReadinessCheck(
                 state="unavailable",
                 reason_code="backend_unavailable",
                 message="Authenticated preview probe failed or timed out.",
                 remediation="Check preview service reachability, TLS trust and credentials, then check again.",
             )
-        )
+        ]
     return checks
 
 

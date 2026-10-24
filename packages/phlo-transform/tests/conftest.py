@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from phlo.plugins.observatory_settings import _reset_memory_service
+from phlo_transform import editor
 from phlo_transform.settings import TransformSettings
 from phlo_transform.workspace import TransformWorkspace, WorkspaceModel, WorkspaceTest
 
@@ -111,3 +113,46 @@ def fake_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Transform
     )
     monkeypatch.setattr("phlo_transform.assets.load_workspace", lambda *args, **kwargs: workspace)
     return workspace
+
+
+@pytest.fixture
+def editable(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
+    _reset_memory_service()
+    root = tmp_path / "transforms"
+    root.mkdir()
+    (root / "phlo.toml").write_text('[transform]\ndefault_catalog="iceberg"\n')
+    (root / "transforms").mkdir()
+    (root / "transforms" / "inspection.sql").write_text("SELECT * FROM gold.batch_release_metrics")
+    model = WorkspaceModel(
+        id="model://review/inspection",
+        name="review.inspection",
+        namespace="review",
+        materialization="table",
+        target="iceberg.review.inspection",
+        version="abcdef0",
+        path="transforms/inspection.sql",
+        tags=(),
+        depends_on=(),
+        sources=("gold.batch_release_metrics",),
+    )
+    workspace = TransformWorkspace(
+        root=root,
+        binary=tmp_path / "engine",
+        models=(model,),
+        tests=(),
+        sources=("gold.batch_release_metrics",),
+    )
+    settings = TransformSettings(
+        PHLO_TRANSFORM_BIN=str(workspace.binary),
+        PHLO_TRANSFORM_ADAPTER="trino",
+        PHLO_TRANSFORM_TRINO_ENDPOINT="http://trino:8080",
+        PHLO_TRANSFORM_TRINO_CATALOG="iceberg",
+        PHLO_TRANSFORM_TRINO_PASSWORD="synthetic-test-password",
+    )
+    monkeypatch.setattr(editor, "provider_is_active", lambda root: True)
+    monkeypatch.setattr(editor, "load_workspace", lambda root, settings: workspace)
+    monkeypatch.setattr(editor, "get_settings", lambda root: settings)
+    monkeypatch.setattr(editor, "require_binary", lambda root, settings: workspace.binary)
+    yield tmp_path, workspace
+    _reset_memory_service()

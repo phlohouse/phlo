@@ -143,3 +143,61 @@ describe('asset table sort values', () => {
     )
   })
 })
+
+describe('compact inventory evidence', () => {
+  it('uses human-sized counts and decimal byte units without losing zero', async () => {
+    const { formatInventoryCount, formatInventoryBytes } =
+      await import('./assets-table')
+    expect(formatInventoryCount(0)).toBe('0')
+    expect(formatInventoryCount(1_210_000_000)).toBe('1.2B')
+    expect(formatInventoryBytes(0)).toBe('0 B')
+    expect(formatInventoryBytes(1_400_000_000)).toBe('1.4 GB')
+  })
+
+  it('keeps missing days neutral and excludes observations outside the seven-day window', async () => {
+    const { assetMaterializationDays } = await import('./assets-table')
+    const row = makeAsset('bronze.events', {
+      row_count: 0,
+      last_materialization_at: null,
+    })
+    row.materializations = [
+      {
+        run_id: 'past',
+        timestamp: '2026-10-14T12:00:00Z',
+        rows_inserted: 10,
+        rows_deleted: 0,
+      },
+      {
+        run_id: 'one',
+        timestamp: '2026-10-21T12:00:00Z',
+        rows_inserted: 0,
+        rows_deleted: 0,
+      },
+      {
+        run_id: 'two',
+        timestamp: '2026-10-21T13:00:00Z',
+        rows_inserted: 8,
+        rows_deleted: 0,
+      },
+      {
+        run_id: 'future',
+        timestamp: '2026-10-22T18:00:00Z',
+        rows_inserted: 8,
+        rows_deleted: 0,
+      },
+    ]
+    const days = assetMaterializationDays(
+      row,
+      Date.parse('2026-10-22T15:00:00Z'),
+    )
+    expect(days).toHaveLength(7)
+    expect(days[0].date).toBe('2026-10-16')
+    expect(days.map((day) => day.count)).toEqual([0, 0, 0, 0, 0, 2, 0])
+    expect(
+      assetMaterializationDays(
+        { ...row, materializations: undefined },
+        Date.parse('2026-10-22T15:00:00Z'),
+      ).every((day) => day.count === 0),
+    ).toBe(true)
+  })
+})
