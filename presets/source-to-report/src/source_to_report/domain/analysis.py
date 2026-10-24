@@ -254,7 +254,6 @@ def build(warehouse: Warehouse, out_dir: Path, *, db_path: Path, as_of: str) -> 
             "claims_missing": len(missing),
             "pm25_station_days_over": sum(pm25_by_month),
             "no2_station_days_over": sum(no2_by_month),
-            "tables": 5,
         },
         "headlines": {
             "pm25_highest_station": worst_pm25["station_name"],

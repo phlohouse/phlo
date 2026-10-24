@@ -26,7 +26,6 @@ def test_counts_and_checks(lakehouse) -> None:
         "claims_missing": 0,
         "pm25_station_days_over": 40,
         "no2_station_days_over": 0,
-        "tables": 5,
     }
     assert all(check["ok"] for check in summary["checks"])
     assert summary["headlines"]["pm25_highest_station"] == "Northgate"

@@ -11,8 +11,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from source_to_report.domain import STATION_NAMES
-
 
 def read_readings(data_dir: Path) -> list[dict[str, Any]]:
     """Return every hourly reading from the generated pull."""
@@ -42,8 +40,3 @@ def read_notes(data_dir: Path) -> list[dict[str, Any]]:
     if not notes:
         raise FileNotFoundError(f"no published notes in {data_dir / 'notes'}")
     return notes
-
-
-def station_name(station_id: str) -> str:
-    """Return a station's display name from its id."""
-    return STATION_NAMES[station_id]
