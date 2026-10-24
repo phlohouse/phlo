@@ -11,6 +11,23 @@ import {
 } from './client'
 
 describe('Phlo API response boundary', () => {
+  it('retains only explicit pre-write rejection evidence, not a retry guess from HTTP status', async () => {
+    for (const rejected of [true, false]) {
+      await expect(
+        parseApiResponse({
+          response: new Response('private compiler details', {
+            status: 503,
+            headers: rejected
+              ? { 'X-Phlo-Mutation-Outcome': 'rejected-before-write' }
+              : {},
+          }),
+          schema: z.object({}),
+        }),
+      ).rejects.toMatchObject({
+        reasonCode: rejected ? 'rejected_before_write' : undefined,
+      })
+    }
+  })
   it('isolates optional dependency failures but never identity or permission failures', async () => {
     expect(await optionalRead(Promise.resolve({ count: 3 }))).toEqual({
       state: 'available',
@@ -74,6 +91,52 @@ describe('Phlo API response boundary', () => {
         schema: snapshot,
       }),
     ).rejects.toThrow('Phlo API request failed (503).')
+  })
+
+  it('translates only recognized reclamation guards without exposing arbitrary conflict details', async () => {
+    for (const [reason, explanation] of [
+      [
+        'retention_minimum_not_elapsed',
+        'The configured minimum audit retention period has not elapsed. Archiving alone does not permit reclamation.',
+      ],
+      [
+        'reclamation_requires_resolved_mutations',
+        'Reclamation requires resolved mutation evidence. Reconcile durable receipts first; do not retry an unknown mutation.',
+      ],
+    ]) {
+      await expect(
+        parseApiResponse({
+          response: Response.json(
+            {
+              error: {
+                code: 'bad_input',
+                message: `${reason}: token=private-backend-value`,
+              },
+            },
+            { status: 409 },
+          ),
+          schema: snapshot,
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        reasonCode: reason,
+        message: `Phlo API request failed (409). ${explanation} Reason: ${reason}.`,
+      })
+    }
+    await expect(
+      parseApiResponse({
+        response: Response.json(
+          {
+            error: {
+              code: 'bad_input',
+              message: 'Private SQL and connection details',
+            },
+          },
+          { status: 409 },
+        ),
+        schema: snapshot,
+      }),
+    ).rejects.toThrow(/^Phlo API request failed \(409\)\.$/)
   })
 
   it('keeps malformed, oversized, and non-public error payloads generic', async () => {

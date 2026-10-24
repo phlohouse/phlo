@@ -1,7 +1,13 @@
 /** Provider-backed immutable SQL drafts and actual read-only engine plans. */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { environmentSchema, phloApi } from './client'
+import { PhloApiError, environmentSchema, phloApi } from './client'
+import {
+  archiveMetadataSchema,
+  candidateEvidenceSchema,
+  reconciliationSchema,
+  sourceHandoffSchema,
+} from './candidate-evidence'
 
 const modelInput = z.object({
   env: environmentSchema,
@@ -11,12 +17,13 @@ const sourceSchema = z.object({
   env: environmentSchema,
   model: z.string(),
   path: z.string(),
+  project_path: z.string().nullable().optional(),
   sql: z.string(),
   source_digest: z.string(),
   workspace_digest: z.string(),
   model_version: z.string(),
 })
-const draftSchema = z.object({
+const draftSchema = archiveMetadataSchema.extend({
   env: environmentSchema,
   ref: z.string(),
   model: z.string(),
@@ -102,7 +109,7 @@ export const compileTransformDraft = createServerFn({ method: 'POST' })
     ),
   )
 
-const executionSchema = z.object({
+const executionSchema = archiveMetadataSchema.extend({
   execution_id: z.string(),
   model: z.string(),
   env: environmentSchema,
@@ -119,6 +126,8 @@ const executionSchema = z.object({
   candidate_snapshot_id: z.string().nullable(),
   report: z.record(z.string(), z.json()).nullable(),
   preview: z.record(z.string(), z.json()).nullable(),
+  evidence: candidateEvidenceSchema.nullable().optional(),
+  reconciliation: reconciliationSchema.nullable().optional(),
 })
 export type TransformExecution = z.infer<typeof executionSchema>
 export const executeTransformDraft = createServerFn({ method: 'POST' })
@@ -130,29 +139,47 @@ export const executeTransformDraft = createServerFn({ method: 'POST' })
     }),
   )
   .handler(
-    ({ data: { env, model, draft_id, revision, idempotency_key, ...body } }) =>
-      phloApi(
-        `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions?env=${env}`,
-        executionSchema,
-        {
-          env,
-          method: 'POST',
-          body,
-          headers: { 'Idempotency-Key': idempotency_key },
-        },
-      ),
+    async ({
+      data: { env, model, draft_id, revision, idempotency_key, ...body },
+    }) => {
+      try {
+        return await phloApi(
+          `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions?env=${env}`,
+          executionSchema,
+          {
+            env,
+            method: 'POST',
+            body,
+            headers: { 'Idempotency-Key': idempotency_key },
+          },
+        )
+      } catch (error) {
+        if (
+          error instanceof PhloApiError &&
+          error.reasonCode === 'rejected_before_write'
+        )
+          return {
+            rejected_before_write: true as const,
+            message:
+              'Compilation was rejected before any candidate write. Repair prerequisites and run again with a fresh request.',
+          }
+        throw error
+      }
+    },
   )
 export const getTransformExecutions = createServerFn({ method: 'GET' })
-  .inputValidator(draftIdentity)
-  .handler(({ data: { env, model, draft_id, revision } }) =>
+  .inputValidator(
+    draftIdentity.extend({ include_archived: z.boolean().optional() }),
+  )
+  .handler(({ data: { env, model, draft_id, revision, include_archived } }) =>
     phloApi(
-      `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions?env=${env}`,
+      `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions?env=${env}${include_archived ? '&include_archived=true' : ''}`,
       z.object({ env: environmentSchema, items: z.array(executionSchema) }),
       { env },
     ),
   )
 
-const draftSummarySchema = z.object({
+const draftSummarySchema = archiveMetadataSchema.extend({
   draft_id: z.string(),
   revision: z.number().int().positive(),
   model: z.string(),
@@ -180,10 +207,12 @@ const comparisonSchema = z.object({
 })
 export type TransformDraftComparison = z.infer<typeof comparisonSchema>
 export const getTransformDrafts = createServerFn({ method: 'GET' })
-  .inputValidator(modelInput)
-  .handler(({ data: { env, model } }) =>
+  .inputValidator(
+    modelInput.extend({ include_archived: z.boolean().optional() }),
+  )
+  .handler(({ data: { env, model, include_archived } }) =>
     phloApi(
-      `api/v1/transform/models/${encodeURIComponent(model)}/drafts?env=${env}`,
+      `api/v1/transform/models/${encodeURIComponent(model)}/drafts?env=${env}${include_archived ? '&include_archived=true' : ''}`,
       z.object({
         env: environmentSchema,
         items: z.array(draftSummarySchema),
@@ -200,5 +229,76 @@ export const compareTransformDraft = createServerFn({ method: 'GET' })
       `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/compare?env=${env}`,
       comparisonSchema,
       { env },
+    ),
+  )
+
+const archiveInput = z.object({
+  archived: z.boolean(),
+  reason: z.string().trim().min(1).max(1000),
+})
+const reclaimInput = z.object({
+  confirmed: z.literal(true),
+  reason: z.string().trim().min(1).max(1000),
+  expected_revision_digest: z.string().regex(/^[a-f0-9]{64}$/),
+})
+export const reclaimTransformDraft = createServerFn({ method: 'POST' })
+  .inputValidator(draftIdentity.extend(reclaimInput.shape))
+  .handler(({ data: { env, model, draft_id, revision, ...body } }) =>
+    phloApi(
+      `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/reclaim?env=${env}`,
+      draftSchema,
+      { env, method: 'POST', body },
+    ),
+  )
+export const archiveTransformDraft = createServerFn({ method: 'POST' })
+  .inputValidator(draftIdentity.extend(archiveInput.shape))
+  .handler(({ data: { env, model, draft_id, revision, ...body } }) =>
+    phloApi(
+      `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/archive?env=${env}`,
+      draftSchema,
+      { env, method: 'POST', body },
+    ),
+  )
+export const getTransformHandoff = createServerFn({ method: 'GET' })
+  .inputValidator(
+    draftIdentity.extend({ execution_id: z.string().uuid().optional() }),
+  )
+  .handler(({ data: { env, model, draft_id, revision, execution_id } }) =>
+    phloApi(
+      `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/handoff?env=${env}${execution_id ? `&execution_id=${execution_id}` : ''}`,
+      sourceHandoffSchema,
+      { env },
+    ),
+  )
+const executionIdentity = draftIdentity.extend({
+  execution_id: z.string().uuid(),
+})
+export const reclaimTransformExecution = createServerFn({ method: 'POST' })
+  .inputValidator(executionIdentity.extend(reclaimInput.shape))
+  .handler(
+    ({ data: { env, model, draft_id, revision, execution_id, ...body } }) =>
+      phloApi(
+        `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions/${execution_id}/reclaim?env=${env}`,
+        executionSchema,
+        { env, method: 'POST', body },
+      ),
+  )
+export const archiveTransformExecution = createServerFn({ method: 'POST' })
+  .inputValidator(executionIdentity.extend(archiveInput.shape))
+  .handler(
+    ({ data: { env, model, draft_id, revision, execution_id, ...body } }) =>
+      phloApi(
+        `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions/${execution_id}/archive?env=${env}`,
+        executionSchema,
+        { env, method: 'POST', body },
+      ),
+  )
+export const reconcileTransformExecution = createServerFn({ method: 'POST' })
+  .inputValidator(executionIdentity)
+  .handler(({ data: { env, model, draft_id, revision, execution_id } }) =>
+    phloApi(
+      `api/v1/transform/models/${encodeURIComponent(model)}/drafts/${draft_id}/${revision}/executions/${execution_id}/reconcile?env=${env}`,
+      executionSchema,
+      { env, method: 'POST' },
     ),
   )

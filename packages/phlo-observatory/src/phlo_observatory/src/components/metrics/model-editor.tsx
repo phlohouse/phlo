@@ -7,7 +7,7 @@ import type {
   MetricSource,
 } from '@/lib/data/api/metrics'
 import { getMetricSource, saveMetricModel } from '@/lib/data/api/metrics'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
@@ -66,6 +66,19 @@ function initialDefinition(model?: MetricModel): MetricDefinition {
         measures: [],
         time_dimension: null,
       }
+}
+
+function sourceOptions(
+  sources: Array<{ id: string; relation: string | null }>,
+  selected: string,
+) {
+  const options = sources.map((item) => ({
+    value: item.id,
+    label: item.relation ?? item.id,
+  }))
+  if (selected && !sources.some((item) => item.id === selected))
+    options.unshift({ value: selected, label: `Saved source: ${selected}` })
+  return [{ value: '', label: 'Choose an observed asset' }, ...options]
 }
 
 export function MetricModelEditor({
@@ -160,6 +173,7 @@ export function MetricModelEditor({
           Draft definitions are stored in this environment and ref. Saving does
           not publish a semantic provider, approve a model, or change Ask.
         </p>
+        <SourceRepairNotice model={model} />
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-1.5 text-sm">
             Model ID
@@ -205,13 +219,35 @@ export function MetricModelEditor({
                 time_dimension: null,
               })
             }
-            options={[
-              { value: '', label: 'Choose an observed asset' },
-              ...sources.map((item) => ({
-                value: item.id,
-                label: item.relation ?? item.id,
-              })),
-            ]}
+            options={sourceOptions(sources, definition.asset_id)}
+          />
+        </label>
+        <p className="m-0 text-xs text-muted-foreground">
+          Changing source clears column mappings so they can be verified against
+          the replacement schema. For an asset outside the inventory page, enter
+          its exact authorized ID below.
+        </p>
+        <label className="grid gap-1.5 text-sm">
+          Source asset ID
+          <Input
+            key={definition.asset_id}
+            defaultValue={definition.asset_id}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                event.currentTarget.blur()
+              }
+            }}
+            onBlur={(event) => {
+              const asset_id = event.target.value.trim()
+              if (asset_id !== definition.asset_id)
+                patch({
+                  asset_id,
+                  measures: [],
+                  dimensions: [],
+                  time_dimension: null,
+                })
+            }}
           />
         </label>
         {sourceError ? (
@@ -253,6 +289,9 @@ export function MetricModelEditor({
         ) : null}
         <div className="flex gap-2">
           <Button
+            operation={
+              model ? 'v1_metric_model_update' : 'v1_metric_model_create'
+            }
             type="submit"
             disabled={busy || !source || !definition.measures.length}
           >
@@ -267,6 +306,16 @@ export function MetricModelEditor({
   )
 }
 
+function SourceRepairNotice({ model }: { model?: MetricModel }) {
+  if (model?.source_status !== 'unavailable') return null
+  return (
+    <p role="status" className="text-sm text-warn-text">
+      Source repair required: {model.source_reason} Choose an authorized
+      replacement, then remap its columns. The saved definition is unchanged
+      until you save.
+    </p>
+  )
+}
 function DefinitionRows({
   definition,
   columns,
@@ -313,7 +362,7 @@ function DefinitionRows({
         {definition.measures.map((measure, index) => (
           <div
             key={index}
-            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_32px] gap-2"
+            className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_32px] [&>input]:col-span-2 sm:[&>input]:col-span-1"
           >
             <Input
               aria-label={`Measure ${index + 1} name`}
@@ -406,7 +455,7 @@ function DefinitionRows({
         {definition.dimensions.map((dimension, index) => (
           <div
             key={index}
-            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_32px] items-center gap-2"
+            className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_32px] [&>input]:col-span-2 sm:[&>input]:col-span-1"
           >
             <Input
               aria-label={`Dimension ${index + 1} name`}

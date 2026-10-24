@@ -67,6 +67,19 @@ export function startApiFixture({
       },
     }
     const responses = {
+      '/api/v1/action-availability': {
+        env,
+        actions: Object.fromEntries(
+          [
+            'v1_query_submit',
+            'v1_query_explain',
+            'v1_query_cancel',
+            'v1_saved_query_create',
+            'v1_saved_query_update',
+            'v1_saved_query_delete',
+          ].map((operation) => [operation, { allowed: true, reason: null }]),
+        ),
+      },
       '/api/v1/admin/settings': { version: 1, values: {} },
       '/api/v1/environments': {
         items: environments.filter(
@@ -123,6 +136,12 @@ export function startApiFixture({
         },
       },
       '/api/v1/overview': overview,
+      '/api/v1/loads': {
+        ...page,
+        observed_at: '2026-10-19T11:00:00Z',
+        truncated: false,
+        limitations: [],
+      },
       '/api/v1/services': {
         ...page,
         dagster_location: 'fixture-location',
@@ -130,7 +149,17 @@ export function startApiFixture({
       },
       '/api/v1/sources': {
         ...page,
-        items: [{ id: 'warehouse_orders', last_materialization_at: null }],
+        items: [
+          {
+            id: 'warehouse_orders',
+            key: ['warehouse_orders'],
+            description: null,
+            compute_kind: 'dlt',
+            relation: 'bronze.orders',
+            last_materialization_at: null,
+            last_run_id: null,
+          },
+        ],
       },
       '/api/v1/layers': page,
       '/api/v1/runs': page,

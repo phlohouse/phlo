@@ -46,6 +46,9 @@ const dateTime = (value: string) =>
 
 function useNotificationInbox(env: string) {
   const [view, setView] = React.useState<NotificationView>('for_you')
+  const [unreadOnly, setUnreadOnly] = React.useState(false)
+  const [cursors, setCursors] = React.useState<Array<string>>([])
+  const after = cursors.at(-1)
   const [page, setPage] = React.useState<NotificationPage>()
   const [error, setError] = React.useState<string>()
   const [pending, setPending] = React.useState(false)
@@ -62,7 +65,14 @@ function useNotificationInbox(env: string) {
     setPending(true)
     setError(undefined)
     setPage(undefined)
-    void getNotifications({ data: { env, view } })
+    void getNotifications({
+      data: {
+        env,
+        view,
+        ...(after ? { after } : {}),
+        ...(unreadOnly ? { unread_only: true } : {}),
+      },
+    })
       .then((value) => {
         if (active) setPage(value)
       })
@@ -80,7 +90,7 @@ function useNotificationInbox(env: string) {
     return () => {
       active = false
     }
-  }, [env, view, revision])
+  }, [env, view, revision, after, unreadOnly])
   async function mark(ids: Array<string>) {
     if (!ids.length || pending) return
     setPending(true)
@@ -94,11 +104,13 @@ function useNotificationInbox(env: string) {
           current
             ? {
                 ...current,
-                items: current.items.map((item) =>
-                  result.event_ids.includes(item.id)
-                    ? { ...item, read: true }
-                    : item,
-                ),
+                items: current.items
+                  .map((item) =>
+                    result.event_ids.includes(item.id)
+                      ? { ...item, read: true }
+                      : item,
+                  )
+                  .filter((item) => !unreadOnly || !item.read),
                 unread: current.items.filter(
                   (item) => !item.read && !result.event_ids.includes(item.id),
                 ).length,
@@ -118,11 +130,28 @@ function useNotificationInbox(env: string) {
   }
   return {
     view,
-    setView,
+    setView: (next: NotificationView) => {
+      setCursors([])
+      setView(next)
+    },
+    unreadOnly,
+    setUnreadOnly: (next: boolean) => {
+      setCursors([])
+      setUnreadOnly(next)
+    },
+    hasPrevious: cursors.length > 0,
+    previous: () => setCursors((items) => items.slice(0, -1)),
+    next: () => {
+      if (page?.next_cursor)
+        setCursors((items) => [...items, page.next_cursor!])
+    },
     page,
     error,
     pending,
-    refresh: () => setRevision((value) => value + 1),
+    refresh: () => {
+      setCursors([])
+      setRevision((value) => value + 1)
+    },
     mark,
   }
 }
@@ -249,8 +278,20 @@ function NotificationList({
 }
 
 function InboxBody({ env, onOpen }: { env: string; onOpen: () => void }) {
-  const { view, setView, page, error, pending, refresh, mark } =
-    useNotificationInbox(env)
+  const {
+    view,
+    setView,
+    page,
+    error,
+    pending,
+    refresh,
+    mark,
+    unreadOnly,
+    setUnreadOnly,
+    hasPrevious,
+    previous,
+    next,
+  } = useNotificationInbox(env)
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
@@ -264,6 +305,7 @@ function InboxBody({ env, onOpen }: { env: string; onOpen: () => void }) {
               type="button"
               key={item.value}
               aria-pressed={view === item.value}
+              disabled={pending}
               onClick={() => setView(item.value)}
               className={`cursor-pointer rounded-md px-3 py-1.5 text-xs ${view === item.value ? 'bg-soft text-foreground' : 'text-muted-foreground hover:bg-raised'}`}
             >
@@ -271,6 +313,15 @@ function InboxBody({ env, onOpen }: { env: string; onOpen: () => void }) {
             </button>
           ))}
         </div>
+        <label className="flex items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={unreadOnly}
+            disabled={pending}
+            onChange={(event) => setUnreadOnly(event.target.checked)}
+          />
+          Unread only
+        </label>
         <button
           type="button"
           disabled={pending || !page?.unread}
@@ -326,13 +377,33 @@ function InboxBody({ env, onOpen }: { env: string; onOpen: () => void }) {
         />
       </div>
       <footer className="space-y-1 border-t border-line px-5 py-4 text-xs leading-relaxed text-muted-foreground">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending || !hasPrevious}
+            onClick={previous}
+          >
+            Newer activity
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending || !page?.next_cursor}
+            onClick={next}
+          >
+            Older activity
+          </Button>
+        </div>
         <p className="m-0">
           Actual incident activity in {env} over the last 30 days. Read state is
           private to your identity.
         </p>
         <p className="m-0">
           {page?.truncated
-            ? 'This list is bounded. Refresh or open Incidents for more activity.'
+            ? page.next_cursor
+              ? 'More activity is available on the next page.'
+              : 'This list is bounded. Open Incidents for more activity.'
             : 'Up to 100 authorized events are shown.'}{' '}
           Mark all read applies to this list.
         </p>

@@ -7,19 +7,25 @@ import {
   retainCsvUpload,
   reviewCsvUpload,
 } from '@/lib/data/api/uploads'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
 import { CsvDestination } from '@/components/sources/csv-destination'
 import { CsvColumnAssistance } from '@/components/sources/csv-column-assistance'
+import {
+  HistoricalUploadReview,
+  UploadRetention,
+} from '@/components/sources/upload-history'
 
 export function CsvUploadReview({
   env,
   initial,
   onRetained,
+  onReclaimed,
 }: {
   env: string
   initial: CsvUpload | null
   onRetained: (id: string) => void
+  onReclaimed?: () => void
 }) {
   const [upload, setUpload] = React.useState(initial)
   const [showFilePicker, setShowFilePicker] = React.useState(!initial)
@@ -106,26 +112,12 @@ export function CsvUploadReview({
   return (
     <div className="grid min-h-0 min-w-0 w-full max-w-full flex-1 grid-cols-[minmax(0,1fr)] overflow-y-auto lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 max-w-full space-y-5 p-5">
-        <div className="flex flex-wrap items-center gap-3 text-[13px]">
-          <span className="flex items-center gap-1.5">
-            {upload ? (
-              <CheckCircle2Icon className="size-4 text-ok" />
-            ) : (
-              <UploadIcon className="size-4" />
-            )}
-            1 File
-          </span>
-          <span className={upload ? 'font-medium' : 'text-muted-foreground'}>
-            2 Check columns
-          </span>
-          <span className="text-muted-foreground">3 Destination</span>
-          <span className="text-muted-foreground">4 Review and load</span>
-        </div>
+        <UploadSteps retained={Boolean(upload)} />
         {upload ? (
           <UploadSummary
             upload={upload}
             dirty={dirty}
-            busy={busy}
+            busy={busy || Boolean(upload.archived_at)}
             expanded={showFilePicker}
             pickerId={filePickerId}
             onReplace={() => setShowFilePicker((value) => !value)}
@@ -149,7 +141,20 @@ export function CsvUploadReview({
         ) : null}
         {upload ? (
           <>
-            {upload.parse_errors.length ? (
+            <UploadRetention
+              upload={upload}
+              env={env}
+              disabled={busy || dirty}
+              onChanged={accept}
+              onReclaimed={() => {
+                setUpload(null)
+                setColumns([])
+                onReclaimed?.()
+              }}
+            />
+            {upload.archived_at ? (
+              <UploadPreview upload={upload} />
+            ) : upload.parse_errors.length ? (
               <div
                 role="alert"
                 className="space-y-2 rounded-lg border border-warn-line bg-warn-wash p-3 text-sm text-warn-ink"
@@ -172,7 +177,11 @@ export function CsvUploadReview({
                       validation checks every row.
                     </p>
                   </div>
-                  <Button disabled={busy} onClick={() => void validate()}>
+                  <Button
+                    operation="v1_csv_upload_review"
+                    disabled={busy}
+                    onClick={() => void validate()}
+                  >
                     Validate all {upload.row_count?.toLocaleString()} rows
                   </Button>
                 </div>
@@ -309,10 +318,34 @@ export function CsvUploadReview({
             >
               Reload retained review
             </Button>
+            <HistoricalUploadReview
+              key={JSON.stringify([env, upload.upload_id, upload.archived_at])}
+              env={env}
+              uploadId={upload.upload_id}
+            />
           </>
         ) : null}
       </div>
       <UploadSidebar upload={upload} />
+    </div>
+  )
+}
+function UploadSteps({ retained }: { retained: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-[13px]">
+      <span className="flex items-center gap-1.5">
+        {retained ? (
+          <CheckCircle2Icon className="size-4 text-ok" />
+        ) : (
+          <UploadIcon className="size-4" />
+        )}
+        1 File
+      </span>
+      <span className={retained ? 'font-medium' : 'text-muted-foreground'}>
+        2 Check columns
+      </span>
+      <span className="text-muted-foreground">3 Destination</span>
+      <span className="text-muted-foreground">4 Review and load</span>
     </div>
   )
 }
@@ -550,7 +583,7 @@ function RetainCsvForm({
           className="min-w-0 text-xs file:mr-3 file:rounded-md file:border file:border-line file:px-3 file:py-1.5"
         />
       </label>
-      <Button type="submit" disabled={busy}>
+      <Button operation="v1_csv_upload" type="submit" disabled={busy}>
         {busy ? 'Working…' : upload ? 'Retain replacement' : 'Retain file'}
       </Button>
       <p className="w-full text-xs text-muted-foreground">

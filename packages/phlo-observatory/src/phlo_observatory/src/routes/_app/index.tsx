@@ -161,16 +161,21 @@ function OverviewKpis({ data }: { data: Overview }) {
         }
       />
       <KpiCard
-        label="Dagster runs"
+        label="Observed Dagster runs"
         value={runs.length}
         qualifier={`${failed} failed`}
         qualifierTone={failed ? 'bad' : 'muted'}
         to="/pipelines/timeline"
         env={overview.env}
         footer={
-          <span title="Computed from the latest 100 observed run records in this range.">
+          <span>
             {runSuccessSummary(succeeded, runs.length)} · median{' '}
             {formatRunDuration(median)}
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {data.runs.next_cursor ? 'Partial history · ' : ''}Latest{' '}
+              {data.runs.items.length} records, filtered to {range}. Not
+              complete period totals.
+            </span>
           </span>
         }
       />
@@ -650,7 +655,7 @@ function RunsByHour({ data }: { data: Overview }) {
       <CardContent className="flex flex-1 flex-col gap-2">
         <ChartContainer
           config={runsChartConfig}
-          label={`${totals.succeeded} succeeded and ${totals.failed} failed runs, last ${data.range}`}
+          label={`${totals.succeeded} succeeded and ${totals.failed} failed observed runs within ${data.range}; latest ${data.runs.items.length} records only`}
           className="aspect-auto h-[180px] w-full lg:h-auto lg:min-h-[180px] lg:flex-1"
         >
           <BarChart
@@ -708,9 +713,13 @@ function RunsByHour({ data }: { data: Overview }) {
               </span>
             ))}
         </div>
-        <p className="sr-only">
+        <p className="m-0 text-xs text-muted-foreground">
           Counts use the latest {data.runs.items.length} observed records from a
-          bounded API read, not complete history.
+          bounded API read, filtered to {data.range}, not complete period
+          totals.
+          {data.runs.next_cursor
+            ? ' Older runs exist outside this read. Empty buckets do not establish no activity.'
+            : ''}
         </p>
       </CardContent>
     </Card>

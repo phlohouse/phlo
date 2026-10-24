@@ -8,14 +8,20 @@ from phlo_transform import editor
 from phlo_transform.binary import Invocation
 
 
-def save(root: Path, sql: str = "SELECT batch_id FROM gold.batch_release_metrics", **updates):
+def save(
+    root: Path,
+    sql: str = "SELECT batch_id FROM gold.batch_release_metrics",
+    *,
+    ref="main",
+    **updates,
+):
     source = editor.read_model_source(root, "review.inspection")
     return editor.save_model_draft(
         root,
         "review.inspection",
         actor="author",
         env="sandbox",
-        ref="main",
+        ref=ref,
         sql=sql,
         source_digest=source["source_digest"],
         workspace_digest=source["workspace_digest"],
@@ -117,9 +123,11 @@ def invocation(code=0):
     return Invocation(command=("engine",), returncode=code, stdout="", stderr="")
 
 
-def test_compile_uses_engine_reports_and_never_applies_or_materializes(editable, monkeypatch):
+@pytest.mark.parametrize("ref", ["main", "release_test"])
+def test_compile_uses_engine_reports_and_never_applies_or_materializes(editable, monkeypatch, ref):
     root, _ = editable
-    draft = save(root)
+    editor.get_settings(root).trino_user = "phlo_api_preview_sandbox"
+    draft = save(root, ref=ref)
     calls = []
 
     def engine(binary, args, **kwargs):
@@ -155,10 +163,14 @@ def test_compile_uses_engine_reports_and_never_applies_or_materializes(editable,
         "review.inspection",
         actor="author",
         env="sandbox",
-        ref="main",
+        ref=ref,
         draft_id=draft["draft_id"],
         revision=1,
         allowed_sources={"gold.batch_release_metrics"},
+        required_ref=ref,
+        required_catalog="iceberg",
+        required_endpoint="http://trino:8080",
+        required_user="phlo_api_preview_sandbox",
         trusted_ca_file="/mounted/preview-ca.pem",
     )
     assert calls == ["check", "list", "plan"]
@@ -252,7 +264,32 @@ def test_engine_cannot_plan_through_an_unverified_catalog_or_connection(
             **constraints,
         )
     assert caught.value.status == 503
-    assert calls == ["check"]
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        {},
+        {
+            "required_ref": "main",
+            "required_catalog": "iceberg",
+            "required_endpoint": "http://trino:8080",
+            "required_user": "preview",
+        },
+        {
+            "required_ref": "release_test",
+            "required_catalog": "other",
+            "required_endpoint": "http://trino:8080",
+            "required_user": "preview",
+        },
+    ],
+)
+def test_custom_reference_requires_its_exact_complete_preview_binding(editable, binding):
+    root, _ = editable
+    with pytest.raises(editor.TransformEditorError) as caught:
+        editor.preview_settings(root, ref="release_test", **binding)
+    assert caught.value.status == 503
 
 
 def test_revision_history_is_principal_environment_ref_model_scoped_and_verified(editable):
@@ -325,3 +362,44 @@ def test_source_comparison_does_not_hide_a_final_newline_revision(editable):
     )
     assert comparison["added_lines"] == 1 and comparison["removed_lines"] == 0
     assert comparison["unified_diff"] and "+" in comparison["unified_diff"]
+
+
+def test_revision_archive_preserves_source_and_immutable_evidence(editable):
+    root, workspace = editable
+    original = (workspace.root / "transforms/inspection.sql").read_bytes()
+    draft = save(root)
+    identity = {
+        "actor": "author",
+        "env": "sandbox",
+        "ref": "main",
+        "draft_id": draft["draft_id"],
+        "revision": 1,
+    }
+    archived = editor.archive_model_draft(
+        root, "review.inspection", archived=True, reason="Superseded review", **identity
+    )
+    assert archived["archived_at"] and archived["revision_digest"] == draft["revision_digest"]
+    assert read(root, draft)["sql"] == draft["sql"]
+    assert (
+        editor.list_model_drafts(
+            root, "review.inspection", actor="author", env="sandbox", ref="main"
+        )["total"]
+        == 0
+    )
+    history = editor.list_model_drafts(
+        root, "review.inspection", actor="author", env="sandbox", ref="main", include_archived=True
+    )
+    assert history["total"] == 1 and history["items"][0]["archive_reason"] == "Superseded review"
+    with pytest.raises(editor.TransformEditorError, match="Restore"):
+        save(root, draft_id=draft["draft_id"], expected_revision=1)
+    with pytest.raises(editor.TransformEditorError, match="Restore"):
+        editor.compile_model_draft(root, "review.inspection", allowed_sources=set(), **identity)
+    restored = editor.archive_model_draft(
+        root, "review.inspection", archived=False, reason="Reopen source review", **identity
+    )
+    assert restored["archived_at"] is None
+    assert (
+        restored["project_path"]
+        == (workspace.root / "transforms/inspection.sql").relative_to(root).as_posix()
+    )
+    assert (workspace.root / "transforms/inspection.sql").read_bytes() == original

@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 252,
+  "endpoint_count": 273,
   "endpoints": [
     {
       "method": "GET",
@@ -949,6 +949,15 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_action_availability_api_v1_action_availability_get",
+      "path": "/api/v1/action-availability",
+      "summary": "V1 Action Availability",
+      "tags": [
+        "v1 readiness"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "activity_api_v1_activity_get",
       "path": "/api/v1/activity",
       "summary": "Activity",
@@ -1416,6 +1425,42 @@
       ]
     },
     {
+      "method": "POST",
+      "operation_id": "v1_data_product_archive_api_v1_data_products__product_id__archive_post",
+      "path": "/api/v1/data-products/{product_id}/archive",
+      "summary": "V1 Data Product Archive",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_data_product_export_api_v1_data_products__product_id__export_get",
+      "path": "/api/v1/data-products/{product_id}/export",
+      "summary": "V1 Data Product Export",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_data_product_reclaim_api_v1_data_products__product_id__reclaim_post",
+      "path": "/api/v1/data-products/{product_id}/reclaim",
+      "summary": "V1 Data Product Reclaim",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_data_product_restore_api_v1_data_products__product_id__restore_post",
+      "path": "/api/v1/data-products/{product_id}/restore",
+      "summary": "V1 Data Product Restore",
+      "tags": [
+        "v1 data products"
+      ]
+    },
+    {
       "method": "GET",
       "operation_id": "v1_datasets_api_v1_datasets_get",
       "path": "/api/v1/datasets",
@@ -1705,9 +1750,45 @@
     },
     {
       "method": "POST",
+      "operation_id": "v1_metric_model_archive_api_v1_metric_models__model_id__archive_post",
+      "path": "/api/v1/metric-models/{model_id}/archive",
+      "summary": "V1 Metric Model Archive",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_metric_model_export_api_v1_metric_models__model_id__export_get",
+      "path": "/api/v1/metric-models/{model_id}/export",
+      "summary": "V1 Metric Model Export",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
       "operation_id": "v1_metric_model_preview_api_v1_metric_models__model_id__preview_sql_post",
       "path": "/api/v1/metric-models/{model_id}/preview-sql",
       "summary": "V1 Metric Model Preview",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_reclaim_api_v1_metric_models__model_id__reclaim_post",
+      "path": "/api/v1/metric-models/{model_id}/reclaim",
+      "summary": "V1 Metric Model Reclaim",
+      "tags": [
+        "v1 metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_metric_model_restore_api_v1_metric_models__model_id__restore_post",
+      "path": "/api/v1/metric-models/{model_id}/restore",
+      "summary": "V1 Metric Model Restore",
       "tags": [
         "v1 metrics"
       ]
@@ -2091,6 +2172,15 @@
       ]
     },
     {
+      "method": "POST",
+      "operation_id": "v1_transform_model_draft_archive_api_v1_transform_models__model_id__drafts__draft_id___revision__archive_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/archive",
+      "summary": "V1 Transform Model Draft Archive",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
       "method": "GET",
       "operation_id": "v1_transform_model_draft_compare_api_v1_transform_models__model_id__drafts__draft_id___revision__compare_get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compare",
@@ -2136,10 +2226,55 @@
       ]
     },
     {
+      "method": "POST",
+      "operation_id": "v1_transform_model_execution_archive_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__archive_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/archive",
+      "summary": "V1 Transform Model Execution Archive",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
       "method": "GET",
       "operation_id": "v1_transform_model_execution_preview_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__preview_get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/preview",
       "summary": "V1 Transform Model Execution Preview",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_execution_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reclaim_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim",
+      "summary": "V1 Transform Model Execution Reclaim",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_execution_reconcile_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reconcile_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reconcile",
+      "summary": "V1 Transform Model Execution Reconcile",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_transform_model_draft_handoff_api_v1_transform_models__model_id__drafts__draft_id___revision__handoff_get",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/handoff",
+      "summary": "V1 Transform Model Draft Handoff",
+      "tags": [
+        "v1 transform editor"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_transform_model_draft_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__reclaim_post",
+      "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim",
+      "summary": "V1 Transform Model Draft Reclaim",
       "tags": [
         "v1 transform editor"
       ]
@@ -2163,6 +2298,15 @@
       ]
     },
     {
+      "method": "GET",
+      "operation_id": "v1_csv_upload_list_api_v1_uploads_csv_get",
+      "path": "/api/v1/uploads/csv",
+      "summary": "V1 Csv Upload List",
+      "tags": [
+        "v1 CSV uploads"
+      ]
+    },
+    {
       "method": "POST",
       "operation_id": "v1_csv_upload_api_v1_uploads_csv_post",
       "path": "/api/v1/uploads/csv",
@@ -2181,10 +2325,28 @@
       ]
     },
     {
+      "method": "POST",
+      "operation_id": "v1_csv_upload_archive_api_v1_uploads_csv__upload_id__archive_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/archive",
+      "summary": "V1 Csv Upload Archive",
+      "tags": [
+        "v1 CSV uploads"
+      ]
+    },
+    {
       "method": "GET",
       "operation_id": "v1_csv_candidate_api_v1_uploads_csv__upload_id__candidate_get",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate",
       "summary": "V1 Csv Candidate",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_candidate_handoff_api_v1_uploads_csv__upload_id__candidate_handoff_get",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/handoff",
+      "summary": "V1 Csv Candidate Handoff",
       "tags": [
         "v1 CSV candidate ingestion"
       ]
@@ -2217,6 +2379,24 @@
       ]
     },
     {
+      "method": "POST",
+      "operation_id": "v1_csv_candidate_reconcile_api_v1_uploads_csv__upload_id__candidate_reconcile_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/reconcile",
+      "summary": "V1 Csv Candidate Reconcile",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_csv_candidate_review_api_v1_uploads_csv__upload_id__candidate_review_get",
+      "path": "/api/v1/uploads/csv/{upload_id}/candidate/review",
+      "summary": "V1 Csv Candidate Review",
+      "tags": [
+        "v1 CSV candidate ingestion"
+      ]
+    },
+    {
       "method": "PUT",
       "operation_id": "v1_csv_upload_review_api_v1_uploads_csv__upload_id__columns_put",
       "path": "/api/v1/uploads/csv/{upload_id}/columns",
@@ -2232,6 +2412,15 @@
       "summary": "V1 Csv Destination",
       "tags": [
         "v1 CSV candidate ingestion"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_csv_upload_reclaim_api_v1_uploads_csv__upload_id__reclaim_post",
+      "path": "/api/v1/uploads/csv/{upload_id}/reclaim",
+      "summary": "V1 Csv Upload Reclaim",
+      "tags": [
+        "v1 CSV uploads"
       ]
     },
     {

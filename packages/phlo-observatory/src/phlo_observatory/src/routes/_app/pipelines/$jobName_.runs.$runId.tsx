@@ -6,11 +6,12 @@ import {
   getPipelineJob,
   getRunLogPage,
 } from '@/lib/data/api/pipelines'
+import { runReportIdentity } from '@/lib/data/api/reports'
 import { PageHeader } from '@/components/phlo/page'
 import { Mono } from '@/components/phlo/status'
 import { EmptyState } from '@/components/phlo/states'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { runBadge, runDuration } from '@/components/pipelines/bits'
 import { overlappingMaintenance } from '@/components/pipelines/evidence'
 import { ConfirmedAction, RetryControl } from '@/components/pipelines/controls'
@@ -57,6 +58,7 @@ function RunPage() {
   const { selected, events, env, job } = data
   const router = useRouter()
   if (!selected) return <EmptyState title="No run observed" />
+  const reportIdentity = runReportIdentity(selected.tags)
   const details: Array<[string, React.ReactNode]> = [
     [
       'Job',
@@ -108,6 +110,21 @@ function RunPage() {
               </div>
             ))}
           </dl>
+          {reportIdentity ? (
+            <Link
+              to="/reports"
+              search={{ env, ...reportIdentity }}
+              className="text-sm underline underline-offset-4"
+            >
+              View durable report for logical run {reportIdentity.run}, attempt{' '}
+              {reportIdentity.attempt}
+            </Link>
+          ) : (
+            <p className="m-0 text-sm text-muted-foreground">
+              No complete producer-recorded report identity is available for
+              this run. Its Dagster ID is not used to guess a durable report.
+            </p>
+          )}
           {overlappingMaintenance(
             data.maintenance.items,
             Date.parse(selected.started_at ?? selected.created_at),
@@ -132,6 +149,8 @@ function RunPage() {
           {selected.status === 'STARTED' ? (
             <ConfirmedAction
               key={`cancel:${env}:${selected.run_id}`}
+              operation="v1_run_cancel"
+              actionContext={{ run_id: selected.run_id }}
               storageKey={`phlo:cancel:${env}:${selected.run_id}:STARTED`}
               confirmation={`I confirm canceling run ${selected.run_id} in ${env}.`}
               actionLabel="Cancel run"

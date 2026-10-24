@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from hashlib import sha256
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -34,6 +35,7 @@ class NotificationPage(WireModel):
     items: list[NotificationItem]
     unread: int
     truncated: bool
+    next_cursor: str | None
 
 
 class NotificationReadInput(WireModel):
@@ -66,11 +68,22 @@ def _visible(request: Request, env: Environment, incident_id: str) -> bool:
     return True
 
 
-def _notification_candidates(env: Environment, subject: str, view: NotificationView, limit: int):
+def _notification_candidates(
+    env: Environment,
+    subject: str,
+    view: NotificationView,
+    limit: int,
+    after: tuple[datetime, str] | None = None,
+    unread_only: bool = False,
+):
     filters = {"for_you": "AND i.owner=%s", "watching": "AND s.subject IS NOT NULL", "all": ""}
     params: tuple = (subject, subject, env)
     if view == "for_you":
         params += (subject,)
+    continuation = ""
+    if after is not None:
+        continuation = "AND (e.occurred_at,e.event_id) < (%s,%s)"
+        params += after
     params += (limit + 1,)
     with incidents._transaction() as connection, connection.cursor() as cur:
         cur.execute(
@@ -84,6 +97,8 @@ def _notification_candidates(env: Environment, subject: str, view: NotificationV
                     AND s.incident_id=e.incident_id AND s.subject=%s
                 WHERE e.env=%s AND e.occurred_at >= now()-interval '30 days'
                     {filters[view]}
+                    {"AND r.event_id IS NULL" if unread_only else ""}
+                    {continuation}
                 ORDER BY e.occurred_at DESC,e.event_id DESC LIMIT %s""",  # noqa: S608 # Reason: Static view fragments only; identity, scope and limit remain bound.
             params,
         )
@@ -96,12 +111,19 @@ def v1_notifications(
     env: Environment = Query(),
     view: NotificationView = "for_you",
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    after: str | None = None,
+    unread_only: bool = False,
 ) -> NotificationPage:
+    """Return page-scoped unread counts and a continuation even across denied events."""
     subject = incidents._actor(request)
-    rows = _notification_candidates(env, subject, view, 200)
+    scope = f"notifications:{sha256(subject.encode()).hexdigest()}:{view}:{unread_only}"
+    position = incidents._decode_cursor(after, env, scope)
+    rows = _notification_candidates(env, subject, view, 200, position, unread_only)
     allowed: dict[str, bool] = {}
     items = []
+    scanned = 0
     for row in rows[:200]:
+        scanned += 1
         incident_id = row[1]
         if incident_id not in allowed:
             allowed[incident_id] = _visible(request, env, incident_id)
@@ -118,12 +140,20 @@ def v1_notifications(
                     read=row[7],
                 )
             )
+        if len(items) == limit:
+            break
+    more = len(rows) > scanned
     return NotificationPage(
         env=env,
         view=view,
-        items=items[:limit],
-        unread=sum(not item.read for item in items[:limit]),
-        truncated=len(rows) > 200 or len(items) > limit,
+        items=items,
+        unread=sum(not item.read for item in items),
+        truncated=more,
+        next_cursor=(
+            incidents._encode_cursor(env, scope, rows[scanned - 1][6], rows[scanned - 1][0])
+            if more
+            else None
+        ),
     )
 
 

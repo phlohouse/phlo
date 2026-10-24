@@ -20,6 +20,7 @@ from phlo.plugins.observatory_settings import (
     StorageCorruptionError,
     get_settings_service,
 )
+from phlo_api.errors import ConflictError
 
 logger = get_logger(__name__)
 
@@ -32,14 +33,24 @@ def state_namespace(project_root: Path, collection: str) -> str:
     return f"observatory.{collection}.{project_id}"
 
 
-def load_collection(project_root: Path, collection: str, legacy_path: Path) -> list[dict[str, Any]]:
+def load_collection(
+    project_root: Path, collection: str, legacy_path: Path, *, require_known_state: bool = False
+) -> list[dict[str, Any]]:
     """Load a collection, importing its legacy JSON file exactly once when needed."""
     record = get_settings_service().get(
         SettingsScope.GLOBAL, state_namespace(project_root, collection)
     )
     if record is not None:
+        if require_known_state:
+            _require_known_state(record.settings)
         return _items_from_state(record.settings, collection)
-    return _mutate_collection(project_root, collection, legacy_path, lambda items: items)
+    return _mutate_collection(
+        project_root,
+        collection,
+        legacy_path,
+        lambda items: items,
+        require_known_state=require_known_state,
+    )
 
 
 def mutate_collection(
@@ -47,9 +58,13 @@ def mutate_collection(
     collection: str,
     legacy_path: Path,
     mutation: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+    *,
+    require_known_state: bool = False,
 ) -> list[dict[str, Any]]:
     """Apply a collection mutation under the durable store's transaction."""
-    return _mutate_collection(project_root, collection, legacy_path, mutation)
+    return _mutate_collection(
+        project_root, collection, legacy_path, mutation, require_known_state=require_known_state
+    )
 
 
 def _mutate_collection(
@@ -57,6 +72,8 @@ def _mutate_collection(
     collection: str,
     legacy_path: Path,
     mutation: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+    *,
+    require_known_state: bool = False,
 ) -> list[dict[str, Any]]:
     namespace = state_namespace(project_root, collection)
     result_items: list[dict[str, Any]] = []
@@ -66,6 +83,8 @@ def _mutate_collection(
         mutation, and return the wrapped durable payload.
         """
         nonlocal result_items
+        if require_known_state and current is not None:
+            _require_known_state(current)
         # current is None only while the namespace has never been persisted; seed
         # from the legacy JSON file on that first pass. Once this transaction
         # commits, every later load finds the durable record and never reads the
@@ -73,7 +92,7 @@ def _mutate_collection(
         items = (
             _items_from_state(current, collection)
             if current is not None
-            else _legacy_items(legacy_path, collection)
+            else _legacy_items(legacy_path, collection, require_known_state=require_known_state)
         )
         result_items = mutation(items)
         return {"schema_version": STATE_SCHEMA_VERSION, "items": result_items}
@@ -93,7 +112,16 @@ def _items_from_state(state: dict[str, Any], collection: str) -> list[dict[str, 
     return items
 
 
-def _legacy_items(path: Path, collection: str) -> list[dict[str, Any]]:
+def _require_known_state(state: Mapping[str, Any]) -> None:
+    if set(state) - {"schema_version", "items"}:
+        raise ConflictError(
+            "Unknown collection metadata or mutation evidence prevents safe reclamation."
+        )
+
+
+def _legacy_items(
+    path: Path, collection: str, *, require_known_state: bool = False
+) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
@@ -102,6 +130,8 @@ def _legacy_items(path: Path, collection: str) -> list[dict[str, Any]]:
         _raise_corruption(collection, "legacy_json")
     if not isinstance(payload, Mapping) or not isinstance(payload.get("items"), list):
         _raise_corruption(collection, "legacy_shape")
+    if require_known_state:
+        _require_known_state(payload)
     items = payload["items"]
     if not all(isinstance(item, dict) for item in items):
         _raise_corruption(collection, "legacy_items")

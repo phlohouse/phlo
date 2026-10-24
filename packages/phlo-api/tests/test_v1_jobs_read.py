@@ -238,11 +238,19 @@ def test_run_trigger_tags_do_not_expose_arbitrary_definition_values(api):
     state["runs"][0]["tags"].extend(
         [
             {"key": "dagster/schedule_name", "value": "daily"},
+            {"key": "phlo/project_id", "value": "project-alpha"},
+            {"key": "phlo/run_id", "value": "logical-run"},
+            {"key": "phlo/attempt", "value": "3"},
             {"key": "private-config", "value": "not-for-the-run-view"},
         ]
     )
     run = client.get("/api/v1/runs/prod-run?env=prod").json()
-    assert run["tags"] == {"dagster/schedule_name": "daily"}
+    assert run["tags"] == {
+        "dagster/schedule_name": "daily",
+        "phlo/project_id": "project-alpha",
+        "phlo/run_id": "logical-run",
+        "phlo/attempt": "3",
+    }
 
 
 def test_wrong_location_and_ref_do_not_leak_and_unverified_inventory_is_excluded(api):

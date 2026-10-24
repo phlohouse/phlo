@@ -6,6 +6,7 @@ golden-path portability harness intentionally needs only pytest and stdlib.
 
 import json
 import os
+import subprocess
 import sys
 from contextlib import nullcontext
 from dataclasses import replace
@@ -46,6 +47,37 @@ def test_private_acceptance_files_are_exclusive_and_private(tmp_path, observator
     if os.name == "posix":
         assert path.stat().st_mode & 0o777 == 0o600
         assert path.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_preview_tls_uses_a_signed_server_leaf(tmp_path, observatory):
+    root = tmp_path / "tls"
+    observatory.tls_material(root)
+    verified = subprocess.run(
+        [
+            "openssl",
+            "verify",
+            "-x509_strict",
+            "-purpose",
+            "sslserver",
+            "-verify_hostname",
+            "trino-preview",
+            "-CAfile",
+            str(root / "ca.pem"),
+            str(root / "server.pem"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert verified.stdout.strip().endswith("server.pem: OK")
+    from cryptography import x509
+
+    leaf = x509.load_pem_x509_certificate((root / "server.pem").read_bytes())
+    assert leaf.extensions.get_extension_for_class(x509.BasicConstraints).value.ca is False
+    if os.name == "posix":
+        assert root.stat().st_mode & 0o777 == 0o700
+        for name in ("ca.key", "server.key", "server.p12"):
+            assert (root / name).stat().st_mode & 0o777 == 0o600
 
 
 def test_initialize_runs_real_cli_and_persists_onboarding_and_upgrade_contract(

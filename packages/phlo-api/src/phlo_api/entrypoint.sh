@@ -32,22 +32,23 @@ if [ "$PHLO_DEV_MODE" = "true" ] && [ -f "$PHLO_DEV_ROOT/pyproject.toml" ]; then
     DEV_INSTALL_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/phlo-dev-install.XXXXXX")"
     mkdir -p "$DEV_INSTALL_ROOT/packages"
     mkdir -p "$DEV_INSTALL_ROOT/site-packages"
-    if [ -f "$PHLO_DEV_ROOT/packages/phlo-postgres/pyproject.toml" ]; then
-        cp -R "$PHLO_DEV_ROOT/packages/phlo-postgres" "$DEV_INSTALL_ROOT/packages/"
-    fi
-    if [ -f "$PHLO_DEV_ROOT/packages/phlo-api/pyproject.toml" ]; then
-        cp -R "$PHLO_DEV_ROOT/packages/phlo-api" "$DEV_INSTALL_ROOT/packages/"
-    fi
-    chmod -R u+w "$DEV_INSTALL_ROOT"
-    if [ -f "$DEV_INSTALL_ROOT/packages/phlo-postgres/pyproject.toml" ]; then
-        install_editable "$DEV_INSTALL_ROOT/packages/phlo-postgres" /tmp/phlo-postgres-package-install.log
-    fi
-    if [ -f "$DEV_INSTALL_ROOT/packages/phlo-api/pyproject.toml" ]; then
-        install_editable "$DEV_INSTALL_ROOT/packages/phlo-api" /tmp/phlo-api-package-install.log
-    fi
-    # Prepend the source trees so locally edited code shadows any copy already
-    # installed into site-packages. Imports remain live from the read-only mount.
-    export PYTHONPATH="$PHLO_DEV_ROOT/src:$PHLO_DEV_ROOT/packages/phlo-api/src:$PHLO_DEV_ROOT/packages/phlo-postgres/src:$DEV_INSTALL_ROOT/site-packages:${PYTHONPATH:-/app}"
+    packages="phlo-postgres phlo-api"
+    for extra in $(printf '%s' "${PHLO_API_EXTRAS:-}" | tr ',' ' '); do
+        case "$extra" in
+            dagster|dlt|iceberg|lineage|transform|trino) packages="$packages phlo-$extra" ;;
+            *) echo "Unsupported API provider extra: $extra" >&2; exit 1 ;;
+        esac
+    done
+    export PYTHONPATH="$PHLO_DEV_ROOT/src:$DEV_INSTALL_ROOT/site-packages:${PYTHONPATH:-/app}"
+    for package in $packages; do
+        if [ -f "$PHLO_DEV_ROOT/packages/$package/pyproject.toml" ]; then
+            cp -R "$PHLO_DEV_ROOT/packages/$package" "$DEV_INSTALL_ROOT/packages/"
+            chmod -R u+w "$DEV_INSTALL_ROOT/packages/$package"
+            install_editable "$DEV_INSTALL_ROOT/packages/$package" "/tmp/$package-package-install.log"
+            # Live sources shadow the copied build tree and installed distributions.
+            export PYTHONPATH="$PHLO_DEV_ROOT/packages/$package/src:$PYTHONPATH"
+        fi
+    done
 fi
 
 exec "$@"

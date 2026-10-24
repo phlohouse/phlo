@@ -2,6 +2,11 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { environmentSchema, phloApi } from './client'
+import {
+  candidateEvidenceSchema,
+  reconciliationSchema,
+  sourceHandoffSchema,
+} from './candidate-evidence'
 
 const identity = z.object({
   env: environmentSchema,
@@ -68,6 +73,40 @@ const previewSchema = z.object({
 })
 export type UploadCandidate = z.infer<typeof receiptSchema>
 export type UploadCandidatePreview = z.infer<typeof previewSchema>
+const historicalReviewSchema = z.object({
+  receipt: receiptSchema,
+  evidence: candidateEvidenceSchema,
+  preview: previewSchema.nullable(),
+  reconciliation: reconciliationSchema.nullable(),
+})
+export type UploadCandidateReview = z.infer<typeof historicalReviewSchema>
+export const reviewUploadCandidate = createServerFn({ method: 'GET' })
+  .inputValidator(identity)
+  .handler(({ data: { env, upload_id } }) =>
+    phloApi(
+      `api/v1/uploads/csv/${upload_id}/candidate/review?env=${encodeURIComponent(env)}`,
+      historicalReviewSchema,
+      { env },
+    ),
+  )
+export const reconcileUploadCandidate = createServerFn({ method: 'POST' })
+  .inputValidator(identity)
+  .handler(({ data: { env, upload_id } }) =>
+    phloApi(
+      `api/v1/uploads/csv/${upload_id}/candidate/reconcile?env=${encodeURIComponent(env)}`,
+      historicalReviewSchema,
+      { env, method: 'POST' },
+    ),
+  )
+export const getUploadHandoff = createServerFn({ method: 'GET' })
+  .inputValidator(identity)
+  .handler(({ data: { env, upload_id } }) =>
+    phloApi(
+      `api/v1/uploads/csv/${upload_id}/candidate/handoff?env=${encodeURIComponent(env)}`,
+      sourceHandoffSchema,
+      { env },
+    ),
+  )
 
 export const prepareUploadDestination = createServerFn({ method: 'POST' })
   .inputValidator(

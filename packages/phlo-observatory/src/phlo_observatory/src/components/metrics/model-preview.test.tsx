@@ -50,6 +50,27 @@ const model: MetricModel = {
 }
 
 describe('metric preview', () => {
+  it('keeps an unavailable draft visible but prevents execution with its source reason', async () => {
+    const user = userEvent.setup()
+    render(
+      <MetricModelPreview
+        model={{
+          ...model,
+          source_status: 'unavailable',
+          source_reason: 'The saved table was removed from this ref.',
+        }}
+        env="sandbox"
+      />,
+    )
+    const button = screen.getByRole('button', { name: 'Run preview' })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toContain(
+      'The saved table was removed from this ref.',
+    )
+    await user.click(button)
+    expect(previewSql).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
   it('executes the exact generated SQL with selected dimensions and displays returned rows', async () => {
     const sql =
       'SELECT "product", COUNT("batch_id") AS "batches" FROM "gold"."batches" GROUP BY1'

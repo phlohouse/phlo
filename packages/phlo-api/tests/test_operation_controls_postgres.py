@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from uuid import uuid4
@@ -196,6 +197,41 @@ def test_shared_journal_blocks_unknown_until_reconciled(postgres_dsn):
     assert stores[1].read("first").state == OperationJournalState.UNKNOWN
     assert stores[1].transition("first", OperationJournalState.SUCCEEDED, {"accepted": True})
     assert stores[0].claim(replace(entry, operation_id="second"))
+
+
+def test_reclamation_guard_shares_transaction_exclusion_with_remote_claims(postgres_dsn):
+    namespace = str(uuid4())
+    first = PostgresOperationControls(postgres_dsn, namespace)
+    second = PostgresOperationControls(postgres_dsn, namespace)
+    first.initialize()
+    second.initialize()
+    entered, claimed = Event(), Event()
+
+    def contender():
+        entered.set()
+        result = second.claim_idempotency("key", "write", "outcome", "resource")
+        claimed.set()
+        return result
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with first.reclamation_guard([("write", "resource")]):
+            future = pool.submit(contender)
+            assert entered.wait(1)
+            assert not claimed.wait(0.2)
+        assert future.result(timeout=3) == (True, "pending", "")
+    for target in ("resource", "outcome"):
+        with pytest.raises(OperationExclusionConflict):
+            with first.reclamation_guard([("write", target)]):
+                pytest.fail("Pending mutation authorized disposal")
+    second.finish_idempotency("key", "write", "outcome", "unknown")
+    with pytest.raises(OperationExclusionConflict):
+        with first.reclamation_guard([("write", "resource")]):
+            pytest.fail("Unknown mutation authorized disposal")
+    assert second.claim_idempotency("other-key", "write", "other-outcome", "resource") == (
+        False,
+        "operation_unknown",
+        "",
+    )
 
 
 def test_shared_claim_resolution_and_namespace_isolation(postgres_dsn):

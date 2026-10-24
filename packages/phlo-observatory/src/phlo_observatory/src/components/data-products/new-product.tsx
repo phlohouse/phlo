@@ -5,44 +5,64 @@ import type { DataProduct } from '@/lib/data/api/data-products'
 import {
   createDataProduct,
   productInputSchema,
+  updateDataProduct,
 } from '@/lib/data/api/data-products'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 
 export function NewProduct({
   env,
   assets,
   onCreated,
   onCancel,
+  product,
 }: {
   env: string
   assets: Array<ApiAsset>
   onCreated: (product: DataProduct) => void
   onCancel: () => void
+  product?: DataProduct
 }) {
   const [review, setReview] = React.useState<ReturnType<
     typeof productInputSchema.parse
   > | null>(null)
+  const [reviewing, setReviewing] = React.useState(false)
   const [error, setError] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const values = review ??
+    product ?? {
+      name: '',
+      product_id: '',
+      owner: '',
+      classifications: [],
+      purpose: '',
+      member_dataset_ids: [] as Array<string>,
+    }
   const relations = [
-    ...new Set(
-      assets
+    ...new Set([
+      ...(product?.member_dataset_ids ?? []),
+      ...assets
         .map((asset) => asset.relation)
         .filter((relation): relation is string => Boolean(relation)),
-    ),
+    ]),
   ]
   async function save() {
     if (!review) return
     setBusy(true)
     setError('')
     try {
-      onCreated(await createDataProduct({ data: review }))
+      onCreated(
+        await (product
+          ? updateDataProduct({
+              data: { ...review, expected_version: product.version },
+            })
+          : createDataProduct({ data: review })),
+      )
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
-          : 'Could not create the draft. Reload before retrying.',
+          : 'Could not save the draft. Reload before retrying.',
       )
     } finally {
       setBusy(false)
@@ -54,13 +74,13 @@ export function NewProduct({
       aria-labelledby="new-product-title"
     >
       <h2 id="new-product-title" className="mb-3 text-[15px] font-medium">
-        New data product
+        {product ? 'Edit draft product' : 'New data product'}
       </h2>
       <p className="mb-4 text-sm text-muted-foreground">
         Declare a curated set of real tables with an owner and purpose. It
         remains a draft and grants no access.
       </p>
-      {review ? (
+      {reviewing && review ? (
         <div className="space-y-3 text-sm">
           <h3 className="font-medium">Review draft collection</h3>
           <p>
@@ -77,18 +97,29 @@ export function NewProduct({
           </ul>
           <p className="text-muted-foreground">
             Member governance, readiness and publication stay under canonical
-            Dataset authority. This creates only the collection declaration.
+            Dataset authority. This {product ? 'updates' : 'creates'} only the
+            collection declaration.
           </p>
           <div className="flex gap-2">
             <Button
               variant="outline"
               disabled={busy}
-              onClick={() => setReview(null)}
+              onClick={() => setReviewing(false)}
             >
               Edit
             </Button>
-            <Button disabled={busy} onClick={() => void save()}>
-              {busy ? 'Creating draft…' : 'Create draft product'}
+            <Button
+              operation={
+                product ? 'v1_data_product_update' : 'v1_data_product_create'
+              }
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              {busy
+                ? 'Saving draft…'
+                : product
+                  ? 'Save draft product'
+                  : 'Create draft product'}
             </Button>
           </div>
         </div>
@@ -100,7 +131,7 @@ export function NewProduct({
             const form = new FormData(event.currentTarget)
             const parsed = productInputSchema.safeParse({
               env,
-              product_id: form.get('product_id'),
+              product_id: product?.product_id ?? form.get('product_id'),
               name: form.get('name'),
               purpose: form.get('purpose'),
               owner: form.get('owner'),
@@ -113,6 +144,7 @@ export function NewProduct({
             if (parsed.success) {
               setError('')
               setReview(parsed.data)
+              setReviewing(true)
             } else
               setError(
                 parsed.error.issues
@@ -126,17 +158,25 @@ export function NewProduct({
               name: 'name',
               label: 'Product name',
               placeholder: 'Product quality data',
+              value: values.name,
             },
             {
               name: 'product_id',
               label: 'Product ID',
               placeholder: 'batch-record-cgt04',
+              value: values.product_id,
             },
-            { name: 'owner', label: 'Owner', placeholder: 'QC Analytics' },
+            {
+              name: 'owner',
+              label: 'Owner',
+              placeholder: 'QC Analytics',
+              value: values.owner,
+            },
             {
               name: 'classification',
               label: 'Classification',
               placeholder: 'Internal',
+              value: values.classifications.join(', '),
             },
           ].map((field) => (
             <label key={field.name} className="flex flex-col gap-1.5 text-sm">
@@ -144,6 +184,8 @@ export function NewProduct({
               <Input
                 name={field.name}
                 placeholder={field.placeholder}
+                defaultValue={field.value}
+                disabled={Boolean(product) && field.name === 'product_id'}
                 required
               />
             </label>
@@ -152,6 +194,7 @@ export function NewProduct({
             <span>Purpose and scope</span>
             <textarea
               name="purpose"
+              defaultValue={values.purpose}
               required
               className="min-h-20 rounded-lg border border-border bg-card p-3"
             />
@@ -164,7 +207,14 @@ export function NewProduct({
                   key={relation}
                   className="flex items-center gap-2 font-mono text-xs"
                 >
-                  <input type="checkbox" name="member" value={relation} />
+                  <input
+                    type="checkbox"
+                    name="member"
+                    value={relation}
+                    defaultChecked={values.member_dataset_ids.includes(
+                      relation,
+                    )}
+                  />
                   {relation}
                 </label>
               ))

@@ -77,6 +77,23 @@ def test_catalog_owner_and_preview_relation_validation_precede_sql(provider):
     assert calls == []
 
 
+@pytest.mark.parametrize("security", ["ALLOW_ALL", "READ_ONLY"])
+def test_local_catalog_preflight_matches_candidate_write_requirements(provider, security):
+    root, directory, calls = provider
+    source = directory / "iceberg.properties"
+    source.write_text(source.read_text() + f"iceberg.security={security}\n")
+    if security == "READ_ONLY":
+        with pytest.raises(ValueError, match="writable coordinator"):
+            candidates.catalog_properties(root)
+        with pytest.raises(ValueError, match="writable coordinator"):
+            candidates.create_catalog(root, ID, REF)
+    else:
+        properties = candidates.catalog_properties(root)
+        assert properties["iceberg.rest-catalog.uri"] == "http://nessie/iceberg"
+    assert calls == []
+    assert sorted(path.name for path in directory.iterdir()) == ["iceberg.properties"]
+
+
 @pytest.mark.parametrize(
     "provider",
     [f"{env}-transform-{ID}" for env in ("development", "qa_eu-2", "a" * 63)],

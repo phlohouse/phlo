@@ -13,6 +13,9 @@ build:
         PHLO_VERSION: ${PHLO_VERSION:-}
         PHLO_API_VERSION: ${PHLO_API_VERSION:-}
         PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}
+        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS:-}
+        PHLO_TRANSFORM_BINARY: ${PHLO_TRANSFORM_BINARY:-}
+        PHLO_TRANSFORM_SHA256: ${PHLO_TRANSFORM_SHA256:-}
 
 depends_on:
     - postgres
@@ -41,6 +44,7 @@ compose:
         HOST: 0.0.0.0
         PORT: 4000
         PYTHONUNBUFFERED: "1"
+        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS:-}
         PHLO_AUTHORIZATION_MODE: ${PHLO_AUTHORIZATION_MODE:-required}
         PHLO_AUTHENTICATION_PROVIDER: ${PHLO_AUTHENTICATION_PROVIDER:-}
         PHLO_SERVICE_CREDENTIALS_FILE: ${PHLO_SERVICE_CREDENTIALS_FILE:-}
@@ -79,6 +83,9 @@ compose:
         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}
         POSTGRES_DB: ${POSTGRES_DB:-phlo}
         TRINO_URL: ${TRINO_URL:-http://trino:8080}
+        # Provider clients need the internal listener, not the published host port.
+        TRINO_HOST: ${PHLO_API_TRINO_HOST:-trino}
+        TRINO_PORT: ${PHLO_API_TRINO_PORT:-8080}
         DAGSTER_GRAPHQL_URL: ${DAGSTER_GRAPHQL_URL:-http://dagster:3000/graphql}
         NESSIE_URL: ${NESSIE_URL:-http://nessie:19120/api/v2}
         CLICKSTACK_QUERY_URL: ${CLICKSTACK_QUERY_URL:-}
@@ -96,6 +103,27 @@ compose:
         - ../.phlo/observatory:/app/.phlo/observatory
         - ../.phlo/state:/app/.phlo/state
         - ../.phlo/audit:/app/.phlo/audit
+        # These sources stay in the project tree so Dagster sees the same artifacts.
+        - type: bind
+          source: ../.phlo/uploads
+          target: /app/.phlo/uploads
+          bind:
+              create_host_path: false
+        - type: bind
+          source: ../.phlo/transform-editor
+          target: /app/.phlo/transform-editor
+          bind:
+              create_host_path: false
+        - type: bind
+          source: ../contracts/uploads
+          target: /app/contracts/uploads
+          bind:
+              create_host_path: false
+        - type: bind
+          source: ../workflows/uploads
+          target: /app/workflows/uploads
+          bind:
+              create_host_path: false
     healthcheck:
         test:
             [
@@ -110,6 +138,21 @@ compose:
         start_period: 10s
 
 env_vars:
+    PHLO_API_EXTRAS:
+        default: ""
+        description: Comma-separated API provider extras to install when building, such as iceberg,dlt,trino,transform; empty keeps the base image minimal
+    PHLO_TRANSFORM_BINARY:
+        default: ""
+        description: Optional approved native engine path relative to the API image build context; must run on the image platform and libc
+    PHLO_TRANSFORM_SHA256:
+        default: ""
+        description: Required expected SHA256 when including a native engine in the API image
+    PHLO_API_TRINO_HOST:
+        default: trino
+        description: Writable coordinator hostname reachable from the API container
+    PHLO_API_TRINO_PORT:
+        default: 8080
+        description: Writable coordinator internal listener, not its published host port
     PHLO_API_OPERATION_CONTROLS_NAMESPACE:
         default: ""
         description: Stable project identity shared by every API replica; required with the controls DSN
@@ -266,6 +309,8 @@ dev:
         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}
         POSTGRES_DB: ${POSTGRES_DB:-phlo}
         TRINO_URL: "http://127.0.0.1:${TRINO_PORT:-10005}"
+        TRINO_HOST: 127.0.0.1
+        TRINO_PORT: ${TRINO_PORT:-10005}
         TRINO_USER: ${PHLO_API_TRINO_USER:-phlo-api}
         TRINO_ROLE: ${PHLO_API_TRINO_ROLE:-}
         CLICKSTACK_QUERY_URL: ${CLICKSTACK_QUERY_URL:-}

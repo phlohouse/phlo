@@ -20,17 +20,23 @@ const pageSchema = z.object({
   items: z.array(itemSchema),
   unread: z.number().int().nonnegative(),
   truncated: z.boolean(),
+  next_cursor: z.string().nullable().optional(),
 })
 export type NotificationItem = z.infer<typeof itemSchema>
 export type NotificationPage = z.infer<typeof pageSchema>
 export type NotificationView = z.infer<typeof viewSchema>
 export const getNotifications = createServerFn({ method: 'GET' })
   .inputValidator(
-    z.object({ env: environmentSchema, view: viewSchema.default('for_you') }),
+    z.object({
+      env: environmentSchema,
+      view: viewSchema.default('for_you'),
+      after: z.string().optional(),
+      unread_only: z.boolean().optional(),
+    }),
   )
   .handler(({ data }) =>
     phloApi(
-      `/api/v1/notifications?env=${data.env}&view=${data.view}&limit=100`,
+      `/api/v1/notifications?${new URLSearchParams({ env: data.env, view: data.view, limit: '100', ...(data.after ? { after: data.after } : {}), ...(data.unread_only ? { unread_only: 'true' } : {}) })}`,
       pageSchema,
       { env: data.env },
     ),

@@ -194,3 +194,51 @@ def test_invalid_environment_identity_is_rejected_before_io(runtime, env):
     with pytest.raises(ConflictError, match="identity"):
         prepare(env)
     assert state == [] and calls == []
+
+
+def test_historical_candidate_is_reviewable_after_base_drift_but_never_release_eligible(runtime):
+    _, heads, calls, _ = runtime
+    binding = prepare()
+    heads["main"] = "c" * 64
+    evidence = asyncio.run(candidates.candidate_evidence(binding, expected_hash=BASE))
+    assert evidence["stale"] is True and evidence["eligible_for_release"] is False
+    assert evidence["current_base_hash"] == "c" * 64
+    assert evidence["observed_candidate_hash"] == BASE
+    assert (
+        asyncio.run(
+            candidates.verify_candidate(binding, expected_hash=BASE, require_current_base=False)
+        )
+        == BASE
+    )
+    with pytest.raises(ConflictError):
+        asyncio.run(candidates.verify_candidate(binding, expected_hash=BASE))
+    heads[binding["candidate_ref"]] = "d" * 64
+    changed = asyncio.run(candidates.candidate_evidence(binding, expected_hash=BASE))
+    assert changed["observed_candidate_hash"] is None and changed["eligible_for_release"] is False
+    assert len(calls) == 2
+
+
+def test_reconcile_requires_complete_scoped_catalog_evidence_and_never_provisions(runtime):
+    state, heads, calls, _ = runtime
+    binding = prepare()
+    state[0] = {**state[0], "state": "unknown"}
+    with pytest.raises(ConflictError):
+        asyncio.run(
+            candidates.reconcile_candidate(operation_id=IDENTITY, actor="other", env="sandbox")
+        )
+    heads[binding["candidate_ref"]] = "d" * 64
+    with pytest.raises(ConflictError, match="subsequent writes"):
+        asyncio.run(
+            candidates.reconcile_candidate(operation_id=IDENTITY, actor="owner", env="sandbox")
+        )
+    heads[binding["candidate_ref"]] = BASE
+    recovered = asyncio.run(
+        candidates.reconcile_candidate(operation_id=IDENTITY, actor="owner", env="sandbox")
+    )
+    assert recovered["state"] == "ready" and len(calls) == 2
+    state[0] = {key: value for key, value in state[0].items() if key != "catalog_properties_digest"}
+    with pytest.raises(ConflictError, match="complete owned"):
+        asyncio.run(
+            candidates.reconcile_candidate(operation_id=IDENTITY, actor="owner", env="sandbox")
+        )
+    assert len(calls) == 2

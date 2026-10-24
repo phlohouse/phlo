@@ -8,15 +8,46 @@ compose regeneration writing docker-compose.yml plus .env/.env.local.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from subprocess import CompletedProcess
 
+import click
 import pytest
 
 from phlo.cli.commands.services import utils as service_utils
 from phlo.hooks.events import ServiceLifecycleEvent
 from phlo.plugins.discovery import ServiceDefinition
 from tests.helpers import FakeDiscovery, RecordingBus, _service
+
+
+def test_api_authoring_directories_are_private_and_preserve_existing_permissions(
+    tmp_path: Path,
+) -> None:
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    existing = tmp_path / "workflows/uploads"
+    existing.mkdir(parents=True, mode=0o750)
+    service_utils.prepare_api_runtime_directories(phlo_dir, ["phlo-api"])
+    for relative in (".phlo/uploads", ".phlo/transform-editor", "contracts/uploads"):
+        path = tmp_path / relative
+        assert path.is_dir()
+        if os.name == "posix":
+            assert path.stat().st_mode & 0o777 == 0o700
+    if os.name == "posix":
+        assert existing.stat().st_mode & 0o777 == 0o750
+    assert not (tmp_path / "workflows/unrelated").exists()
+
+
+def test_api_authoring_directories_reject_symlinked_definition_mounts(tmp_path: Path) -> None:
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    outside = tmp_path / "unrelated-definitions"
+    outside.mkdir()
+    (tmp_path / "workflows").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(click.ClickException, match="must not follow a symlink"):
+        service_utils.prepare_api_runtime_directories(phlo_dir, ["phlo-api"])
+    assert not (outside / "uploads").exists()
 
 
 @pytest.mark.parametrize(

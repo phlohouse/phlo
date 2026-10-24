@@ -6,13 +6,24 @@ import type {
   TransformExecution,
 } from '@/lib/data/api/transform-editor'
 import {
+  archiveTransformExecution,
   executeTransformDraft,
   getTransformExecutions,
+  getTransformHandoff,
+  reclaimTransformExecution,
+  reconcileTransformExecution,
 } from '@/lib/data/api/transform-editor'
+import { ReclaimAction } from '@/components/phlo/reclaim-action'
 import { getBranchesPage } from '@/lib/data/api/branches'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
 import { Segmented } from '@/components/ui/toggle-group'
+import {
+  ArchiveEvidenceAction,
+  EvidenceStatus,
+  SourceHandoffPanel,
+} from '@/components/phlo/retained-evidence'
+import { ActionGroup } from '@/components/ui/action-group'
 
 type Props = {
   env: string
@@ -28,21 +39,33 @@ function useCandidateExecution({ env, model, draft }: Props) {
   const [selectedId, setSelectedId] = React.useState<string>()
   const [error, setError] = React.useState<string>()
   const [busy, setBusy] = React.useState(false)
+  const [archived, setArchived] = React.useState(false)
   const mounted = React.useRef(true)
   const intent = React.useRef<{ key: string; baseHash: string } | undefined>(
     undefined,
   )
   React.useEffect(() => {
+    let active = true
     mounted.current = true
     getTransformExecutions({
-      data: { env, model, draft_id: draft.draft_id, revision: draft.revision },
+      data: {
+        env,
+        model,
+        draft_id: draft.draft_id,
+        revision: draft.revision,
+        include_archived: archived,
+      },
     }).then(
       (page) => {
-        if (mounted.current)
-          setExecutions((current) => mergeExecutions(page.items, current))
+        if (active)
+          setExecutions((current) =>
+            mergeExecutions(current, page.items).filter(
+              (item) => archived || !item.archived_at,
+            ),
+          )
       },
       (caught) => {
-        if (mounted.current)
+        if (active)
           setError(
             caught instanceof Error
               ? caught.message
@@ -51,11 +74,12 @@ function useCandidateExecution({ env, model, draft }: Props) {
       },
     )
     return () => {
+      active = false
       mounted.current = false
     }
-  }, [env, model, draft.draft_id, draft.revision])
+  }, [env, model, draft.draft_id, draft.revision, archived])
   const run = async () => {
-    if (busy) return
+    if (busy || draft.archived_at) return
     setBusy(true)
     setError(undefined)
     try {
@@ -76,6 +100,10 @@ function useCandidateExecution({ env, model, draft }: Props) {
           idempotency_key: intent.current.key,
         },
       })
+      if ('rejected_before_write' in result) {
+        intent.current = undefined
+        throw new Error(result.message)
+      }
       if (mounted.current) {
         setExecutions((current) => mergeExecutions(current, [result]))
         setSelectedId(result.execution_id)
@@ -95,16 +123,42 @@ function useCandidateExecution({ env, model, draft }: Props) {
   const execution =
     executions.find((item) => item.execution_id === selectedId) ??
     executions.at(-1)
-  return { execution, executions, choose: setSelectedId, error, busy, run }
+  const update = (value: TransformExecution) =>
+    setExecutions((current) => mergeExecutions(current, [value]))
+  return {
+    execution,
+    executions,
+    choose: setSelectedId,
+    error,
+    busy,
+    run,
+    archived,
+    setArchived,
+    update,
+  }
 }
-export function CandidateExecutionPanel(props: Props) {
-  const { execution, executions, choose, error, busy, run } =
-    useCandidateExecution(props)
-  const [view, setView] = React.useState('preview')
-  const ready =
+function readyToExecute(props: Props) {
+  return (
     props.compilation?.status === 'ready' &&
     props.compilation.revision_digest === props.draft.revision_digest &&
+    !props.draft.archived_at &&
     !props.dirty
+  )
+}
+export function CandidateExecutionPanel(props: Props) {
+  const {
+    execution,
+    executions,
+    choose,
+    error,
+    busy,
+    run,
+    archived,
+    setArchived,
+    update,
+  } = useCandidateExecution(props)
+  const [view, setView] = React.useState('preview')
+  const ready = readyToExecute(props)
   return (
     <section
       aria-label="Candidate execution"
@@ -119,6 +173,7 @@ export function CandidateExecutionPanel(props: Props) {
           </p>
         </div>
         <Button
+          operation="v1_transform_model_execute"
           variant="outline"
           disabled={!ready || busy}
           onClick={() => void run()}
@@ -141,6 +196,16 @@ export function CandidateExecutionPanel(props: Props) {
         ]}
       />
       {view === 'history' ? (
+        <label className="flex items-center gap-2 text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={archived}
+            onChange={(event) => setArchived(event.target.checked)}
+          />
+          Include archived runs
+        </label>
+      ) : null}
+      {view === 'history' ? (
         <ExecutionHistory
           executions={executions}
           selectedId={execution?.execution_id}
@@ -157,9 +222,26 @@ export function CandidateExecutionPanel(props: Props) {
         />
       ) : view !== 'history' ? (
         <p className="m-0 text-muted-foreground">
-          Compile this saved revision before running its candidate. Candidate
-          tables are separate from published assets.
+          {ready
+            ? 'This saved revision is ready to run as a candidate.'
+            : 'Compile this saved revision before running its candidate.'}{' '}
+          Candidate tables are separate from published assets.
         </p>
+      ) : null}
+      {execution && view !== 'history' ? (
+        <ExecutionLifecycle
+          key={JSON.stringify([
+            execution.execution_id,
+            execution.archived_at,
+            execution.reclaimed_at,
+            execution.reclaim_started_at,
+            props.draft.archived_at,
+            props.draft.reclaimed_at,
+            props.draft.reclaim_started_at,
+          ])}
+          execution={execution}
+          onChanged={update}
+        />
       ) : null}
       {error ? (
         <p role="alert" className="m-0 text-bad-text">
@@ -193,7 +275,10 @@ function ExecutionEvidence({
           Native run {String(report.run_id)} · plan {String(report.plan_id)}
         </p>
       ) : null}
-      {!diagnostics && execution.preview ? (
+      <EvidenceStatus evidence={execution.evidence} />
+      {!diagnostics &&
+      execution.preview &&
+      execution.evidence?.stale !== true ? (
         <CandidateRows preview={execution.preview} />
       ) : null}
       {!diagnostics && execution.status === 'passed' && !execution.preview ? (
@@ -310,6 +395,7 @@ function ExecutionHistory({
         >
           <Badge variant={item.status === 'passed' ? 'ok' : 'warn'}>
             {item.status}
+            {item.archived_at ? ' · Archived' : ''}
           </Badge>
           <span className="min-w-0 flex-1">
             <span className="block break-all font-mono">
@@ -324,6 +410,156 @@ function ExecutionHistory({
           </span>
         </button>
       ))}
+    </div>
+  )
+}
+
+function ExecutionReclamation({
+  execution,
+  disabled,
+  onChanged,
+}: {
+  execution: TransformExecution
+  disabled: boolean
+  onChanged: (value: TransformExecution) => void
+}) {
+  if (!execution.archived_at || execution.reclaimed_at) return null
+  return (
+    <ReclaimAction
+      identity={execution.execution_id}
+      label={
+        execution.reclaim_started_at
+          ? 'Retry payload reclamation'
+          : 'Reclaim execution payload'
+      }
+      description="Permanently remove local payloads for this archived native execution. Reports, source handoff, identity, hashes and operation claims remain. Provider tables and catalogs are unchanged; mutation fences are not released."
+      operation="v1_transform_model_execution_reclaim"
+      disabled={
+        disabled ||
+        ['prepared', 'running', 'unknown'].includes(execution.status)
+      }
+      onReclaim={async (reason) =>
+        onChanged(
+          await reclaimTransformExecution({
+            data: {
+              env: execution.env,
+              model: execution.model,
+              draft_id: execution.draft_id,
+              revision: execution.revision,
+              execution_id: execution.execution_id,
+              confirmed: true,
+              reason,
+              expected_revision_digest: execution.revision_digest,
+            },
+          }),
+        )
+      }
+    />
+  )
+}
+
+function ExecutionLifecycle({
+  execution,
+  onChanged,
+}: {
+  execution: TransformExecution
+  onChanged: (value: TransformExecution) => void
+}) {
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState('')
+  const identity = {
+    env: execution.env,
+    model: execution.model,
+    draft_id: execution.draft_id,
+    revision: execution.revision,
+    execution_id: execution.execution_id,
+  }
+  async function reconcile() {
+    setBusy(true)
+    setError('')
+    try {
+      onChanged(await reconcileTransformExecution({ data: identity }))
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'Reconciliation is unavailable.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="grid min-w-0 gap-3">
+      <ActionGroup>
+        <Button
+          variant="outline"
+          operation="v1_transform_model_execution_reconcile"
+          disabled={busy}
+          onClick={() => void reconcile()}
+        >
+          Reconcile evidence
+        </Button>
+        <ArchiveEvidenceAction
+          operation="v1_transform_model_execution_archive"
+          archived={Boolean(execution.archived_at)}
+          reason={execution.archive_reason}
+          disabled={
+            busy ||
+            Boolean(execution.reclaimed_at || execution.reclaim_started_at)
+          }
+          onChange={async (input) =>
+            onChanged(
+              await archiveTransformExecution({
+                data: { ...identity, ...input },
+              }),
+            )
+          }
+        />
+        <ExecutionReclamation
+          execution={execution}
+          disabled={busy}
+          onChanged={onChanged}
+        />
+      </ActionGroup>
+      {execution.archived_at &&
+      ['prepared', 'running', 'unknown'].includes(execution.status) ? (
+        <p className="m-0 text-xs text-muted-foreground">
+          Active or unresolved execution payloads cannot be reclaimed. Reconcile
+          durable evidence first.
+        </p>
+      ) : null}
+      <p className="m-0 text-xs text-muted-foreground">
+        Reconciliation reads durable reports and provider snapshots. It never
+        reruns a candidate or releases an unknown mutation fence.
+      </p>
+      {execution.reconciliation ? (
+        <p role="status" className="m-0 text-xs">
+          Reconciliation:{' '}
+          {execution.reconciliation.resolution === 'verified_success'
+            ? 'verified success'
+            : 'unresolved'}
+          . {execution.reconciliation.reason}
+        </p>
+      ) : null}
+      {execution.archived_at ? (
+        <p className="m-0 text-xs text-muted-foreground">
+          Archived {new Date(execution.archived_at).toLocaleString()} by{' '}
+          {execution.archived_by}. {execution.archive_reason}
+          {execution.reclaimed_at || execution.reclaim_started_at
+            ? ` Local reclamation ${execution.reclaimed_at ? 'completed' : 'started'}; restoration is unavailable. ${execution.reclaimed_bytes ?? 0} local bytes reclaimed. Reports and source handoff remain.`
+            : ''}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="m-0 text-xs text-bad-text">
+          {error}
+        </p>
+      ) : null}
+      <SourceHandoffPanel
+        operation="v1_transform_model_draft_handoff"
+        load={() => getTransformHandoff({ data: identity })}
+      />
     </div>
   )
 }

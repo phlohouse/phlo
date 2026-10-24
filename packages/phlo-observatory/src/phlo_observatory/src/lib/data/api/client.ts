@@ -198,12 +198,35 @@ export async function optionalRead<T>(request: Promise<T>) {
 }
 
 async function apiErrorDetail(response: Response) {
-  if (![502, 503].includes(response.status)) return
+  if (![409, 502, 503].includes(response.status)) return
   let payload: unknown
   try {
     payload = await response.json()
   } catch {
     return
+  }
+  if (response.status === 409) {
+    const result = z
+      .object({
+        error: z.object({
+          code: z.literal('bad_input'),
+          message: z.string().max(4000),
+        }),
+      })
+      .safeParse(payload)
+    if (!result.success) return
+    const reason =
+      /\b(retention_minimum_not_elapsed|reclamation_requires_resolved_mutations)\b/.exec(
+        result.data.error.message,
+      )?.[0]
+    if (!reason) return
+    return {
+      code: reason,
+      message:
+        reason === 'retention_minimum_not_elapsed'
+          ? 'The configured minimum audit retention period has not elapsed. Archiving alone does not permit reclamation.'
+          : 'Reclamation requires resolved mutation evidence. Reconcile durable receipts first; do not retry an unknown mutation.',
+    }
   }
   const result = publicApiErrorSchema.safeParse(payload)
   return result.success ? result.data.error : undefined
@@ -229,7 +252,10 @@ export async function parseApiResponse<T>({
     throw new PhloApiError(
       response.status,
       detail?.message,
-      detail?.code,
+      response.headers.get('x-phlo-mutation-outcome') ===
+        'rejected-before-write'
+        ? 'rejected_before_write'
+        : detail?.code,
       id.success ? id.data : undefined,
     )
   }

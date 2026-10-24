@@ -5,6 +5,26 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { phloApi } from './client'
 
+const producerIdentitySchema = z.object({
+  'phlo/project_id': z.string().min(1),
+  'phlo/run_id': z.string().min(1),
+  'phlo/attempt': z
+    .string()
+    .regex(/^[1-9]\d*$/)
+    .transform(Number)
+    .pipe(z.number().int().positive()),
+})
+
+export function runReportIdentity(tags: Record<string, string> | undefined) {
+  const parsed = producerIdentitySchema.safeParse(tags)
+  if (!parsed.success) return null
+  return {
+    project: parsed.data['phlo/project_id'],
+    run: parsed.data['phlo/run_id'],
+    attempt: parsed.data['phlo/attempt'],
+  }
+}
+
 const evidenceRows = z.array(z.record(z.string(), z.json()))
 const reportSchema = z.object({
   schema_version: z.number().int(),

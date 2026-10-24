@@ -4,13 +4,30 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CsvUploadReview } from './csv-upload'
+import { UploadInventory } from './upload-history'
 import type * as UploadModule from '@/lib/data/api/uploads'
 import type { CsvUpload } from '@/lib/data/api/uploads'
-import { reviewCsvUpload } from '@/lib/data/api/uploads'
+import type * as CandidateModule from '@/lib/data/api/upload-candidate'
+import {
+  archiveCsvUpload,
+  reclaimCsvUpload,
+  reviewCsvUpload,
+} from '@/lib/data/api/uploads'
+import {
+  getUploadHandoff,
+  reviewUploadCandidate,
+} from '@/lib/data/api/upload-candidate'
 
 vi.mock('@/lib/data/api/uploads', async (original) => ({
   ...(await original<typeof UploadModule>()),
   reviewCsvUpload: vi.fn(),
+  archiveCsvUpload: vi.fn(),
+  reclaimCsvUpload: vi.fn(),
+}))
+vi.mock('@/lib/data/api/upload-candidate', async (original) => ({
+  ...(await original<typeof CandidateModule>()),
+  reviewUploadCandidate: vi.fn(),
+  getUploadHandoff: vi.fn(),
 }))
 afterEach(() => {
   cleanup()
@@ -48,6 +65,240 @@ const upload: CsvUpload = {
   loaded: false,
 }
 describe('retained CSV review', () => {
+  it('can resume confirmed interrupted cleanup from inventory without a broken file-detail link', async () => {
+    vi.mocked(reclaimCsvUpload).mockResolvedValue({
+      ...upload,
+      reclaimed_at: '2026-10-23T12:00:00Z',
+    })
+    const changed = vi.fn()
+    render(
+      <UploadInventory
+        env="sandbox"
+        items={[
+          {
+            ...upload,
+            archived_at: '2026-10-23T10:00:00Z',
+            reclaim_started_at: '2026-10-23T11:00:00Z',
+          },
+        ]}
+        total={1}
+        archived
+        onArchived={vi.fn()}
+        onReclaimed={changed}
+      />,
+    )
+    expect(screen.queryByRole('link', { name: upload.filename })).toBeNull()
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('button', { name: 'Retry payload reclamation' }),
+    )
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', {
+        name: 'Permanently reclaim',
+      }).disabled,
+    ).toBe(true)
+    await user.type(
+      screen.getByLabelText('Confirmation identity'),
+      upload.upload_id,
+    )
+    await user.type(
+      screen.getByLabelText('Reason'),
+      'Resume interrupted local cleanup',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Permanently reclaim' }),
+    )
+    expect(reclaimCsvUpload).toHaveBeenCalledWith({
+      data: {
+        env: 'sandbox',
+        upload_id: upload.upload_id,
+        confirmed: true,
+        reason: 'Resume interrupted local cleanup',
+        expected_checksum: upload.checksum,
+      },
+    })
+    expect(changed).toHaveBeenCalledOnce()
+  })
+  it('reclaims only an archived exact-checksum upload after explicit confirmation and clears private row payload', async () => {
+    vi.mocked(reclaimCsvUpload).mockResolvedValue({
+      ...upload,
+      archived_at: '2026-10-23T10:00:00Z',
+      reclaimed_at: '2026-10-23T12:00:00Z',
+      reclaimed_bytes: 10,
+    })
+    const reclaimed = vi.fn()
+    render(
+      <CsvUploadReview
+        env="sandbox"
+        initial={{ ...upload, archived_at: '2026-10-23T10:00:00Z' }}
+        onRetained={vi.fn()}
+        onReclaimed={reclaimed}
+      />,
+    )
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('button', { name: 'Reclaim file payload' }),
+    )
+    await user.type(
+      screen.getByLabelText('Confirmation identity'),
+      upload.upload_id,
+    )
+    await user.type(
+      screen.getByLabelText('Reason'),
+      'Retention review complete',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Permanently reclaim' }),
+    )
+    expect(reclaimCsvUpload).toHaveBeenCalledWith({
+      data: {
+        env: 'sandbox',
+        upload_id: upload.upload_id,
+        expected_checksum: upload.checksum,
+        confirmed: true,
+        reason: 'Retention review complete',
+      },
+    })
+    expect(reclaimed).toHaveBeenCalledOnce()
+    expect(screen.queryByText('First rows · saved review')).toBeNull()
+  })
+  it('clears reviewed eligibility and downloadable handoff after upload archive', async () => {
+    const evidence = {
+      stale: false,
+      eligible_for_release: true,
+      reason: null,
+      base_hash: 'base',
+      current_base_hash: 'base',
+      candidate_hash: 'candidate',
+      observed_candidate_hash: 'candidate',
+    }
+    vi.mocked(reviewUploadCandidate).mockResolvedValue({
+      receipt: {
+        env: 'sandbox',
+        upload_id: upload.upload_id,
+        actor: 'tester',
+        review_version: 1,
+        checksum: upload.checksum,
+        recipe_digest: 'recipe',
+        table: 'results',
+        relation: 'bronze.results',
+        asset_id: 'results',
+        candidate_ref: 'sandbox-results',
+        base_ref: 'main',
+        base_hash: 'base',
+        candidate_hash: 'candidate',
+        launch_ref_hash: 'candidate',
+        status: 'loaded',
+        contract_digest: null,
+        source_digest: null,
+        plan_hash: null,
+        job_name: null,
+        job_snapshot_id: null,
+        run_id: 'actual-run',
+        repository_name: null,
+        repository_location: null,
+        snapshot_id: '123',
+        row_count: 26,
+        loaded: true,
+        main_unchanged: true,
+        files: [],
+        candidate_binding: {},
+        attempts: [],
+      },
+      evidence,
+      preview: null,
+      reconciliation: null,
+    })
+    vi.mocked(getUploadHandoff).mockResolvedValue({
+      env: 'sandbox',
+      kind: 'csv_candidate',
+      source_review_required: true,
+      automatic_promotion: false,
+      files: [],
+      candidate_evidence: evidence,
+      release: {
+        source_ref: null,
+        target_ref: 'main',
+        checks_url: null,
+        trial_merge_url: null,
+        merge_url: null,
+        requires_signature: true,
+        blocked_reason: null,
+      },
+    })
+    vi.mocked(archiveCsvUpload).mockResolvedValue({
+      ...upload,
+      archived_at: '2026-10-23T12:00:00Z',
+      archived_by: 'tester',
+      archive_reason: 'Superseded',
+    })
+    render(
+      <CsvUploadReview env="sandbox" initial={upload} onRetained={vi.fn()} />,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Review recorded candidate' }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Prepare source handoff' }),
+    )
+    await screen.findByRole('button', { name: 'Download review bundle' })
+    expect(screen.getAllByText(/Candidate evidence verified/)).toHaveLength(2)
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Archive evidence' }),
+    )
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Reason' }),
+      'Superseded',
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Confirm archive' }),
+    )
+    await screen.findByRole('button', { name: 'Restore evidence' })
+    expect(
+      screen.queryByRole('button', { name: 'Download review bundle' }),
+    ).toBeNull()
+    expect(screen.queryByText(/Candidate evidence verified/)).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'Review recorded candidate' }),
+    ).toBeTruthy()
+  })
+  it('accepts metadata-only archive responses while retaining the saved preview as read-only evidence', async () => {
+    const {
+      raw_columns: _rawColumns,
+      raw_rows: _rawRows,
+      rows: _rows,
+      sample_limit: _sampleLimit,
+      loaded: _loaded,
+      ...summary
+    } = upload
+    vi.mocked(archiveCsvUpload).mockResolvedValue({
+      ...summary,
+      archived_at: '2026-10-23T10:00:00Z',
+      archived_by: 'tester',
+      archive_reason: 'Superseded review',
+    })
+    render(
+      <CsvUploadReview env="sandbox" initial={upload} onRetained={vi.fn()} />,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Archive evidence' }),
+    )
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Reason' }),
+      'Superseded review',
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Confirm archive' }),
+    )
+    expect(
+      await screen.findByRole('button', { name: 'Restore evidence' }),
+    ).toBeTruthy()
+    expect(screen.getByText('First rows · saved review')).toBeTruthy()
+    expect(
+      screen.queryByRole('button', { name: 'Validate all 26 rows' }),
+    ).toBeNull()
+    expect(screen.getByText(/Restore before changing columns/)).toBeTruthy()
+  })
   it('submits typed choices with the actual revision and shows errors beyond the preview', async () => {
     vi.mocked(reviewCsvUpload).mockResolvedValue({
       ...upload,
