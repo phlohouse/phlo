@@ -1,17 +1,22 @@
-"""Dependency-free SVG charts.
+"""Charts, authored in Altair and rendered to static SVG.
 
-The report must open offline, from one file, on any machine. These functions
-draw deterministic SVG: no JavaScript, no fonts to fetch, no random ids. The
-same data always produces the same bytes, which is what makes the report's
-reproducibility check meaningful.
+Each figure is a Vega-Lite specification: the data, encodings and scales are
+declared, and ``vl-convert`` draws the SVG at build time. The report stays one
+self-contained file, with no JavaScript and no external assets, and the same
+data still produces the same bytes.
 """
 
 from __future__ import annotations
 
 import html
 import math
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+
+import altair as alt
+import pandas as pd
+import vl_convert as vlc
 
 PALETTE = ("#2563eb", "#3f3f46", "#d95f4b", "#7c3aed", "#0891b2")
 INK = "#0b0b0b"
@@ -19,6 +24,11 @@ MUTED = "#8a8783"
 GRID = "#ecebe9"
 THRESHOLD = "#d95f4b"
 FONT = "Inter, 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
+# Whole ticks where the data is whole, one decimal elsewhere. Vega expression.
+TICK_LABEL = (
+    "datum.value === floor(datum.value) ? format(datum.value, 'd') : format(datum.value, '.1f')"
+)
 
 
 @dataclass(frozen=True)
@@ -63,16 +73,105 @@ def _scale(
     return round(ceiling, 10), round(step, 10)
 
 
-def _svg(width: int, height: int, title: str, body: list[str]) -> str:
+def _styled(chart: alt.TopLevelMixin) -> alt.TopLevelMixin:
+    """The house style every figure shares."""
+    return chart.configure(
+        font=FONT,
+        background="transparent",
+        view=alt.ViewConfig(stroke=None),
+        axis=alt.AxisConfig(
+            labelColor=MUTED,
+            labelFontSize=11,
+            titleColor=MUTED,
+            titleFontSize=11,
+            titleFontWeight="normal",
+            domain=False,
+            ticks=False,
+            gridColor=GRID,
+            labelPadding=7,
+        ),
+        legend=alt.LegendConfig(
+            orient="bottom",
+            direction="horizontal",
+            title=None,
+            labelColor=INK,
+            labelFontSize=12,
+            symbolType="stroke",
+            symbolStrokeWidth=3,
+            offset=8,
+        ),
+        range=alt.RangeConfig(category=list(PALETTE)),
+    )
+
+
+def _y_axis(label: str, ceiling: float, step: float) -> alt.Y:
+    ticks = [round(step * index, 10) for index in range(int(round(ceiling / step)) + 1)]
+    return alt.Y(
+        "value:Q",
+        scale=alt.Scale(domain=[0, ceiling], nice=False),
+        axis=alt.Axis(
+            values=ticks,
+            title=label,
+            titleAngle=0,
+            titleAnchor="start",
+            titleX=0,
+            titleY=-12,
+            labelExpr=TICK_LABEL,
+        ),
+    )
+
+
+def _threshold(value: float, label: str, width: int) -> alt.TopLevelMixin:
+    """A dashed rule, with its label in the top-right corner of the plot."""
+    rule = (
+        alt.Chart(pd.DataFrame({"threshold": [value]}))
+        .mark_rule(color=THRESHOLD, strokeWidth=1.4, strokeDash=[5, 4])
+        .encode(y="threshold:Q")
+    )
+    if not label:
+        return rule
+    text = (
+        alt.Chart(pd.DataFrame({"label": [label]}))
+        .mark_text(align="right", baseline="bottom", color=THRESHOLD, fontSize=11)
+        .encode(text="label:N", x=alt.value(width), y=alt.value(-10))
+    )
+    return rule + text
+
+
+def _stable_ids(svg: str, prefix: str) -> str:
+    """Name clip paths after the chart, not vl-convert's process counter.
+
+    vl-convert numbers ids from a global counter, so a second build in the same
+    process gets different ones. The prefix also keeps ids unique when several
+    charts are inlined into one page.
+    """
+    names: dict[str, str] = {}
+
+    def rename(match: re.Match[str]) -> str:
+        original = match.group(1)
+        return names.setdefault(original, f"{prefix}-{len(names)}")
+
+    svg = re.sub(r'id="([^"]+)"', lambda match: f'id="{rename(match)}"', svg)
+    return re.sub(
+        r"url\(#([^)]+)\)",
+        lambda match: f"url(#{names.get(match.group(1), match.group(1))})",
+        svg,
+    )
+
+
+def _svg(chart: alt.TopLevelMixin, title: str) -> str:
+    """Render the specification and name the SVG for assistive technology."""
+    svg = vlc.vegalite_to_svg(chart.to_dict())
     label = html.escape(title)
-    return "\n".join(
-        [
-            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
-            f'width="100%" height="auto" role="img" style="font-family:{FONT}">',
-            f"<title>{label}</title>",
-            *body,
-            "</svg>",
-        ]
+    prefix = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "chart"
+    svg = _stable_ids(svg, prefix)
+    svg = re.sub(r'(<svg[^>]*?) width="\d+" height="\d+"', r'\1 width="100%"', svg, count=1)
+    svg = svg.replace("<svg ", f'<svg role="img" aria-label="{label}" ', 1)
+    return re.sub(
+        r"(<svg[^>]*>)",
+        lambda match: f"{match.group(1)}<title>{label}</title>",
+        svg,
+        count=1,
     )
 
 
@@ -85,7 +184,7 @@ def line_chart(
     threshold_label: str = "",
     title: str,
     width: int = 760,
-    height: int = 340,
+    height: int = 300,
 ) -> str:
     """Draw a line chart, one line per series, with an optional threshold."""
     if not series:
@@ -96,80 +195,37 @@ def line_chart(
     if any(len(item.values) != count for item in series):
         raise ValueError("every series must have one value per x label")
 
-    left, right, top, bottom = 58, 18, 60, 44
-    plot_width = width - left - right
-    plot_height = height - top - bottom
     ceiling, step = _scale([value for item in series for value in item.values], threshold)
-    baseline = top + plot_height
-
-    body: list[str] = []
-    for tick in range(int(round(ceiling / step)) + 1):
-        value = step * tick
-        y = baseline - (value / ceiling) * plot_height
-        body.append(
-            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_width}" y2="{y:.1f}" stroke="{GRID}"/>'
-        )
-        body.append(
-            f'<text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="11" '
-            f'fill="{MUTED}">{_number(value)}</text>'
-        )
-    body.append(
-        f'<text x="{left}" y="{top - 28}" font-size="11" fill="{MUTED}">{html.escape(y_label)}</text>'
+    names = [item.name for item in series]
+    frame = pd.DataFrame(
+        [
+            {"x": str(label), "series": item.name, "value": float(value)}
+            for item in series
+            for label, value in zip(x_labels, item.values, strict=True)
+        ]
     )
-
-    stride = max(1, math.ceil(count / 12))
-    for index, label in enumerate(x_labels):
-        if index % stride and index != count - 1:
-            continue
-        x = left + (index / (count - 1)) * plot_width
-        body.append(
-            f'<text x="{x:.1f}" y="{baseline + 20}" text-anchor="middle" font-size="11" '
-            f'fill="{MUTED}">{html.escape(str(label))}</text>'
-        )
-
-    for index, item in enumerate(series):
-        colour = PALETTE[index % len(PALETTE)]
-        points = " ".join(
-            f"{left + (position / (count - 1)) * plot_width:.1f},"
-            f"{baseline - (float(value) / ceiling) * plot_height:.1f}"
-            for position, value in enumerate(item.values)
-        )
-        body.append(
-            f'<polyline points="{points}" fill="none" stroke="{colour}" stroke-width="2.2" '
-            'stroke-linejoin="round" stroke-linecap="round"/>'
-        )
-        for position, value in enumerate(item.values):
-            x = left + (position / (count - 1)) * plot_width
-            y = baseline - (float(value) / ceiling) * plot_height
-            body.append(
-                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.8" fill="{colour}">'
-                f"<title>{html.escape(item.name)} · {html.escape(str(x_labels[position]))}: "
-                f"{_number(float(value))}</title></circle>"
-            )
-
-        legend_x = left + 118 * index
-        body.append(
-            f'<line x1="{legend_x}" y1="{top - 44}" x2="{legend_x + 16}" y2="{top - 44}" '
-            f'stroke="{colour}" stroke-width="3"/>'
-        )
-        body.append(
-            f'<text x="{legend_x + 22}" y="{top - 40}" font-size="12" fill="{INK}">'
-            f"{html.escape(item.name)}</text>"
-        )
-
+    colour = alt.Color(
+        "series:N",
+        scale=alt.Scale(
+            domain=names,
+            range=[PALETTE[index % len(PALETTE)] for index in range(len(names))],
+        ),
+        legend=alt.Legend(title=None),
+    )
+    x = alt.X(
+        "x:N",
+        sort=[str(label) for label in x_labels],
+        title=None,
+        axis=alt.Axis(labelAngle=0, grid=False),
+    )
+    y = _y_axis(y_label, ceiling, step)
+    base = alt.Chart(frame)
+    layers: alt.TopLevelMixin = base.mark_line(strokeWidth=2.2, interpolate="linear").encode(
+        x=x, y=y, color=colour
+    ) + base.mark_point(filled=True, size=18, opacity=1).encode(x=x, y=y, color=colour)
     if threshold is not None:
-        y = baseline - (threshold / ceiling) * plot_height
-        body.append(
-            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_width}" y2="{y:.1f}" '
-            f'stroke="{THRESHOLD}" stroke-width="1.4" stroke-dasharray="5 4"/>'
-        )
-        if threshold_label:
-            body.append(
-                f'<text x="{left + plot_width}" y="{top - 18}" text-anchor="end" font-size="11" '
-                f'fill="{THRESHOLD}">{html.escape(threshold_label)}</text>'
-            )
-
-    return _svg(width, height, title, body)
+        layers = layers + _threshold(threshold, threshold_label, width)
+    return _svg(_styled(layers.properties(width=width, height=height)), title)
 
 
 def bar_chart(
@@ -184,7 +240,7 @@ def bar_chart(
     colour: str = PALETTE[0],
     integer_ticks: bool = False,
     width: int = 760,
-    height: int = 320,
+    height: int = 300,
 ) -> str:
     """Draw a bar chart with optional threshold line and value labels."""
     if not categories:
@@ -192,57 +248,33 @@ def bar_chart(
     if len(categories) != len(values):
         raise ValueError("every category needs exactly one value")
 
-    left, right, top, bottom = 58, 18, 48, 44
-    plot_width = width - left - right
-    plot_height = height - top - bottom
     ceiling, step = _scale([float(value) for value in values], threshold, integer=integer_ticks)
-    baseline = top + plot_height
-    slot = plot_width / len(categories)
-    bar_width = slot * 0.56
-
-    body: list[str] = []
-    for tick in range(int(round(ceiling / step)) + 1):
-        value = step * tick
-        y = baseline - (value / ceiling) * plot_height
-        body.append(
-            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_width}" y2="{y:.1f}" stroke="{GRID}"/>'
-        )
-        body.append(
-            f'<text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="11" '
-            f'fill="{MUTED}">{_number(value)}</text>'
-        )
-    body.append(
-        f'<text x="{left}" y="{top - 18}" font-size="11" fill="{MUTED}">{html.escape(y_label)}</text>'
+    frame = pd.DataFrame(
+        [
+            {
+                "category": str(category),
+                "value": float(value),
+                "label": f"{_number(float(value))}{value_suffix}",
+            }
+            for category, value in zip(categories, values, strict=True)
+        ]
     )
-
-    for index, (category, value) in enumerate(zip(categories, values, strict=True)):
-        height_px = (float(value) / ceiling) * plot_height
-        x = left + index * slot + (slot - bar_width) / 2
-        y = baseline - height_px
-        body.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{max(height_px, 1.0):.1f}" '
-            f'rx="2" fill="{colour}"><title>{html.escape(str(category))}: '
-            f"{_number(float(value))}{html.escape(value_suffix)}</title></rect>"
-        )
-        body.append(
-            f'<text x="{x + bar_width / 2:.1f}" y="{y - 6:.1f}" text-anchor="middle" '
-            f'font-size="11" fill="{INK}">{_number(float(value))}{html.escape(value_suffix)}</text>'
-        )
-        body.append(
-            f'<text x="{x + bar_width / 2:.1f}" y="{baseline + 20}" text-anchor="middle" '
-            f'font-size="11" fill="{MUTED}">{html.escape(str(category))}</text>'
-        )
-
+    x = alt.X(
+        "category:N",
+        sort=[str(category) for category in categories],
+        title=None,
+        axis=alt.Axis(labelAngle=0, grid=False),
+    )
+    y = _y_axis(y_label, ceiling, step)
+    bars = (
+        alt.Chart(frame)
+        .mark_bar(color=colour, cornerRadiusEnd=2, width=alt.RelativeBandSize(0.56))
+        .encode(x=x, y=y)
+    )
+    labels = (
+        alt.Chart(frame).mark_text(dy=-7, color=INK, fontSize=11).encode(x=x, y=y, text="label:N")
+    )
+    layers: alt.TopLevelMixin = bars + labels
     if threshold is not None:
-        y = baseline - (threshold / ceiling) * plot_height
-        body.append(
-            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_width}" y2="{y:.1f}" '
-            f'stroke="{THRESHOLD}" stroke-width="1.4" stroke-dasharray="5 4"/>'
-        )
-        if threshold_label:
-            body.append(
-                f'<text x="{left + plot_width}" y="{top - 18}" text-anchor="end" font-size="11" '
-                f'fill="{THRESHOLD}">{html.escape(threshold_label)}</text>'
-            )
-
-    return _svg(width, height, title, body)
+        layers = layers + _threshold(threshold, threshold_label, width)
+    return _svg(_styled(layers.properties(width=width, height=height)), title)

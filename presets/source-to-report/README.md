@@ -99,7 +99,7 @@ coverage, row counts and the report's provenance.
   coverage is complete                    PASS    >= 95%
   every month is complete                 PASS    72 monthly rows
   summary counts match                    PASS    52,560
-  report is self-contained                PASS    56 KB
+  report is self-contained                PASS    129 KB
   report carries the same figures         PASS    3 sources
   9/9 stack checks passed
 ```
@@ -130,7 +130,7 @@ The rules that keep it useful:
 ## Proof
 
 ```bash
-uv run pytest                     # 32 tests: fixtures, contracts, extraction, charts, facts, pipeline
+uv run pytest                     # 34 tests: fixtures, contracts, extraction, charts, facts, pipeline
 uv run python scripts/verify.py   # 9 end-to-end checks, including two byte-identical builds
 uv run python scripts/verify_stack.py   # 9 checks against the Trino/Iceberg build
 ```
@@ -147,7 +147,7 @@ results with the generator's independent ground truth:
   only the seeded figures differ            PASS    3 differing, 3 seeded
   annual means match the generator          PASS    within 1e-6
   all summary checks pass                   PASS    3 checks
-  report is self-contained                  PASS    56 KB
+  report is self-contained                  PASS    129 KB
   every seeded source line is in the report PASS    3 lines
   provenance pins every input               PASS    1 pull + 12 notes
 ```
@@ -161,7 +161,7 @@ src/source_to_report/
   warehouse.py                read-only SQL, DuckDB locally and Trino on the stack
   provenance.py               input hashes and the run record
   facts.py                    strict lookups used by the report
-  charts.py                   dependency-free SVG line and bar charts
+  charts.py                   Altair chart definitions, rendered to static SVG
   report.py                   Jinja renderer and the self-contained check
   domain/                     the domain pack: vocabulary, sources, extraction,
                               analysis and report.html.j2

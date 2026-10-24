@@ -20,6 +20,8 @@ dependencies = [
     "duckdb>=1.4,<1.6",
     "jinja2>=3.1",
     "pandas>=2.3.3,<3.1",
+    "altair>=5.5,<6",
+    "vl-convert-python>=1.7",
 ]
 
 [dependency-groups]
