@@ -1,8 +1,10 @@
 /** Source editing is revisioned separately from Git and Nessie data branches. */
 import * as React from 'react'
+import { useBlocker } from '@tanstack/react-router'
 import { MaximizeIcon, MinimizeIcon } from 'lucide-react'
 import { CandidateExecutionPanel } from './execution-panel'
 import { DraftComparison, RevisionHistory } from './revision-history'
+import { RevisionLifecycle } from './revision-lifecycle'
 import type { TransformModel } from '@/lib/data/api/transform'
 import type {
   TransformCompilation,
@@ -19,9 +21,10 @@ import {
 import { SqlEditor } from '@/components/query/sql-editor'
 import { PageHeader } from '@/components/phlo/page'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Segmented } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
+import { useActionPermission } from '@/components/phlo/action-availability'
 
 type Props = {
   env: string
@@ -34,6 +37,7 @@ type Props = {
   onSaved: (draft: TransformDraft) => void
 }
 function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
+  const compilePermission = useActionPermission('v1_transform_model_compile')
   const mounted = React.useRef(true)
   React.useEffect(() => {
     mounted.current = true
@@ -41,9 +45,6 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
       mounted.current = false
     }
   }, [])
-  const [initialDraft] = React.useState(() =>
-    draftId && revision ? { draft_id: draftId, revision } : null,
-  )
   const [source, setSource] = React.useState<TransformSource>()
   const [draft, setDraft] = React.useState<TransformDraft>()
   const [sql, setSql] = React.useState('')
@@ -54,39 +55,85 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
     null,
   )
   const [view, setView] = React.useState('source')
+  const selectedIdentity = React.useRef('')
+  const navigationVersion = React.useRef(0)
   React.useEffect(() => {
+    const identity = JSON.stringify([env, model.model, draftId, revision])
+    if (selectedIdentity.current === identity) return
+    navigationVersion.current += 1
+    selectedIdentity.current = ''
     let active = true
+    setBusy('history')
+    setSource(undefined)
+    setDraft(undefined)
+    setSql('')
+    latestSql.current = ''
+    setCompilation(undefined)
     Promise.all([
       getTransformSource({ data: { env, model: model.model } }),
-      initialDraft
+      draftId && revision
         ? getTransformDraft({
-            data: { env, model: model.model, ...initialDraft },
+            data: { env, model: model.model, draft_id: draftId, revision },
           })
         : Promise.resolve(undefined),
     ]).then(
       ([next, restored]) => {
         if (!active) return
+        selectedIdentity.current = identity
         setSource(next)
         setDraft(restored)
         setSql(restored?.sql ?? next.sql)
         latestSql.current = restored?.sql ?? next.sql
+        setCompilation(undefined)
+        setError(undefined)
+        setView('source')
+        setBusy(null)
       },
       (caught) => {
-        if (active)
+        if (active) {
+          setBusy(null)
           setError(
             caught instanceof Error
               ? caught.message
               : 'Could not read the model source.',
           )
+        }
       },
     )
     return () => {
       active = false
     }
-  }, [env, model.model, initialDraft])
+  }, [env, model.model, draftId, revision])
   const dirty = sql !== (draft?.sql ?? source?.sql ?? '')
+  useBlocker({
+    shouldBlockFn: ({ next }) => {
+      if (!dirty) return false
+      if (next.routeId === '/_app/transform') {
+        const sameRevision =
+          next.search.env === env &&
+          next.search.model === model.model &&
+          next.search.draft === draftId &&
+          next.search.revision === revision
+        // Saving updates the URL after the saved identity is already applied locally.
+        const savedIdentity =
+          JSON.stringify([
+            next.search.env,
+            next.search.model,
+            next.search.draft,
+            next.search.revision,
+          ]) === selectedIdentity.current
+        if (sameRevision || savedIdentity) return false
+      }
+      return !window.confirm(
+        'Discard unsaved SQL changes and leave this revision?',
+      )
+    },
+    enableBeforeUnload: dirty,
+  })
+  const canSave = Boolean(source) && !busy && !draft?.archived_at
   const save = async () => {
-    if (!source || busy) return
+    if (!canSave || !source) return
+    const requestVersion = navigationVersion.current
     setBusy('save')
     setError(undefined)
     try {
@@ -101,22 +148,39 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
           expected_revision: draft?.revision ?? 0,
         },
       })
-      if (!mounted.current) return
+      if (!mounted.current || requestVersion !== navigationVersion.current)
+        return
+      selectedIdentity.current = JSON.stringify([
+        env,
+        model.model,
+        saved.draft_id,
+        saved.revision,
+      ])
       setDraft(saved)
       onSaved(saved)
     } catch (caught) {
-      if (!mounted.current) return
+      if (!mounted.current || requestVersion !== navigationVersion.current)
+        return
       setError(
         caught instanceof Error
           ? caught.message
           : 'Could not save the draft revision.',
       )
     } finally {
-      if (mounted.current) setBusy(null)
+      if (mounted.current && requestVersion === navigationVersion.current)
+        setBusy(null)
     }
   }
   const compile = async () => {
-    if (!draft || dirty || busy) return
+    if (
+      !draft ||
+      draft.archived_at ||
+      dirty ||
+      busy ||
+      !compilePermission.allowed
+    )
+      return
+    const requestVersion = navigationVersion.current
     setBusy('compile')
     setError(undefined)
     try {
@@ -128,22 +192,26 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
           revision: draft.revision,
         },
       })
-      if (!mounted.current) return
+      if (!mounted.current || requestVersion !== navigationVersion.current)
+        return
       setCompilation(result)
       setView('compiled')
     } catch (caught) {
-      if (!mounted.current) return
+      if (!mounted.current || requestVersion !== navigationVersion.current)
+        return
       setError(
         caught instanceof Error
           ? caught.message
           : 'Could not compile this revision.',
       )
     } finally {
-      if (mounted.current) setBusy(null)
+      if (mounted.current && requestVersion === navigationVersion.current)
+        setBusy(null)
     }
   }
   const openRevision = async (selected: TransformDraftSummary) => {
     if (dirty || busy) return
+    const requestVersion = navigationVersion.current
     const previousSql = latestSql.current
     setBusy('history')
     setError(undefined)
@@ -156,7 +224,8 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
           revision: selected.revision,
         },
       })
-      if (!mounted.current) return
+      if (!mounted.current || requestVersion !== navigationVersion.current)
+        return
       if (latestSql.current !== previousSql)
         throw new Error(
           'The editor changed while opening the revision. Save your changes before switching.',
@@ -164,18 +233,25 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
       setDraft(restored)
       setSql(restored.sql)
       latestSql.current = restored.sql
+      selectedIdentity.current = JSON.stringify([
+        env,
+        model.model,
+        restored.draft_id,
+        restored.revision,
+      ])
       setCompilation(undefined)
       setView('source')
       onSaved(restored)
     } catch (caught) {
-      if (mounted.current)
+      if (mounted.current && requestVersion === navigationVersion.current)
         setError(
           caught instanceof Error
             ? caught.message
             : 'Could not open the saved revision.',
         )
     } finally {
-      if (mounted.current) setBusy(null)
+      if (mounted.current && requestVersion === navigationVersion.current)
+        setBusy(null)
     }
   }
   const changeSql = (value: string) => {
@@ -196,6 +272,13 @@ function useTransformEditor({ env, model, draftId, revision, onSaved }: Props) {
     compile,
     changeSql,
     openRevision,
+    updateDraft: (value: TransformDraft) =>
+      setDraft((current) =>
+        current?.draft_id === value.draft_id &&
+        current.revision === value.revision
+          ? value
+          : current,
+      ),
     env,
   }
 }
@@ -310,6 +393,16 @@ export function TransformEditor({
             dirty={compiledRevisionDiffers(compilation, draft, dirty)}
           />
           {draft ? (
+            <RevisionLifecycle
+              key={`${draft.draft_id}:${draft.revision}`}
+              env={env}
+              model={model.model}
+              draft={draft}
+              disabled={dirty || Boolean(state.busy)}
+              onChanged={state.updateDraft}
+            />
+          ) : null}
+          {draft ? (
             <CandidateExecutionPanel
               key={`${draft.draft_id}:${draft.revision}`}
               env={env}
@@ -344,26 +437,39 @@ function EditorActions({
   const { source, draft, dirty, busy, save, compile } = state
   return (
     <>
-      <Button variant="outline" onClick={onFocus}>
-        {focus ? <MinimizeIcon /> : <MaximizeIcon />}
-        {focus ? 'Exit focus' : 'Focus'}
-      </Button>
-      <Button variant="outline" onClick={onClose}>
-        Workspace
-      </Button>
-      <Button
-        variant="outline"
-        disabled={!draft || dirty || Boolean(busy)}
-        onClick={() => void compile()}
-      >
-        {busy === 'compile' ? 'Compiling…' : 'Compile and plan'}
-      </Button>
-      <Button
-        disabled={!source || Boolean(busy) || (!dirty && Boolean(draft))}
-        onClick={() => void save()}
-      >
-        {busy === 'save' ? 'Saving…' : 'Save draft revision'}
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" onClick={onFocus}>
+          {focus ? <MinimizeIcon /> : <MaximizeIcon />}
+          {focus ? 'Exit focus' : 'Focus'}
+        </Button>
+        <Button variant="outline" onClick={onClose}>
+          Workspace
+        </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          operation="v1_transform_model_compile"
+          variant="outline"
+          disabled={
+            !draft || Boolean(draft.archived_at) || dirty || Boolean(busy)
+          }
+          onClick={() => void compile()}
+        >
+          {busy === 'compile' ? 'Compiling…' : 'Compile and plan'}
+        </Button>
+        <Button
+          operation="v1_transform_model_draft_save"
+          disabled={
+            !source ||
+            Boolean(draft?.archived_at) ||
+            Boolean(busy) ||
+            (!dirty && Boolean(draft))
+          }
+          onClick={() => void save()}
+        >
+          {busy === 'save' ? 'Saving…' : 'Save draft revision'}
+        </Button>
+      </div>
     </>
   )
 }
@@ -376,6 +482,17 @@ function EditorContent({
   model: string
 }) {
   const { source, view, sql, changeSql, compile, compilation, error } = state
+  if (state.draft?.archived_at && view === 'source')
+    return (
+      <pre
+        role="region"
+        aria-label={`Archived SQL source for ${model}`}
+        tabIndex={0}
+        className="m-0 min-h-80 flex-1 overflow-auto p-5 font-mono text-xs leading-6"
+      >
+        {state.draft.sql}
+      </pre>
+    )
   if (view === 'compare')
     return state.draft ? (
       <DraftComparison
@@ -399,7 +516,6 @@ function EditorContent({
             label={`SQL source for ${model}`}
             onRun={() => void compile()}
             className="min-h-[320px] flex-1"
-            catalog={[]}
           />
         ) : (
           <pre

@@ -427,13 +427,14 @@ class DltIngester(BaseIngester):
         correlation_attempt = attempt if attempt is not None else 1
 
         partition_date = partition_key or "unpartitioned"
-        pipeline_name = f"{self.table_config.table_name}_{partition_date.replace('-', '_')}"
+        pipeline_identity = self.table_config.asset_key or self.table_config.table_name
+        pipeline_name = f"{pipeline_identity}_{partition_date.replace('-', '_')}"
         group_name = self.table_config.group_name
 
         # Emission Setup
         emitter = IngestionEventEmitter(
             IngestionEventContext(
-                asset_key=f"dlt_{self.table_config.table_name}",
+                asset_key=self.table_config.ingestion_asset_key,
                 table_name=self.table_config.full_table_name,
                 group_name=group_name,
                 partition_key=partition_key,
@@ -446,7 +447,7 @@ class DltIngester(BaseIngester):
                     run_id=run_id,
                     project_id=project_id,
                     attempt=correlation_attempt,
-                    asset_key=f"dlt_{self.table_config.table_name}",
+                    asset_key=self.table_config.ingestion_asset_key,
                     partition_key=partition_key,
                     job_name=getattr(self.context, "job_name", None),
                 ),
@@ -455,7 +456,7 @@ class DltIngester(BaseIngester):
         telemetry = TelemetryEventEmitter(
             TelemetryEventContext(
                 tags={
-                    "asset": f"dlt_{self.table_config.table_name}",
+                    "asset": self.table_config.ingestion_asset_key,
                     "group": group_name,
                     "source": "dlt",
                 },
@@ -463,7 +464,7 @@ class DltIngester(BaseIngester):
                     run_id=run_id,
                     project_id=project_id,
                     attempt=correlation_attempt,
-                    asset_key=f"dlt_{self.table_config.table_name}",
+                    asset_key=self.table_config.ingestion_asset_key,
                     partition_key=partition_key,
                     job_name=getattr(self.context, "job_name", None),
                 ),

@@ -409,7 +409,7 @@ def _report_contract_validation(
     yield pandera_contract_asset_check_result(
         evaluation,
         partition_key=partition_date,
-        asset_key=f"dlt_{table_config.table_name}",
+        asset_key=table_config.ingestion_asset_key,
         schema_class=schema,
         query_or_sql=query_or_sql,
         blocking=bool(strict_validation),
@@ -465,7 +465,7 @@ def _report_domain_validation(
                 "staged_parquet": query_or_sql,
             },
             severity=None if passed else ("error" if strict_validation else "warn"),
-            asset_key=f"dlt_{table_config.table_name}",
+            asset_key=table_config.ingestion_asset_key,
         )
         if not passed:
             log_event(
@@ -558,15 +558,16 @@ def phlo_ingestion(
     required_write_ref: str | None = None,
     required_actor: str | None = None,
     namespace: str | None = None,
+    asset_key: str | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register a function as a DLT-backed ingestion asset.
 
     This is the primary decorator for defining data ingestion pipelines in Phlo.
     It wraps a source function that returns DLT-compatible data and creates a
     fully configured ingestion asset with validation, scheduling, and table store
-    integration. The generated asset key is ``dlt_{table_name}`` (a table named
-    "users" becomes asset key "dlt_users"), which also names the physical
-    destination table.
+    integration. The default asset key is ``dlt_{table_name}`` (a table named
+    "users" becomes asset key "dlt_users"). An explicit ``asset_key`` changes
+    asset, check and staging identities without changing the destination table.
 
     Execution Flow:
         1. Call the decorated function to get DLT source/data
@@ -725,6 +726,7 @@ def phlo_ingestion(
         partition_spec=partition_spec,
         schema_policy=schema_policy,
         namespace=namespace,
+        asset_key=asset_key,
     )
     normalized_consumers = normalize_consumers(consumers)
 
@@ -747,7 +749,7 @@ def phlo_ingestion(
             check_specs.append(
                 AssetCheckSpec(
                     name=PANDERA_CONTRACT_CHECK_NAME,
-                    asset_key=f"dlt_{table_config.table_name}",
+                    asset_key=table_config.ingestion_asset_key,
                     blocking=bool(strict_validation),
                     description=f"Pandera schema contract for {table_config.table_name}",
                 )
@@ -757,7 +759,7 @@ def phlo_ingestion(
             check_specs.append(
                 AssetCheckSpec(
                     name=f"quality_{check_name}",
-                    asset_key=f"dlt_{table_config.table_name}",
+                    asset_key=table_config.ingestion_asset_key,
                     blocking=bool(strict_validation),
                     description=f"Domain quality check {check_name} for {table_config.table_name}",
                 )
@@ -894,7 +896,7 @@ def phlo_ingestion(
                         check_result = pandera_contract_asset_check_result(
                             evaluation,
                             partition_key=partition_date,
-                            asset_key=f"dlt_{table_config.table_name}",
+                            asset_key=table_config.ingestion_asset_key,
                             schema_class=table_config.validation_schema,
                             query_or_sql="status:no_data",
                             blocking=bool(strict_validation),
@@ -986,7 +988,7 @@ def phlo_ingestion(
                             "staged_parquet": query_or_sql,
                         },
                         severity=None if evaluation.passed else "error",
-                        asset_key=f"dlt_{table_config.table_name}",
+                        asset_key=table_config.ingestion_asset_key,
                     )
                 raise
             except PanderaContractValidationError as exc:
@@ -1001,7 +1003,7 @@ def phlo_ingestion(
                 yield pandera_contract_asset_check_result(
                     exc.evaluation,
                     partition_key=partition_date,
-                    asset_key=f"dlt_{table_config.table_name}",
+                    asset_key=table_config.ingestion_asset_key,
                     schema_class=validation_schema,
                     query_or_sql=query_or_sql,
                 )
@@ -1010,7 +1012,7 @@ def phlo_ingestion(
                 raise
 
         asset_spec = AssetSpec(
-            key=f"dlt_{table_config.table_name}",
+            key=table_config.ingestion_asset_key,
             group=group,
             description=func.__doc__ or f"Ingests {table_config.table_name} data to table_store",
             kinds={"dlt", "table_store"},

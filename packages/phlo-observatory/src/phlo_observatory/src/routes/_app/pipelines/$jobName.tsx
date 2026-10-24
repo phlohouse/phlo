@@ -15,7 +15,7 @@ import {
 import { Eyebrow, PageHeader } from '@/components/phlo/page'
 import { Mono } from '@/components/phlo/status'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,
@@ -152,7 +152,12 @@ function PipelinePage() {
                   : 'Pause schedule'}
               </Button>
             ) : null}
-            <Button variant="outline" onClick={() => setControlsOpen('launch')}>
+            <Button
+              operation="v1_job_launch"
+              actionContext={{ job_id: job.id }}
+              variant="outline"
+              onClick={() => setControlsOpen('launch')}
+            >
               Launch run
             </Button>
             <Button variant="outline" onClick={() => void router.invalidate()}>
@@ -205,6 +210,8 @@ function PipelinePage() {
                         </span>
                       </label>
                       <ConfirmedAction
+                        operation="v1_job_launch"
+                        actionContext={{ job_id: job.id }}
                         key={`launch:${env}:${job.id}:${partitionKey.trim()}`}
                         storageKey={`phlo:launch:${env}:${job.id}:${partitionKey.trim()}`}
                         confirmation={`I confirm a new run of ${job.id} in ${env}${partitionKey.trim() ? ` for partition ${partitionKey.trim()}` : ''}.`}

@@ -11,6 +11,7 @@ import { environmentSearchSchema } from '@/lib/data/api/client'
 import { Sidebar } from '@/components/phlo/sidebar'
 import { MobileTabBar, MobileTopBar } from '@/components/phlo/mobile-nav'
 import { CommandPaletteProvider } from '@/components/phlo/command-palette'
+import { ActionAvailabilityProvider } from '@/components/phlo/action-availability'
 import {
   PageSkeleton,
   PanelUnavailable,
@@ -37,7 +38,10 @@ export const Route = createFileRoute('/_app')({
         replace: true,
       })
     }
-    return { environments: discovery.items }
+    return {
+      environments: discovery.items,
+      promotionSource: discovery.promotion_source_environment ?? null,
+    }
   },
   loaderDeps: ({ search }) => ({ env: search.env }),
   loader: ({ deps }) => getShell({ data: deps.env }),
@@ -47,7 +51,7 @@ export const Route = createFileRoute('/_app')({
 })
 
 function AppLayout() {
-  const { env, overview, services, me, incidents, panelErrors } =
+  const { env, overview, services, me, incidents, panelErrors, availability } =
     Route.useLoaderData()
   const actor = JSON.stringify([me.principal_type, me.subject])
   React.useEffect(() => {
@@ -69,54 +73,60 @@ function AppLayout() {
         (overview.incident_counts.acknowledged ?? 0)
 
   return (
-    <CommandPaletteProvider env={env}>
-      <div className="flex h-dvh overflow-hidden bg-background">
-        <a
-          href="#main-content"
-          className="fixed top-2 left-2 z-[100] -translate-y-16 rounded-md bg-card px-4 py-2 font-medium text-foreground shadow-dialog focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-ring"
-        >
-          Skip to main content
-        </a>
-        <div className="hidden lg:flex">
-          <Sidebar
-            env={env}
-            openIncidentCount={openIncidentCount}
-            incidents={incidents ?? []}
-            services={services}
-            identity={me}
-          />
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <MobileTopBar env={env} />
-          <main
-            id="main-content"
-            tabIndex={-1}
-            className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card outline-none lg:my-2 lg:mr-2 lg:rounded-xl lg:border lg:border-border-card"
+    <ActionAvailabilityProvider
+      key={JSON.stringify([env, actor])}
+      env={env}
+      initial={availability}
+    >
+      <CommandPaletteProvider env={env}>
+        <div className="flex h-dvh overflow-hidden bg-background">
+          <a
+            href="#main-content"
+            className="fixed top-2 left-2 z-[100] -translate-y-16 rounded-md bg-card px-4 py-2 font-medium text-foreground shadow-dialog focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-ring"
           >
-            {panelErrors.length ? (
-              <details className="shrink-0 border-b border-warn bg-warn-soft p-3 text-sm">
-                <summary className="cursor-pointer">
-                  {panelErrors
-                    .map(({ panel }) => `${panel} unavailable`)
-                    .join(' · ')}
-                  . Details and retry
-                </summary>
-                <div className="mt-2 grid max-h-[40vh] gap-2 overflow-auto lg:grid-cols-3">
-                  {panelErrors.map(({ panel, message }) => (
-                    <PanelUnavailable
-                      key={panel}
-                      title={panel}
-                      message={message}
-                    />
-                  ))}
-                </div>
-              </details>
-            ) : null}
-            <Outlet key={actor} />
-          </main>
-          <MobileTabBar env={env} openIncidents={openIncidentCount} />
+            Skip to main content
+          </a>
+          <div className="hidden lg:flex">
+            <Sidebar
+              env={env}
+              openIncidentCount={openIncidentCount}
+              incidents={incidents ?? []}
+              services={services}
+              identity={me}
+            />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <MobileTopBar env={env} />
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card outline-none lg:my-2 lg:mr-2 lg:rounded-xl lg:border lg:border-border-card"
+            >
+              {panelErrors.length ? (
+                <details className="shrink-0 border-b border-warn bg-warn-soft p-3 text-sm">
+                  <summary className="cursor-pointer">
+                    {panelErrors
+                      .map(({ panel }) => `${panel} unavailable`)
+                      .join(' · ')}
+                    . Details and retry
+                  </summary>
+                  <div className="mt-2 grid max-h-[40vh] gap-2 overflow-auto lg:grid-cols-3">
+                    {panelErrors.map(({ panel, message }) => (
+                      <PanelUnavailable
+                        key={panel}
+                        title={panel}
+                        message={message}
+                      />
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+              <Outlet key={actor} />
+            </main>
+            <MobileTabBar env={env} openIncidents={openIncidentCount} />
+          </div>
         </div>
-      </div>
-    </CommandPaletteProvider>
+      </CommandPaletteProvider>
+    </ActionAvailabilityProvider>
   )
 }

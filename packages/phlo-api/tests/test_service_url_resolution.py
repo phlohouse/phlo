@@ -188,13 +188,22 @@ def test_non_dev_api_profile_compose_is_reachable_without_dev_mounts(tmp_path) -
     assert "postgres" in service["depends_on"]
     assert "PHLO_DEV_MODE" not in service["environment"]
     volumes = service["volumes"]
-    mount_targets = {volume.split(":")[1] for volume in volumes}
+    mount_targets = {
+        volume.split(":")[1] if isinstance(volume, str) else volume["target"] for volume in volumes
+    }
     assert mount_targets >= {
         "/app",
         "/app/.phlo/logs",
         "/app/.phlo/observatory",
         "/app/.phlo/state",
+        "/app/.phlo/uploads",
+        "/app/.phlo/transform-editor",
+        "/app/contracts/uploads",
+        "/app/workflows/uploads",
     }
-    app_mount = next(volume for volume in volumes if volume.split(":")[1] == "/app")
+    string_mounts = [volume for volume in volumes if isinstance(volume, str)]
+    app_mount = next(volume for volume in string_mounts if volume.split(":")[1] == "/app")
     assert app_mount.endswith(":ro")
-    assert not any(volume.endswith(":rw") for volume in volumes)
+    assert not any(volume.endswith(":rw") for volume in string_mounts)
+    authoring_mounts = [volume for volume in volumes if isinstance(volume, dict)]
+    assert all(not volume["bind"]["create_host_path"] for volume in authoring_mounts)

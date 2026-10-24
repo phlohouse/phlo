@@ -16,6 +16,7 @@ import {
   trialMerge,
 } from '@/lib/data/api/branches'
 import { Eyebrow, PageHeader } from '@/components/phlo/page'
+import { ActionGroup } from '@/components/ui/action-group'
 import { EmptyState } from '@/components/phlo/states'
 import { Mono } from '@/components/phlo/status'
 import { MergeDialog } from '@/components/branches/merge-dialog'
@@ -25,7 +26,8 @@ import { WapRuns } from '@/components/branches/wap-runs'
 import { BranchTableChanges } from '@/components/branches/table-changes'
 import { BranchReadiness } from '@/components/branches/readiness'
 import { Badge } from '@/components/ui/badge'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
@@ -183,7 +185,12 @@ function BranchEvidence({
             </Mono>
           </p>
           {!selected.protected ? (
-            <BranchReadiness checks={checks} busy={busy} onChecks={onChecks} />
+            <BranchReadiness
+              branchName={selected.name}
+              checks={checks}
+              busy={busy}
+              onChecks={onChecks}
+            />
           ) : null}
         </div>
         <div className="min-w-0 space-y-5">
@@ -271,8 +278,10 @@ function BranchActions({
 }) {
   if (selected.protected) return null
   return (
-    <>
+    <ActionGroup>
       <Button
+        operation="v1_branch_rebase"
+        actionContext={{ branch_name: selected.name }}
         variant="outline"
         disabled={busy}
         onClick={() =>
@@ -302,14 +311,21 @@ function BranchActions({
       >
         <RefreshCwIcon /> Rebase
       </Button>
-      <Link
-        to="/branches"
-        search={{ env, branch: selected.name, dialog: 'merge' }}
-        className={buttonVariants()}
+      <Button
+        operation="v1_branch_merge"
+        actionContext={{ branch_name: selected.name }}
+        render={
+          <Link
+            to="/branches"
+            search={{ env, branch: selected.name, dialog: 'merge' }}
+          />
+        }
       >
         <GitMergeIcon /> Merge
-      </Link>
+      </Button>
       <Button
+        operation="v1_branch_delete"
+        actionContext={{ branch_name: selected.name }}
         variant="destructive"
         disabled={busy}
         onClick={() =>
@@ -335,7 +351,7 @@ function BranchActions({
       >
         <Trash2Icon /> Delete
       </Button>
-    </>
+    </ActionGroup>
   )
 }
 
@@ -346,6 +362,7 @@ function BranchHeader({
   data: BranchPage
   view: 'references' | 'wap'
 }) {
+  const { promotionSource } = Route.useRouteContext()
   return (
     <PageHeader
       title="Branches"
@@ -355,18 +372,32 @@ function BranchHeader({
           : `Nessie catalog · ${data.branches.length} branches, ${data.tags.length} tags`
       }
       actions={
-        view === 'wap' ? undefined : (
-          <Link
-            to="/branches"
-            search={{ env: data.env, dialog: 'new-branch' }}
-            className={cn(
-              buttonVariants({ variant: 'outline' }),
-              'h-10 lg:h-8',
-            )}
-          >
-            <PlusIcon /> New branch
-          </Link>
-        )
+        <>
+          {promotionSource ? (
+            <Link
+              to="/staging"
+              search={{ env: promotionSource }}
+              className="text-xs text-link"
+            >
+              Review release from {promotionSource}
+            </Link>
+          ) : null}
+          {view === 'wap' ? null : (
+            <Button
+              operation="v1_branch_create"
+              variant="outline"
+              className="h-10 lg:h-8"
+              render={
+                <Link
+                  to="/branches"
+                  search={{ env: data.env, dialog: 'new-branch' }}
+                />
+              }
+            >
+              <PlusIcon /> New branch
+            </Button>
+          )}
+        </>
       }
     />
   )

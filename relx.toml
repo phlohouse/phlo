@@ -305,6 +305,24 @@ dependents = ["packages/phlo-api"]
 when = "dependency_selected"
 range = ">={version},<{next_minor}"
 
+[[workspace.dependencies.rules]]
+dependency = "phlo-dlt"
+dependents = ["packages/phlo-api"]
+when = "dependency_selected"
+range = ">={version},<{next_minor}"
+
+[[workspace.dependencies.rules]]
+dependency = "phlo-transform"
+dependents = ["packages/phlo-api"]
+when = "dependency_selected"
+range = ">={version},<{next_minor}"
+
+[[workspace.dependencies.rules]]
+dependency = "phlo-trino"
+dependents = ["packages/phlo-api"]
+when = "dependency_selected"
+range = ">={version},<{next_minor}"
+
 [prerelease]
 enabled = true
 

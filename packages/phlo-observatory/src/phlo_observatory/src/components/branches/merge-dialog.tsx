@@ -6,7 +6,8 @@ import type {
   BranchCheck,
   BranchRef,
 } from '@/lib/data/api/branches'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
+import { ActionGroup } from '@/components/ui/action-group'
 import {
   Dialog,
   DialogBody,
@@ -97,18 +98,26 @@ export function MergeDialog({
             Reload if either head changes.
           </p>
           <ChecksSummary checks={checks} />
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={busy} onClick={onChecks}>
+          <ActionGroup>
+            <Button
+              operation="v1_branch_checks"
+              actionContext={{ branch_name: branch.name }}
+              variant="outline"
+              disabled={busy}
+              onClick={onChecks}
+            >
               Run checks
             </Button>
             <Button
+              operation="v1_branch_trial_merge"
+              actionContext={{ branch_name: branch.name }}
               variant="outline"
               disabled={busy || !message.trim()}
               onClick={() => onTrial(message.trim())}
             >
               Trial merge
             </Button>
-          </div>
+          </ActionGroup>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="merge-message">
               Merge message and signature justification
@@ -156,6 +165,8 @@ export function MergeDialog({
             Cancel
           </Button>
           <Button
+            operation="v1_branch_merge"
+            actionContext={{ branch_name: branch.name }}
             disabled={busy || !message.trim() || !version}
             onClick={() => version && onMerge(message.trim(), version)}
           >

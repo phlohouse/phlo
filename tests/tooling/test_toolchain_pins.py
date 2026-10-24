@@ -185,6 +185,15 @@ def test_releasex_prepares_derived_workspace_versions_transactionally() -> None:
             "when": "dependency_selected",
             "range": ">={version},<{next_minor}",
         },
+        *[
+            {
+                "dependency": dependency,
+                "dependents": ["packages/phlo-api"],
+                "when": "dependency_selected",
+                "range": ">={version},<{next_minor}",
+            }
+            for dependency in ("phlo-dlt", "phlo-transform", "phlo-trino")
+        ],
     ]
 
     replacements = config["release"]["replacements"]

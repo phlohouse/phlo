@@ -240,6 +240,31 @@ async def test_preview_cancels_latest_continuation_after_row_limit(monkeypatch) 
 
 
 @pytest.mark.anyio
+async def test_preview_rejects_duplicate_labels_instead_of_overwriting_values(monkeypatch) -> None:
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "columns": [
+                    {"name": "value", "type": "integer"},
+                    {"name": "value", "type": "integer"},
+                ],
+                "data": [[1, 2]],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(http_client, "_client", client)
+        with pytest.raises(preview.PreviewQueryRejected, match="unique column aliases"):
+            await preview.execute_preview(
+                "SELECT 1 AS value, 2 AS value",
+                catalog="iceberg_prod",
+                disconnected=_not_disconnected,
+                limit=100,
+            )
+
+
+@pytest.mark.anyio
 async def test_query_rejection_reports_a_safe_reason_not_engine_unavailability(monkeypatch) -> None:
     async def respond(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

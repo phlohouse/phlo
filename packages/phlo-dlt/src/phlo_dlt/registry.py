@@ -87,6 +87,12 @@ class TableConfig:
     partition_spec: list[tuple[str, str]] | None = None
     schema_policy: Literal["strict", "additive", "drop_extra"] = "strict"
     namespace: str | None = None
+    asset_key: str | None = None
+
+    @property
+    def ingestion_asset_key(self) -> str:
+        """Keep logical asset identity separate from the physical table name."""
+        return self.asset_key or f"dlt_{self.table_name}"
 
     def __post_init__(self) -> None:
         if self.schema_policy not in ("strict", "additive", "drop_extra"):

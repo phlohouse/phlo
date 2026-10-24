@@ -523,6 +523,16 @@ def test_compose_builder_runs_in_isolated_installed_interpreter(tmp_path, monkey
         "    return ['docker', 'compose', '-p', kwargs['project_name'], '-f', str(kwargs['phlo_dir'] / 'installed.yaml')]\n"
     )
     (package / "utils.py").write_text("def get_project_name():\n    return 'installed-consumer'\n")
+    services = package.parent / "commands/services"
+    services.mkdir(parents=True)
+    for parent in (services, services.parent):
+        (parent / "__init__.py").write_text("")
+    (services / "utils.py").write_text(
+        "def prepare_api_runtime_directories(phlo_dir, service_names):\n"
+        "    assert service_names == ['phlo-api']\n"
+        "    phlo_dir.mkdir()\n"
+        "    (phlo_dir / 'prepared').touch()\n"
+    )
     consumer = tmp_path / "consumer"
     consumer.mkdir()
     (consumer / "phlo.py").write_text("raise RuntimeError('source fallback must not import')\n")
@@ -539,3 +549,4 @@ def test_compose_builder_runs_in_isolated_installed_interpreter(tmp_path, monkey
         "-f",
         str(consumer / ".phlo/installed.yaml"),
     ]
+    assert (consumer / ".phlo/prepared").is_file()

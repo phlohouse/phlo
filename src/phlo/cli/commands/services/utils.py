@@ -121,8 +121,21 @@ def prepare_api_runtime_directories(phlo_dir: Path, service_names: Iterable[str]
     """
     if "phlo-api" not in service_names:
         return
-    for name in ("logs", "audit", "state", "observatory"):
-        (phlo_dir / name).mkdir(mode=0o700, exist_ok=True)
+    root = phlo_dir.parent
+    for relative in (
+        ".phlo/logs",
+        ".phlo/audit",
+        ".phlo/state",
+        ".phlo/observatory",
+        ".phlo/uploads",
+        ".phlo/transform-editor",
+        "contracts/uploads",
+        "workflows/uploads",
+    ):
+        path = root / relative
+        if any(parent.is_symlink() for parent in (path, path.parent)):
+            raise click.ClickException(f"API writable bind must not follow a symlink: {relative}")
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
 def stage_uv_lock_metadata(project_root: Path, phlo_dir: Path) -> bool:

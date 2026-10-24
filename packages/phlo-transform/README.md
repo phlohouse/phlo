@@ -95,6 +95,70 @@ non-main runtime ref is provisioned to its own catalog through
 `RefQueryCatalogManager` before the engine runs. Without orchestration the
 engine decides: Trino when an endpoint is configured, otherwise DuckDB.
 
+## Observatory candidate execution
+
+The editor saves immutable SQL revisions and runs them on isolated candidate
+branches. Compilation uses the environment's configured preview reference,
+catalog, endpoint, and identity. Custom primary references are supported when
+that complete binding matches the native provider configuration.
+
+A rejected read-only compilation does not imply an uncertain write. After
+correcting its prerequisites, you can confirm a new execution with a fresh
+idempotency key. Once candidate provisioning or execution starts, an uncertain
+outcome remains blocked, including requests with a different key.
+
+Successful executions retain their native report. When the candidate result
+hash is recorded, the authorised execution preview endpoint can retry result
+readback without rerunning the model.
+The authorised execution `POST .../executions/{execution_id}/reconcile`
+endpoint rereads the recorded report and pinned provider snapshot. It can
+resolve an uncertain operation response only when a durable native success
+report, output branch hash, source revision, and provider evidence agree.
+It never invokes the engine. A `running` execution, a missing report, or a
+missing output hash remains unresolved. Preserve those records, branches,
+and catalogs for operator investigation. Do not clear idempotency state or
+assume that a timeout means no write occurred.
+
+Execution history exposes stale evidence separately from current release
+eligibility. A changed base does not hide a pinned candidate result, but a
+changed candidate hash or revoked source access hides result rows.
+
+Draft revisions and terminal executions support authorised `POST .../archive`
+with `{"archived": true, "reason": "Superseded review"}`. Setting `archived` to
+`false` restores visibility. History accepts `include_archived=true`.
+Archiving retains all source bytes, reports, candidate bindings, and operation
+fences. It does not reclaim disk space or reset the global history limits.
+Archived revisions cannot compile, execute, or extend the draft until restored.
+
+Archived revisions and terminal executions also support `POST .../reclaim` with
+`confirmed: true`, a reason, and `expected_revision_digest`. This action
+irreversibly deletes the local workspace copy. It retains SQL for source
+handoff, per-file checksums, revision identities, reports, candidate bindings,
+and operation claims. Completed reclamation frees a retained-workspace slot;
+archive alone does not. History still includes the durable tombstone.
+
+Reclamation refuses prepared, running, or unknown executions, unknown reference
+metadata, and pending or unknown operation claims. The API holds the operation
+claim transaction lock during local deletion. Repeating confirmed reclamation
+can finish interrupted local cleanup, but never reruns a provider mutation.
+Reclaimed revisions and executions cannot be restored or executed again.
+No remote branches, tables, catalogs, or live data are deleted.
+
+The API now applies configured `audit.retention_years` to supporting payloads
+as well as the existing audit-preservation checks. Native workspace age uses
+the later of creation and archival, since native output files can be newer
+than preparation. The minimum expires at the calendar-year anniversary;
+29 February expires on 1 March in a non-leap year. Unset retention adds no
+age minimum. Invalid timestamps or unavailable evidence block reclamation.
+This check does not expire audit records or tombstones.
+
+`GET .../drafts/{draft_id}/{revision}/handoff` exports the saved SQL with its
+project-relative path and checksum. The optional `execution_id` includes
+candidate evidence and links to existing branch checks, trial merge, and
+signed merge operations. These links describe POST operations, not automatic
+actions. Source review and a source commit remain separate from the signed
+data release. The handoff never publishes SQL or promotes candidate data.
+
 ## CLI
 
 ```bash

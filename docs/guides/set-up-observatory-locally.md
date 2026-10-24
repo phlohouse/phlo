@@ -143,6 +143,130 @@ signature, check evidence, and protected-mutation requirements still apply.
 Legacy `prod` and `staging` maps retain their existing promotion roles when no
 explicit promotion configuration exists. A single target has no promotion source.
 
+## Build an authoring-enabled API image
+
+The base API image does not install every provider. To retain and load reviewed
+CSV files and use native SQL drafts, build with explicit provider extras:
+
+```bash
+export PHLO_API_EXTRAS=dagster,iceberg,dlt,trino,transform
+phlo services init
+phlo services start --build
+```
+
+Keep this selection in your generated project's environment configuration for
+later rebuilds. Setting `PHLO_API_EXTRAS` on an already-built container does not
+install providers. Development source mounts also use this explicit selection.
+The `dagster` extra is required in the API to launch reviewed CSV loads, not
+only in the Dagster worker. Add `lineage` only when the API needs that provider.
+
+Install `phlo-dlt` in the Dagster code-location and run images too. The unlocked
+Dagster image installs it through `phlo[defaults]`. For a lock-aware project,
+declare `phlo-dlt` in the project's runtime dependencies, update its lockfile,
+and rebuild Dagster. API-only installation cannot register an uploaded workflow
+in another process.
+
+The Python `phlo-transform` provider is not the native engine. To include an
+approved engine in the API image, stage the executable inside the generated
+`.phlo` build context and provide its separately verified SHA256:
+
+```bash
+export PHLO_TRANSFORM_BINARY=bin/phlo-transform
+export PHLO_TRANSFORM_SHA256=REPLACE_WITH_VERIFIED_EXECUTABLE_SHA256
+phlo services start --build
+```
+
+Use the executable's checksum, not its download archive's checksum. Select an
+engine for the image architecture. The API uses the same Debian GNU-libc base
+as Dagster, matching the portable Linux GNU releases. The build checks the
+checksum and runs `phlo-transform --version` inside the final runtime. An
+incompatible engine fails the build. Alternatively, mount an approved engine
+under `.phlo/bin` read-only and verify its version inside the running image.
+The build cannot validate a binary supplied only by a later runtime mount.
+
+Native model discovery also runs in the Dagster code location. Declare
+`phlo-transform` in that project's runtime dependencies, update its lockfile,
+and rebuild and reload the location. Give its runtime access to the approved
+GNU-compatible engine, `transforms/phlo.toml`, and the model source tree.
+Installing the API extra alone does not declare models in Dagster. Discovery
+and draft storage do not require a configured query endpoint; compilation and
+preview do.
+
+`phlo services init` and `start` prepare four private authoring directories:
+`.phlo/uploads`, `.phlo/transform-editor`, `contracts/uploads`, and
+`workflows/uploads`. The API mounts only these subtrees writable in addition to
+its existing state, audit, settings, and log directories. The project root and
+unrelated workflow and contract files remain read-only. Existing directory
+permissions and ownership are not changed. Symlinked authoring directories are
+rejected. Do not replace these mounts with a writable project-root mount.
+
+On Linux, generate and start services as the account that owns the project.
+The API and Dagster use that host UID and GID, so both can read private retained
+bytes and generated definitions. If a remote code location runs as another
+identity, provision access explicitly rather than making uploads world-readable.
+Keep the same project-tree paths visible to its code-location and run containers.
+After destination preparation, Dagster must reload the configured location to
+discover `workflows/uploads/<id>.py` and its generated contract.
+
+The API's candidate client connects to `trino:8080` inside Compose. Override
+`PHLO_API_TRINO_HOST` and `PHLO_API_TRINO_PORT` for a different internal primary
+coordinator. Native development retains `127.0.0.1` and the published
+`TRINO_PORT` (default `10005`). These settings do not replace the separate
+read-only preview binding. For native compilation, configure
+`PHLO_TRANSFORM_ADAPTER=trino` and the transform preview endpoint, catalog, user,
+password, and trusted CA to match the API preview binding. Keep candidate writes
+on the writable primary coordinator. `CREATE CATALOG` writes on that coordinator;
+the API does not need a writable catalog-directory mount.
+
+### Check the installed-image authoring boundary
+
+From a source checkout with `make setup` complete, run the bounded local probe
+against the image you built:
+
+```bash
+uv run --locked python scripts/verify_observatory_authoring_image.py \
+    --image YOUR_AUTHORING_API_IMAGE
+```
+
+The probe creates a disposable project and uses the generated API mounts under
+the current UID. It retains and verifies two asymmetric CSV rows, authors the
+contract and workflow, saves and reads a native SQL draft, and rejects unrelated
+definition writes. A second installed container reads the retained CSV and
+imports the generated ingestion module. To check your actual Dagster image's
+provider installation, add `--worker-image YOUR_DAGSTER_IMAGE`.
+The final output is `PASS: installed-image authoring boundary` with an explicit
+reminder that this is not full service acceptance. The probe uses process-local
+test settings storage, not production persistence.
+
+### Complete a disposable service acceptance journey
+
+Before enabling authoring for operators, use a disposable authenticated stack
+with Postgres, writable Trino, Nessie, object storage, and a reloadable Dagster
+location. Configure preview credentials, server-enforced preview limits, policy
+grants, and the native engine before starting. Do not weaken those controls to
+make this check pass.
+
+1. Upload `id,label` with rows `7,retained` and `19,synthetic` in **Assets**.
+   Verify the retained original bytes and review `id` as integer, `label` as
+   string, with both non-nullable.
+2. Prepare a unique destination. Verify the immutable contract and workflow in
+   the shared project tree, and confirm the Dagster location reload succeeds.
+3. Plan the candidate load. Review and confirm its current recipe and plan hash.
+   Wait for the isolated Dagster run to finish, then preview the candidate.
+4. Verify exactly those two rows, a real table snapshot, and `main_unchanged`.
+   Read the candidate through the configured query engine and confirm the
+   primary reference did not acquire the candidate table.
+5. Open an existing native SQL model, change its SQL, and save a draft. Reload
+   the revision and verify the saved SQL while the original source is unchanged.
+   When preview is configured, compile and query it through the preview binding.
+
+Record the installed image IDs, engine version, selected environment, candidate
+reference, run ID, snapshot ID, and row readback without credentials. A container
+health check or the bounded image probe does not establish these remote outcomes.
+Production serving also has a separate executable check: from the Observatory
+app directory, run `npm run build && npm run test:cache`. CI runs this HTTP suite
+after its production build to cover cache headers and request-body limits.
+
 ## Upgrade an existing incident and query database
 
 Fresh database schemas accept bounded environment IDs. Existing databases with

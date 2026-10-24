@@ -77,11 +77,8 @@ def _digest(properties: dict[str, str]) -> str:
     return hashlib.sha256(json.dumps(properties, sort_keys=True).encode()).hexdigest()
 
 
-def create_catalog(root: Path, identity: str, ref: str) -> dict[str, str]:
-    """Create, never adopt, a catalog; its generated file must attest the binding."""
-    if not _owned_ref(identity, ref):
-        raise ValueError("Candidate reference is not owned by this operation.")
-    name, destination = _catalog(root, identity)
+def catalog_properties(root: Path) -> dict[str, str]:
+    """Read the local writable REST catalog configuration without contacting Trino."""
     source = root / ".phlo" / "trino" / "catalog" / f"{get_settings(root).trino_catalog}.properties"
     properties = _properties(source)
     if (
@@ -89,11 +86,20 @@ def create_catalog(root: Path, identity: str, ref: str) -> dict[str, str]:
         or properties.get("iceberg.catalog.type") != "rest"
     ):
         raise ValueError("Candidate execution requires a configured Iceberg REST catalog.")
+    if properties.get("iceberg.security") == "READ_ONLY":
+        raise ValueError("Candidate execution requires a separate writable coordinator.")
+    return properties
+
+
+def create_catalog(root: Path, identity: str, ref: str) -> dict[str, str]:
+    """Create, never adopt, a catalog; its generated file must attest the binding."""
+    if not _owned_ref(identity, ref):
+        raise ValueError("Candidate reference is not owned by this operation.")
+    name, destination = _catalog(root, identity)
+    properties = catalog_properties(root)
     if destination.exists():
         raise ValueError("An existing candidate catalog cannot be adopted.")
     properties["iceberg.rest-catalog.prefix"] = ref
-    if properties.get("iceberg.security") == "READ_ONLY":
-        raise ValueError("Candidate execution requires a separate writable coordinator.")
     rendered = ", ".join(
         '"' + key.replace('"', '""') + '" = ' + "'" + value.replace("'", "''") + "'"
         for key, value in properties.items()

@@ -24,11 +24,47 @@ from phlo_transform.editor import (
     _inputs,
     _namespace,
     _records,
+    _reclaim_workspace,
+    _reclaim_workspace_bytes,
+    _digest,
     _uuid,
     _workspace_digest,
     read_model_draft,
 )
 from phlo_transform.settings import get_settings
+
+_MAX_RETAINED_EXECUTIONS = 1000
+_EXECUTION_FIELDS = {
+    "execution_id",
+    "model",
+    "actor",
+    "env",
+    "ref",
+    "draft_id",
+    "revision",
+    "revision_digest",
+    "status",
+    "created_at",
+    "candidate_ref",
+    "candidate_catalog",
+    "report",
+    "operation_claim",
+    "archived_at",
+    "archived_by",
+    "archive_reason",
+    "candidate_binding",
+    "plan",
+    "preview",
+    "candidate_result_hash",
+    "candidate_snapshot_id",
+    "reclaim_started_at",
+    "reclaimed_at",
+    "reclaimed_by",
+    "reclaim_reason",
+    "reclaimed_bytes",
+    "reclaim_payload_bytes",
+    "retained_file_digests",
+}
 
 
 def _storage(root: Path) -> str:
@@ -42,16 +78,34 @@ def _directory(root: Path, execution_id: str) -> Path:
 
 
 def _store(
-    root: Path, record: dict[str, Any], *, create: bool = False, expected_status: str | None = None
+    root: Path,
+    record: dict[str, Any],
+    *,
+    create: bool = False,
+    expected_status: str | None = None,
+    expected_record: dict[str, Any] | None = None,
 ) -> None:
     def update(current):
-        records = _records(current)
+        records = _records(current, require_known_state=bool(record.get("reclaim_started_at")))
+        if record.get("reclaim_started_at") and any(
+            set(item) - _EXECUTION_FIELDS for item in records
+        ):
+            raise TransformEditorError(
+                "Unknown execution references prevent reclamation.", status=409
+            )
         existing = next(
             (item for item in records if item.get("execution_id") == record["execution_id"]), None
         )
         if expected_status and (existing is None or existing.get("status") != expected_status):
             raise TransformEditorError("Execution state changed; do not rerun it.", status=409)
-        if create and len(records) >= 1000:
+        if expected_record is not None and existing != expected_record:
+            raise TransformEditorError(
+                "Execution evidence changed; reload before continuing.", status=409
+            )
+        if (
+            create
+            and sum(not item.get("reclaimed_at") for item in records) >= _MAX_RETAINED_EXECUTIONS
+        ):
             raise TransformEditorError("Execution history limit reached.", status=409)
         if create and existing:
             raise TransformEditorError(
@@ -70,9 +124,16 @@ def _store(
 
 
 def prepare_model_execution(
-    root: Path, model: str, *, execution_id: str, **identity: Any
+    root: Path,
+    model: str,
+    *,
+    execution_id: str,
+    operation_claim: dict[str, str] | None = None,
+    **identity: Any,
 ) -> dict[str, Any]:
     draft = read_model_draft(root, model, **identity)
+    if draft.get("archived_at"):
+        raise TransformEditorError("Restore the archived revision before execution.", status=409)
     files = _inputs(_artifact(root, draft["draft_id"], draft["artifact_id"]))
     directory = _directory(root, execution_id)
     if directory.parent.exists():
@@ -97,6 +158,10 @@ def prepare_model_execution(
             "candidate_ref": None,
             "candidate_catalog": None,
             "report": None,
+            "operation_claim": operation_claim,
+            "archived_at": None,
+            "archived_by": None,
+            "archive_reason": None,
         }
         _store(root, record, create=True)
     except Exception:
@@ -123,7 +188,10 @@ def read_model_execution(
         raise TransformEditorError(
             "Execution was not found in this draft and principal scope.", status=404
         )
-    if _workspace_digest(_inputs(_directory(root, execution_id))) != found["revision_digest"]:
+    if (
+        not found.get("reclaim_started_at")
+        and _workspace_digest(_inputs(_directory(root, execution_id))) != found["revision_digest"]
+    ):
         raise TransformEditorError("Execution source integrity verification failed.", status=409)
     return deepcopy(found)
 
@@ -140,6 +208,8 @@ def execute_model_draft(
     **identity: Any,
 ) -> dict[str, Any]:
     record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    if record.get("archived_at"):
+        raise TransformEditorError("Archived executions cannot be run.", status=409)
     if record["status"] != "prepared":
         raise TransformEditorError(
             "Execution already started; read its recorded outcome instead of rerunning.", status=409
@@ -248,14 +318,125 @@ def execute_model_draft(
         raise
 
 
-def list_model_executions(root: Path, model: str, **identity: Any) -> list[dict[str, Any]]:
+def list_model_executions(
+    root: Path, model: str, *, include_archived: bool = False, **identity: Any
+) -> list[dict[str, Any]]:
     state = get_settings_service().get(SettingsScope.GLOBAL, _storage(root))
     return [
         read_model_execution(root, model, execution_id=item["execution_id"], **identity)
         for item in _records(state.settings if state else None)
         if item.get("model") == model
         and all(item.get(key) == value for key, value in identity.items())
+        and (include_archived or not item.get("archived_at"))
     ]
+
+
+def archive_model_execution(
+    root: Path, model: str, *, execution_id: str, archived: bool, reason: str, **identity: Any
+) -> dict[str, Any]:
+    record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    if record.get("reclaim_started_at"):
+        raise TransformEditorError(
+            "Reclamation is irreversible; execution cannot be restored.", status=409
+        )
+    if record["status"] in {"prepared", "running"}:
+        raise TransformEditorError("An active execution cannot be archived.", status=409)
+    updated = {
+        **record,
+        "archived_at": datetime.now(UTC).isoformat() if archived else None,
+        "archived_by": identity["actor"] if archived else None,
+        "archive_reason": reason if archived else None,
+    }
+    _store(root, updated, expected_record=record)
+    return updated
+
+
+def reclaim_model_execution(
+    root: Path,
+    model: str,
+    *,
+    execution_id: str,
+    expected_revision_digest: str,
+    reason: str,
+    expected_record: dict[str, Any] | None = None,
+    **identity: Any,
+) -> dict[str, Any]:
+    """Dispose only terminal archived execution workspaces, retaining recorded evidence."""
+    record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    if expected_record is not None and record != expected_record:
+        raise TransformEditorError("Execution changed after retention validation.", status=409)
+    if set(record) - _EXECUTION_FIELDS:
+        raise TransformEditorError("Unknown execution evidence prevents reclamation.", status=409)
+    if not record.get("archived_at") or record["revision_digest"] != expected_revision_digest:
+        raise TransformEditorError(
+            "An archived execution and exact digest are required.", status=409
+        )
+    if record["status"] not in {"passed", "failed"}:
+        raise TransformEditorError("Unresolved executions must retain their workspace.", status=409)
+    if record.get("reclaimed_at"):
+        return record
+    directory = (
+        root.resolve() / ".phlo/transform-editor/executions" / _uuid(execution_id) / "workspace"
+    )
+    started = {**record}
+    if not record.get("reclaim_started_at"):
+        started.update(
+            reclaim_started_at=datetime.now(UTC).isoformat(),
+            reclaimed_by=identity["actor"],
+            reclaim_reason=reason,
+            reclaim_payload_bytes=_reclaim_workspace_bytes(root, directory),
+            retained_file_digests={
+                name: _digest(data) for name, data in _inputs(directory).items()
+            },
+        )
+    size = started.get("reclaim_payload_bytes")
+    if type(size) is not int or size < 0:
+        raise TransformEditorError("Original reclamation byte evidence is unavailable.", status=409)
+    _store(root, started, expected_record=record)
+    _reclaim_workspace(root, directory)
+    finished = {**started, "reclaimed_at": datetime.now(UTC).isoformat(), "reclaimed_bytes": size}
+    _store(root, finished, expected_record=started)
+    return finished
+
+
+def reconcile_model_execution(
+    root: Path, model: str, *, execution_id: str, preview: dict[str, Any], **identity: Any
+) -> dict[str, Any]:
+    """Record provider readback only for an already attested immutable native success."""
+    record = read_model_execution(root, model, execution_id=execution_id, **identity)
+    report = record.get("report") or {}
+    planned = (record.get("plan") or {}).get("models") or []
+    results = report.get("models") or []
+    if (
+        record["status"] not in {"passed", "unknown"}
+        or not record.get("candidate_result_hash")
+        or record["candidate_result_hash"] != preview.get("ref_hash")
+        or (
+            record.get("candidate_snapshot_id") is not None
+            and str(record["candidate_snapshot_id"]) != str(preview.get("snapshot_id"))
+        )
+        or not preview.get("snapshot_id")
+        or report.get("status") != "passed"
+        or not report.get("run_id")
+        or report.get("environment") != record["candidate_ref"]
+        or len(planned) != 1
+        or len(results) != 1
+        or results[0].get("model") != model
+        or results[0].get("target") != planned[0].get("target")
+        or not str(results[0].get("target", "")).startswith(record["candidate_catalog"] + ".")
+    ):
+        raise TransformEditorError(
+            "Native success and pinned provider evidence do not agree; the operation stays fenced.",
+            status=409,
+        )
+    updated = {
+        **record,
+        "status": "passed",
+        "preview": preview,
+        "candidate_snapshot_id": str(preview["snapshot_id"]),
+    }
+    _store(root, updated, expected_record=record)
+    return updated
 
 
 def record_execution_preview(

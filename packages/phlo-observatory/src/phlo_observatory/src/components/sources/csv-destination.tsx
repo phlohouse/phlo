@@ -13,8 +13,9 @@ import {
   prepareUploadDestination,
   previewUploadCandidate,
 } from '@/lib/data/api/upload-candidate'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { Badge } from '@/components/ui/badge'
+import { ActionGroup } from '@/components/ui/action-group'
 
 function isLoaded(receipt: UploadCandidate | null): boolean {
   return Boolean(
@@ -221,6 +222,7 @@ function CsvDestinationPanel({ env, upload, dirty }: DestinationProps) {
       ) : null}
       {!checkingDestination && receipt?.run_id ? (
         <Button
+          operation="v1_csv_candidate_preview"
           variant="outline"
           disabled={busy}
           onClick={() => void readback()}
@@ -313,6 +315,7 @@ function DestinationSetup({
         />
       </label>
       <Button
+        operation="v1_csv_destination"
         disabled={!valid || busy || !/^[a-z][a-z0-9_]{0,62}$/.test(table)}
         onClick={() =>
           void action(() =>
@@ -445,8 +448,9 @@ function CandidateActions({
     <>
       {' '}
       {['prepared', 'planned', 'failed'].includes(receipt.status) ? (
-        <div className="flex flex-wrap items-center gap-3">
+        <ActionGroup controlsClassName="gap-3">
           <Button
+            operation="v1_csv_candidate_plan"
             variant="outline"
             disabled={busy}
             onClick={() =>
@@ -461,6 +465,7 @@ function CandidateActions({
           </Button>
           {receipt.status === 'planned' && receipt.plan_hash ? (
             <Button
+              operation="v1_csv_candidate_load"
               disabled={busy || !valid}
               onClick={() =>
                 void action(() =>
@@ -483,7 +488,7 @@ function CandidateActions({
                 : 'Confirm load into candidate'}
             </Button>
           ) : null}
-        </div>
+        </ActionGroup>
       ) : null}
     </>
   )

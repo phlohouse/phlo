@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from phlo_api.api import v1_transform_editor as editor
+from phlo_api.candidate_runtime import release_handoff
 from phlo_api.main import app
 from security_test_support import authenticated_client
 
@@ -57,7 +58,7 @@ def setup_editor(monkeypatch, tmp_path):
                 draft_id=draft["draft_id"],
                 revision=1,
                 revision_digest="c" * 64,
-                ref="main",
+                ref=draft["ref"],
                 status="ready",
                 diagnostics=[],
                 plan_id="actual-plan",
@@ -101,14 +102,25 @@ def test_source_and_draft_save_use_actual_identity_and_project_authorization(set
     assert len(calls) == before
 
 
-def test_compile_revalidates_source_visibility_and_pins_catalog_revision(setup_editor, monkeypatch):
+@pytest.mark.parametrize("ref", ["main", "release_test"])
+def test_compile_revalidates_source_visibility_and_pins_catalog_revision(
+    setup_editor, monkeypatch, ref
+):
     draft, calls = setup_editor
+    draft["ref"] = ref
+    monkeypatch.setenv(
+        "PHLO_V1_ENVIRONMENTS",
+        '{"sandbox":{"dagster_location":"sandbox","nessie_ref":"'
+        + ref
+        + '"},"prod":{"dagster_location":"prod","nessie_ref":"prod"}}',
+    )
     _, url = paths(draft)
     client = authenticated_client("analyst")
     response = client.post(url)
     assert response.status_code == 200, response.text
     assert response.json()["materialization_available"] is False
     assert calls[-1][0] == "compile_model_draft"
+    assert calls[-1][1]["required_ref"] == ref
     assert calls[-1][1]["required_catalog"] == "iceberg"
     assert calls[-1][1]["required_endpoint"] == "https://trino-preview:8443"
     assert calls[-1][1]["required_user"] == "phlo_api_preview_sandbox"
@@ -173,6 +185,7 @@ def candidate_mocks(setup_editor, monkeypatch, *, preview_fails=False):
                 "candidate_ref": None,
                 "candidate_catalog": None,
                 "report": None,
+                "operation_claim": kwargs.get("operation_claim"),
             }
             return state["record"]
         if method == "execute_model_draft":
@@ -231,16 +244,31 @@ def candidate_mocks(setup_editor, monkeypatch, *, preview_fails=False):
         }
 
     monkeypatch.setattr(editor, "_call", call)
-    monkeypatch.setattr(
-        editor,
-        "_runtime",
-        lambda: SimpleNamespace(
-            provision_candidate=provision,
-            verify_candidate=verify,
-            candidate_connection=lambda binding: {"endpoint": "http://trino:8080", "user": "phlo"},
-            preview_candidate=preview,
-        ),
+    runtime = SimpleNamespace(
+        provision_candidate=provision,
+        verify_candidate=verify,
+        candidate_connection=lambda binding: {"endpoint": "http://trino:8080", "user": "phlo"},
+        preview_candidate=preview,
+        release_handoff=release_handoff,
     )
+
+    async def evidence(binding, *, expected_hash):
+        try:
+            observed = await runtime.verify_candidate(binding, expected_hash=expected_hash)
+        except HTTPException:
+            observed = None
+        return {
+            "stale": observed is None,
+            "eligible_for_release": observed is not None,
+            "reason": None if observed else "Candidate drifted.",
+            "base_hash": "e" * 64,
+            "current_base_hash": "e" * 64,
+            "candidate_hash": expected_hash,
+            "observed_candidate_hash": observed,
+        }
+
+    runtime.candidate_evidence = evidence
+    monkeypatch.setattr(editor, "_runtime", lambda: runtime)
     return draft, state
 
 
@@ -287,6 +315,58 @@ def test_candidate_stale_revision_denied_actor_and_catalog_escape_fail_before_pr
     draft["sql"] = "WITH allowed AS (SELECT * FROM iceberg.gold.batches) SELECT * FROM allowed"
     assert client.post(url, json=payload, headers={"Idempotency-Key": "catalog"}).status_code == 422
     assert state["provisions"] == state["runs"] == 0
+
+
+@pytest.mark.parametrize(
+    "failure", [HTTPException(422, "Invalid plan"), RuntimeError("Missing binary")]
+)
+def test_read_only_compile_failure_allows_a_confirmed_fresh_key_retry(
+    setup_editor, monkeypatch, failure
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    original = editor.v1_transform_model_compile
+
+    async def unavailable(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(editor, "v1_transform_model_compile", unavailable)
+    base, _ = paths(draft)
+    url = f"{base}/drafts/{draft['draft_id']}/1/executions?env=sandbox"
+    payload = {"revision_digest": draft["revision_digest"], "base_hash": "e" * 64}
+    client = authenticated_client("operator")
+    rejected = client.post(url, json=payload, headers={"Idempotency-Key": "preflight-rejected"})
+    assert rejected.status_code == (422 if isinstance(failure, HTTPException) else 503)
+    assert rejected.headers["X-Phlo-Mutation-Outcome"] == "rejected-before-write"
+    assert state["provisions"] == state["runs"] == 0
+    monkeypatch.setattr(editor, "v1_transform_model_compile", original)
+    retried = client.post(url, json=payload, headers={"Idempotency-Key": "preflight-recovered"})
+    assert retried.status_code == 201, retried.text
+    assert retried.json()["status"] == "passed"
+    assert state["provisions"] == state["runs"] == 1
+
+
+def test_unknown_candidate_write_still_fences_fresh_key_retries(setup_editor, monkeypatch):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    runtime = editor._runtime()
+    original = runtime.provision_candidate
+
+    async def response_lost(**kwargs):
+        await original(**kwargs)
+        raise HTTPException(504, "Candidate fork response lost")
+
+    runtime.provision_candidate = response_lost
+    monkeypatch.setattr(editor, "_runtime", lambda: runtime)
+    base, _ = paths(draft)
+    url = f"{base}/drafts/{draft['draft_id']}/1/executions?env=sandbox"
+    payload = {"revision_digest": draft["revision_digest"], "base_hash": "e" * 64}
+    client = authenticated_client("operator")
+    first = client.post(url, json=payload, headers={"Idempotency-Key": "write-uncertain"})
+    assert first.status_code == 504
+    assert "X-Phlo-Mutation-Outcome" not in first.headers
+    second = client.post(url, json=payload, headers={"Idempotency-Key": "write-not-retried"})
+    assert second.status_code == 409
+    assert "operation_unknown" in second.json()["error"]["message"]
+    assert state["provisions"] == 1 and state["runs"] == 0
 
 
 def test_revision_history_compare_contracts_preserve_identity_and_current_asset_access(
@@ -382,6 +462,7 @@ def test_execution_history_retains_native_evidence_but_withholds_unverifiable_ro
     async def changed(binding, *, expected_hash=None):
         raise HTTPException(409, "Candidate head no longer matches")
 
+    original_verify = runtime.verify_candidate
     runtime.verify_candidate = changed
     monkeypatch.setattr(editor, "_call", call)
     monkeypatch.setattr(editor, "_runtime", lambda: runtime)
@@ -391,3 +472,238 @@ def test_execution_history_retains_native_evidence_but_withholds_unverifiable_ro
     assert item["report"]["run_id"] == "actual-run" and item["status"] == "passed"
     assert item["preview"] is None
     assert state["record"]["preview"]["rows"], "Listing history must not rewrite recorded evidence."
+    runtime.verify_candidate = original_verify
+    complete = client.get(endpoint + "&include_archived=true")
+    assert complete.status_code == 200, complete.text
+    assert complete.json()["items"][0]["preview"]["rows"]
+    assert complete.json()["items"][0]["evidence"]["eligible_for_release"] is True
+    handoff_url = f"{base}/drafts/{draft['draft_id']}/1/handoff?env=sandbox&execution_id={created.json()['execution_id']}"
+    handoff = client.get(handoff_url)
+    assert handoff.status_code == 200, handoff.text
+    assert handoff.json()["candidate_evidence"]["eligible_for_release"] is True
+
+    async def no_sources(request, env):
+        return []
+
+    monkeypatch.setattr(editor, "_assets", no_sources)
+    revoked = client.get(endpoint)
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["items"][0]["preview"] is None
+    assert revoked.json()["items"][0]["report"]["run_id"] == "actual-run"
+    assert revoked.json()["items"][0]["evidence"]["eligible_for_release"] is False
+    denied_handoff = client.get(handoff_url)
+    assert denied_handoff.status_code == 200, denied_handoff.text
+    assert denied_handoff.json()["candidate_evidence"]["eligible_for_release"] is False
+    assert "source" in denied_handoff.json()["candidate_evidence"]["reason"].lower()
+
+
+def test_reconcile_preserved_success_resolves_unknown_claim_without_native_retry(
+    setup_editor, monkeypatch
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    original_audit = editor.audit_operation
+    monkeypatch.setattr(
+        editor, "audit_operation", lambda **kwargs: (_ for _ in ()).throw(OSError("audit offline"))
+    )
+    base, _ = paths(draft)
+    path = f"{base}/drafts/{draft['draft_id']}/1/executions"
+    client = authenticated_client("operator")
+    payload = {"revision_digest": draft["revision_digest"], "base_hash": "e" * 64}
+    headers = {"Idempotency-Key": "lost-success-response"}
+    failed = client.post(path + "?env=sandbox", json=payload, headers=headers)
+    assert failed.status_code == 500 and state["runs"] == 1
+    assert client.post(path + "?env=sandbox", json=payload, headers=headers).status_code == 409
+    original_call = editor._call
+
+    async def call(method, *args, **kwargs):
+        if method == "reconcile_model_execution":
+            assert kwargs["preview"]["ref_hash"] == state["record"]["candidate_result_hash"]
+            return {**state["record"], "preview": kwargs["preview"]}
+        return await original_call(method, *args, **kwargs)
+
+    monkeypatch.setattr(editor, "_call", call)
+    monkeypatch.setattr(editor, "audit_operation", original_audit)
+    url = path + f"/{state['record']['execution_id']}/reconcile?env=sandbox"
+    assert authenticated_client("viewer").post(url).status_code == 403
+    reconciled = client.post(url)
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json()["reconciliation"]["resolution"] == "verified_success"
+    replayed = client.post(path + "?env=sandbox", json=payload, headers=headers)
+    assert replayed.status_code == 201, replayed.text
+    assert replayed.json()["execution_id"] == state["record"]["execution_id"]
+    assert state["runs"] == state["provisions"] == 1
+
+
+def test_unknown_execution_without_success_evidence_remains_fenced_on_reconcile(
+    setup_editor, monkeypatch
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    base, _ = paths(draft)
+    path = f"{base}/drafts/{draft['draft_id']}/1/executions"
+    client = authenticated_client("operator")
+    created = client.post(
+        path + "?env=sandbox",
+        json={"revision_digest": draft["revision_digest"], "base_hash": "e" * 64},
+        headers={"Idempotency-Key": "native-uncertain"},
+    ).json()
+    state["record"].update(status="unknown", report=None, candidate_result_hash=None, preview=None)
+    result = client.post(path + f"/{created['execution_id']}/reconcile?env=sandbox")
+    assert result.status_code == 200, result.text
+    assert (
+        result.json()["status"] == "unknown"
+        and result.json()["reconciliation"]["resolution"] == "unresolved"
+    )
+    assert result.json()["preview"] is None and state["runs"] == state["provisions"] == 1
+
+
+def test_transform_handoff_exports_saved_sql_to_source_review_without_publication(
+    setup_editor, monkeypatch
+):
+    import hashlib
+
+    draft, _ = setup_editor
+    draft["project_path"] = "workflows/transforms/native/transforms/inspection.sql"
+    base, _ = paths(draft)
+    monkeypatch.setattr(
+        editor, "_runtime", lambda: SimpleNamespace(release_handoff=release_handoff)
+    )
+    response = authenticated_client("operator").get(
+        f"{base}/drafts/{draft['draft_id']}/1/handoff?env=sandbox"
+    )
+    assert response.status_code == 200, response.text
+    handoff = response.json()
+    assert handoff["files"] == [
+        {
+            "path": draft["project_path"],
+            "content": draft["sql"],
+            "sha256": hashlib.sha256(draft["sql"].encode()).hexdigest(),
+        }
+    ]
+    assert handoff["candidate_evidence"] is None
+    assert handoff["source_review_required"] is True and handoff["automatic_promotion"] is False
+    assert (
+        handoff["release"]["requires_signature"] is True and handoff["release"]["merge_url"] is None
+    )
+
+
+def test_history_and_handoff_reject_missing_pinned_snapshot_despite_verified_head(
+    setup_editor, monkeypatch
+):
+    draft, state = candidate_mocks(setup_editor, monkeypatch)
+    base, _ = paths(draft)
+    path = f"{base}/drafts/{draft['draft_id']}/1"
+    client = authenticated_client("operator")
+    created = client.post(
+        path + "/executions?env=sandbox",
+        json={"revision_digest": draft["revision_digest"], "base_hash": "e" * 64},
+        headers={"Idempotency-Key": "pinned-snapshot-disappeared"},
+    )
+    assert created.status_code == 201, created.text
+
+    async def missing_snapshot(binding, target, **kwargs):
+        assert target.endswith(".review.inspection")
+        assert kwargs["expected_hash"] == "f" * 64
+        assert kwargs["expected_snapshot_id"] == "1234"
+        assert kwargs["require_current_base"] is False
+        raise HTTPException(409, "Pinned table metadata no longer exists")
+
+    editor._runtime().preview_candidate = missing_snapshot
+    detail = client.get(path + f"/executions/{created.json()['execution_id']}?env=sandbox")
+    assert detail.status_code == 200, detail.text
+    evidence = detail.json()["evidence"]
+    assert evidence["observed_candidate_hash"] == "f" * 64
+    assert evidence["eligible_for_release"] is False and evidence["stale"] is True
+    assert detail.json()["preview"] is None and detail.json()["report"]["run_id"] == "actual-run"
+    handoff = client.get(
+        path + f"/handoff?env=sandbox&execution_id={created.json()['execution_id']}"
+    )
+    assert handoff.status_code == 200, handoff.text
+    assert handoff.json()["candidate_evidence"]["eligible_for_release"] is False
+    assert "snapshot" in handoff.json()["release"]["blocked_reason"]
+    assert state["record"]["preview"]["rows"] and state["runs"] == 1
+
+
+def test_draft_reclamation_requires_authorization_and_resolved_revision_exclusion(
+    setup_editor, monkeypatch
+):
+    from phlo_api.api import operation_controls
+
+    draft, calls = setup_editor
+    base, _ = paths(draft)
+    draft.update(archived_at="2026-10-01T00:00:00Z")
+
+    async def call(method, *args, **kwargs):
+        calls.append((method, kwargs))
+        if method == "list_model_executions":
+            return []
+        if method == "reclaim_model_draft":
+            return {
+                **draft,
+                "reclaim_started_at": "2026-10-23T00:00:00Z",
+                "reclaimed_at": "2026-10-23T00:00:00Z",
+                "reclaimed_bytes": 1024,
+                "reclaimed_by": "test:operator",
+                "reclaim_reason": kwargs["reason"],
+            }
+        return draft
+
+    monkeypatch.setattr(editor, "_call", call)
+    path = f"{base}/drafts/{draft['draft_id']}/1/reclaim?env=sandbox"
+    body = {
+        "confirmed": True,
+        "expected_revision_digest": draft["revision_digest"],
+        "reason": "Expired",
+    }
+    assert authenticated_client("viewer").post(path, json=body).status_code == 403
+    response = authenticated_client("operator").post(path, json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["reclaimed_bytes"] == 1024 and response.json()["sql"] == draft["sql"]
+    before = len([call for call in calls if call[0] == "reclaim_model_draft"])
+    operation_controls._claim_idempotency_key(
+        key_hash="pending",
+        operation="transform.candidate.execute",
+        target="unknown-outcome",
+        exclusion_target=f"transform:test:operator:sandbox:{draft['draft_id']}:1",
+    )
+    operation_controls._fail_idempotency_claim(
+        key_hash="pending", operation="transform.candidate.execute", target="unknown-outcome"
+    )
+    blocked = authenticated_client("operator").post(path, json=body)
+    assert blocked.status_code == 409, blocked.text
+    assert "reclamation_requires_resolved_mutations" in blocked.text
+    assert len([call for call in calls if call[0] == "reclaim_model_draft"]) == before
+
+
+@pytest.mark.parametrize("kind", ["draft", "execution"])
+def test_reclamation_passes_full_retention_validated_record_to_provider(
+    setup_editor, monkeypatch, kind
+):
+    draft, calls = setup_editor
+    base, _ = paths(draft)
+    record = {**draft, "archived_at": "2020-01-01T00:00:00Z"}
+    method_name = "reclaim_model_draft" if kind == "draft" else "reclaim_model_execution"
+
+    async def call(method, *args, **kwargs):
+        calls.append((method, kwargs))
+        if method == "list_model_executions":
+            return []
+        if method == method_name:
+            assert kwargs["expected_record"] == record
+            raise HTTPException(409, "Record changed after retention validation")
+        return record
+
+    monkeypatch.setattr(editor, "_call", call)
+    path = f"{base}/drafts/{draft['draft_id']}/1"
+    if kind == "execution":
+        path += f"/executions/{uuid4()}"
+    response = authenticated_client("operator").post(
+        path + "/reclaim?env=sandbox",
+        json={
+            "confirmed": True,
+            "expected_revision_digest": draft["revision_digest"],
+            "reason": "Expired",
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert "changed after retention validation" in response.text
+    assert any(method == method_name for method, _ in calls)

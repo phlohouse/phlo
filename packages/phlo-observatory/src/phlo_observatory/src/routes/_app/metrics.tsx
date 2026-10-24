@@ -1,22 +1,35 @@
 /** Persisted draft metric definitions and real SQL previews over observed assets. */
 import * as React from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { PlusIcon, SearchIcon } from 'lucide-react'
 import { z } from 'zod'
 import type { MetricModel } from '@/lib/data/api/metrics'
-import { getMetricsWorkspace } from '@/lib/data/api/metrics'
+import { getMetricModel, getMetricsWorkspace } from '@/lib/data/api/metrics'
+import { DraftLifecycleActions } from '@/components/phlo/draft-lifecycle'
 import { MetricModelEditor } from '@/components/metrics/model-editor'
 import { MetricModelPreview } from '@/components/metrics/model-preview'
 import { PageHeader } from '@/components/phlo/page'
 import { PageSkeleton, RouteError } from '@/components/phlo/states'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/metrics')({
-  validateSearch: z.object({ model: z.string().optional() }),
-  loaderDeps: ({ search }) => ({ env: search.env }),
-  loader: ({ deps }) => getMetricsWorkspace({ data: deps }),
+  validateSearch: z.object({
+    model: z.string().optional(),
+    archived: z.boolean().default(false),
+  }),
+  loaderDeps: ({ search }) => ({
+    env: search.env,
+    model: search.model,
+    include_archived: search.archived,
+  }),
+  loader: async ({ deps }) => ({
+    ...(await getMetricsWorkspace({ data: deps })),
+    selected_model: deps.model
+      ? await getMetricModel({ data: { env: deps.env, id: deps.model } })
+      : null,
+  }),
   head: () => ({ meta: [{ title: 'Metrics · phlo' }] }),
   pendingComponent: PageSkeleton,
   errorComponent: RouteError,
@@ -25,7 +38,8 @@ export const Route = createFileRoute('/_app/metrics')({
 
 function MetricsPage() {
   const data = Route.useLoaderData()
-  const { model: selected } = Route.useSearch()
+  const { model: selected, archived } = Route.useSearch()
+  const router = useRouter()
   const navigate = Route.useNavigate()
   const [models, setModels] = React.useState(data.items)
   const [editor, setEditor] = React.useState<MetricModel | 'new' | null>(null)
@@ -34,7 +48,8 @@ function MetricsPage() {
     setModels(data.items)
     setEditor(null)
   }, [data])
-  const model = models.find((item) => item.model_id === selected)
+  const model =
+    models.find((item) => item.model_id === selected) ?? data.selected_model
   const select = (id: string | undefined) =>
     void navigate({ search: (previous) => ({ ...previous, model: id }) })
   const saved = (next: MetricModel) => {
@@ -53,17 +68,41 @@ function MetricsPage() {
         crumbs={model ? [{ label: 'Metrics', to: '/metrics' }] : undefined}
         meta={
           model
-            ? `Draft v${model.version} · ${model.nessie_ref} · ${model.owner}`
+            ? `${model.status} v${model.version} · ${model.nessie_ref} · ${model.owner}`
             : 'Business definitions over observed lakehouse assets'
         }
         actions={
           <>
-            {model ? (
-              <Button variant="outline" onClick={() => setEditor(model)}>
+            {model && model.status === 'draft' ? (
+              <Button
+                operation="v1_metric_model_update"
+                variant="outline"
+                onClick={() => setEditor(model)}
+              >
                 Edit draft
               </Button>
             ) : null}
-            <Button onClick={() => setEditor('new')}>
+            {model ? (
+              <DraftLifecycleActions
+                key={`${model.model_id}:${model.version}`}
+                kind="metric"
+                env={data.env}
+                id={model.model_id}
+                version={model.version}
+                status={model.status}
+                onChanged={() => void router.invalidate()}
+                onReclaimed={() => {
+                  setModels((items) =>
+                    items.filter((item) => item.model_id !== model.model_id),
+                  )
+                  select(undefined)
+                }}
+              />
+            ) : null}
+            <Button
+              operation="v1_metric_model_create"
+              onClick={() => setEditor('new')}
+            >
               <PlusIcon />
               New model
             </Button>
@@ -85,6 +124,21 @@ function MetricsPage() {
             aria-label="Metric models"
             className="w-full shrink-0 border-b border-line p-3 lg:w-[280px] lg:overflow-y-auto lg:border-r lg:border-b-0"
           >
+            <label className="mb-3 flex items-center gap-2 px-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={archived}
+                onChange={(event) =>
+                  void navigate({
+                    search: (previous) => ({
+                      ...previous,
+                      archived: event.target.checked,
+                    }),
+                  })
+                }
+              />
+              Include archived definitions
+            </label>
             <div className="mb-2 flex items-center justify-between px-2 text-xs text-muted-foreground">
               <span>Models · {models.length}</span>
               <button
@@ -110,7 +164,9 @@ function MetricsPage() {
                   <span className="min-w-0 flex-1 truncate font-mono text-[13px]">
                     {item.model_id}
                   </span>
-                  <Badge variant="neutral">Draft</Badge>
+                  <Badge variant="neutral">
+                    {item.status === 'archived' ? 'Archived' : 'Draft'}
+                  </Badge>
                 </span>
                 <span className="line-clamp-2 text-xs text-muted-foreground">
                   {item.description}
@@ -257,7 +313,9 @@ function MetricDefinitionView({
           <span className="rounded-lg border border-line bg-raised px-3 py-2 font-mono text-text-2">
             {model.relation}
           </span>
-          <Badge variant="neutral">Draft v{model.version}</Badge>
+          <Badge variant="neutral">
+            {model.status} v{model.version}
+          </Badge>
         </div>
         <h2 className="mb-3 text-sm font-medium">
           Measures · {model.measures.length}
@@ -293,7 +351,15 @@ function MetricDefinitionView({
           </pre>
         </details>
       </section>
-      <MetricModelPreview model={model} env={env} />
+      {model.status === 'archived' ? (
+        <aside className="p-5 text-sm text-muted-foreground">
+          Archived definition retained for review and export. Restore it before
+          editing or running a preview. No historical revision snapshots or
+          publication are implied.
+        </aside>
+      ) : (
+        <MetricModelPreview model={model} env={env} />
+      )}
     </div>
   )
 }

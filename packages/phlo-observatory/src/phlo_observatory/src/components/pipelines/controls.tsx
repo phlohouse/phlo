@@ -2,8 +2,9 @@
 import * as React from 'react'
 import { Link } from '@tanstack/react-router'
 import type { Env } from '@/lib/data/types'
+import type { ActionContext } from '@/lib/data/api/action-availability'
 import { retryRun } from '@/lib/data/api/pipelines'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 
 type ActionState =
   | { kind: 'idle' | 'pending' | 'accepted' }
@@ -15,12 +16,16 @@ export function ConfirmedAction({
   actionLabel,
   acceptedMessage,
   execute,
+  operation,
+  actionContext,
 }: {
   storageKey: string
   confirmation: string
   actionLabel: string
   acceptedMessage: string
   execute: (idempotencyKey: string) => Promise<void>
+  operation?: string
+  actionContext?: ActionContext
 }) {
   const [confirmed, setConfirmed] = React.useState(false)
   const [state, setState] = React.useState<ActionState>({ kind: 'idle' })
@@ -61,6 +66,8 @@ export function ConfirmedAction({
         {confirmation}
       </label>
       <Button
+        operation={operation}
+        actionContext={actionContext}
         disabled={
           !confirmed || state.kind === 'pending' || state.kind === 'accepted'
         }
@@ -146,6 +153,8 @@ export function RetryControl({
         I confirm a retry from failure in {env}.
       </label>
       <Button
+        operation="v1_run_retry"
+        actionContext={{ run_id: runId }}
         disabled={
           !confirmed || state.kind === 'pending' || state.kind === 'accepted'
         }

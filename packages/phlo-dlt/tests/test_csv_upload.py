@@ -68,6 +68,34 @@ def test_authoring_is_immutable_and_only_writes_narrow_generated_paths(artifact)
     assert not (root / "pyproject.toml").exists()
 
 
+def test_scoped_upload_registration_preserves_physical_relation_and_legacy_keys(artifact):
+    root, manifest = artifact
+    clear_ingestion_assets()
+    try:
+        for upload_id in ("a" * 32, "b" * 32):
+            scoped = {
+                **manifest,
+                "upload_id": upload_id,
+                "asset_id": f"dlt_upload_{upload_id}",
+                "candidate_ref": f"sandbox-upload-{upload_id}",
+            }
+            result = author_csv_upload(root, {"manifest": scoped})
+            register_csv_upload(root, result["files"][0], result["metadata"]["contract_digest"])
+        legacy = {**manifest, "upload_id": "c" * 32}
+        result = author_csv_upload(root, {"manifest": legacy})
+        register_csv_upload(root, result["files"][0], result["metadata"]["contract_digest"])
+        assets = get_ingestion_assets()
+        assert {asset.key for asset in assets} == {
+            "dlt_upload_" + "a" * 32,
+            "dlt_upload_" + "b" * 32,
+            "dlt_reviewed_upload",
+        }
+        assert all(asset.metadata["phlo/relation"] == "bronze.reviewed_upload" for asset in assets)
+        assert all(check.asset_key == asset.key for asset in assets for check in asset.checks)
+    finally:
+        clear_ingestion_assets()
+
+
 @pytest.mark.parametrize(
     "tags",
     [
@@ -111,6 +139,7 @@ def test_candidate_staging_supplies_required_provenance_to_the_real_iceberg_sche
 
     root, manifest = artifact
     manifest["table"] = "reviewed_" + hashlib.sha256(str(root).encode()).hexdigest()[:12]
+    manifest["asset_id"] = f"dlt_upload_{manifest['upload_id']}"
     if split:
         path = root / ".phlo/uploads" / manifest["upload_id"] / "source.csv"
         data = path.read_bytes() + b"3,98.20,24/09/2026\r\n"

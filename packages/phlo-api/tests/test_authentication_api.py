@@ -354,19 +354,10 @@ def test_phlo_api_installs_the_durable_settings_store_provider() -> None:
     assert any(req.name == "phlo-postgres" and req.marker is None for req in requirements)
 
 
-def test_phlo_api_entrypoint_has_a_writable_dev_install_cache() -> None:
-    entrypoint = (
-        Path(__file__).resolve().parents[1] / "src" / "phlo_api" / "entrypoint.sh"
-    ).read_text(encoding="utf-8")
-
-    assert 'export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/phlo-uv-cache}"' in entrypoint
-    assert 'cp -R "$PHLO_DEV_ROOT/packages/phlo-postgres"' in entrypoint
-    assert 'install_editable "$DEV_INSTALL_ROOT/packages/phlo-postgres"' in entrypoint
-    assert "for package_dir in /opt/phlo-dev/packages/phlo-*" not in entrypoint
-
-
+@pytest.mark.parametrize("extras", ["", "dlt"])
 def test_phlo_api_entrypoint_stages_read_only_dev_sources_before_installing(
     tmp_path: Path,
+    extras: str,
 ) -> None:
     workspace = tmp_path / "workspace"
     api_source = workspace / "packages" / "phlo-api"
@@ -380,6 +371,10 @@ def test_phlo_api_entrypoint_stages_read_only_dev_sources_before_installing(
     (postgres_source / "src" / "phlo_postgres" / "__init__.py").write_text(
         "# local provider source\n"
     )
+    for name in ("phlo-dlt", "phlo-lineage"):
+        package = workspace / "packages" / name
+        package.mkdir()
+        (package / "pyproject.toml").write_text(f"[project]\nname = '{name}'\n")
     for path in workspace.rglob("*"):
         path.chmod(0o555 if path.is_dir() else 0o444)
 
@@ -389,6 +384,7 @@ def test_phlo_api_entrypoint_stages_read_only_dev_sources_before_installing(
     fake_uv = bin_dir / "uv"
     fake_uv.write_text(
         "#!/bin/sh\n"
+        '[ -d "$UV_CACHE_DIR" ] && [ -w "$UV_CACHE_DIR" ] || exit 4\n'
         "[ \"$1 $2 $3\" = 'pip install --target' ] || exit 2\n"
         '[ -d "$4" ] && [ -w "$4" ] || exit 2\n'
         '[ "$4" != "$PHLO_DEV_ROOT/site-packages" ] || exit 3\n'
@@ -406,6 +402,8 @@ def test_phlo_api_entrypoint_stages_read_only_dev_sources_before_installing(
             **os.environ,
             "PHLO_DEV_MODE": "true",
             "PHLO_DEV_ROOT": str(workspace),
+            "PHLO_API_EXTRAS": extras,
+            "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
             "TMPDIR": str(tmp_path),
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "INSTALL_LOG": str(install_log),
@@ -417,7 +415,8 @@ def test_phlo_api_entrypoint_stages_read_only_dev_sources_before_installing(
 
     assert result.returncode == 0, result.stderr + result.stdout
     install_paths = install_log.read_text().splitlines()
-    assert len(install_paths) == 2
+    expected = {"phlo-api", "phlo-postgres"} | ({"phlo-dlt"} if extras else set())
+    assert {Path(path).name for path in install_paths} == expected
     assert all(Path(path).is_dir() for path in install_paths)
     assert all(workspace not in Path(path).parents for path in install_paths)
     assert all(Path(path).stat().st_mode & 0o200 for path in install_paths)

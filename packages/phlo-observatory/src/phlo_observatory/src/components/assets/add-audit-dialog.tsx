@@ -13,7 +13,7 @@ import {
   testAuditProposal,
 } from '@/lib/data/api/assets'
 import { Mono } from '@/components/phlo/status'
-import { Button } from '@/components/ui/button'
+import { ActionButton as Button } from '@/components/phlo/action-button'
 import { CheckLine, ChoiceItem, RadioGroup } from '@/components/ui/checkbox'
 import {
   Dialog,

@@ -494,6 +494,10 @@ jobs:
         id: observatory_build
         run: npm run build
 
+      - name: Verify production cache headers and request body limits
+        if: ${{ !cancelled() && steps.observatory_build.outcome == 'success' }}
+        run: npm run test:cache
+
       - name: Run tests
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npm test
