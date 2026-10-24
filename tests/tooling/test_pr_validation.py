@@ -22,6 +22,28 @@ def workflow(name):
     return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
 
 
+@pytest.mark.parametrize("base,expected", [("0" * 40, "b" * 40), ("a" * 40, "a" * 40)])
+def test_security_base_handles_branch_creation_without_changing_real_bases(
+    tmp_path, base, expected
+):
+    steps = workflow("pr.yml")["jobs"]["security"]["steps"]
+    step = next(step for step in steps if step.get("id") == "base")
+    output = tmp_path / "output"
+    head = "b" * 40
+    subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env=dict(os.environ, BASE_SHA=base, HEAD_SHA=head, GITHUB_OUTPUT=str(output)),
+        check=True,
+    )
+    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert outputs["sha"] == expected
+    consumers = [
+        step for step in steps if "BASE_SHA" in step.get("env", {}) and step.get("id") != "base"
+    ]
+    assert len(consumers) == 2
+    assert all(step["env"]["BASE_SHA"] == "${{ steps.base.outputs.sha }}" for step in consumers)
+
+
 @pytest.mark.parametrize(
     "inspect_status,scan_status,policy_status,correct_report,expected",
     [
