@@ -12,6 +12,7 @@ Run commands from the repository root unless the skill names another directory.
 | [phlo-verifying-releases](phlo-verifying-releases/SKILL.md) | Read-only verification of qualification and published artifacts |
 | [phlo-measuring-performance](phlo-measuring-performance/SKILL.md) | Reproducible latency, work-count, and memory comparisons |
 | [phlo-refactoring-docs](phlo-refactoring-docs/SKILL.md) | Source-verified documentation rewrites without losing facts |
+| [phlo-auditing-tests](phlo-auditing-tests/SKILL.md) | Test quality, regression coverage, and evidence-backed consolidation |
 
 The [contribution guide](../../CONTRIBUTING.md),
 [engineering map](../../docs/contributing/engineering-map.md), and
@@ -25,6 +26,7 @@ or mutate an existing deployment.
 These are Phlo-specific adaptations of workflow ideas from
 [OpenClaw's skills](https://github.com/openclaw/openclaw/tree/main/.agents/skills):
 `control-ui-e2e`, `plugin-sdk-impact`, `release-openclaw-plugin-testing`,
-`verify-release`, `openclaw-performance`, and `openclaw-refactor-docs`, respectively.
+`verify-release`, `openclaw-performance`, `openclaw-refactor-docs`, and
+`test-audit`, respectively.
 They reuse Phlo's own scripts and contracts, without OpenClaw's runtime,
 maintainer permissions, remote runners, or publication machinery.
