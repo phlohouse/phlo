@@ -106,11 +106,10 @@ coverage, row counts and the report's provenance.
 
 ## Adapt it
 
-This preset is a worked example of a generic pattern, not a framework. The
-spine — runner, dbt invocation, warehouse access, provenance, strict facts,
-charts, renderer — contains no domain vocabulary. Everything specific to air
-quality is in one place per layer, and [DOMAIN.md](DOMAIN.md) is the checklist
-for replacing it.
+This preset is a worked example of a generic pattern. The spine — runner, dbt
+invocation, warehouse access, provenance, strict facts, charts, renderer —
+contains no domain vocabulary. Everything specific to air quality is in one
+place per layer, and [DOMAIN.md](DOMAIN.md) is the checklist for replacing it.
 
 The short version:
 
@@ -178,10 +177,8 @@ scripts/
 tests/                        fixtures, contracts, extraction, charts, facts, pipeline, reproducibility
 ```
 
-## What this is not
+## Scope
 
-* Not a `phlo init` template. It is a preset you copy; see [../README.md](../README.md).
-* Not real monitoring data. The fixtures are synthetic and labelled as such in
-  the report.
-* Not a general reporting framework. It is one small lakehouse, complete
-  enough to run, whose shape is worth reusing.
+* The fixtures are synthetic and labelled as such in the report.
+* This is one small lakehouse, complete enough to run and adapt; it is not a
+  general reporting framework.
