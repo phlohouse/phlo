@@ -1,0 +1,14 @@
+# Local dbt profile for the key-free DuckDB build.
+#
+# This directory is owned by the local runner (`source_to_report.dbt`). It is
+# deliberately outside the dbt project: Phlo generates its own Trino profile in
+# `workflows/transforms/dbt/profiles` on the full stack, and the two must not
+# overwrite each other.
+phlo:
+  target: duckdb_local
+  outputs:
+    duckdb_local:
+      type: duckdb
+      path: "{{ env_var('SOURCE_TO_REPORT_DUCKDB', 'build/source_to_report.duckdb') }}"
+      schema: analytics
+      threads: 4

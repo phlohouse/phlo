@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ domain.TITLE }} · {{ facts.summary("period_label") }}</title>
+<style>
+:root {
+  --ink: #1f2937;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --hair: #f1f5f9;
+  --accent: #0f766e;
+  --warn: #b45309;
+  --warn-bg: #fffbeb;
+  --bad: #b91c1c;
+  --paper: #ffffff;
+  --shell: #eef2f6;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+body {
+  margin: 0;
+  background: var(--shell);
+  color: var(--ink);
+  font: 16px/1.62 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.page {
+  max-width: 940px;
+  margin: 40px auto;
+  padding: 64px 72px 48px;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 24px 64px -32px rgba(15, 23, 42, .25);
+}
+h1, h2 {
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+h1 { font-size: 44px; line-height: 1.08; margin: 10px 0 16px; }
+h2 { font-size: 25px; line-height: 1.25; margin: 52px 0 10px; }
+h3 { font-size: 15px; margin: 0 0 2px; font-weight: 650; }
+p { margin: 0 0 14px; }
+.eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.standfirst { max-width: 62ch; color: var(--muted); font-size: 19px; line-height: 1.5; }
+.lede { max-width: 66ch; color: var(--muted); }
+.facts-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin: 34px 0 0;
+  padding: 18px 0 0;
+  border-top: 1px solid var(--line);
+}
+.facts-strip dt {
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.facts-strip dd { margin: 3px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; margin: 36px 0 8px; }
+.card { border-top: 2px solid var(--accent); padding-top: 12px; }
+.card.warn { border-top-color: var(--warn); }
+.card .value {
+  margin: 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: 32px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.card .value .of { font-size: 16px; color: var(--muted); }
+.card .label { margin: 6px 0 2px; font-size: 12px; font-weight: 650; line-height: 1.35; }
+.card .note { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
+.notice {
+  margin: 30px 0 0;
+  padding: 14px 18px;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-bg);
+  font-size: 14px;
+}
+.notice strong { color: var(--warn); }
+.notice ul { margin: 6px 0 0; padding-left: 18px; }
+figure { margin: 38px 0 0; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+figcaption strong { color: var(--ink); font-weight: 650; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .07em;
+  text-align: left;
+  text-transform: uppercase;
+}
+td { padding: 9px 8px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.badge.differs { background: #fef3c7; color: #92400e; }
+.badge.match { background: #dcfce7; color: #166534; }
+.badge.missing { background: #fee2e2; color: #991b1b; }
+.hash, code, .path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.hash { color: var(--muted); }
+.path { color: var(--muted); }
+details { margin-top: 16px; }
+.table-wrap { overflow-x: auto; }
+.table-wrap table { min-width: 560px; }
+summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+details table { margin-top: 10px; }
+.stages { list-style: none; margin: 18px 0 0; padding: 0; }
+.stages li {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--hair);
+}
+.stages li:last-child { border-bottom: 0; }
+.stage-n {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ccfbf1;
+  color: #115e59;
+  font-size: 12px;
+  font-weight: 700;
+}
+.stages p { margin: 1px 0 0; color: var(--muted); font-size: 13px; }
+.versions { color: var(--muted); font-size: 12px; line-height: 1.7; }
+footer {
+  margin-top: 56px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+footer strong { color: var(--ink); }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .page { margin: 0; padding: 34px 22px 32px; box-shadow: none; }
+  h1 { font-size: 33px; }
+  h2 { font-size: 22px; }
+  .facts-strip, .cards { grid-template-columns: 1fr 1fr; }
+}
+@media print {
+  body { background: #fff; font-size: 11pt; }
+  .page { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+  h2 { break-after: avoid; }
+  figure, table, .card { break-inside: avoid; }
+  details { display: none; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">{{ domain.SUBTITLE }} · {{ facts.summary("period_label") }}</p>
+    <h1>{{ domain.TITLE }}</h1>
+    <p class="standfirst">{{ domain.DESCRIPTION }}</p>
+    <dl class="facts-strip">
+      <div><dt>Measurements</dt><dd>{{ facts.summary("counts.readings") | n0 }} hourly</dd></div>
+      <div><dt>Stations</dt><dd>{{ facts.summary("counts.stations") }} reference sites</dd></div>
+      <div><dt>Published notes</dt><dd>{{ facts.summary("counts.months") }} monthly</dd></div>
+      <div><dt>Data date</dt><dd>{{ facts.summary("as_of") | date_label }}</dd></div>
+    </dl>
+  </header>
+
+  {% if failed_checks %}
+  <aside class="notice">
+    <strong>{{ failed_checks | length }} check{% if failed_checks | length != 1 %}s{% endif %} did not pass.</strong>
+    <ul>
+      {% for check in failed_checks %}
+      <li><code>{{ check.name }}</code>: {{ check.detail }}</li>
+      {% endfor %}
+    </ul>
+  </aside>
+  {% endif %}
+
+  {% set pm25 = domain.POLLUTANTS_BY_ID["PM2.5"] %}
+  {% set no2 = domain.POLLUTANTS_BY_ID["NO2"] %}
+  {% set worst = facts.extreme("annual_station", "mean_value", mode="max", pollutant="PM2.5") %}
+  {% set best = facts.extreme("annual_station", "mean_value", mode="min", pollutant="PM2.5") %}
+  {% set worst_no2 = facts.extreme("annual_station", "mean_value", mode="max", pollutant="NO2") %}
+  {% set differing = facts.rows("claims_checked") | selectattr("verdict", "equalto", "differs") | list %}
+
+  <section class="cards" aria-label="At a glance">
+    <div class="card">
+      <p class="value">{{ facts.summary("counts.pm25_station_days_over") }}</p>
+      <p class="label">PM2.5 station-days over the 24-hour limit</p>
+      <p class="note">daily mean above {{ pm25.short_term_objective | n0 }} µg/m³</p>
+    </div>
+    <div class="card">
+      <p class="value">{{ worst.mean_value | n1 }}</p>
+      <p class="label">Highest annual PM2.5 mean</p>
+      <p class="note">{{ worst.station_name }}, µg/m³</p>
+    </div>
+    <div class="card">
+      <p class="value">{{ worst_no2.mean_value | n1 }}</p>
+      <p class="label">Highest annual NO2 mean</p>
+      <p class="note">{{ worst_no2.station_name }}, µg/m³</p>
+    </div>
+    <div class="card{% if differing %} warn{% endif %}">
+      <p class="value">{{ facts.summary("counts.claims_differ") }}<span class="of">/{{ facts.summary("counts.claims") }}</span></p>
+      <p class="label">Published figures differ</p>
+      <p class="note">by more than {{ domain.CLAIM_TOLERANCE }} µg/m³</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the data shows</h2>
+    <p class="lede">
+      The network recorded {{ facts.summary("counts.readings") | n0 }} hourly measurements between
+      {{ facts.summary("period.start") | date_label }} and {{ facts.summary("period.end") | date_label }},
+      with every station and pollutant at {{ facts.summary("headlines.coverage_min") | pct }} coverage or better.
+    </p>
+    <p>
+      {{ worst.station_name }} recorded the highest annual PM2.5 mean,
+      <strong>{{ worst.mean_value | n1 }} µg/m³</strong>,
+      {% if worst.mean_value > pm25.annual_objective %}
+      {{ (worst.mean_value - pm25.annual_objective) | n1 }} µg/m³ above
+      {% else %}
+      {{ (pm25.annual_objective - worst.mean_value) | n1 }} µg/m³ below
+      {% endif %}
+      the {{ pm25.annual_objective | n0 }} µg/m³ objective. {{ best.station_name }} was lowest at
+      {{ best.mean_value | n1 }} µg/m³. PM2.5 crossed the {{ pm25.short_term_objective | n0 }} µg/m³
+      {{ pm25.short_term_period }} on <strong>{{ facts.summary("counts.pm25_station_days_over") }}</strong>
+      station-days, concentrated in the winter months.
+    </p>
+    <p>
+      NO2 peaked at {{ worst_no2.mean_value | n1 }} µg/m³ at {{ worst_no2.station_name }},
+      below its {{ no2.annual_objective | n0 }} µg/m³ annual objective.
+      {% if facts.summary("counts.no2_station_days_over") %}
+      It exceeded the {{ no2.short_term_objective | n0 }} µg/m³ {{ no2.short_term_period }} on
+      {{ facts.summary("counts.no2_station_days_over") }} station-days.
+      {% else %}
+      It did not breach the {{ no2.short_term_objective | n0 }} µg/m³ {{ no2.short_term_period }} at any station.
+      {% endif %}
+    </p>
+    <p>
+      {% if differing %}
+      Of the {{ facts.summary("counts.claims") }} monthly means the network published,
+      <strong>{{ differing | length }} differ</strong> from the measurements by more than
+      {{ domain.CLAIM_TOLERANCE }} µg/m³. Each is listed below with the line it came from.
+      {% else %}
+      Every one of the {{ facts.summary("counts.claims") }} monthly means the network published
+      matches the measurements within {{ domain.CLAIM_TOLERANCE }} µg/m³.
+      {% endif %}
+    </p>
+  </section>
+
+  <figure>
+    {{ charts.pm25_monthly | safe }}
+    <figcaption><strong>Figure 1.</strong> Monthly mean PM2.5 at each station. Winter episodes lift all three stations together; the coastal station is consistently lowest.</figcaption>
+  </figure>
+
+  <figure>
+    {{ charts.pm25_annual | safe }}
+    <figcaption><strong>Figure 2.</strong> Annual mean PM2.5 against the {{ pm25.annual_objective }} µg/m³ objective. The dashed line is the objective, not a measurement.</figcaption>
+  </figure>
+
+  <figure>
+    {{ charts.no2_annual | safe }}
+    <figcaption><strong>Figure 3.</strong> Annual mean NO2 against the {{ no2.annual_objective | n0 }} µg/m³ objective. NO2 is usually the harder limit to meet; this network stays below it.</figcaption>
+  </figure>
+
+  <figure>
+    {{ charts.pm25_days | safe }}
+    <figcaption><strong>Figure 4.</strong> Station-days above the {{ pm25.short_term_objective }} µg/m³ 24-hour objective, summed across the three stations. A station-day counts each station once per day.</figcaption>
+  </figure>
+
+  <section>
+    <h2>Published figures, checked</h2>
+    <p class="lede">
+      Each note states a monthly mean for every station and pollutant. The lakehouse extracts
+      those figures with their line, joins them to the measured monthly mean, and reports the
+      difference. A figure with no measurement is a failure, not a match.
+    </p>
+    {% if differing %}
+    <div class="table-wrap">
+    <table>
+      <caption class="visually-hidden">Published figures that differ from the measurements</caption>
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th>Station</th>
+          <th>Pollutant</th>
+          <th class="num">Published</th>
+          <th class="num">Measured</th>
+          <th class="num">Difference</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for claim in differing %}
+        <tr>
+          <td>{{ claim.month | month_label }}</td>
+          <td>{{ claim.station_id | capitalize }}</td>
+          <td>{{ claim.pollutant }}</td>
+          <td class="num">{{ claim.published_value | n1 }}</td>
+          <td class="num">{{ claim.measured_value | n2 }}</td>
+          <td class="num">{{ "%+.2f" | format(claim.difference) }}</td>
+          <td><code>{{ claim.source_path }}:{{ claim.line }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    <details>
+      <summary>Show all {{ facts.summary("counts.claims") }} checked figures</summary>
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th>Station</th>
+            <th>Pollutant</th>
+            <th class="num">Published</th>
+            <th class="num">Measured</th>
+            <th class="num">Difference</th>
+            <th>Verdict</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for claim in facts.rows("claims_checked") %}
+          <tr>
+            <td>{{ claim.month | month_label }}</td>
+            <td>{{ claim.station_id | capitalize }}</td>
+            <td>{{ claim.pollutant }}</td>
+            <td class="num">{{ claim.published_value | n1 }}</td>
+            <td class="num">{% if claim.measured_value is not none %}{{ claim.measured_value | n2 }}{% else %}—{% endif %}</td>
+            <td class="num">{% if claim.difference is not none %}{{ "%+.2f" | format(claim.difference) }}{% else %}—{% endif %}</td>
+            <td><span class="badge {{ claim.verdict }}">{{ claim.verdict }}</span></td>
+            <td><code>{{ claim.source_path }}:{{ claim.line }}</code></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <h2>How this was built</h2>
+    <ol class="stages">
+      <li>
+        <span class="stage-n">1</span>
+        <div>
+          <h3>Source</h3>
+          <p>{{ facts.summary("counts.readings") | n0 }} hourly readings and {{ facts.summary("counts.months") }} published notes, from one deterministic pull.</p>
+        </div>
+      </li>
+      <li>
+        <span class="stage-n">2</span>
+        <div>
+          <h3>Evidence</h3>
+          <p>Every reading validated against its contract, then daily and monthly means in dbt: {{ provenance.tables.monthly_station }} monthly rows, {{ provenance.tables.station_coverage }} coverage rows.</p>
+        </div>
+      </li>
+      <li>
+        <span class="stage-n">3</span>
+        <div>
+          <h3>Insight</h3>
+          <p>{{ provenance.tables.claims_checked }} published figures extracted with their note and line, then joined to the measurement they describe.</p>
+        </div>
+      </li>
+      <li>
+        <span class="stage-n">4</span>
+        <div>
+          <h3>Analysis</h3>
+          <p>Five tables, four charts, and {{ facts.checks() | length }} checks. The report's numbers are lookups from those tables, never re-typed prose.</p>
+        </div>
+      </li>
+      <li>
+        <span class="stage-n">5</span>
+        <div>
+          <h3>Report</h3>
+          <p>This page. It is self-contained, opens offline, and is rebuilt byte-for-byte from the same pull.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Provenance</h2>
+    <p class="lede">
+      Every input is pinned by hash. These are the exact bytes this report was built from.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Input</th><th class="num">Bytes</th><th>SHA-256</th></tr>
+      </thead>
+      <tbody>
+        {% for item in provenance.inputs %}
+        <tr>
+          <td>{{ item.label }}<br><span class="path">{{ item.path }}</span></td>
+          <td class="num">{{ item.bytes | n0 }}</td>
+          <td><span class="hash">{{ item.sha256[:16] }}…</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="versions">
+      Data date {{ facts.summary("as_of") | date_label }}. Built from
+      {% if provenance.git.commit %}{{ provenance.git.branch }} at {{ provenance.git.commit[:12] }}{% if provenance.git.dirty %} with uncommitted changes{% endif %}{% else %}a checkout with no git metadata{% endif %}.
+      Python {{ provenance.python }}.
+    </p>
+    <p class="versions">
+      {% for name, version in provenance.packages.items() %}{{ name }} {{ version or "not installed" }}{% if not loop.last %} · {% endif %}{% endfor %}
+    </p>
+  </section>
+
+  <footer>
+    <p>
+      <strong>Fixture data.</strong> The measurements and notes on this page are synthetic and
+      deterministic; they are not a real monitoring network.
+    </p>
+    <p>
+      This is a reference preset for Phlo. To adapt it, replace the domain pack: <code>src/source_to_report/domain</code>,
+      <code>workflows</code> and <code>data</code>. The spine around it stays.
+    </p>
+  </footer>
+
+</main>
+</body>
+</html>

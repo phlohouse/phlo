@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "source-to-report"
+version = "0.1.0"
+description = "Reference Phlo lakehouse: source to evidence, insight, analysis and a report"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "phlo[defaults]==0.18.0",
+    "phlo-dagster==0.18.0",
+    "phlo-dlt==0.17.0",
+    "phlo-dbt==0.17.0",
+    "phlo-iceberg==0.17.0",
+    "phlo-pandera==0.16.1",
+    "phlo-trino==0.17.0",
+    "dlt>=1.20,<2",
+    "dbt-duckdb>=1.9,<2",
+    "duckdb>=1.4,<1.6",
+    "jinja2>=3.1",
+    "pandas>=2.3.3,<3.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff",
+]
+
+[project.scripts]
+source-to-report = "source_to_report.cli:main"
+
+[project.entry-points."phlo.plugins.assets"]
+source_to_report = "workflows.plugin:SourceToReportAssets"
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["source_to_report*", "workflows*"]
+
+[tool.setuptools.package-data]
+"source_to_report.domain" = ["*.html.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: runs the full lakehouse build",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "SIM", "RET", "C4", "PIE", "B", "DTZ", "PTH"]
+ignore = ["E501"]

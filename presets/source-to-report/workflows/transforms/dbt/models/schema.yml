@@ -1,0 +1,40 @@
+# Column tests for the pack's models. Pandera owns the raw contracts; dbt
+# tests own the shape of what the models build on top of them.
+version: 2
+
+models:
+  - name: stg_readings
+    description: Hourly readings, typed and limited to the reporting period.
+    columns:
+      - name: reading_id
+        data_tests: [unique, not_null]
+      - name: station_id
+        data_tests: [not_null]
+      - name: pollutant
+        data_tests: [not_null]
+      - name: observed_date
+        data_tests: [not_null]
+
+  - name: monthly_station
+    description: Monthly means per station and pollutant.
+    columns:
+      - name: month_key
+        data_tests: [unique, not_null]
+
+  - name: annual_station
+    description: Annual means per station and pollutant.
+    columns:
+      - name: station_key
+        data_tests: [unique, not_null]
+
+  - name: claims_checked
+    description: Every published figure against the measurement it describes.
+    columns:
+      - name: claim_id
+        data_tests: [unique, not_null]
+      - name: verdict
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["match", "differs", "missing"]
