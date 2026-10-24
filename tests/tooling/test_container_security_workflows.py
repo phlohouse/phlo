@@ -123,7 +123,7 @@ def test_rescan_uses_released_inventory_but_current_scan_policy() -> None:
     workflow = _load_workflow("container-rescan.yml")
     steps = list(_steps(workflow))
     release = next(step for step in steps if step.get("id") == "release")
-    assert 'gh api "repos/$GH_REPO/releases/latest" --jq .tag_name' in release["run"]
+    assert 'gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100"' in release["run"]
     assert release["env"]["GH_REPO"] == "${{ github.repository }}"
     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout")]
     assert len(checkouts) == 2
@@ -143,10 +143,44 @@ def test_rescan_uses_released_inventory_but_current_scan_policy() -> None:
         assert re.search(rf"python scripts/container_security\.py\s+{command}", scripts)
 
 
+def test_rescan_selects_latest_stable_release_across_pages(tmp_path, monkeypatch) -> None:
+    workflow = _load_workflow("container-rescan.yml")
+    release = next(step for step in _steps(workflow) if step.get("id") == "release")
+    pages = [
+        [
+            {"tag_name": "gh-attach-assets", "published_at": "2026-10-24T00:00:00Z"},
+            {"tag_name": "v2.0.0", "published_at": "2026-10-23T00:00:00Z", "draft": True},
+            {"tag_name": "v1.9.0", "published_at": "2026-10-22T00:00:00Z", "prerelease": True},
+        ],
+        [
+            {"tag_name": "v1.7.0", "published_at": "2026-10-19T00:00:00Z"},
+            {"tag_name": "v1.8.2", "published_at": "2026-10-21T00:00:00Z"},
+            {"tag_name": "v1.8.1", "published_at": "2026-10-20T00:00:00Z"},
+        ],
+    ]
+    for page in pages:
+        for item in page:
+            item.setdefault("draft", False)
+            item.setdefault("prerelease", False)
+    monkeypatch.setenv("TEST_RELEASES", json.dumps(pages))
+    monkeypatch.setenv("GH_REPO", "phlohouse/phlo")
+    output = tmp_path / "output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    result = subprocess.run(
+        ["bash", "-c", 'gh() { printf "%s\\n" "$TEST_RELEASES"; }\n' + release["run"]],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == "tag=v1.8.2\n"
+
+
 @pytest.mark.parametrize(
     ("tag", "api_status", "accepted"),
     [
         ("v8.3.7", 0, True),
+        ("gh-attach-assets", 0, False),
         ("v8.3.7-rc.1", 0, False),
         ("../../main", 0, False),
         ("v8.3.7\ntag=main", 0, False),
@@ -165,13 +199,17 @@ def test_rescan_release_selection_rejects_invalid_tags_and_api_failure(
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setenv("GH_REPO", "phlohouse/phlo")
-    monkeypatch.setenv("TEST_TAG", tag)
+    monkeypatch.setenv(
+        "TEST_RELEASES",
+        json.dumps([[{"tag_name": tag, "draft": False, "prerelease": False}]]),
+    )
     monkeypatch.setenv("TEST_API_STATUS", str(api_status))
     result = subprocess.run(
         [
             "bash",
             "-c",
-            'gh() { printf "%s\\n" "$TEST_TAG"; return "$TEST_API_STATUS"; }\n' + release["run"],
+            'gh() { printf "%s\\n" "$TEST_RELEASES"; return "$TEST_API_STATUS"; }\n'
+            + release["run"],
         ],
         cwd=tmp_path,
         capture_output=True,

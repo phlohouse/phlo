@@ -27,7 +27,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          tag="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" |
+            jq -er '[.[][] | select(.draft == false and .prerelease == false) |
+              select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] |
+              if length == 0 then error("no published stable Phlo release found")
+              else max_by(.published_at).tag_name end')"
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Check out published fleet definitions
@@ -76,6 +80,7 @@ jobs:
             assemble-rescan-manifest --root released --records "$RUNNER_TEMP/resolved-fleet.json" \
             --output published/generated-service-images.json
       - name: Include the latest independently published MinIO image
+        id: fleet
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -131,7 +136,7 @@ jobs:
             --candidate-bom published/candidate/bom.json --staging-dir published/candidate \
             --report-output reports/publication-audit.json
       - name: Verify signatures for every first-party rescan subject
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.fleet.outcome == 'success' }}
         run: |
           set -euo pipefail
           mkdir -p reports
@@ -152,7 +157,7 @@ jobs:
               "${image%:*}@$digest" > "reports/${safe}-signatures.json"
           done < "$RUNNER_TEMP/signature-targets.jsonl"
       - name: Rescan immutable images with fresh Trivy data
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.fleet.outcome == 'success' }}
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

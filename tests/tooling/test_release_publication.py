@@ -249,7 +249,9 @@ def test_rescan_verifies_exact_subject_and_workflow_and_rejects_unsigned_images(
         for s in rescan["jobs"]["rescan"]["steps"]
         if s.get("name") == "Rescan immutable images with fresh Trivy data"
     )
-    assert scan["if"] == "${{ !cancelled() }}"
+    fleet = next(s for s in rescan["jobs"]["rescan"]["steps"] if s.get("id") == "fleet")
+    assert fleet["name"] == "Include the latest independently published MinIO image"
+    assert step["if"] == scan["if"] == "${{ !cancelled() && steps.fleet.outcome == 'success' }}"
 
 
 @pytest.mark.parametrize("source", ["local-build", "staged", "pypi"])
