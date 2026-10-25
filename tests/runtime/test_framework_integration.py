@@ -1,21 +1,18 @@
 """
-Integration tests for workflow discovery system.
+End-to-end tests for workflow discovery and definitions building.
 
-Tests the end-to-end workflow discovery and definitions building
-for user projects using Phlo as an installable package.
+Builds real definitions from user-project layouts using temporary directories;
+no external services are required.
 """
 
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 from dagster import Definitions
 from phlo_dagster.framework.definitions import build_definitions
 from phlo_dagster.framework.discovery import discover_user_workflows
 
 from phlo.exceptions import PhloConfigError
-
-pytestmark = pytest.mark.integration
 
 
 def _collect_asset_names(defs: Definitions) -> list[str]:

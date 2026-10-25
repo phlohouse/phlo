@@ -27,6 +27,7 @@ wheels/
 MANIFEST
 .pytest_cache/
 .coverage
+test-results/
 htmlcov/
 *.cover
 .hypothesis/

@@ -313,10 +313,13 @@ def test_runs_list_carries_report_identity_only_for_complete_durable_evidence(
     assert report.json()["attempt"] == 2
 
 
-def test_manifest_and_recovered_runs_never_carry_report_identity(
+def test_manifest_runs_never_carry_report_identity(
     monkeypatch, tmp_path: Path, observatory_loaders
 ) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    # The manifest fallback only runs when Dagster is unreachable; pin a refused
+    # endpoint so a developer's live stack cannot change the branch under test.
+    monkeypatch.setenv("DAGSTER_GRAPHQL_URL", "http://127.0.0.1:1/graphql")
     observatory_loaders(capability_registry=None)
     state_dir = tmp_path / ".phlo" / "observatory"
     state_dir.mkdir(parents=True)
@@ -342,13 +345,13 @@ def test_manifest_and_recovered_runs_never_carry_report_identity(
     assert manifest_run["metadata"]["evidence_source"] == "lakehouse_manifest"
 
 
-def test_durable_run_without_complete_identity_omits_report_identity(
+def test_durable_run_without_complete_identity_is_omitted_from_runs_list(
     monkeypatch, tmp_path, observatory_loaders
 ) -> None:
     database = tmp_path / "run-evidence.sqlite"
-    SQLiteRunEvidenceStore(database).append_pipeline_run(
-        PipelineRun(project_id="finance", run_id="daily-orders", attempt=2)
-    )
+    store = SQLiteRunEvidenceStore(database)
+    store.append_pipeline_run(PipelineRun(project_id="finance", run_id="daily-orders", attempt=2))
+    store.close()
     monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(database))
     monkeypatch.setattr(observatory_runs_module, "_durable_report_identity", lambda row: None)
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
@@ -356,8 +359,9 @@ def test_durable_run_without_complete_identity_omits_report_identity(
     observatory._clear_read_model_cache()
 
     items = authenticated_client("admin").get("/api/observatory/runs").json()["items"]
+    # Without a complete identity the row cannot be linked to a report, so the
+    # durable run is omitted rather than exposed with a partially-filled identity.
     assert items == []
-    assert all("report_identity" not in run for run in items)
 
 
 class _FakeOrchestratorOperations:
@@ -558,7 +562,7 @@ def test_observatory_datasets_endpoint_returns_profile_summaries(
     assert payload["items"][0]["candidate"] is False
 
 
-def test_observatory_publishing_readiness_loads_shared_sources_once(
+def test_observatory_publishing_readiness_reuses_cached_quality_evidence(
     monkeypatch: pytest.MonkeyPatch,
     observatory_loaders,
 ) -> None:
@@ -592,9 +596,9 @@ def test_observatory_publishing_readiness_loads_shared_sources_once(
         "gold.payments",
     ]
     assert all(item["publishing"]["state"] == "unknown" for item in payload["items"])
-    # The readiness evidence crosses the neutral dataset_evidence interface, so
-    # the quality collection is loaded once for the read model and once more by
-    # the evidence source; every dataset readiness reuses the cached evidence.
+    # One assets read feeds all three rows, and the quality evidence is loaded
+    # once for the read model and once by the neutral evidence source; every
+    # dataset readiness reuses that cached evidence instead of re-reading it.
     assert calls == ["assets", "tables", "quality", "quality"]
 
 
@@ -1356,11 +1360,24 @@ def test_observatory_docker_statuses_fall_back_to_socket_and_scope_project(
         {
             "Id": "def456",
             "Names": ["/other-postgres-1"],
-            "State": "running",
-            "Status": "Up 3 minutes (healthy)",
+            "State": "exited",
+            "Status": "Exited (1) 2 minutes ago",
             "Labels": {
                 "com.docker.compose.project": "other",
                 "com.docker.compose.service": "postgres",
+            },
+        },
+        {
+            # Same service name, different compose project: it must not be
+            # reported for this project even though it is the healthiest
+            # container in the list.
+            "Id": "ghi789",
+            "Names": ["/other-trino-1"],
+            "State": "running",
+            "Status": "Up 5 minutes (healthy)",
+            "Labels": {
+                "com.docker.compose.project": "other",
+                "com.docker.compose.service": "trino",
             },
         },
     ]
@@ -1379,8 +1396,9 @@ def test_observatory_docker_statuses_fall_back_to_socket_and_scope_project(
     )
     monkeypatch.setenv("PHLO_COMPOSE_PROJECT", "phlo")
 
-    statuses = _load_docker_service_statuses({"postgres"})
+    statuses = _load_docker_service_statuses({"postgres", "trino"})
 
+    assert set(statuses) == {"postgres"}
     assert statuses["postgres"][0] == "running"
     assert statuses["postgres"][1].state == "ok"
 
@@ -2955,8 +2973,21 @@ def test_observatory_service_detail_endpoint_returns_provider_neutral_payload() 
     _assert_no_provider_url_settings(payload)
 
 
-def test_observatory_operations_endpoint_returns_provider_neutral_payload() -> None:
-    response = authenticated_client("admin").get("/api/observatory/operations")
+@pytest.mark.parametrize(
+    ("path", "params"),
+    [
+        ("/api/observatory/operations", None),
+        ("/api/observatory/assets", None),
+        ("/api/observatory/tables", None),
+        ("/api/observatory/quality", None),
+        ("/api/observatory/logs", None),
+        ("/api/observatory/extensions", None),
+        ("/api/observatory/search", {"q": "gold"}),
+    ],
+    ids=["operations", "assets", "tables", "quality", "logs", "extensions", "search"],
+)
+def test_observatory_endpoint_returns_provider_neutral_payload(path, params) -> None:
+    response = authenticated_client("admin").get(path, params=params)
 
     assert response.status_code == 200
     payload = response.json()
@@ -3067,16 +3098,6 @@ def test_observatory_operation_agent_context_endpoint_returns_stable_contract(mo
     assert payload["identifiers"]["trace_ids"] == ["trace-123"]
     assert payload["incident"]["incident_ids"] == ["incident-001"]
     assert payload["retention"]["history_limit"] == 200
-    _assert_no_provider_url_settings(payload)
-
-
-def test_observatory_assets_endpoint_returns_provider_neutral_payload() -> None:
-    response = authenticated_client("admin").get("/api/observatory/assets")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"items"}
-    assert isinstance(payload["items"], list)
     _assert_no_provider_url_settings(payload)
 
 
@@ -3198,16 +3219,6 @@ def test_observatory_asset_graph_and_impact_are_first_class(monkeypatch) -> None
             "depth": 1,
         }
     ]
-
-
-def test_observatory_tables_endpoint_returns_provider_neutral_payload() -> None:
-    response = authenticated_client("admin").get("/api/observatory/tables")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"items"}
-    assert isinstance(payload["items"], list)
-    _assert_no_provider_url_settings(payload)
 
 
 def test_observatory_table_preview_endpoint_returns_provider_neutral_payload(monkeypatch) -> None:
@@ -3894,16 +3905,6 @@ def test_observatory_branch_actions_use_registered_catalog_provider(
     assert provider.branches == {}
 
 
-def test_observatory_quality_endpoint_returns_provider_neutral_payload() -> None:
-    response = authenticated_client("admin").get("/api/observatory/quality")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"items"}
-    assert isinstance(payload["items"], list)
-    _assert_no_provider_url_settings(payload)
-
-
 def test_observatory_quality_detail_endpoint_returns_provider_neutral_payload(monkeypatch) -> None:
     client = authenticated_client("admin")
     asset = ObservatoryAsset(id="raw.orders", name="raw.orders", group="raw", kinds=["table"])
@@ -3924,16 +3925,6 @@ def test_observatory_quality_detail_endpoint_returns_provider_neutral_payload(mo
     payload = response.json()
     assert set(payload) == {"check", "asset", "history", "logs", "actions"}
     assert payload["check"]["id"] == check.id
-    _assert_no_provider_url_settings(payload)
-
-
-def test_observatory_logs_endpoint_returns_provider_neutral_payload() -> None:
-    response = authenticated_client("admin").get("/api/observatory/logs")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"items"}
-    assert isinstance(payload["items"], list)
     _assert_no_provider_url_settings(payload)
 
 
@@ -3969,16 +3960,6 @@ def test_observatory_branch_detail_endpoint_returns_provider_neutral_payload() -
     payload = response.json()
     assert set(payload) == {"branch", "contents", "commits", "compare", "tables"}
     assert payload["branch"]["name"] == "main"
-    _assert_no_provider_url_settings(payload)
-
-
-def test_observatory_extensions_endpoint_returns_provider_neutral_payload() -> None:
-    response = authenticated_client("admin").get("/api/observatory/extensions")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"items"}
-    assert isinstance(payload["items"], list)
     _assert_no_provider_url_settings(payload)
 
 
@@ -4038,16 +4019,6 @@ def test_observatory_settings_endpoint_returns_provider_neutral_payload(
         "compose_project": "observatory-real-stack",
         "api_source": "phlo-api",
     }
-    _assert_no_provider_url_settings(payload)
-
-
-def test_observatory_search_endpoint_returns_provider_neutral_payload() -> None:
-    response = authenticated_client("admin").get("/api/observatory/search", params={"q": "gold"})
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"items"}
-    assert isinstance(payload["items"], list)
     _assert_no_provider_url_settings(payload)
 
 
@@ -4317,6 +4288,7 @@ def test_observatory_schema_diff_returns_stable_agent_envelope(
 def test_observatory_all_endpoints_do_not_leak_provider_url_setting_names() -> None:
     client = authenticated_client("admin")
 
+    checked = 0
     for path in (
         "/api/observatory/overview",
         "/api/observatory/capabilities",
@@ -4343,10 +4315,14 @@ def test_observatory_all_endpoints_do_not_leak_provider_url_setting_names() -> N
     ):
         response = client.get(path)
 
+        assert response.status_code in {200, 404}, path
         if response.status_code == 404:
             continue
-        assert response.status_code == 200, path
+        checked += 1
         _assert_no_provider_url_settings(response.json())
+
+    # A sweep that silently skipped every payload would pass vacuously.
+    assert checked >= 10, f"leak sweep inspected only {checked} endpoint payloads"
 
 
 def test_preview_uses_one_bounded_neutral_query_without_a_count(monkeypatch) -> None:
@@ -4385,7 +4361,13 @@ def test_preview_uses_one_bounded_neutral_query_without_a_count(monkeypatch) -> 
     assert calls == [('"hive"."raw"."orders"', 10, 20, "raw")]
 
 
-def test_preview_with_missing_relation_does_not_discover_catalog() -> None:
+def test_preview_with_missing_relation_does_not_discover_catalog(monkeypatch) -> None:
+    def fail_discovery(*_args, **_kwargs):
+        raise AssertionError("preview must not resolve a catalog to infer a relation")
+
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", fail_discovery)
+    monkeypatch.setattr("phlo.capabilities.resolve_capability", fail_discovery)
+
     table = ObservatoryTable(id="orders", name="orders", metadata={})
 
     assert observatory._query_relation_for_table(table) is None

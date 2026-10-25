@@ -29,6 +29,10 @@ LANE ?= all
 BASE ?= origin/main
 PYMDX_DOCS_DIR ?= docs-site
 PYMDX_DOCS_PORT ?= 3000
+PYTEST_WORKERS ?= auto
+PYTEST_DIST ?= worksteal
+PYTEST_TIMEOUT ?= 300
+PYTEST_PARALLEL_ARGS := -n $(PYTEST_WORKERS) --dist $(PYTEST_DIST) --timeout=$(PYTEST_TIMEOUT)
 COVERAGE_DIR ?= test-results/coverage
 COVERAGE_INPUTS_DIR ?= test-results/coverage-inputs
 COVERAGE_SHARD_COUNT ?= 4
@@ -60,12 +64,12 @@ install:
 	uv sync --locked
 
 test:
-	uv run --locked pytest
+	uv run --locked pytest $(PYTEST_PARALLEL_ARGS)
 
 test-coverage:
 	@mkdir -p $(COVERAGE_DIR)
 	@args=($(COVERAGE_SOURCE_ARGS)); \
-	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked pytest -m 'not integration' \
+	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked pytest -m 'not integration' $(PYTEST_PARALLEL_ARGS) \
 		"$${args[@]}" --cov-branch --cov-report=json:$(COVERAGE_DIR)/coverage.json \
 		--cov-report= --junitxml=$(COVERAGE_DIR)/results.xml --tb=short -ra || exit $$?; \
 	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked python -m pytest \
@@ -84,7 +88,7 @@ test-coverage-workspace:
 	@rm -f "$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)/coverage.data" \
 		"$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)/results.xml"
 	COVERAGE_FILE="$(COVERAGE_INPUTS_DIR)/workspace-$(COVERAGE_SHARD_INDEX)/coverage.data" \
-		uv run --locked python -m pytest -p scripts.ci_shard -m 'not integration' \
+		uv run --locked python -m pytest -p scripts.ci_shard -m 'not integration' $(PYTEST_PARALLEL_ARGS) \
 		--ci-shard-index=$(COVERAGE_SHARD_INDEX) --ci-shard-count=$(COVERAGE_SHARD_COUNT) \
 		$(COVERAGE_SOURCE_ARGS) --cov-branch --cov-report= \
 		-o junit_suite_name=workspace-$(COVERAGE_SHARD_INDEX)-of-$(COVERAGE_SHARD_COUNT) \

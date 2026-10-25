@@ -66,6 +66,8 @@ dev = [
     "s3fs>=2026.6.0",
     "pymdx>=0.1.1",
     "minio>=7.2.20",
+    "pytest-xdist>=3.8",
+    "pytest-timeout>=2.4",
 ]
 
 [project]
@@ -261,7 +263,9 @@ pytest_add_cli_args_test_selection = [
 source_paths = ["src/"]
 
 [tool.pytest.ini_options]
-addopts = "--ignore=src --continue-on-collection-errors --import-mode=importlib --strict-markers -m 'not integration'"
+addopts = "--ignore=src --strict-config --continue-on-collection-errors --import-mode=importlib --strict-markers -m 'not integration'"
+empty_parameter_set_mark = "fail_at_collect"
+xfail_strict = true
 filterwarnings = [
     "error",
     "ignore:TransformationPlugin is deprecated and will be removed:DeprecationWarning",
@@ -269,8 +273,7 @@ filterwarnings = [
     "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
 ]
 markers = [
-    "integration: marks tests as requiring external services or dbt manifest (run with '-m integration')",
-    "unit: marks fast tests that do not require external services (run with '-m unit')",
+    "integration: marks tests that need external services, subprocess tooling, or a full stack (default runs exclude them)",
     "core_regression: marks high-signal core runtime regression checks (run with '-m core_regression')",
 ]
 norecursedirs = [

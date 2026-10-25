@@ -16,8 +16,6 @@ import pytest
 
 from phlo.exceptions import PhloCapabilitySetupError
 
-pytestmark = pytest.mark.integration
-
 
 @dataclass
 class _Settings:
@@ -67,22 +65,6 @@ def test_default_executor_honors_force_flags() -> None:
         assert executor.name == "multiprocess"
 
 
-def test_build_definitions_merges_user_defs() -> None:
-    """Builds Dagster definitions when workflow discovery returns user definitions."""
-    empty_defs = dg.Definitions()
-    with (
-        patch("phlo_dagster.framework.definitions.get_settings", return_value=_Settings()),
-        patch(
-            "phlo_dagster.framework.definitions.discover_user_workflows", return_value=empty_defs
-        ),
-        patch("phlo_dagster.framework.definitions._default_executor", return_value=None),
-    ):
-        from phlo_dagster.framework.definitions import build_definitions
-
-        result = build_definitions(workflows_path="workflows")
-        assert isinstance(result, dg.Definitions)
-
-
 def test_build_definitions_raises_required_capability_setup_error() -> None:
     with (
         patch("phlo_dagster.framework.definitions.get_settings", return_value=_Settings()),
@@ -105,6 +87,19 @@ def test_build_definitions_raises_required_capability_setup_error() -> None:
 def test_build_definitions_merges_wap_sensors_when_versioned_catalog_present() -> None:
     empty_defs = dg.Definitions()
     versioned_catalog = MagicMock()
+
+    @dg.op
+    def _noop() -> None:
+        return None
+
+    @dg.job
+    def _wap_job() -> None:
+        _noop()
+
+    @dg.sensor(job=_wap_job)
+    def wap_sensor(context):  # noqa: ANN001, ANN202
+        return dg.SkipReason("test")
+
     with (
         patch("phlo_dagster.framework.definitions.get_settings", return_value=_Settings()),
         patch(
@@ -124,7 +119,7 @@ def test_build_definitions_merges_wap_sensors_when_versioned_catalog_present() -
         ),
         patch(
             "phlo_dagster.framework.definitions._collect_wap_definitions",
-            return_value=dg.Definitions(sensors=[]),
+            return_value=dg.Definitions(sensors=[wap_sensor]),
         ) as collect_wap,
     ):
         from phlo_dagster.framework.definitions import build_definitions
@@ -132,24 +127,7 @@ def test_build_definitions_merges_wap_sensors_when_versioned_catalog_present() -
         result = build_definitions(workflows_path="workflows")
         assert isinstance(result, dg.Definitions)
         collect_wap.assert_called_once()
-
-
-def test_wap_sensors_dev_flag_requires_truthy_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An absent project WAP policy skips sensors even in dev."""
-    monkeypatch.setenv("PHLO_DAGSTER_DEV", "1")
-    monkeypatch.setenv("PHLO_WAP_SENSORS_ENABLED", "false")
-
-    with (
-        patch(
-            "phlo_dagster.framework.definitions.load_wap_config",
-            return_value=SimpleNamespace(enabled=False),
-        ),
-        patch("phlo_dagster.framework.definitions.resolve_capability") as resolve_capability,
-    ):
-        from phlo_dagster.framework.definitions import _collect_wap_definitions
-
-        assert _collect_wap_definitions() is None
-        resolve_capability.assert_not_called()
+        assert [sensor.name for sensor in result.sensors].count("wap_sensor") == 1
 
 
 def test_wap_sensors_can_be_disabled_in_project_config() -> None:

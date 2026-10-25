@@ -34,9 +34,14 @@ from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.specs import UiContributionSpec
 from phlo.config import _get_config
 from phlo.plugins.base import PluginMetadata
-from tests.helpers import reset_capability_test_state
+from tests.support import reset_capability_test_state
 
 pytestmark = pytest.mark.core_regression
+
+
+def setup_function() -> None:
+    """Reset global capability registry before each test."""
+    reset_capability_test_state()
 
 
 def teardown_function() -> None:
@@ -413,14 +418,23 @@ def test_resolve_capability_uses_runtime_override_over_global_default() -> None:
     assert resolved.name == "iceberg"
 
 
-def test_resolve_runtime_ref_returns_routing_ref_when_supported() -> None:
+@pytest.mark.parametrize(
+    ("tags", "supports_refs", "expected"),
+    [
+        ({"phlo/ref": "feature/orders"}, True, "feature/orders"),
+        ({}, True, "main"),
+        ({"phlo/ref": "feature/orders"}, False, None),
+    ],
+    ids=["routing-ref", "capability-default", "non-versioned"],
+)
+def test_resolve_runtime_ref(tags, supports_refs, expected) -> None:
     runtime = type(
         "StubRuntime",
         (),
         {
             "run_id": "run-123",
             "partition_key": None,
-            "tags": {"phlo/ref": "feature/orders"},
+            "tags": tags,
             "resources": {},
             "logger": property(lambda self: object()),
             "routing": property(lambda self: (_ for _ in ()).throw(AttributeError())),
@@ -431,60 +445,10 @@ def test_resolve_runtime_ref_returns_routing_ref_when_supported() -> None:
     assert (
         resolve_runtime_ref(
             runtime,
-            support=CapabilitySupport(supports_refs=True),
+            support=CapabilitySupport(supports_refs=supports_refs),
             default_ref="main",
         )
-        == "feature/orders"
-    )
-
-
-def test_resolve_runtime_ref_uses_default_for_ref_aware_capability() -> None:
-    runtime = type(
-        "StubRuntime",
-        (),
-        {
-            "run_id": "run-123",
-            "partition_key": None,
-            "tags": {},
-            "resources": {},
-            "logger": property(lambda self: object()),
-            "routing": property(lambda self: (_ for _ in ()).throw(AttributeError())),
-            "get_resource": lambda self, name: None,
-        },
-    )()
-
-    assert (
-        resolve_runtime_ref(
-            runtime,
-            support=CapabilitySupport(supports_refs=True),
-            default_ref="main",
-        )
-        == "main"
-    )
-
-
-def test_resolve_runtime_ref_ignores_ref_for_non_versioned_capability() -> None:
-    runtime = type(
-        "StubRuntime",
-        (),
-        {
-            "run_id": "run-123",
-            "partition_key": None,
-            "tags": {"phlo/ref": "feature/orders"},
-            "resources": {},
-            "logger": property(lambda self: object()),
-            "routing": property(lambda self: (_ for _ in ()).throw(AttributeError())),
-            "get_resource": lambda self, name: None,
-        },
-    )()
-
-    assert (
-        resolve_runtime_ref(
-            runtime,
-            support=CapabilitySupport(supports_refs=False),
-            default_ref="main",
-        )
-        is None
+        == expected
     )
 
 
@@ -529,8 +493,7 @@ def test_list_observability_backend_capabilities() -> None:
 
     names = list_capabilities("observability_backend")
 
-    assert "default" in names
-    assert "custom" in names
+    assert sorted(names) == ["custom", "default"]
 
 
 def test_observability_support_flags_round_trip() -> None:

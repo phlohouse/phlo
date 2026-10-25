@@ -11,6 +11,8 @@ import asyncio
 import json
 import multiprocessing
 import sqlite3
+import subprocess
+import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -36,7 +38,28 @@ from process_test_support import process_audit_writer, process_idempotency_resol
 
 
 def test_operation_controls_import_does_not_require_posix_lock_module() -> None:
-    assert "fcntl" not in operation_controls.__dict__
+    """The module imports and runs on platforms without fcntl."""
+    probe = """
+import sys
+
+
+class _BlockPosixLock:
+    def find_spec(self, name, path=None, target=None):
+        if name == "fcntl":
+            raise ImportError("fcntl is unavailable on this platform")
+        return None
+
+
+sys.meta_path.insert(0, _BlockPosixLock())
+import phlo_api.api.operation_controls as controls
+
+assert "fcntl" not in controls.__dict__
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def _audit_records(audit_dir: Path) -> list[dict[str, Any]]:
@@ -745,6 +768,9 @@ def test_local_rate_limit_capacity_preserves_live_limits_and_expires(monkeypatch
 
     monkeypatch.delenv("PHLO_API_OPERATION_CONTROLS_DB_URL", raising=False)
     monkeypatch.setenv("PHLO_API_RATE_LIMIT_MUTATION", "1")
+    # The boundary logic is independent of the production cap; a small cap keeps
+    # the test fast without weakening what it proves.
+    monkeypatch.setattr(controls, "RATE_BUCKET_CAP", 32)
     controls._RATE_LIMITS.clear()
     clock = [100.0]
     monkeypatch.setattr(controls, "time", SimpleNamespace(monotonic=lambda: clock[0]))
