@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from phlo.capabilities.continuity import (
     BACKUP_PROVIDER_ORDER,
@@ -148,12 +149,12 @@ def journal_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture()
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     return authenticated_client("admin")
 
 
-def _create_backup(client, tmp_path: Path, key: str) -> tuple[Path, dict[str, Any]]:  # noqa: ANN001
+def _create_backup(client: TestClient, tmp_path: Path, key: str) -> tuple[Path, dict[str, Any]]:
     response = client.post(
         "/api/continuity/apply",
         json={
@@ -184,7 +185,7 @@ def _plan_restore(client, set_dir: Path, target: Path) -> dict[str, Any]:  # noq
 # --- inventory --------------------------------------------------------------
 
 
-def test_inventory_lists_every_supported_operation_and_family(client) -> None:  # noqa: ANN001
+def test_inventory_lists_every_supported_operation_and_family(client: TestClient) -> None:
     response = client.get("/api/continuity/operations")
 
     assert response.status_code == 200

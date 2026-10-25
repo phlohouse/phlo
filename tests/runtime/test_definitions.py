@@ -97,7 +97,7 @@ def test_build_definitions_merges_wap_sensors_when_versioned_catalog_present() -
         _noop()
 
     @dg.sensor(job=_wap_job)
-    def wap_sensor(context):  # noqa: ANN001, ANN202
+    def wap_sensor(context: dg.SensorEvaluationContext) -> dg.SkipReason:
         return dg.SkipReason("test")
 
     with (
