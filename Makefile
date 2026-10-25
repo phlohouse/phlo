@@ -101,6 +101,7 @@ test-coverage-postgres:
 		"$(COVERAGE_INPUTS_DIR)/postgres/results.xml"
 	COVERAGE_FILE="$(COVERAGE_INPUTS_DIR)/postgres/coverage.data" \
 		uv run --locked python -m pytest -p scripts.ci_required -o addopts= -m integration \
+		-n 2 --dist loadscope --timeout=300 \
 		packages/phlo-api/tests/test_operation_controls_postgres.py \
 		packages/phlo-api/tests/test_run_report_postgres_recovery.py \
 		tests/integration/test_issue1035_dataset_journey.py \
