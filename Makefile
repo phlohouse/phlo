@@ -9,6 +9,7 @@ TY_CHECK_SCOPE := src/phlo $(wildcard packages/*/src)
 CHECK_CMD := scripts/run-parallel \
 	"support manifest" "python3 scripts/validate_support_manifest.py" \
 	"version drift" "python3 scripts/check_version_drift.py" \
+	"example locks" "$(MAKE) check-example-locks" \
 	"markdown links" "python3 scripts/check_markdown_links.py" \
 	"ADR index" "python3 scripts/check_adr_index.py" \
 	"reference docs" "uv run --locked python scripts/generate_reference_docs.py --check" \
@@ -44,6 +45,7 @@ COVERAGE_SOURCE_ARGS := --cov=src/phlo --cov=scripts $(addprefix --cov=,$(wildca
 	dagster superset hub minio pgweb trino nessie grafana prometheus api hasura openmetadata catalog docs-open \
 	check lint lint-sql lint-python format-python typecheck-python \
 	dependency-refresh dependency-refresh-check \
+	check-example-locks \
 	validate-support-manifest \
 	lint-ts format-ts typecheck-ts test-core-regression test-quickstart-smoke fix-sql \
 	prek-install prek-run prek-validate zizmor actionlint docs-reference-generate docs-reference-check \
@@ -202,6 +204,11 @@ dependency-refresh:
 
 dependency-refresh-check:
 	python3 scripts/dependency_refresh_plan.py --check
+
+check-example-locks:
+	@for lock in $$(git ls-files 'examples/**/uv.lock'); do \
+		uv lock --check --directory "$${lock%/*}" || exit $$?; \
+	done
 
 validate-support-manifest:
 	python3 scripts/validate_support_manifest.py

@@ -346,3 +346,16 @@ outputs = [
     "docs/reference/support-matrix.md",
     "docs/reference/generated/support-matrix.json",
 ]
+
+[[release.transformers]]
+name = "refresh-example-locks"
+command = ["python3", "-B", "scripts/release_example_locks_transformer.py"]
+timeout_seconds = 1200
+inputs = [
+    "scripts/release_example_locks_transformer.py",
+    "pyproject.toml",
+    "packages/*/pyproject.toml",
+    "examples/**/pyproject.toml",
+    "examples/**/uv.lock",
+]
+outputs = ["examples/**/uv.lock"]

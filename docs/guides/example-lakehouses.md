@@ -1,6 +1,12 @@
 # Example lakehouses
 
-The repository contains complete, standalone examples under `examples/lakehouses/`. Each example owns its environment, fixtures, workflows, and tests. Start with its README; commands and service requirements differ by example.
+The repository contains complete examples under `examples/lakehouses/`. Each example owns its environment, fixtures, workflows, and tests. Start with its README; commands and service requirements differ by example.
+
+Examples with a checked-in `uv.lock` require a full repository checkout. Their
+locks resolve Phlo and its providers through relative editable source paths,
+including versions that have not yet been published. Keep the examples in their
+original directories. Their environments are separate, but they are not
+copy-out projects that install Phlo entirely from PyPI.
 
 ## Choose an example
 

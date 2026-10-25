@@ -31,6 +31,9 @@ jobs:
         with:
           version: "0.12.1"
           enable-cache: false
+      # ReleaseX transformers run with a fixed PATH, not setup-uv's PATH.
+      - name: Expose uv to release transformers
+        run: sudo ln -sf "$(command -v uv)" /usr/local/bin/uv
       - uses: iamgp/ReleaseX@5dc88dc73d728dd1560444baadf66d6115c1bec2
         with:
           command: release pr
