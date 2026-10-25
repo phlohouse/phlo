@@ -355,11 +355,15 @@ class TestGenerateViewsFunction:
         mock_execute.assert_called_once()
         assert "applied successfully" in result
 
-    @patch("phlo_postgrest.views.PostgreSTViewManager.generate_diff")
-    def test_generate_views_diff(self, mock_diff, manifest_file, monkeypatch):
-        """Should show diff when diff=True."""
+    @patch("phlo_postgrest.views.psycopg2.connect")
+    def test_generate_views_diff(self, mock_connect, manifest_file, monkeypatch):
+        """Should report created and updated views from the deployed schema."""
         monkeypatch.setenv("POSTGRES_PASSWORD", "test-password")
-        mock_diff.return_value = "Diff summary"
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_conn
+        mock_cursor.fetchall.return_value = [("glucose_metrics",)]
 
         result = generate_views(
             manifest_path=manifest_file,
@@ -368,5 +372,5 @@ class TestGenerateViewsFunction:
             verbose=False,
         )
 
-        assert "Diff summary" in result
-        mock_diff.assert_called_once()
+        assert "glucose_readings (new)" in result
+        assert "glucose_metrics (updated)" in result

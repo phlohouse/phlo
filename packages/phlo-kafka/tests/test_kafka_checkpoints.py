@@ -100,6 +100,18 @@ def test_claim_ranges_derives_idempotency_key_from_group() -> None:
     assert checkpoint.status == "claimed"
     assert checkpoint.ranges == tuple(_ranges())
 
+    expected = idempotency_key(
+        source_id="kafka:events",
+        target_table="bronze.events",
+        group_id="phlo-events",
+        ranges=_ranges(),
+    )
+    assert store.claimed[0]["idempotency_key"] == expected
+
+    other = KafkaCheckpointAdapter(source_id="kafka:events", group_id="other-group", store=store)
+    other.claim_ranges(target_table="bronze.events", ranges=_ranges())
+    assert store.claimed[1]["idempotency_key"] != expected
+
 
 def test_checkpoint_with_different_ranges_is_rejected() -> None:
     class MismatchedStore(FakeStore):
@@ -126,3 +138,5 @@ def test_fail_records_reason_and_retains_open_state() -> None:
     adapter = KafkaCheckpointAdapter(source_id="kafka:events", group_id="g", store=store)
     adapter.fail(checkpoint_id="cp-1", reason="schema policy violation")
     assert store.failed == [("cp-1", "schema policy violation")]
+    assert store.committed == []
+    assert store.snapshots == []

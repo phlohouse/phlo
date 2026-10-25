@@ -28,7 +28,7 @@ from phlo.capabilities.schema import (
     worst_classification,
 )
 from phlo.hooks.events import SchemaMigrationEvent
-from tests.helpers import reset_capability_test_state
+from tests.support import reset_capability_test_state
 
 pytestmark = pytest.mark.core_regression
 
@@ -65,13 +65,16 @@ class TestNormalizedSchema:
             FieldSpec(name="name", dtype="string"),
         ]
         schema = NormalizedSchema(fields=fields, metadata={"source": "test"})
-        assert len(schema.fields) == 2
+        assert [field.name for field in schema.fields] == ["id", "name"]
+        assert schema.fields[0].nullable is False
         assert schema.metadata["source"] == "test"
 
     def test_empty(self) -> None:
         schema = NormalizedSchema(fields=[])
+        other = NormalizedSchema(fields=[])
+        schema.metadata["note"] = "only this schema"
         assert schema.fields == []
-        assert schema.metadata == {}
+        assert other.metadata == {}
 
 
 # -- SchemaChange / SchemaMigrationPlan --
@@ -107,14 +110,20 @@ class TestSchemaMigrationPlan:
         assert plan.recommendations == []
 
     def test_plan_with_breaking(self) -> None:
+        change = SchemaChange(
+            field_name="legacy",
+            change_type="drop",
+            classification=default_classify_change("drop"),
+        )
+        classification = worst_classification([change.classification])
         plan = SchemaMigrationPlan(
             table_name="users",
-            changes=[
-                SchemaChange(field_name="legacy", change_type="drop", classification="breaking"),
-            ],
-            classification="breaking",
-            requires_approval=True,
+            changes=[change],
+            classification=classification,
+            requires_approval=classification == "breaking",
         )
+
+        assert plan.classification == "breaking"
         assert plan.requires_approval is True
 
 
@@ -253,4 +262,12 @@ class TestSchemaMigrationEvent:
             change_count=0,
             status="applied",
         )
-        assert event.changes == []
+        other = SchemaMigrationEvent(
+            event_type="schema_migration.applied",
+            table_name="orders",
+            classification="safe",
+            change_count=0,
+            status="applied",
+        )
+        event.changes.append({"field_name": "email", "change_type": "add"})
+        assert other.changes == []

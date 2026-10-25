@@ -33,8 +33,14 @@ def test_replication_config_full_table_name():
     assert config.full_table_name == "raw.users"
 
 
-def test_replication_config_custom():
-    """Validate custom config values."""
+def test_replication_config_custom(monkeypatch):
+    """Custom config values drive the derived asset key and qualified table name."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "phlo_sling.registry.get_settings",
+        lambda: SimpleNamespace(sling_default_namespace="analytics"),
+    )
     config = ReplicationConfig(
         stream_name="sales.orders",
         table_name="orders",
@@ -49,5 +55,4 @@ def test_replication_config_custom():
     )
 
     assert config.asset_key == "sling_orders"
-    assert config.primary_key == ["id"]
-    assert config.select == ["id", "total", "created_at"]
+    assert config.full_table_name == "analytics.orders"

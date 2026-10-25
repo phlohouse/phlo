@@ -13,6 +13,8 @@ from phlo_openmetadata.hooks_plugin import OpenMetadataHookPlugin
 
 def test_get_client_returns_none_when_configuration_is_unavailable(monkeypatch) -> None:
     """Hook plugin should skip sync when derived client settings are unavailable."""
+    from phlo.hooks import LineageEvent
+
     plugin = OpenMetadataHookPlugin()
     settings = SimpleNamespace(
         openmetadata_sync_enabled=True,
@@ -30,5 +32,13 @@ def test_get_client_returns_none_when_configuration_is_unavailable(monkeypatch) 
     monkeypatch.setattr(
         "phlo_openmetadata.hooks_plugin.get_openmetadata_settings", lambda: settings
     )
+    constructed: list[object] = []
+    monkeypatch.setattr(
+        "phlo_openmetadata.hooks_plugin.OpenMetadataClient",
+        lambda *args, **kwargs: constructed.append((args, kwargs)),
+    )
 
     assert plugin._get_client() is None
+    # The public hook path skips sync instead of raising or building a client.
+    plugin._handle_lineage(LineageEvent(event_type="lineage.edges", edges=[("a", "b")]))
+    assert constructed == []

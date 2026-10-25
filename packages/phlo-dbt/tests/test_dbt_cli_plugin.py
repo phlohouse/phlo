@@ -12,6 +12,7 @@ from pathlib import Path
 from subprocess import CompletedProcess
 from types import SimpleNamespace
 
+import pytest
 from click.testing import CliRunner
 
 import phlo_dbt.settings as dbt_settings
@@ -264,7 +265,17 @@ def test_dbt_run_joins_multiple_select_flags(monkeypatch, tmp_path) -> None:
     assert captured[0][-2:] == ["--select", "stg_pokemon dim_pokemon"]
 
 
-def test_dbt_run_skips_lineage_import_on_failure(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("args", "subprocess_exit"),
+    [
+        (["run", "--local", "--select", "dim_pokemon"], 1),
+        (["compile", "--local"], 0),
+    ],
+    ids=["failed-run", "compile"],
+)
+def test_dbt_does_not_import_lineage_for_compile_or_failed_runs(
+    monkeypatch, tmp_path, args, subprocess_exit
+) -> None:
     project_dir = tmp_path / "workflows" / "transforms" / "dbt"
     profiles_dir = project_dir / "profiles"
     profiles_dir.mkdir(parents=True)
@@ -292,47 +303,12 @@ def test_dbt_run_skips_lineage_import_on_failure(monkeypatch, tmp_path) -> None:
     )
     monkeypatch.setattr(
         "phlo_dbt.cli_plugin.subprocess",
-        SimpleNamespace(run=lambda cmd, cwd=None, check=False: CompletedProcess(cmd, 1)),
-    )
-
-    result = CliRunner().invoke(dbt_group, ["run", "--local", "--select", "dim_pokemon"])
-
-    assert result.exit_code == 1
-    assert imported_manifests == []
-
-
-def test_dbt_compile_does_not_import_lineage(monkeypatch, tmp_path) -> None:
-    project_dir = tmp_path / "workflows" / "transforms" / "dbt"
-    profiles_dir = project_dir / "profiles"
-    profiles_dir.mkdir(parents=True)
-    (project_dir / "dbt_project.yml").write_text("name: demo\n", encoding="utf-8")
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        dbt_settings,
-        "get_settings",
-        lambda: SimpleNamespace(
-            dbt_project_path=project_dir,
-            dbt_project_paths=[project_dir],
-            dbt_profiles_path=profiles_dir,
-            dbt_profiles_path_for=lambda _p: profiles_dir,
+        SimpleNamespace(
+            run=lambda cmd, cwd=None, check=False: CompletedProcess(cmd, subprocess_exit)
         ),
     )
-    monkeypatch.setattr("phlo_dbt.cli_plugin.ensure_dbt_profile", lambda *_args, **_kwargs: None)
 
-    imported_manifests: list[Path] = []
-    monkeypatch.setattr(
-        "phlo_dbt.cli_plugin._import_manifest_lineage",
-        lambda manifest_path: (
-            imported_manifests.append(manifest_path) or {"asset_edges": 1, "column_mappings": 0}
-        ),
-    )
-    monkeypatch.setattr(
-        "phlo_dbt.cli_plugin.subprocess",
-        SimpleNamespace(run=lambda cmd, cwd=None, check=False: CompletedProcess(cmd, 0)),
-    )
+    result = CliRunner().invoke(dbt_group, args)
 
-    result = CliRunner().invoke(dbt_group, ["compile", "--local"])
-
-    assert result.exit_code == 0
+    assert result.exit_code == subprocess_exit
     assert imported_manifests == []

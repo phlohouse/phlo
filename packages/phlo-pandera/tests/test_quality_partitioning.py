@@ -6,11 +6,27 @@ from __future__ import annotations
 import importlib
 from datetime import date
 
+import pytest
+
 from phlo_pandera.partitioning import PartitionScope, apply_partition_scope
 
 
-def test_apply_partition_scope_adds_where_for_partition_key() -> None:
-    """Verify partition key scope appends a WHERE predicate."""
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        (
+            "SELECT * FROM some_table",
+            "SELECT * FROM some_table\nWHERE _phlo_partition_date = DATE '2024-01-02'",
+        ),
+        (
+            "SELECT * FROM some_table\nWHERE x = 1",
+            "SELECT * FROM some_table\nWHERE x = 1\nAND _phlo_partition_date = DATE '2024-01-02'",
+        ),
+    ],
+    ids=["adds-where", "appends-and"],
+)
+def test_apply_partition_scope_predicates(sql: str, expected: str) -> None:
+    """Partition key scope adds WHERE, or AND when the query already filters."""
 
     scope = PartitionScope(
         partition_key="2024-01-02",
@@ -18,25 +34,7 @@ def test_apply_partition_scope_adds_where_for_partition_key() -> None:
         rolling_window_days=7,
         full_table=False,
     )
-    assert (
-        apply_partition_scope("SELECT * FROM some_table", scope=scope)
-        == "SELECT * FROM some_table\nWHERE _phlo_partition_date = DATE '2024-01-02'"
-    )
-
-
-def test_apply_partition_scope_appends_and_when_where_exists() -> None:
-    """Verify partition key scope appends AND to existing WHERE clauses."""
-
-    scope = PartitionScope(
-        partition_key="2024-01-02",
-        partition_column="_phlo_partition_date",
-        rolling_window_days=7,
-        full_table=False,
-    )
-    assert (
-        apply_partition_scope("SELECT * FROM some_table\nWHERE x = 1", scope=scope)
-        == "SELECT * FROM some_table\nWHERE x = 1\nAND _phlo_partition_date = DATE '2024-01-02'"
-    )
+    assert apply_partition_scope(sql, scope=scope) == expected
 
 
 def test_apply_partition_scope_rolling_window(monkeypatch) -> None:

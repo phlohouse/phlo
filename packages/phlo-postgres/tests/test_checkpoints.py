@@ -166,8 +166,24 @@ def test_record_snapshot_and_commit_follow_the_lifecycle() -> None:
     staged = store.record_snapshot(checkpoint_id="cp-1", snapshot_id=42, release_id="release-1")
     assert staged.status == "staged"
     assert staged.snapshot_id == 42
+    stage_sql = " ".join(resource.cursor_obj.statements[0].split())
+    assert "SET status = 'staged', snapshot_id = %s, release_id = %s" in stage_sql
+    assert "failure_reason = NULL" in stage_sql
+    assert resource.cursor_obj.params[0] == (
+        42,
+        "release-1",
+        "cp-1",
+        ("claimed", "staged", "failed"),
+    )
+
     committed = store.commit(checkpoint_id="cp-1")
     assert committed.status == "committed"
+    commit_sql = " ".join(resource.cursor_obj.statements[1].split())
+    assert "SET status = 'committed'" in commit_sql
+    # A commit may only advance a checkpoint that already has an audited snapshot.
+    assert "status = 'staged'" in commit_sql
+    assert "snapshot_id IS NOT NULL" in commit_sql
+    assert resource.cursor_obj.params[1] == ("cp-1",)
 
 
 def test_commit_without_snapshot_raises_and_refuses_to_advance() -> None:
@@ -206,6 +222,10 @@ def test_fail_records_reason_but_keeps_ranges() -> None:
     assert record.status == "failed"
     assert record.failure_reason == reason
     assert record.ranges, "failed checkpoints retain their claimed ranges"
+    update_sql = " ".join(resource.cursor_obj.statements[-1].split())
+    assert "SET status = 'failed', failure_reason = %s" in update_sql
+    assert "status IN %s" in update_sql
+    assert resource.cursor_obj.params[-1] == (reason, "cp-1", ("claimed", "staged", "failed"))
 
 
 def test_provider_registers_checkpoint_resource() -> None:
@@ -216,6 +236,10 @@ def test_provider_registers_checkpoint_resource() -> None:
 
 
 def test_real_resource_is_used_when_not_injected() -> None:
+    from phlo_postgres.resource import PostgresResource
+
     store = PostgresIngestionCheckpointStore()
     assert store._resource is None
-    assert store._ensure_resource() is not None
+    resource = store._ensure_resource()
+    assert isinstance(resource, PostgresResource)
+    assert store._ensure_resource() is resource

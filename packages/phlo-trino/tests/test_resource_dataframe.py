@@ -157,17 +157,35 @@ def test_read_dataframe_forwards_connection_schema() -> None:
     get_connection.assert_called_once_with(schema="raw")
 
 
-def test_read_dataframe_closes_resources_and_adds_query_context_on_error() -> None:
-    cursor = FakeCursor(error=ValueError("syntax error near FROM"))
+@pytest.mark.parametrize(
+    ("cursor_kwargs", "query", "error_detail"),
+    [
+        (
+            {"error": ValueError("syntax error near FROM")},
+            "SELECT * FROM",
+            "syntax error near FROM",
+        ),
+        (
+            {"description": [("id",)], "fetch_error": ValueError("network interrupted")},
+            "SELECT id FROM raw.events",
+            "network interrupted",
+        ),
+    ],
+    ids=["query-error", "fetch-error"],
+)
+def test_read_dataframe_closes_resources_and_adds_context(
+    cursor_kwargs, query: str, error_detail: str
+) -> None:
+    cursor = FakeCursor(**cursor_kwargs)
     connection = FakeConnection(cursor)
     resource = TrinoResource(host="test", port=8080)
 
     with patch.object(resource, "get_connection", return_value=connection):
         with pytest.raises(RuntimeError, match="Trino query failed") as exc_info:
-            resource.read_dataframe("SELECT * FROM")
+            resource.read_dataframe(query)
 
-    assert "SELECT * FROM" in str(exc_info.value)
-    assert "syntax error near FROM" in str(exc_info.value)
+    assert query in str(exc_info.value)
+    assert error_detail in str(exc_info.value)
     assert cursor.closed is True
     assert connection.closed is True
 
@@ -196,24 +214,6 @@ def test_read_dataframe_closes_connection_when_cursor_creation_fails() -> None:
             resource.read_dataframe("SELECT id FROM raw.events")
 
     assert cursor.closed is False
-    assert connection.closed is True
-
-
-def test_read_dataframe_closes_resources_and_adds_context_on_fetch_error() -> None:
-    cursor = FakeCursor(
-        description=[("id",)],
-        fetch_error=ValueError("network interrupted"),
-    )
-    connection = FakeConnection(cursor)
-    resource = TrinoResource(host="test", port=8080)
-
-    with patch.object(resource, "get_connection", return_value=connection):
-        with pytest.raises(RuntimeError, match="Trino query failed") as exc_info:
-            resource.read_dataframe("SELECT id FROM raw.events")
-
-    assert "SELECT id FROM raw.events" in str(exc_info.value)
-    assert "network interrupted" in str(exc_info.value)
-    assert cursor.closed is True
     assert connection.closed is True
 
 

@@ -12,14 +12,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from phlo.cli.commands.metrics import _export_json, _format_bytes, _parse_period, metrics_group
-from phlo.metrics import AssetMetrics, SummaryMetrics
-
-
-def test_metrics_models_creation() -> None:
-    summary = SummaryMetrics(total_runs_24h=100, successful_runs_24h=95, failed_runs_24h=5)
-    asset = AssetMetrics(asset_name="glucose_entries", average_duration=15.5, failure_rate=0.05)
-    assert summary.total_runs_24h == 100
-    assert asset.asset_name == "glucose_entries"
+from phlo.metrics import SummaryMetrics
 
 
 def test_export_json(tmp_path: Path) -> None:
@@ -52,6 +45,7 @@ def test_metrics_summary_command(monkeypatch) -> None:
     result = CliRunner().invoke(metrics_group, ["summary"])
     assert result.exit_code == 0
     assert "Platform Metrics Summary" in result.output
+    assert "Total:     1" in result.output
 
 
 def test_metrics_summary_json_command(monkeypatch) -> None:

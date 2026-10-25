@@ -115,16 +115,33 @@ def test_explicit_rename_still_detects_type_and_nullability_changes() -> None:
     ]
 
 
-def test_invalid_rename_instruction_raises() -> None:
-    current = _schema(("customer_email", "string", True))
-    desired = _schema(("email", "string", True))
+@pytest.mark.parametrize(
+    ("current_fields", "desired_fields", "renames", "expected_error"),
+    [
+        (("customer_email",), ("email",), {"missing": "email"}, "current schema has no field"),
+        (("id",), ("id",), {"id": "id"}, "source and target are identical"),
+        (
+            ("old_email", "email"),
+            ("email", "primary_email"),
+            {"old_email": "email"},
+            "already exists in current schema",
+        ),
+        (("a", "b"), ("a", "b"), {"a": "b", "b": "a"}, "already exists in current schema"),
+    ],
+    ids=["unknown-source", "no-op", "existing-target", "cyclic"],
+)
+def test_invalid_rename_instructions_raise(
+    current_fields, desired_fields, renames, expected_error
+) -> None:
+    current = _schema(*[(name, "string", True) for name in current_fields])
+    desired = _schema(*[(name, "string", True) for name in desired_fields])
 
-    with pytest.raises(SchemaMigrationPlanningError, match="current schema has no field"):
+    with pytest.raises(SchemaMigrationPlanningError, match=expected_error):
         plan_schema_migration(
             table_name="raw.customers",
             current=current,
             desired=desired,
-            instructions=SchemaMigrationInstructions(renames={"missing": "email"}),
+            instructions=SchemaMigrationInstructions(renames=renames),
         )
 
 
@@ -140,19 +157,6 @@ def test_duplicate_rename_target_raises() -> None:
             instructions=SchemaMigrationInstructions(
                 renames={"customer_email": "email", "contact_email": "email"}
             ),
-        )
-
-
-def test_rename_to_existing_current_field_raises() -> None:
-    current = _schema(("old_email", "string", True), ("email", "string", True))
-    desired = _schema(("email", "string", True), ("primary_email", "string", True))
-
-    with pytest.raises(SchemaMigrationPlanningError, match="already exists in current schema"):
-        plan_schema_migration(
-            table_name="raw.customers",
-            current=current,
-            desired=desired,
-            instructions=SchemaMigrationInstructions(renames={"old_email": "email"}),
         )
 
 
@@ -180,32 +184,6 @@ def test_chained_renames_raise() -> None:
                     "id": "legacy_id",
                 }
             ),
-        )
-
-
-def test_no_op_rename_instruction_raises() -> None:
-    current = _schema(("id", "string", True))
-    desired = _schema(("id", "string", True))
-
-    with pytest.raises(SchemaMigrationPlanningError, match="source and target are identical"):
-        plan_schema_migration(
-            table_name="raw.customers",
-            current=current,
-            desired=desired,
-            instructions=SchemaMigrationInstructions(renames={"id": "id"}),
-        )
-
-
-def test_cyclic_rename_instructions_raise_as_existing_targets() -> None:
-    current = _schema(("a", "string", True), ("b", "string", True))
-    desired = _schema(("a", "string", True), ("b", "string", True))
-
-    with pytest.raises(SchemaMigrationPlanningError, match="already exists in current schema"):
-        plan_schema_migration(
-            table_name="raw.customers",
-            current=current,
-            desired=desired,
-            instructions=SchemaMigrationInstructions(renames={"a": "b", "b": "a"}),
         )
 
 

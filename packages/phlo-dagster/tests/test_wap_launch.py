@@ -11,6 +11,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from phlo.exceptions import PhloConfigError
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
@@ -110,9 +111,7 @@ def test_prepare_wap_launch_refuses_to_reuse_an_existing_branch(monkeypatch) -> 
         ),
     )
 
-    import pytest
-
-    with pytest.raises(Exception, match="refusing to reuse"):
+    with pytest.raises(PhloConfigError, match="refusing to reuse"):
         prepare_wap_launch(logical_run_id="request-42")
 
     assert catalog.created == []
@@ -129,7 +128,5 @@ def test_prepare_wap_launch_requires_project_before_creating_a_branch(monkeypatc
         lambda _: (_ for _ in ()).throw(AssertionError("must not resolve the catalog")),
     )
 
-    import pytest
-
-    with pytest.raises(Exception, match="requires PHLO_PROJECT"):
+    with pytest.raises(PhloConfigError, match="requires PHLO_PROJECT"):
         prepare_wap_launch(logical_run_id="request-42")

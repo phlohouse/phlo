@@ -184,7 +184,10 @@ class TestNessieTableScanner:
 
         assert stats["created"] == 2
         assert stats["failed"] == 0
-        assert om_client.create_or_update_table.call_count == 2
+        assert [call.args[0] for call in om_client.create_or_update_table.call_args_list] == [
+            "bronze",
+            "bronze",
+        ]
 
     @patch.object(NessieTableScanner, "get_table_metadata")
     @patch.object(NessieTableScanner, "scan_all_tables")
@@ -206,8 +209,15 @@ class TestNessieTableScanner:
             include_namespaces=["bronze", "silver"],
         )
 
-        # Should have called create_or_update_table twice (bronze + silver)
-        assert om_client.create_or_update_table.call_count == 2
+        # Only the included namespaces are read, and each contributes its own table.
+        assert [(call.args[0], call.args[1]) for call in mock_get_meta.call_args_list] == [
+            ("bronze", "table1"),
+            ("silver", "table2"),
+        ]
+        assert [call.args[0] for call in om_client.create_or_update_table.call_args_list] == [
+            "bronze",
+            "silver",
+        ]
 
     @patch.object(NessieTableScanner, "get_table_metadata")
     @patch.object(NessieTableScanner, "scan_all_tables")
@@ -222,15 +232,21 @@ class TestNessieTableScanner:
         om_client = Mock()
         mock_get_meta.return_value = {"name": "x", "schema": {"fields": []}}
 
-        # Exclude gold
+        # Exclude gold: it is never read, while bronze and silver still are.
         sync_nessie_tables_to_openmetadata(
             nessie_scanner,
             om_client,
             exclude_namespaces=["gold"],
         )
 
-        # Should have called create_or_update_table twice (bronze + silver)
-        assert om_client.create_or_update_table.call_count == 2
+        assert [(call.args[0], call.args[1]) for call in mock_get_meta.call_args_list] == [
+            ("bronze", "table1"),
+            ("silver", "table2"),
+        ]
+        assert [call.args[0] for call in om_client.create_or_update_table.call_args_list] == [
+            "bronze",
+            "silver",
+        ]
 
     @patch("phlo_nessie.catalog_scanner.requests.request")
     def test_request_error_handling(self, mock_request, nessie_scanner):

@@ -7,6 +7,8 @@ missing or invalid values to ERROR.
 
 from __future__ import annotations
 
+import pytest
+
 from phlo_dagster import alerting_sensor
 
 
@@ -19,8 +21,9 @@ class _AlertSink:
         return True
 
 
-def test_send_alert_coerces_none_severity_to_error(monkeypatch) -> None:
-    """Non-string severities should safely default to ERROR."""
+@pytest.mark.parametrize("severity", [None, "not-valid"], ids=["none", "invalid-string"])
+def test_send_alert_forwards_severity_verbatim(monkeypatch, severity) -> None:
+    """send_alert is a pass-through; unrecognised severities reach the sink unchanged."""
     sink = _AlertSink()
     monkeypatch.setattr(
         alerting_sensor,
@@ -28,38 +31,14 @@ def test_send_alert_coerces_none_severity_to_error(monkeypatch) -> None:
         lambda: sink,
     )
 
-    result = alerting_sensor.send_alert(title="A", message="B", severity=None)
+    result = alerting_sensor.send_alert(title="A", message="B", severity=severity)
 
     assert result is True
     assert sink.calls == [
         {
             "title": "A",
             "message": "B",
-            "severity": None,
-            "asset_name": None,
-            "run_id": None,
-            "error_message": None,
-        }
-    ]
-
-
-def test_send_alert_coerces_invalid_string_to_error(monkeypatch) -> None:
-    """Invalid string severities should safely default to ERROR."""
-    sink = _AlertSink()
-    monkeypatch.setattr(
-        alerting_sensor,
-        "_load_alert_sink",
-        lambda: sink,
-    )
-
-    result = alerting_sensor.send_alert(title="A", message="B", severity="not-valid")
-
-    assert result is True
-    assert sink.calls == [
-        {
-            "title": "A",
-            "message": "B",
-            "severity": "not-valid",
+            "severity": severity,
             "asset_name": None,
             "run_id": None,
             "error_message": None,

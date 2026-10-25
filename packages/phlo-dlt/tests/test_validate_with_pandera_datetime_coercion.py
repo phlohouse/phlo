@@ -38,5 +38,5 @@ def test_validate_with_pandera_only_coerces_datetime_columns(monkeypatch) -> Non
 
     df = captured["df"]
     assert pd.api.types.is_datetime64_any_dtype(df["created_at"])
-    assert pd.api.types.is_string_dtype(df["name"]) or pd.api.types.is_object_dtype(df["name"])
+    assert not pd.api.types.is_datetime64_any_dtype(df["name"])
     assert df["name"].iloc[0] == "2024-01-02"

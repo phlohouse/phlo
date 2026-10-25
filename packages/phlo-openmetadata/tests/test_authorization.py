@@ -1,9 +1,8 @@
 """Tests for OpenMetadata authorization module.
 
-Package-specific surface metadata, operation listing, and command-table
-classification; the shared adapter contract (read allow-through, unknown
-deny-closed, mutation policy allow/deny) delegates to
-``phlo_testing.authorization_surface``.
+Package-specific command classification and mapping; the shared adapter
+contract (read allow-through, unknown deny-closed, mutation policy allow/deny)
+delegates to ``phlo_testing.authorization_surface``.
 """
 
 from __future__ import annotations
@@ -23,7 +22,6 @@ from phlo_openmetadata.authorization import (
     COMMAND_RESOURCE_MAP,
     MUTATION_COMMANDS,
     READ_COMMANDS,
-    SURFACE_NAME,
     OpenMetadataSurfaceAdapter,
 )
 
@@ -32,10 +30,6 @@ pytestmark = pytest.mark.core_regression
 
 class TestOpenMetadataSurfaceAdapter:
     """Tests for OpenMetadataSurfaceAdapter."""
-
-    def test_surface_name(self):
-        adapter = OpenMetadataSurfaceAdapter()
-        assert adapter.surface_name == SURFACE_NAME
 
     def test_framework_type(self):
         adapter = OpenMetadataSurfaceAdapter()
@@ -48,22 +42,6 @@ class TestOpenMetadataSurfaceAdapter:
         operation_names = {op["operation_name"] for op in operations}
         for cmd in MUTATION_COMMANDS:
             assert cmd in operation_names
-
-    def test_list_operations_has_required_fields(self):
-        adapter = OpenMetadataSurfaceAdapter()
-        for op in adapter.list_operations():
-            assert "action" in op
-            assert "resource_type" in op
-            assert "operation_name" in op
-
-    def test_is_active(self):
-        adapter = OpenMetadataSurfaceAdapter()
-        assert adapter.is_active(None) is True
-
-    def test_get_instance_singleton(self):
-        adapter1 = OpenMetadataSurfaceAdapter.get_instance()
-        adapter2 = OpenMetadataSurfaceAdapter.get_instance()
-        assert adapter1 is adapter2
 
     def test_read_commands_allowed(self):
         assert_read_commands_allow_without_enforcement(OpenMetadataSurfaceAdapter())
@@ -113,9 +91,12 @@ class TestEnforcement:
     def test_read_commands_skip_enforcement(self):
         """Read commands do not go through enforcement."""
         adapter = OpenMetadataSurfaceAdapter()
-        with patch("phlo.security.enforcement.enforce") as mock_enforce:
+        with patch("phlo.cli.authorization.enforce") as mock_enforce:
             mock_enforce.return_value = MagicMock(variant="deny")
             for cmd in READ_COMMANDS:
                 result = adapter.check_command_authorization(cmd)
                 assert result.allowed
-                mock_enforce.assert_not_called()
+            mock_enforce.assert_not_called()
+            # Control: the same patch intercepts a mutation command.
+            adapter.enforce_mutation("openmetadata.sync")
+            assert mock_enforce.call_count == 1

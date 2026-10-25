@@ -1,7 +1,7 @@
 """Tests for core quality check plugins.
 
 Each plugin is exercised through create_check() to confirm the generated check
-name matches the expected identifier for its check kind.
+carries both the expected identifier and the configuration it was given.
 """
 
 from phlo_core.quality.freshness_check import FreshnessCheckPlugin
@@ -11,28 +11,34 @@ from phlo_core.quality.uniqueness_check import UniquenessCheckPlugin
 
 
 def test_null_check_plugin():
-    """Verify null check plugin creates an expected check name."""
+    """Verify null check plugin creates a configured check."""
     plugin = NullCheckPlugin()
-    check = plugin.create_check(columns=["id"])
+    check = plugin.create_check(columns=["id"], allow_threshold=0.25)
     assert check.name == "null_check_id"
+    assert check.columns == ["id"]
+    assert check.allow_threshold == 0.25
 
 
 def test_uniqueness_check_plugin():
-    """Verify uniqueness check plugin creates an expected check name."""
+    """Verify uniqueness check plugin creates a configured check."""
     plugin = UniquenessCheckPlugin()
-    check = plugin.create_check(columns=["id"])
+    check = plugin.create_check(columns=["id"], allow_threshold=0.02)
     assert check.name == "unique_check_id"
+    assert check.columns == ["id"]
+    assert check.allow_threshold == 0.02
 
 
 def test_freshness_check_plugin():
-    """Verify freshness check plugin creates an expected check name."""
+    """Verify freshness check plugin creates a configured check."""
     plugin = FreshnessCheckPlugin()
     check = plugin.create_check(timestamp_column="ts", max_age_hours=2)
     assert check.name == "freshness_check_ts"
+    assert check.timestamp_column == "ts"
+    assert check.max_age_hours == 2
 
 
 def test_schema_check_plugin():
-    """Verify schema check plugin creates an expected check name."""
+    """Verify schema check plugin creates a configured check."""
     plugin = SchemaCheckPlugin()
 
     class DummySchema:
@@ -44,5 +50,7 @@ def test_schema_check_plugin():
             """Return input dataframe unchanged."""
             return df
 
-    check = plugin.create_check(schema=DummySchema)
+    check = plugin.create_check(schema=DummySchema, lazy=False)
     assert check.name == "schema_check_DummySchema"
+    assert check.schema is DummySchema
+    assert check.lazy is False

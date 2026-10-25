@@ -36,7 +36,12 @@ def test_lineage_sink_records_asset_edges():
         persisted = sink.record_asset_edges([("raw.orders", "silver.orders")])
 
     assert persisted == 1
-    store.record_asset_edges.assert_called_once()
+    store.record_asset_edges.assert_called_once_with(
+        [("raw.orders", "silver.orders")],
+        asset_keys=None,
+        metadata=None,
+        tags=None,
+    )
 
 
 def test_lineage_sink_gets_row_journey():
@@ -89,4 +94,12 @@ def test_lineage_sink_records_column_lineage():
         )
 
     assert persisted == 1
-    store.record_column_lineage.assert_called_once()
+    (mappings,) = store.record_column_lineage.call_args.args
+    (mapping,) = mappings
+    assert (
+        mapping.source_asset,
+        mapping.source_column,
+        mapping.target_asset,
+        mapping.target_column,
+        mapping.source_type,
+    ) == ("silver.orders", "order_id", "gold.orders", "order_id", "dbt_heuristic")

@@ -366,8 +366,14 @@ def test_non_catalog_observation_is_generic(
     assert evt["attributes"]["stage_id"] == "materialize"
 
 
-def test_plugin_runs_without_sdk(plugin: Any) -> None:
-    """With no SDK, emission no-ops but translation must not raise."""
+def test_plugin_no_ops_when_telemetry_is_disabled(
+    plugin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With telemetry disabled, emission is skipped and translation must not raise."""
+    calls: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(phlo_observe, "enabled", lambda: False)
+    monkeypatch.setattr(phlo_observe, "emit", lambda *args, **kwargs: calls.append(args))
+
     plugin._handle(_ingestion())
     plugin._handle(
         _observation(
@@ -375,6 +381,8 @@ def test_plugin_runs_without_sdk(plugin: Any) -> None:
             catalog_change={"operation": "promotion", "catalog_ref": "main"},
         )
     )
+
+    assert calls == []
 
 
 def test_metadata_and_hooks(plugin: Any) -> None:

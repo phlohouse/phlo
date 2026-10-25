@@ -33,16 +33,24 @@ def test_minio_cli_plugin_metadata() -> None:
     assert plugin.get_cli_commands()[0].name == "minio"
 
 
-def test_minio_ls_runs_mc(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("args", "expected_mc", "stdout"),
+    [
+        (["ls", "local/warehouse/"], "mc ls local/warehouse/", "bucket\n"),
+        (["admin", "info", "--json", "local/"], "mc admin info --json local/", '{"status":"ok"}\n'),
+    ],
+    ids=["ls", "admin-info"],
+)
+def test_minio_commands_run_mc(monkeypatch, args, expected_mc, stdout) -> None:
     def _run_command(cmd, **_kwargs):
         if cmd[:2] == ["docker", "info"]:
             return CompletedProcess(cmd, 0, stdout="", stderr="")
         assert cmd[-4:-1] == ["minio", "/bin/sh", "-c"]
         assert (
             cmd[-1] == 'mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" '
-            '"$MINIO_ROOT_PASSWORD" >/dev/null && mc ls local/warehouse/'
+            '"$MINIO_ROOT_PASSWORD" >/dev/null && ' + expected_mc
         )
-        return CompletedProcess(cmd, 0, stdout="bucket\n", stderr="")
+        return CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr("phlo_minio.cli.ensure_phlo_dir", lambda: Path("/tmp/project/.phlo"))
     monkeypatch.setattr("phlo_minio.cli.get_project_name", lambda: "demo")
@@ -52,54 +60,18 @@ def test_minio_ls_runs_mc(monkeypatch) -> None:
     )
     monkeypatch.setattr("phlo_minio.cli.run_command", _run_command)
 
-    result = CliRunner().invoke(minio_group, ["ls", "local/warehouse/"])
+    result = CliRunner().invoke(minio_group, args)
 
     assert result.exit_code == 0
-    assert result.output == "bucket\n"
+    assert result.output == stdout
 
 
-def test_minio_admin_info_runs_mc(monkeypatch) -> None:
-    def _run_command(cmd, **_kwargs):
-        if cmd[:2] == ["docker", "info"]:
-            return CompletedProcess(cmd, 0, stdout="", stderr="")
-        assert cmd[-4:-1] == ["minio", "/bin/sh", "-c"]
-        assert (
-            cmd[-1] == 'mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" '
-            '"$MINIO_ROOT_PASSWORD" >/dev/null && mc admin info --json local/'
-        )
-        return CompletedProcess(cmd, 0, stdout='{"status":"ok"}\n', stderr="")
-
-    monkeypatch.setattr("phlo_minio.cli.ensure_phlo_dir", lambda: Path("/tmp/project/.phlo"))
-    monkeypatch.setattr("phlo_minio.cli.get_project_name", lambda: "demo")
-    monkeypatch.setattr(
-        "phlo_minio.cli.compose_base_cmd",
-        lambda **_kwargs: ["docker", "compose", "-p", "demo"],
-    )
-    monkeypatch.setattr("phlo_minio.cli.run_command", _run_command)
-
-    result = CliRunner().invoke(minio_group, ["admin", "info", "--json", "local/"])
-
-    assert result.exit_code == 0
-    assert result.output == '{"status":"ok"}\n'
-
-
-def test_minio_ls_rejects_partial_phlo_directory(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("args", [["ls"], ["admin", "info"]], ids=["ls", "admin-info"])
+def test_minio_commands_reject_partial_phlo_directory(monkeypatch, tmp_path, args) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".phlo" / "logs").mkdir(parents=True)
 
-    result = CliRunner().invoke(minio_group, ["ls"])
-
-    assert result.exit_code != 0
-    assert "Phlo services have not been initialized" in result.output
-    assert "Missing: .phlo/docker-compose.yml" in result.output
-    assert "Run: phlo services init" in result.output
-
-
-def test_minio_admin_info_rejects_partial_phlo_directory(monkeypatch, tmp_path) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".phlo" / "logs").mkdir(parents=True)
-
-    result = CliRunner().invoke(minio_group, ["admin", "info"])
+    result = CliRunner().invoke(minio_group, args)
 
     assert result.exit_code != 0
     assert "Phlo services have not been initialized" in result.output

@@ -21,7 +21,6 @@ from phlo_pandera.authorization import (
     MUTATION_COMMANDS,
     PanderaSurfaceAdapter,
     READ_COMMANDS,
-    SURFACE_NAME,
 )
 
 pytestmark = pytest.mark.core_regression
@@ -29,10 +28,6 @@ pytestmark = pytest.mark.core_regression
 
 class TestPanderaSurfaceAdapter:
     """Tests for PanderaSurfaceAdapter."""
-
-    def test_surface_name(self):
-        adapter = PanderaSurfaceAdapter()
-        assert adapter.surface_name == SURFACE_NAME
 
     def test_framework_type(self):
         adapter = PanderaSurfaceAdapter()
@@ -42,15 +37,6 @@ class TestPanderaSurfaceAdapter:
         adapter = PanderaSurfaceAdapter()
         operations = adapter.list_operations()
         assert [operation["operation_name"] for operation in operations] == ["schema.generate"]
-
-    def test_is_active(self):
-        adapter = PanderaSurfaceAdapter()
-        assert adapter.is_active(None) is True
-
-    def test_get_instance_singleton(self):
-        adapter1 = PanderaSurfaceAdapter.get_instance()
-        adapter2 = PanderaSurfaceAdapter.get_instance()
-        assert adapter1 is adapter2
 
     def test_read_commands_allow_without_enforcement(self):
         """Read commands allow without touching the enforcement path."""

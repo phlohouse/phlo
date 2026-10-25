@@ -19,10 +19,23 @@ def test_service_definition_is_digest_pinned_and_opt_in() -> None:
 
 
 def test_asset_provider_exposes_registered_assets() -> None:
+    from phlo_airbyte.assets import phlo_airbyte_connection
+
     provider = AirbyteAssetProvider()
     provider.clear_registries()
     assert list(provider.get_assets()) == []
-    provider.clear_registries()
+
+    phlo_airbyte_connection(
+        connection_id="conn-1234",
+        tables=["raw.posts"],
+        group="ingest",
+        name="posts",
+    )
+    try:
+        assets = list(provider.get_assets())
+        assert [asset.key for asset in assets] == ["ingest.posts"]
+    finally:
+        provider.clear_registries()
 
 
 def test_resource_provider_exposes_airbyte_client() -> None:
@@ -32,6 +45,15 @@ def test_resource_provider_exposes_airbyte_client() -> None:
 
 
 def test_ingestion_provider_wires_decorator_and_retriever() -> None:
+    from phlo_airbyte.assets import phlo_airbyte_connection
+
     provider = AirbyteIngestionProvider()
-    assert callable(provider.get_decorator())
-    assert callable(provider.get_asset_retriever())
+    assert provider.get_decorator() is phlo_airbyte_connection
+
+    phlo_airbyte_connection(
+        connection_id="conn-5678", tables=["raw.events"], group="ingest", name="events"
+    )
+    try:
+        assert [asset.key for asset in provider.get_asset_retriever()()] == ["ingest.events"]
+    finally:
+        AirbyteAssetProvider().clear_registries()

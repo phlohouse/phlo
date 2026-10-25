@@ -158,11 +158,21 @@ def test_unsafe_or_invisible_sql_never_reaches_engine_plan(setup_editor, sql, co
 
 
 def test_cte_scope_preserves_real_authorized_source():
+    """A CTE alias is not mistaken for a table; the real source stays authorized."""
     editor._validate_draft_sources(
         "WITH batches AS (SELECT * FROM iceberg.gold.batches) SELECT * FROM batches",
         "iceberg",
         {"gold.batches"},
     )
+    # An invisible source behind an alias must still be rejected, which proves the
+    # validator resolves CTE bodies rather than treating the alias as a table.
+    with pytest.raises(HTTPException) as caught:
+        editor._validate_draft_sources(
+            "WITH hidden AS (SELECT * FROM iceberg.gold.missing) SELECT * FROM hidden",
+            "iceberg",
+            {"gold.batches"},
+        )
+    assert caught.value.status_code == 403
 
 
 def candidate_mocks(setup_editor, monkeypatch, *, preview_fails=False):

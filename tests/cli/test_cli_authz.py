@@ -189,41 +189,48 @@ def test_plan_exception(runner, monkeypatch, tmp_path):
 # -- sync ---------------------------------------------------------------------
 
 
-def test_sync_success(runner, monkeypatch, tmp_path):
-    ctrl = _FakeController()
-    ctrl.sync_return = {
-        "trino": SyncResult(
-            success=True,
-            backend="trino",
-            version_hash="abc123",
-            applied_count=2,
-            failed_count=0,
-            errors=(),
+@pytest.mark.parametrize(
+    ("sync_result", "expected_exit", "expected_output"),
+    [
+        (
+            SyncResult(
+                success=True,
+                backend="trino",
+                version_hash="abc123",
+                applied_count=2,
+                failed_count=0,
+                errors=(),
+            ),
+            0,
+            ("Success: True",),
         ),
-    }
-    _patch(monkeypatch, controller=ctrl)
-    result = runner.invoke(authz_group, ["sync", "--path", str(tmp_path)])
-    assert result.exit_code == 0
-    assert "Success: True" in result.output
-
-
-def test_sync_failure(runner, monkeypatch, tmp_path):
-    ctrl = _FakeController()
-    ctrl.sync_return = {
-        "trino": SyncResult(
-            success=False,
-            backend="trino",
-            version_hash="abc123",
-            applied_count=0,
-            failed_count=1,
-            errors=("grant failed",),
+        (
+            SyncResult(
+                success=False,
+                backend="trino",
+                version_hash="abc123",
+                applied_count=0,
+                failed_count=1,
+                errors=("grant failed",),
+            ),
+            1,
+            ("Success: False", "grant failed"),
         ),
-    }
+    ],
+    ids=["success", "failure"],
+)
+def test_sync_reports_result(
+    runner, monkeypatch, tmp_path, sync_result, expected_exit, expected_output
+):
+    ctrl = _FakeController()
+    ctrl.sync_return = {"trino": sync_result}
     _patch(monkeypatch, controller=ctrl)
+
     result = runner.invoke(authz_group, ["sync", "--path", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "Success: False" in result.output
-    assert "grant failed" in result.output
+
+    assert result.exit_code == expected_exit
+    for fragment in expected_output:
+        assert fragment in result.output
 
 
 def test_sync_dry_run(runner, monkeypatch, tmp_path):
@@ -298,6 +305,8 @@ def test_verify_empty_results_exit_nonzero(runner, monkeypatch, tmp_path):
     _patch(monkeypatch, controller=ctrl)
     result = runner.invoke(authz_group, ["verify", "--path", str(tmp_path)])
     assert result.exit_code == 1
+    # A crash also exits 1; the message is what marks the result inconclusive.
+    assert "No verification results" in result.output
 
 
 # -- revert -------------------------------------------------------------------

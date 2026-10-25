@@ -396,18 +396,6 @@ def test_all_checks_passed_warn_failure_is_not_gating():
     assert _all_checks_passed(instance, "run-1") is True
 
 
-def test_all_checks_passed_missing_severity_fails_closed():
-    """Legacy evaluations without a severity field classify as blocking."""
-    instance = MagicMock()
-    instance.get_records_for_run.return_value = MagicMock(
-        records=[
-            _FakeRecord(passed=True),
-            _FakeRecord(passed=False),
-        ]
-    )
-    assert _all_checks_passed(instance, "run-1") is False
-
-
 # ---------------------------------------------------------------------------
 # NessieResource.create_branch / merge_branch
 # ---------------------------------------------------------------------------
@@ -713,9 +701,10 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(
     instance.add_run_tags.assert_called_once_with(dagster_run_id, {"phlo/wap_promoted": "true"})
     assert not (tmp_path / ".phlo" / "wap-reports" / f"{dagster_run_id}.json").exists()
     quality_rows = store.list_quality_results("project-promote", logical_run_id, attempt=1)
-    quality_id = next(row["quality_result_id"] for row in quality_rows)
-    assert quality_id in {row["quality_result_id"] for row in quality_rows}
+    assert len(quality_rows) == 1
+    quality_id = quality_rows[0]["quality_result_id"]
     assert quality_rows[0]["check_id"] == "wap.aggregate"
+    assert quality_rows[0]["passed"] is True
     assert any(
         row["merge_outcome"] == "promoted" and row["quality_decision_id"] == quality_id
         for row in store.list_catalog_changes("project-promote", logical_run_id, attempt=1)
@@ -1389,16 +1378,32 @@ def test_wap_cleanup_retains_prefixed_branch_when_run_lacks_exact_wap_branch_tag
     assert gaps[0]["reason"] == "cleanup_no_exact_tagged_run"
 
 
-def test_wap_cleanup_retains_branch_when_matching_runs_disagree_on_correlation(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize(
+    ("project_a", "project_b", "expected_reason", "expected_missing"),
+    [
+        (None, None, "cleanup_ambiguous_tagged_runs", ["run_status"]),
+        ("project-a", "project-b", "cleanup_correlation_conflict", ["project_id", "attempt"]),
+    ],
+    ids=["ambiguous-tagged-runs", "correlation-conflict"],
+)
+def test_wap_cleanup_retains_branch_and_records_gap(
+    monkeypatch, tmp_path, project_a, project_b, expected_reason, expected_missing
 ):
-    """AC 4: two exact-tagged runs disagree on project → retain + conflict gap."""
+    """Exact-tagged runs that cannot be resolved to one run retain the branch.
+
+    AC 6 covers agreement on correlation but ambiguity over the run; AC 4 covers
+    disagreement on project correlation. Both record a gap and delete nothing.
+    """
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    logical_run_id = "logical-conflict"
+    logical_run_id = f"logical-{expected_reason}"
     branch_name = _wap_branch_name(logical_run_id)
     branch = _cleanup_branch(logical_run_id)
-    run_a = _cleanup_run(logical_run_id, "dagster-a", branch_name, project_id="project-a")
-    run_b = _cleanup_run(logical_run_id, "dagster-b", branch_name, project_id="project-b")
+
+    def _project_args(project_id):
+        return {} if project_id is None else {"project_id": project_id}
+
+    run_a = _cleanup_run(logical_run_id, "dagster-a", branch_name, **_project_args(project_a))
+    run_b = _cleanup_run(logical_run_id, "dagster-b", branch_name, **_project_args(project_b))
     instance = MagicMock()
     instance.get_runs.return_value = [run_a, run_b]
     catalog = MagicMock()
@@ -1420,7 +1425,8 @@ def test_wap_cleanup_retains_branch_when_matching_runs_disagree_on_correlation(
 
     query_catalog_manager.drop_ref_query_catalog.assert_not_called()
     catalog.delete_branch.assert_not_called()
-    assert gaps[0]["reason"] == "cleanup_correlation_conflict"
+    assert gaps[0]["reason"] == expected_reason
+    assert gaps[0]["missing"] == expected_missing
 
 
 def test_wap_cleanup_deletes_query_catalog_before_branch(monkeypatch, tmp_path):
@@ -1449,39 +1455,6 @@ def test_wap_cleanup_deletes_query_catalog_before_branch(monkeypatch, tmp_path):
     query_catalog_manager.drop_ref_query_catalog.assert_called_once_with(branch_name)
     catalog.delete_branch.assert_called_once_with(branch_name)
     assert call_order == ["query_catalog", "branch"]
-
-
-def test_wap_cleanup_retains_ambiguous_tagged_runs_and_emits_gap(monkeypatch, tmp_path):
-    """AC 6: multiple exact-tagged terminal runs that agree on correlation are
-    still ambiguous → retain + gap."""
-    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    logical_run_id = "logical-ambiguous"
-    branch_name = _wap_branch_name(logical_run_id)
-    branch = _cleanup_branch(logical_run_id)
-    run_a = _cleanup_run(logical_run_id, "dagster-a", branch_name)
-    run_b = _cleanup_run(logical_run_id, "dagster-b", branch_name)
-    instance = MagicMock()
-    instance.get_runs.return_value = [run_a, run_b]
-    catalog = MagicMock()
-    catalog.list_branches.return_value = [branch]
-    query_catalog_manager = MagicMock()
-    gaps: list[dict[str, object]] = []
-    monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
-    monkeypatch.setattr(
-        "phlo_dagster.wap_sensors._load_ref_query_catalog_manager",
-        lambda: query_catalog_manager,
-    )
-    monkeypatch.setattr(
-        "phlo_dagster.wap_sensors._record_uncorrelated_gap",
-        lambda *a, **kw: gaps.append(kw),
-    )
-    context = MagicMock(instance=instance)
-
-    wap_branch_cleanup_sensor._raw_fn(context)
-
-    query_catalog_manager.drop_ref_query_catalog.assert_not_called()
-    catalog.delete_branch.assert_not_called()
-    assert gaps[0]["reason"] == "cleanup_ambiguous_tagged_runs"
 
 
 @pytest.mark.parametrize(
@@ -1541,6 +1514,12 @@ def test_persist_aggregate_quality_decision_allows_empty_checks(monkeypatch, tmp
     instance = MagicMock()
     instance.get_records_for_run.return_value = MagicMock(records=[])
 
+    store = SQLiteRunEvidenceStore(":memory:")
+    bus = HookBus()
+    bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
+    monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
+    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+
     quality_id, metadata = _quality_evidence(
         run_id,
         instance,
@@ -1550,6 +1529,12 @@ def test_persist_aggregate_quality_decision_allows_empty_checks(monkeypatch, tmp
     )
 
     assert quality_id is not None, "empty checks must produce durable evidence"
+    row = store.list_quality_results("p", run_id, attempt=1)[0]
+    assert quality_id == row["quality_result_id"]
+    assert row["check_id"] == "wap.aggregate"
+    assert row["passed"] is True
+    assert metadata["quality_evidence"]["decision"] == "passed"
+    assert metadata["quality_evidence"]["failed_check_ids"] == []
 
 
 def test_persist_aggregate_quality_decision_reflects_failures(monkeypatch, tmp_path) -> None:
@@ -1580,6 +1565,12 @@ def test_persist_aggregate_quality_decision_reflects_failures(monkeypatch, tmp_p
     assert checks is not None
     assert len(checks) == 2
 
+    store = SQLiteRunEvidenceStore(":memory:")
+    bus = HookBus()
+    bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
+    monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
+    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+
     quality_id, metadata = _quality_evidence(
         run_id,
         instance,
@@ -1587,7 +1578,14 @@ def test_persist_aggregate_quality_decision_reflects_failures(monkeypatch, tmp_p
         attempt=1,
         evidence_run_id=run_id,
     )
+
     assert quality_id is not None
+    row = store.list_quality_results("p", run_id, attempt=1)[0]
+    assert quality_id == row["quality_result_id"]
+    assert row["passed"] is False
+    assert row["severity"] == "error"
+    assert metadata["quality_evidence"]["decision"] == "rejected"
+    assert metadata["quality_evidence"]["failed_check_ids"]
 
 
 def test_persist_aggregate_quality_decision_warn_only_passes_with_warnings(

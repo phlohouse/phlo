@@ -549,7 +549,7 @@ def test_unknown_provider_status_is_unsupported_not_abandoned() -> None:
     assert decision.reason == "unsupported_provider_status"
 
 
-def test_contradictory_terminal_payload_cannot_complete_success() -> None:
+def test_contradictory_terminal_payload_marks_success_incomplete() -> None:
     store = SQLiteRunEvidenceStore(":memory:")
     source = _Source(_observation(_event("run.terminal", payload={"status": "failed"})))
 
@@ -806,7 +806,15 @@ def test_required_status_uses_each_record_familys_durable_field(
     assert decision.evidence_completeness is EvidenceCompleteness.COMPLETE
 
 
-def test_expired_artifact_is_explicitly_incomplete() -> None:
+@pytest.mark.parametrize(
+    ("legal_hold", "expected", "missing"),
+    [
+        (False, EvidenceCompleteness.EXPIRED, "artifact:expired"),
+        (True, EvidenceCompleteness.COMPLETE, None),
+    ],
+    ids=["expired", "legal-hold"],
+)
+def test_artifact_expiry_respects_legal_hold(legal_hold, expected, missing) -> None:
     store = SQLiteRunEvidenceStore(":memory:")
     store.append_pipeline_run(
         PipelineRun(project_id="project", run_id="run", started_at=NOW - timedelta(minutes=2))
@@ -818,6 +826,7 @@ def test_expired_artifact_is_explicitly_incomplete() -> None:
             artifact_id="manifest",
             artifact_kind="manifest",
             expires_at=NOW - timedelta(seconds=1),
+            legal_hold=legal_hold,
         )
     )
     source = _Source(_observation(_event("run.terminal")))
@@ -831,37 +840,9 @@ def test_expired_artifact_is_explicitly_incomplete() -> None:
         now=NOW,
     )
 
-    assert decision.evidence_completeness is EvidenceCompleteness.EXPIRED
-    assert "artifact:expired" in decision.missing_evidence
-
-
-def test_legal_hold_prevents_artifact_expiry() -> None:
-    store = SQLiteRunEvidenceStore(":memory:")
-    store.append_pipeline_run(
-        PipelineRun(project_id="project", run_id="run", started_at=NOW - timedelta(minutes=2))
-    )
-    store.append_artifact(
-        RunArtifact(
-            project_id="project",
-            run_id="run",
-            artifact_id="manifest",
-            artifact_kind="manifest",
-            expires_at=NOW - timedelta(seconds=1),
-            legal_hold=True,
-        )
-    )
-    source = _Source(_observation(_event("run.terminal")))
-
-    decision = RunReconciler(store, source).reconcile(
-        "project",
-        "run",
-        RequiredEvidenceProfile(
-            "profile", "1", required_records=(RequiredEvidenceRecord("artifact"),)
-        ),
-        now=NOW,
-    )
-
-    assert decision.evidence_completeness is EvidenceCompleteness.COMPLETE
+    assert decision.evidence_completeness is expected
+    if missing is not None:
+        assert missing in decision.missing_evidence
 
 
 @pytest.mark.parametrize(

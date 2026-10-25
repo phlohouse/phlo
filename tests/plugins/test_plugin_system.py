@@ -24,16 +24,16 @@ from phlo.plugins import (
 )
 from phlo.plugins.discovery import _plugin_auto_discovery as plugin_auto_discovery
 from phlo.plugins.discovery import get_global_registry
-from tests.helpers import (
+from tests.support import (
     DummyQualityPlugin as _DummyQualityPlugin,
 )
-from tests.helpers import (
+from tests.support import (
     DummyServicePlugin as _DummyServicePlugin,
 )
-from tests.helpers import (
+from tests.support import (
     DummySourcePlugin as _DummySourcePlugin,
 )
-from tests.helpers import (
+from tests.support import (
     DummyTransformPlugin as _DummyTransformPlugin,
 )
 

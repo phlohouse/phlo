@@ -13,7 +13,12 @@ import select_ci
 
 def test_git_paths_include_committed_staged_unstaged_and_untracked(tmp_path: Path) -> None:
     def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
 
     git("init")
     git("config", "user.email", "test@example.com")

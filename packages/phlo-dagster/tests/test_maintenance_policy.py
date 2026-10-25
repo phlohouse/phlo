@@ -24,68 +24,48 @@ from phlo_dagster.maintenance_policy import (
 )
 
 
-def test_evaluate_table_triggers_expire() -> None:
-    """Expire is triggered when snapshot_count exceeds the threshold."""
+@pytest.mark.parametrize(
+    ("snapshot_count_gt", "snapshot_count", "expected"),
+    [(10, 15, True), (20, 20, False)],
+    ids=["above-threshold", "at-threshold"],
+)
+def test_evaluate_table_expire(snapshot_count_gt, snapshot_count, expected) -> None:
     policy = NamespacePolicy(
         namespace="raw",
-        expire=ExpireSnapshotsPolicy(snapshot_count_gt=10),
+        expire=ExpireSnapshotsPolicy(snapshot_count_gt=snapshot_count_gt),
     )
-    stats = {"snapshot_count": 15, "total_size_mb": 100.0, "file_count": 5}
+    stats = {"snapshot_count": snapshot_count, "total_size_mb": 100.0, "file_count": 5}
 
     action = evaluate_table("raw.my_table", stats, policy)
 
-    assert action.expire_snapshots is True
+    assert action.expire_snapshots is expected
     assert action.table_name == "raw.my_table"
 
 
-def test_evaluate_table_no_expire() -> None:
-    """Expire is not triggered when snapshot_count is at or below the threshold."""
-    policy = NamespacePolicy(
-        namespace="raw",
-        expire=ExpireSnapshotsPolicy(snapshot_count_gt=20),
-    )
-    stats = {"snapshot_count": 20, "total_size_mb": 100.0, "file_count": 5}
-
-    action = evaluate_table("raw.my_table", stats, policy)
-
-    assert action.expire_snapshots is False
-
-
-def test_evaluate_table_triggers_optimize() -> None:
-    """Optimize is triggered when average file size is below the threshold."""
+@pytest.mark.parametrize(
+    ("total_size_mb", "file_count", "expected"),
+    [(100.0, 10, True), (640.0, 10, False)],
+    ids=["below-threshold", "at-threshold"],
+)
+def test_evaluate_table_optimize(total_size_mb, file_count, expected) -> None:
     policy = NamespacePolicy(
         namespace="raw",
         optimize=OptimizePolicy(avg_file_size_mb_lt=64.0),
     )
-    # avg = 100 / 10 = 10 MB, below 64
-    stats = {"snapshot_count": 5, "total_size_mb": 100.0, "file_count": 10}
+    stats = {"snapshot_count": 5, "total_size_mb": total_size_mb, "file_count": file_count}
 
     action = evaluate_table("raw.my_table", stats, policy)
 
-    assert action.optimize is True
-
-
-def test_evaluate_table_no_optimize() -> None:
-    """Optimize is not triggered when average file size meets the threshold."""
-    policy = NamespacePolicy(
-        namespace="raw",
-        optimize=OptimizePolicy(avg_file_size_mb_lt=64.0),
-    )
-    # avg = 640 / 10 = 64 MB, not below 64
-    stats = {"snapshot_count": 5, "total_size_mb": 640.0, "file_count": 10}
-
-    action = evaluate_table("raw.my_table", stats, policy)
-
-    assert action.optimize is False
+    assert action.optimize is expected
 
 
 def test_evaluate_table_missing_stats_skips_optimize() -> None:
-    """Optimize is skipped when file_count is 0 (avoids division by zero)."""
+    """Optimize is skipped when file_count is absent (avoids division by zero)."""
     policy = NamespacePolicy(
         namespace="raw",
         optimize=OptimizePolicy(avg_file_size_mb_lt=64.0),
     )
-    stats = {"snapshot_count": 5, "total_size_mb": 0.0, "file_count": 0}
+    stats = {"snapshot_count": 5, "total_size_mb": 0.0}
 
     action = evaluate_table("raw.my_table", stats, policy)
 
@@ -183,6 +163,11 @@ def test_maintenance_sensor_run_config_shape() -> None:
     ):
         requests = list(maintenance_policy_sensor._raw_fn(context))
 
+    assert len(requests) == 2
+    assert {request.job_name for request in requests} == {
+        "expire_snapshots_job",
+        "optimize_tables_job",
+    }
     for request in requests:
         config_dict = (
             request.run_config.to_config_dict()

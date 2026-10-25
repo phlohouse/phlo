@@ -14,7 +14,7 @@ from click.testing import CliRunner
 
 from phlo.cli.infrastructure.container_backend import ContainerInfo
 from phlo.plugins.discovery import ServiceDefinition
-from tests.helpers import FakeDiscovery
+from tests.support import FakeDiscovery
 
 
 def test_services_list_uses_backend_container_listing(

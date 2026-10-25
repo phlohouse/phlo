@@ -24,9 +24,11 @@ def test_resource_provider_exposes_kafka_client() -> None:
 
 
 def test_ingestion_provider_wires_decorator_and_retriever() -> None:
+    from phlo_kafka.assets import get_kafka_assets, phlo_kafka_consumer
+
     provider = KafkaIngestionProvider()
-    assert callable(provider.get_decorator())
-    assert callable(provider.get_asset_retriever())
+    assert provider.get_decorator() is phlo_kafka_consumer
+    assert provider.get_asset_retriever() is get_kafka_assets
 
 
 def test_asset_provider_starts_empty() -> None:

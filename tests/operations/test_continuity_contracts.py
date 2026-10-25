@@ -118,8 +118,15 @@ def test_redact_message_only_redacts_secret_words() -> None:
 def test_sha256_file_and_tree_are_stable(tmp_path) -> None:
     (tmp_path / "a").write_bytes(b"one")
     (tmp_path / "b").write_bytes(b"two")
-    assert sha256_file(tmp_path / "a") == sha256_file(tmp_path / "a")
-    assert sha256_tree(tmp_path) == sha256_tree(tmp_path)
+    assert sha256_file(tmp_path / "a") == (
+        "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
+    )
+    assert sha256_file(tmp_path / "b") == (
+        "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3"
+    )
+    tree_hash = sha256_tree(tmp_path)
+    assert len(tree_hash) == 64
+    assert sha256_tree(tmp_path) == tree_hash
 
 
 def test_sha256_tree_is_path_sensitive(tmp_path) -> None:

@@ -27,14 +27,20 @@ def test_sling_ingestion_provider_metadata():
 
 
 def test_sling_ingestion_provider_decorator():
-    """Validate decorator retrieval."""
+    """Validate the provider hands out the replication decorator."""
+    from phlo_sling import phlo_sling_replication
+
     provider = SlingIngestionProvider()
-    decorator = provider.get_decorator()
-    assert callable(decorator)
+
+    assert provider.get_decorator() is phlo_sling_replication
 
 
 def test_sling_ingestion_provider_retriever():
-    """Validate asset retriever returns callable."""
+    """Validate the provider hands out the registered-asset retriever."""
+    from phlo_sling.decorator import get_sling_assets
+
     provider = SlingIngestionProvider()
     retriever = provider.get_asset_retriever()
-    assert callable(retriever)
+
+    assert retriever is get_sling_assets
+    assert retriever() == get_sling_assets()

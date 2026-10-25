@@ -373,7 +373,17 @@ def test_dry_run_is_provider_free_and_reports_snapshot_age(monkeypatch) -> None:
     assert result["planned"]["trino_boundary"] == "not_invoked"
 
 
-def test_execute_requires_exact_token_and_finite_limits(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("use_plan_token", "max_affected_objects", "expected_code"),
+    [
+        (False, 10, "plan_token_invalid"),
+        (True, 0, "affected_object_limit_exceeded"),
+    ],
+    ids=["tampered-token", "object-limit"],
+)
+def test_execute_rejects_unconfirmed_or_oversized_plans(
+    monkeypatch, use_plan_token: bool, max_affected_objects: int, expected_code: str
+) -> None:
     resource = IcebergResource(ref="main")
     plan = _plan(candidates=[39])
     monkeypatch.setattr(resource, "_retention_metadata", lambda **_: (plan, object()))
@@ -383,47 +393,34 @@ def test_execute_requires_exact_token_and_finite_limits(monkeypatch) -> None:
         catalog="iceberg",
         dry_run=False,
         expected_snapshot_id=41,
-        confirmation_token="tampered",
+        confirmation_token=plan["plan_token"] if use_plan_token else "tampered",
+        max_affected_objects=max_affected_objects,
+        max_affected_bytes=1000,
+    )
+
+    assert result["failure"]["code"] == expected_code
+
+
+def test_snapshot_execute_without_executor_is_blocked_and_retryable(monkeypatch) -> None:
+    """Object limits cannot bound the provider's deletion surface, so execute
+    without a ref-aware executor is blocked before any submission."""
+    resource, _ = _real_planner_resource(monkeypatch)
+
+    planned = resource.expire_snapshots(
+        table_name="raw.events",
+        catalog="iceberg",
+        dry_run=True,
         max_affected_objects=10,
         max_affected_bytes=1000,
     )
-
-    assert result["failure"]["code"] == "plan_token_invalid"
-
-
-def test_execute_rejects_affected_object_limit_with_current_token(monkeypatch) -> None:
-    resource = IcebergResource(ref="main")
-    plan = _plan(candidates=[39])
-    monkeypatch.setattr(resource, "_retention_metadata", lambda **_: (plan, object()))
-
     result = resource.expire_snapshots(
         table_name="raw.events",
         catalog="iceberg",
         dry_run=False,
-        expected_snapshot_id=41,
-        confirmation_token=plan["plan_token"],
-        max_affected_objects=0,
+        expected_snapshot_id=planned["before_revision"],
+        confirmation_token=planned["plan_token"],
+        max_affected_objects=10,
         max_affected_bytes=1000,
-    )
-
-    assert result["failure"]["code"] == "affected_object_limit_exceeded"
-
-
-def test_snapshot_execute_blocks_when_provider_surface_exceeds_plan(monkeypatch) -> None:
-    resource = IcebergResource(ref="main")
-    plan = _plan(candidates=[39])
-    plan["limits_scope"] = "snapshot_count_and_data_bytes_only"
-    plan["plan_token"] = _maintenance_plan_token(plan)
-    monkeypatch.setattr(resource, "_retention_metadata", lambda **_: (plan, object()))
-
-    result = resource.expire_snapshots(
-        table_name="raw.events",
-        catalog="iceberg",
-        dry_run=False,
-        expected_snapshot_id=41,
-        confirmation_token=plan["plan_token"],
-        max_affected_objects=1,
-        max_affected_bytes=100,
     )
 
     assert result["status"] == "blocked"
@@ -431,6 +428,8 @@ def test_snapshot_execute_blocks_when_provider_surface_exceeds_plan(monkeypatch)
     assert result["failure"]["retryable"] is True
     assert result["retry_safe"] is True
     assert result["planned"]["trino_boundary"] == "not_invoked"
+    assert result["planned"]["limits_enforced"] is False
+    assert result["planned"]["deletion_surface"] == "provider_threshold_not_bound"
 
 
 def test_snapshot_execute_revalidates_plan_and_reports_non_atomic_evidence(monkeypatch) -> None:
@@ -577,19 +576,42 @@ def test_zero_candidates_is_a_noop_and_still_has_a_plan_token(monkeypatch) -> No
 
 
 def test_orphan_plan_reports_partial_age_or_size_evidence(monkeypatch) -> None:
-    resource = IcebergResource(ref="main")
-    plan = _plan("cleanup_orphan_files")
-    plan["candidate_files"] = [{"path": "s3://lake/warehouse/raw/events/data/orphan.parquet"}]
-    plan["affected_objects"] = 1
-    plan["affected_bytes"] = None
-    plan["unavailable_fields"] = ["candidate_age", "affected_bytes"]
-    plan["plan_token"] = _maintenance_plan_token(plan)
-    monkeypatch.setattr(resource, "_orphan_retention_metadata", lambda **_: (plan, object()))
+    resource, _ = _real_planner_resource(monkeypatch)
+    cutoff = datetime.now(UTC) - timedelta(days=7)
+    monkeypatch.setattr(
+        resource,
+        "inventory_owned_prefix",
+        lambda **_: ObjectInventory(
+            prefix="s3://bucket/warehouse/raw/events/data/",
+            retention_cutoff=cutoff,
+            objects=(
+                InventoryObject(
+                    identity="s3://bucket/warehouse/raw/events/data/orphan.parquet",
+                    size_bytes=None,
+                    modified_at=datetime.now(UTC) - timedelta(days=10),
+                    checksum_or_version=None,
+                ),
+                InventoryObject(
+                    identity="s3://bucket/warehouse/raw/events/data/undated.parquet",
+                    size_bytes=5,
+                    modified_at=None,
+                    checksum_or_version=None,
+                ),
+            ),
+            page_count=1,
+            continuation_exhausted=True,
+            complete=True,
+            digest="complete-inventory",
+        ),
+    )
 
     result = resource.cleanup_orphan_files(table_name="raw.events", catalog="iceberg", dry_run=True)
 
-    assert result["planned"]["unavailable_fields"] == ["candidate_age", "affected_bytes"]
-    assert result["planned"]["candidate_files"][0]["path"].endswith("orphan.parquet")
+    assert result["planned"]["unavailable_fields"] == ["affected_bytes", "candidate_age"]
+    assert [candidate["path"] for candidate in result["planned"]["candidate_files"]] == [
+        "s3://bucket/warehouse/raw/events/data/orphan.parquet"
+    ]
+    assert result["planned"]["affected_bytes"] is None
 
 
 def test_orphan_plan_blocks_when_candidate_scan_is_unavailable(monkeypatch) -> None:
@@ -740,28 +762,20 @@ def test_metadata_failure_has_one_retry_classification(
 
 
 def test_snapshot_plan_counts_only_exact_candidate_snapshots(monkeypatch) -> None:
-    resource = IcebergResource(ref="main")
-    plan = _plan(candidates=[39, 38])
-    plan.update(
-        {
-            "affected_objects": 2,
-            "affected_objects_scope": "candidate_snapshots_only",
-            "affected_bytes_scope": (
-                "observed_unreferenced_data_files_only; evidence_not_deletion_ceiling"
-            ),
-            "limits_scope": (
-                "candidate_snapshot_count_only; provider_metadata_and_data_files_excluded"
-            ),
-        }
+    resource, _ = _real_planner_resource(monkeypatch)
+
+    result = resource.expire_snapshots(
+        table_name="raw.events",
+        catalog="iceberg",
+        dry_run=True,
+        max_affected_objects=10,
+        max_affected_bytes=1000,
     )
-    plan["plan_token"] = _maintenance_plan_token(plan)
-    monkeypatch.setattr(resource, "_retention_metadata", lambda **_: (plan, object()))
 
-    result = resource.expire_snapshots(table_name="raw.events", catalog="iceberg", dry_run=True)
-
-    assert result["planned"]["affected_objects"] == len(result["planned"]["candidate_snapshots"])
-    assert result["planned"]["affected_objects_scope"] == "candidate_snapshots_only"
-    assert "deletion_ceiling" in result["planned"]["affected_bytes_scope"]
+    planned = result["planned"]
+    assert planned["affected_objects"] == len(planned["candidate_snapshots"]) == 1
+    assert planned["affected_objects_scope"] == "candidate_snapshots_only"
+    assert "deletion_ceiling" in planned["affected_bytes_scope"]
 
 
 def test_orphan_race_discovers_extra_candidate_and_submits_nothing(monkeypatch) -> None:

@@ -50,7 +50,11 @@ def test_rustfs_volume_setup_uses_named_volume():
         files("phlo_rustfs").joinpath("rustfs-volume-setup.yaml").read_text()
     )
 
-    assert "rustfs-data:/data" in service_definition["compose"]["volumes"]
+    volumes = service_definition["compose"]["volumes"]
+
+    # Exactly one named volume: no host path is bind-mounted, so the setup
+    # container never has to chown a host directory.
+    assert volumes == ["rustfs-data:/data"]
 
 
 def test_rustfs_plugin_metadata():

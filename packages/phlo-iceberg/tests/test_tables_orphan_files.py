@@ -93,20 +93,21 @@ def test_reports_only_unreferenced_files_older_than_the_default_window(store) ->
     assert result == {"orphan_count": 1, "orphan_files": [old_orphan], "dry_run": True}
 
 
-def test_older_than_days_widens_the_retention_window(store) -> None:
-    store.write("orphan-8d.parquet", age_days=8)
-    old_orphan = store.write("orphan-12d.parquet", age_days=12)
+@pytest.mark.parametrize(
+    ("retention", "young_age_days", "old_age_days"),
+    [
+        ({"older_than_days": 10}, 8, 12),
+        ({"older_than_hours": 200}, 190 / 24, 210 / 24),
+    ],
+    ids=["days", "hours"],
+)
+def test_retention_window_selects_orphans_older_than_threshold(
+    store, retention, young_age_days, old_age_days
+) -> None:
+    store.write("orphan-young.parquet", age_days=young_age_days)
+    old_orphan = store.write("orphan-old.parquet", age_days=old_age_days)
 
-    result = tables.remove_orphan_files("raw.events", older_than_days=10)
-
-    assert result["orphan_files"] == [old_orphan]
-
-
-def test_older_than_hours_sets_the_retention_window(store) -> None:
-    store.write("orphan-190h.parquet", age_days=190 / 24)
-    old_orphan = store.write("orphan-210h.parquet", age_days=210 / 24)
-
-    result = tables.remove_orphan_files("raw.events", older_than_hours=200)
+    result = tables.remove_orphan_files("raw.events", **retention)
 
     assert result["orphan_files"] == [old_orphan]
 

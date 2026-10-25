@@ -20,20 +20,23 @@ class TestFastAPIApp:
     """Test FastAPI app creation and configuration."""
 
     def test_app_creates(self):
-        """Test that FastAPI app can be created."""
+        """Test that FastAPI app can be created with its published identity."""
         from phlo_api.main import app
 
-        assert app is not None
         assert app.title == "Phlo API"
         assert app.version == "0.1.0"
 
     def test_cors_middleware_configured(self):
-        """Test that CORS middleware is configured."""
+        """Test that CORS middleware allows local development origins."""
         from phlo_api.main import app
 
-        # Check middleware is configured
-        middleware_classes = [m.cls.__name__ for m in app.user_middleware]
-        assert "CORSMiddleware" in middleware_classes
+        cors = [m for m in app.user_middleware if m.cls.__name__ == "CORSMiddleware"]
+        assert len(cors) == 1, "exactly one CORS middleware must be installed"
+        options = cors[0].kwargs
+        assert options["allow_methods"] == ["*"]
+        assert options["allow_headers"] == ["*"]
+        assert "localhost" in options["allow_origin_regex"]
+        assert "127\\.0\\.0\\.1" in options["allow_origin_regex"]
 
     def test_routes_registered(self):
         """Test that expected routes are registered."""
@@ -78,14 +81,19 @@ class TestHealthEndpoint:
 class TestConfigEndpoint:
     """Test config endpoint."""
 
-    def test_config_returns_dict(self):
-        """Test config endpoint returns a dictionary."""
+    def test_config_returns_dict(self, tmp_path):
+        """Test config endpoint returns the parsed project configuration."""
 
-        client = authenticated_client("admin")
-        response = client.get("/api/config")
+        (tmp_path / "phlo.yaml").write_text(
+            "name: demo-project\ndescription: demo description\n", encoding="utf-8"
+        )
+        with patch("phlo_api.main.get_project_path", return_value=tmp_path):
+            response = authenticated_client("admin").get("/api/config")
 
         assert response.status_code == 200
-        assert isinstance(response.json(), dict)
+        data = response.json()
+        assert data["name"] == "demo-project"
+        assert data["description"] == "demo description"
 
     def test_config_with_missing_file(self):
         """Test config endpoint when phlo.yaml doesn't exist."""
@@ -96,9 +104,7 @@ class TestConfigEndpoint:
             response = client.get("/api/config")
 
             assert response.status_code == 200
-            # Should return default config
-            data = response.json()
-            assert "name" in data
+            assert response.json() == {"name": "unknown", "description": ""}
 
     def test_config_with_malformed_file_returns_clean_error(self, tmp_path):
         """Malformed phlo.yaml should not leak a server traceback."""
@@ -129,26 +135,6 @@ class TestConfigEndpoint:
 class TestPluginsEndpoints:
     """Test plugin discovery endpoints."""
 
-    def test_plugins_list_endpoint(self):
-        """Test listing all plugins returns valid response."""
-
-        client = authenticated_client("admin")
-        response = client.get("/api/plugins")
-
-        # Should return 200 with dict (may be empty if discovery not available)
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-
-    def test_plugins_by_type_endpoint(self):
-        """Test listing plugins by type returns valid response."""
-
-        client = authenticated_client("admin")
-        response = client.get("/api/plugins/service")
-
-        assert response.status_code == 200
-        assert isinstance(response.json(), list)
-
     def test_plugins_unknown_type_returns_404(self):
         """Test unknown plugin type returns 404."""
 
@@ -175,16 +161,6 @@ class TestPluginsEndpoints:
 
 class TestServicesEndpoints:
     """Test service discovery endpoints."""
-
-    def test_services_list_endpoint(self):
-        """Test listing all services."""
-
-        client = authenticated_client("admin")
-        response = client.get("/api/services")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
 
     def test_services_with_discovery(self):
         """Test services endpoint returns valid data structure."""
@@ -256,25 +232,6 @@ class TestServicesEndpoints:
 
 
 # =============================================================================
-# Registry Endpoint Tests
-# =============================================================================
-
-
-class TestRegistryEndpoint:
-    """Test plugin registry endpoint."""
-
-    def test_registry_endpoint_returns_dict(self):
-        """Test registry endpoint returns dictionary."""
-
-        client = authenticated_client("admin")
-        response = client.get("/api/registry")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-
-
-# =============================================================================
 # Contracts Endpoints Tests
 # =============================================================================
 
@@ -283,7 +240,7 @@ class TestContractsEndpoints:
     """Test contract discovery endpoints."""
 
     def test_contracts_list_endpoint(self):
-        """List contracts endpoint returns helper payload."""
+        """List contracts endpoint returns the helper payload unchanged."""
 
         payload = [
             {
@@ -292,27 +249,29 @@ class TestContractsEndpoints:
                 "contract_metadata": {"owner": "platform-team", "consumers": [], "sla": None},
             }
         ]
-        with patch("phlo_api.main._list_contracts", return_value=payload):
+        with patch("phlo_api.main._list_contracts", return_value=payload) as list_contracts:
             client = authenticated_client("admin")
             response = client.get("/api/contracts")
 
         assert response.status_code == 200
         assert response.json() == payload
+        list_contracts.assert_called_once_with()
 
     def test_contract_detail_endpoint(self):
-        """Detail endpoint returns contract for requested table."""
+        """Detail endpoint resolves the dotted table name and returns its contract."""
 
         payload = {
             "table_name": "raw.contract_demo",
             "asset_key": "dlt_contract_demo",
             "contract_metadata": {"owner": "platform-team", "consumers": [], "sla": None},
         }
-        with patch("phlo_api.main._get_contract_by_table", return_value=payload):
+        with patch("phlo_api.main._get_contract_by_table", return_value=payload) as get_contract:
             client = authenticated_client("admin")
             response = client.get("/api/contracts/raw.contract_demo")
 
         assert response.status_code == 200
         assert response.json() == payload
+        get_contract.assert_called_once_with("raw.contract_demo")
 
     def test_contract_detail_endpoint_not_found(self):
         """Detail endpoint returns 404 when table has no contract."""
@@ -333,13 +292,6 @@ class TestContractsEndpoints:
 class TestAPIServicePlugin:
     """Test API service plugin."""
 
-    def test_plugin_initializes(self):
-        """Test PhloApiServicePlugin can be instantiated."""
-        from phlo_api.plugin import PhloApiServicePlugin
-
-        plugin = PhloApiServicePlugin()
-        assert plugin is not None
-
     def test_plugin_metadata(self):
         """Test plugin metadata is defined."""
         from phlo_api.plugin import PhloApiServicePlugin
@@ -355,20 +307,5 @@ class TestAPIServicePlugin:
         service_def = plugin.service_definition
 
         assert isinstance(service_def, dict)
-
-
-# =============================================================================
-# Error Handling Tests
-# =============================================================================
-
-
-class TestErrorHandling:
-    """Test API error handling."""
-
-    def test_404_on_unknown_route(self):
-        """Test 404 returned for unknown routes."""
-
-        client = authenticated_client("admin")
-        response = client.get("/api/nonexistent/route")
-
-        assert response.status_code == 404
+        assert service_def["name"] == "phlo-api"
+        assert "compose" in service_def

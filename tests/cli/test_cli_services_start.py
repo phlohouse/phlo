@@ -28,7 +28,7 @@ from phlo.cli.commands.services.planner import StartPreflightPlan
 from phlo.cli.commands.services.utils import get_profile_service_names
 from phlo.cli.infrastructure.container_backend import ContainerInfo, ServiceStatus
 from phlo.plugins.discovery import ServiceDefinition
-from tests.helpers import FakeDiscovery, _service
+from tests.support import FakeDiscovery, _service
 
 
 class _ReadinessBackend:
@@ -525,8 +525,9 @@ def test_get_profile_service_names_returns_profile_services() -> None:
     assert result == []
 
 
-def test_run_service_hooks_uses_sys_executable_when_project_venv_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+@pytest.mark.parametrize("hook_command", ["python3", "python"], ids=["python3", "python"])
+def test_run_service_hooks_rebinds_python_to_phlo_interpreter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, hook_command: str
 ) -> None:
     from phlo.cli.commands.services import utils as services_utils
 
@@ -534,7 +535,7 @@ def test_run_service_hooks_uses_sys_executable_when_project_venv_missing(
         name="dagster",
         description="Dagster",
         category="orchestration",
-        hooks={"post_start": [{"command": ["python3", "-m", "phlo_dbt.hooks", "compile"]}]},
+        hooks={"post_start": [{"command": [hook_command, "-m", "phlo_dbt.hooks", "compile"]}]},
     )
 
     class ServiceFakeDiscovery(FakeDiscovery):
@@ -558,44 +559,7 @@ def test_run_service_hooks_uses_sys_executable_when_project_venv_missing(
         project_root=tmp_path,
     )
 
-    assert calls
-    assert calls[0][0] == "/usr/local/bin/current-python"
-
-
-def test_run_service_hooks_prefers_phlo_interpreter(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    from phlo.cli.commands.services import utils as services_utils
-
-    service = ServiceDefinition(
-        name="dagster",
-        description="Dagster",
-        category="orchestration",
-        hooks={"post_start": [{"command": ["python", "-m", "phlo_dbt.hooks", "compile"]}]},
-    )
-
-    class ServiceFakeDiscovery(FakeDiscovery):
-        def get_service(self, name: str):
-            return service if name == "dagster" else None
-
-    calls: list[list[str]] = []
-
-    def _fake_run_command(cmd, **_kwargs):
-        calls.append(list(cmd))
-        return CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr("phlo.plugins.discovery.ServiceDiscovery", ServiceFakeDiscovery)
-    monkeypatch.setattr(services_utils, "run_command", _fake_run_command)
-
-    services_utils._run_service_hooks(
-        "post_start",
-        ["dagster"],
-        project_name="demo",
-        project_root=tmp_path,
-    )
-
-    assert calls
-    assert calls[0][0] == services_utils.sys.executable
+    assert calls == [["/usr/local/bin/current-python", "-m", "phlo_dbt.hooks", "compile"]]
 
 
 def test_services_start_rejects_unknown_profile(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

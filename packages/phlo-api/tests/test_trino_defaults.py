@@ -10,7 +10,7 @@ from phlo_api.observatory_api import trino
 
 
 def test_resolve_default_catalog_uses_query_engine_metadata(monkeypatch) -> None:
-    """Catalog resolution should prefer query-engine capability metadata."""
+    """Catalog resolution falls back to query-engine metadata when no env override is set."""
     monkeypatch.delenv("PHLO_QUERY_CATALOG", raising=False)
     monkeypatch.delenv("TRINO_CATALOG", raising=False)
 
@@ -22,6 +22,8 @@ def test_resolve_default_catalog_uses_query_engine_metadata(monkeypatch) -> None
         ),
     ):
         assert trino.resolve_default_catalog() == "warehouse"
+        monkeypatch.setenv("PHLO_QUERY_CATALOG", "from-env")
+        assert trino.resolve_default_catalog() == "from-env"
 
 
 def test_resolve_default_catalog_requires_configuration(monkeypatch) -> None:
@@ -38,7 +40,7 @@ def test_resolve_default_catalog_requires_configuration(monkeypatch) -> None:
 
 
 def test_resolve_default_ref_uses_query_engine_metadata(monkeypatch) -> None:
-    """Ref resolution should prefer query-engine capability metadata."""
+    """Ref resolution falls back to query-engine metadata when no env override is set."""
     monkeypatch.delenv("PHLO_DEFAULT_REF", raising=False)
     monkeypatch.delenv("NESSIE_DEFAULT_REF", raising=False)
 
@@ -50,6 +52,8 @@ def test_resolve_default_ref_uses_query_engine_metadata(monkeypatch) -> None:
         ),
     ):
         assert trino.resolve_default_ref() == "dev"
+        monkeypatch.setenv("PHLO_DEFAULT_REF", "from-env")
+        assert trino.resolve_default_ref() == "from-env"
 
 
 def test_resolve_trino_url_uses_query_engine_metadata(monkeypatch) -> None:

@@ -59,17 +59,12 @@ def test_wait_for_dagster_runtime_uses_ready_marker(monkeypatch) -> None:
 
     wait_for_dagster_runtime("dagster-1", timeout_seconds=0.1)
 
-    assert calls == [
-        [
-            "docker",
-            "exec",
-            "dagster-1",
-            "sh",
-            "-lc",
-            "test -f /tmp/phlo-dagster-ready "
-            "|| python -c 'import phlo_dagster.framework.definitions'",
-        ]
-    ]
+    assert len(calls) == 1
+    command = calls[0]
+    assert command[:3] == ["docker", "exec", "dagster-1"]
+    shell = command[-1]
+    assert "test -f /tmp/phlo-dagster-ready" in shell
+    assert "phlo_dagster.framework.definitions" in shell
 
 
 async def _ready(*_args, **_kwargs) -> None:
@@ -524,6 +519,10 @@ def test_materialize_can_skip_default_partition(mock_project, mock_container) ->
 
     assert result.exit_code == 0
     assert "--partition" not in result.output
+    # The rest of the dry run must still be produced: absence of a partition is
+    # only meaningful next to the plan the command would execute.
+    assert "PHLO_CONTRACT_REFRESH_SELECTION=dlt_orders" in result.output
+    assert "docker exec" in result.output
 
 
 def test_materialize_json_dry_run_preserves_selection_partition_and_backend(monkeypatch) -> None:

@@ -13,7 +13,7 @@ from phlo.plugins.discovery.service_manifest import (
     ServiceManifestResolver,
 )
 from phlo.plugins.discovery.services import ServiceDiscovery
-from tests.helpers import DummyServicePlugin
+from tests.support import DummyServicePlugin
 
 
 def test_service_manifest_wraps_definition_and_source_path(tmp_path: Path) -> None:

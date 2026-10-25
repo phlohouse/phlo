@@ -68,70 +68,36 @@ def test_build_input_structure(
     assert result["context"]["request_id"] == "r1"
 
 
-def test_explain_decision_allow_bool_result(
+@pytest.mark.parametrize(
+    ("evaluate_result", "expected_allowed", "expected_reason_code", "expected_explanation"),
+    [
+        ({"result": True}, True, "opa_allow", None),
+        ({"result": False}, False, "opa_deny", None),
+        ({"result": {"allow": True, "reason": "custom"}}, True, None, "custom"),
+        ({"result": {"allow": False, "reason_code": "custom_deny"}}, False, "custom_deny", None),
+        (None, False, "backend_unavailable", None),
+    ],
+    ids=["bool-allow", "bool-deny", "dict-allow", "dict-deny", "no-response"],
+)
+def test_explain_decision_interprets_provider_results(
     backend: OPAAuthorizationPolicyBackend,
     principal: Principal,
     resource: ResourceRef,
     monkeypatch: pytest.MonkeyPatch,
+    evaluate_result,
+    expected_allowed: bool,
+    expected_reason_code: str | None,
+    expected_explanation: str | None,
 ) -> None:
-    monkeypatch.setattr(backend, "_evaluate", lambda _: {"result": True})
+    monkeypatch.setattr(backend, "_evaluate", lambda _: evaluate_result)
+
     decision = backend.explain_decision(principal, "dataset.read", resource)
-    assert decision.allowed is True
-    assert decision.reason_code == "opa_allow"
 
-
-def test_explain_decision_deny_bool_result(
-    backend: OPAAuthorizationPolicyBackend,
-    principal: Principal,
-    resource: ResourceRef,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(backend, "_evaluate", lambda _: {"result": False})
-    decision = backend.explain_decision(principal, "dataset.read", resource)
-    assert decision.allowed is False
-    assert decision.reason_code == "opa_deny"
-
-
-def test_explain_decision_allow_dict_result(
-    backend: OPAAuthorizationPolicyBackend,
-    principal: Principal,
-    resource: ResourceRef,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        backend, "_evaluate", lambda _: {"result": {"allow": True, "reason": "custom"}}
-    )
-    decision = backend.explain_decision(principal, "dataset.read", resource)
-    assert decision.allowed is True
-    assert decision.explanation == "custom"
-
-
-def test_explain_decision_deny_dict_result(
-    backend: OPAAuthorizationPolicyBackend,
-    principal: Principal,
-    resource: ResourceRef,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        backend,
-        "_evaluate",
-        lambda _: {"result": {"allow": False, "reason_code": "custom_deny"}},
-    )
-    decision = backend.explain_decision(principal, "dataset.read", resource)
-    assert decision.allowed is False
-    assert decision.reason_code == "custom_deny"
-
-
-def test_explain_decision_none_response(
-    backend: OPAAuthorizationPolicyBackend,
-    principal: Principal,
-    resource: ResourceRef,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(backend, "_evaluate", lambda _: None)
-    decision = backend.explain_decision(principal, "dataset.read", resource)
-    assert decision.allowed is False
-    assert decision.reason_code == "backend_unavailable"
+    assert decision.allowed is expected_allowed
+    if expected_reason_code is not None:
+        assert decision.reason_code == expected_reason_code
+    if expected_explanation is not None:
+        assert decision.explanation == expected_explanation
 
 
 def test_explain_decision_connect_error(

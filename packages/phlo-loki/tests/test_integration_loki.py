@@ -25,4 +25,7 @@ def test_loki_service_definition():
     plugin = LokiServicePlugin()
     service_def = plugin.service_definition
 
-    assert isinstance(service_def, dict)
+    assert service_def["name"] == "loki"
+    assert service_def["image"].startswith("grafana/loki:3.7.4@sha256:")
+    assert service_def["profile"] == "observability"
+    assert service_def["compose"]["ports"] == ["${LOKI_PORT:-3100}:3100"]

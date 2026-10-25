@@ -261,6 +261,12 @@ async def test_verifies_the_resulting_ref_contains_the_resolved_table(
         nessie_request=nessie,
     )
 
+    # Verification must read the table from the merged ref, not trust the plan.
+    assert any(
+        method == "GET" and path.endswith("staging-target@merged-hash/contents/sales.orders")
+        for method, path, _kwargs in nessie.calls
+    )
+
 
 async def test_rejects_a_result_ref_without_the_resolved_table(
     monkeypatch: pytest.MonkeyPatch,

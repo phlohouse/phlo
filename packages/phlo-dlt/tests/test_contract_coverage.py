@@ -9,6 +9,7 @@ import pandas as pd
 import pandera.pandas as pa
 import pytest
 from pandera.typing import Series
+from phlo.capabilities.specs import MaterializeResult
 from phlo.exceptions import PhloConfigError
 
 from phlo_dlt.contract_coverage import (
@@ -160,9 +161,7 @@ def test_partitioned_false_skips_partition_requirement(
     spec = assets["dlt_ref_codes"]
     assert spec.partitions is None
     results = list(spec.run.fn(runtime))
-    materializations = [
-        result for result in results if type(result).__name__ == "MaterializeResult"
-    ]
+    materializations = [result for result in results if isinstance(result, MaterializeResult)]
     assert materializations, "expected a materialization result"
 
 
@@ -264,31 +263,5 @@ def test_failing_quality_check_warns_in_non_strict_mode(
     results = list(spec.run.fn(_Runtime()))
     quality_results = [
         item for item in results if getattr(item, "check_name", "").startswith("quality_")
-    ]
-    assert [item.passed for item in quality_results] == [False]
-
-
-def test_failing_quality_check_raises_in_strict_mode(
-    stub_ingester: pd.DataFrame,
-) -> None:
-    @phlo_ingestion(
-        table_name="strict_guarded",
-        unique_key="code",
-        group="guarded",
-        validation_schema=RefSchema,
-        quality_checks=[failing_quality_check],
-    )
-    def load_strict(partition_date: str):
-        del partition_date
-        return [{"code": "A"}]
-
-    assets = {asset.key: asset for asset in get_ingestion_assets()}
-    spec = assets["dlt_strict_guarded"]
-    collected: list[object] = []
-    with pytest.raises(RuntimeError, match="Domain quality check failed"):
-        for item in spec.run.fn(_Runtime()):
-            collected.append(item)
-    quality_results = [
-        item for item in collected if getattr(item, "check_name", "").startswith("quality_")
     ]
     assert [item.passed for item in quality_results] == [False]

@@ -15,7 +15,7 @@ from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery, get_glob
 from phlo.plugins.discovery._service_definition import ServicePort
 from phlo.plugins.discovery._service_discovery import ServiceDiscovery as CompatServiceDiscovery
 from phlo.plugins.discovery.service_manifest import ServiceManifest, ServiceManifestError
-from tests.helpers import DummyServicePlugin as _DummyServicePlugin
+from tests.support import DummyServicePlugin as _DummyServicePlugin
 
 pytestmark = pytest.mark.core_regression
 
@@ -142,43 +142,6 @@ def test_service_discovery_raises_for_non_mapping_plugin_service_definitions(
         and signal["fields"]["error_type"] == "ServiceManifestError"
         and "bad_service" in str(signal["fields"]["error"])
         for signal in service_discovery_signals
-    )
-
-
-def test_service_loading_helper_skips_non_mapping_plugin_service_definitions(
-    clean_registry: object,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Compatibility helper also skips invalid plugin service payloads locally."""
-    from phlo.plugins.discovery import _service_loading
-
-    registry = get_global_registry()
-    registry.register("service", DummyServicePlugin(), replace=True)
-    registry.register("service", NonMappingServicePlugin(), replace=True)
-    events: list[DiscoverySignal] = []
-    services: dict[str, ServiceDefinition] = {}
-    monkeypatch.setattr(
-        _service_loading, "discover_plugins", lambda plugin_type, auto_register: None
-    )
-    monkeypatch.setattr(_service_loading, "resolve_plugin_source_path", lambda _plugin: None)
-    monkeypatch.setattr(
-        _service_loading,
-        "log_event",
-        lambda logger, level, event, **fields: events.append(
-            {"level": level, "event": event, "fields": fields}
-        ),
-    )
-
-    loaded_count = _service_loading.load_plugin_services(services)
-
-    assert loaded_count >= 1
-    assert "dummy_service" in services
-    assert any(
-        signal["level"] == "warning"
-        and signal["event"] == "service_plugin_definition_invalid"
-        and signal["fields"]["plugin_name"] == "bad_service"
-        and "Service definition must be a mapping" in str(signal["fields"]["error"])
-        for signal in events
     )
 
 

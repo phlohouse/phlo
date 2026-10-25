@@ -184,15 +184,29 @@ def _plan_restore(client, set_dir: Path, target: Path) -> dict[str, Any]:  # noq
 # --- inventory --------------------------------------------------------------
 
 
-def test_inventory_lists_one_supported_operation_per_landed_family(client) -> None:  # noqa: ANN001
+def test_inventory_lists_every_supported_operation_and_family(client) -> None:  # noqa: ANN001
     response = client.get("/api/continuity/operations")
 
     assert response.status_code == 200
     payload = response.json()
-    families = {entry["family"] for entry in payload["operations"]}
-    assert {"maintenance", "backup", "restore", "upgrade"} <= families
+    operations = payload["operations"]
+    assert {entry["operation"] for entry in operations} == {
+        "maintenance.plan",
+        "maintenance.apply",
+        "backup.create",
+        "restore.plan",
+        "restore.apply",
+        "upgrade.plan",
+        "upgrade.apply",
+    }
+    assert {entry["family"] for entry in operations} == {
+        "maintenance",
+        "backup",
+        "restore",
+        "upgrade",
+    }
     unsupported = {entry["operation"] for entry in payload["unsupported"]}
-    assert "orphan_delete" in unsupported
+    assert unsupported == {"orphan_delete"}
 
 
 # --- planning ---------------------------------------------------------------

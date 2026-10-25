@@ -88,24 +88,23 @@ def test_plan_fails_without_store(monkeypatch) -> None:
     assert "no maintenance store" in result.output
 
 
-def test_apply_succeeds_with_matching_token(provider, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("plan_token", "cli_token", "expect_success"),
+    [("plan-tok-1", "plan-tok-1", True), ("plan-tok-A", "plan-tok-B", False)],
+    ids=["matching-token", "mismatched-token"],
+)
+def test_apply_checks_confirmation_token(provider, tmp_path, plan_token, cli_token, expect_success):
     p = tmp_path / "plan.json"
-    p.write_text(_plan_json())
+    p.write_text(_plan_json(token=plan_token))
     result = _invoke(
-        ["apply", "--plan", str(p), "--confirmation-token", "plan-tok-1"],
+        ["apply", "--plan", str(p), "--confirmation-token", cli_token],
         journal_dir=tmp_path / "journal",
     )
-    assert result.exit_code == 0
-
-
-def test_apply_with_mismatched_token_fails(provider, tmp_path) -> None:
-    p = tmp_path / "plan.json"
-    p.write_text(_plan_json(token="plan-tok-A"))
-    result = _invoke(
-        ["apply", "--plan", str(p), "--confirmation-token", "plan-tok-B"],
-        journal_dir=tmp_path / "journal",
-    )
-    assert result.exit_code != 0
+    if expect_success:
+        assert result.exit_code == 0, result.output
+    else:
+        assert result.exit_code != 0
+        assert "confirmation token does not match the plan token" in result.output
 
 
 def test_apply_fails_closed_without_a_durable_journal(provider, tmp_path) -> None:
@@ -128,6 +127,7 @@ def test_apply_rejects_orphan_deletion(provider, tmp_path) -> None:
         journal_dir=tmp_path / "journal",
     )
     assert result.exit_code != 0
+    assert "orphan deletion is unsupported in v1" in result.output
 
 
 def test_plan_defaults_to_human_summary_and_supports_envelope(provider):

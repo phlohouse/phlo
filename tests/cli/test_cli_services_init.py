@@ -24,7 +24,7 @@ from phlo.plugins.compose import generator as generator_module
 from phlo.plugins.compose.env import generate_env, generate_env_local
 from phlo.plugins.compose.generator import ComposeGenerator
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery
-from tests.helpers import FakeDiscovery, _service
+from tests.support import FakeDiscovery, _service
 
 
 def test_production_credentials_reject_defaults_and_require_safe_usernames() -> None:
@@ -1628,8 +1628,6 @@ def test_generate_gitignore_ignores_staged_uv_lock_metadata(tmp_path) -> None:
 
     assert "/pyproject.toml" in content
     assert "/uv.lock" in content
-    assert "pyproject.toml" in content
-    assert "uv.lock" in content
 
 
 def _install_windows_default_encoding(monkeypatch: pytest.MonkeyPatch) -> None:

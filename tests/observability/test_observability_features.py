@@ -17,18 +17,6 @@ from phlo_alerting.manager import AlertDestination
 from phlo_lineage import LineageGraph
 
 
-def test_alert_creation() -> None:
-    alert = Alert(
-        title="Test Alert",
-        message="This is a test",
-        severity=AlertSeverity.WARNING,
-        asset_name="test_asset",
-        run_id="run_123",
-    )
-    assert alert.title == "Test Alert"
-    assert alert.severity == AlertSeverity.WARNING
-
-
 def test_alert_manager_registration() -> None:
     manager = get_alert_manager()
 

@@ -1,6 +1,7 @@
 """Tests the lineage CLI: asset name resolution against lineage graph
 nodes and the show-lineage output."""
 
+import pytest
 from click.testing import CliRunner
 from phlo_lineage.cli_lineage import _resolve_asset_name, lineage_group, show_lineage
 from phlo_lineage.graph import LineageGraph
@@ -38,13 +39,16 @@ def test_show_lineage_renders_direction_labels(monkeypatch) -> None:
     assert "[downstream]" in result.output
 
 
-def test_column_upstream_reports_database_failure(monkeypatch) -> None:
+@pytest.mark.parametrize("direction", ["upstream", "downstream"])
+def test_column_lineage_reports_database_failure(monkeypatch, direction: str) -> None:
+    def failing(*_args, **_kwargs):
+        raise RuntimeError("database down")
+
     class FailingStore:
         def __init__(self, _connection_string: str) -> None:
             pass
 
-        def get_upstream_columns(self, *_args, **_kwargs):
-            raise RuntimeError("database down")
+    setattr(FailingStore, f"get_{direction}_columns", failing)
 
     monkeypatch.setattr(
         "phlo_lineage.store.resolve_lineage_db_url_with_postgres_fallback",
@@ -52,30 +56,7 @@ def test_column_upstream_reports_database_failure(monkeypatch) -> None:
     )
     monkeypatch.setattr("phlo_lineage.store.LineageStore", FailingStore)
 
-    result = CliRunner().invoke(lineage_group, ["column", "upstream", "missing_asset"])
-
-    assert result.exit_code != 0
-    assert "could not query column lineage" in result.output
-    assert "Check that the lineage database is running and reachable." in result.output
-    assert "Run: phlo services status postgres" in result.output
-    assert "Traceback" not in result.output
-
-
-def test_column_downstream_reports_database_failure(monkeypatch) -> None:
-    class FailingStore:
-        def __init__(self, _connection_string: str) -> None:
-            pass
-
-        def get_downstream_columns(self, *_args, **_kwargs):
-            raise RuntimeError("database down")
-
-    monkeypatch.setattr(
-        "phlo_lineage.store.resolve_lineage_db_url_with_postgres_fallback",
-        lambda: "postgresql://lineage",
-    )
-    monkeypatch.setattr("phlo_lineage.store.LineageStore", FailingStore)
-
-    result = CliRunner().invoke(lineage_group, ["column", "downstream", "missing_asset"])
+    result = CliRunner().invoke(lineage_group, ["column", direction, "missing_asset"])
 
     assert result.exit_code != 0
     assert "could not query column lineage" in result.output

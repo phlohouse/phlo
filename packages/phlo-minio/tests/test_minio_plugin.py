@@ -9,7 +9,12 @@ backed by MinioResourceProvider.
 from pathlib import Path
 
 from phlo.plugins.discovery._service_definition import ServiceDefinition
-from phlo_minio.plugin import MinioResourceProvider, MinioServicePlugin, MinioSetupServicePlugin
+from phlo_minio.plugin import (
+    MinioObjectStoreProvider,
+    MinioResourceProvider,
+    MinioServicePlugin,
+    MinioSetupServicePlugin,
+)
 
 
 def test_minio_service_definition():
@@ -75,5 +80,10 @@ def test_minio_resource_provider_exposes_object_store(monkeypatch) -> None:
     object_stores = provider.get_object_stores()
 
     assert len(object_stores) == 1
-    assert object_stores[0].name == "minio"
-    assert object_stores[0].metadata["endpoint"] == "http://minio:9000"
+    store = object_stores[0]
+    assert store.name == "minio"
+    assert isinstance(store.provider, MinioObjectStoreProvider)
+    assert store.metadata["type"] == "s3"
+    assert store.metadata["storage_system"] == "s3"
+    assert store.metadata["endpoint"] == "http://minio:9000"
+    assert store.metadata["endpoint"] == store.provider.to_sling_connection()["endpoint"]

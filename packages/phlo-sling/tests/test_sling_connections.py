@@ -9,6 +9,8 @@ vars for the Sling CLI.
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from phlo_sling.connections import (
     _resolve_iceberg_connection,
     _resolve_s3_connection,
@@ -181,13 +183,31 @@ def test_clickhouse_connection_uses_native_settings(monkeypatch) -> None:
     }
 
 
-def test_delta_connection_uses_warehouse_path(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("warehouse_path", "expected"),
+    [
+        (
+            "s3://lake/warehouse/delta",
+            {
+                "type": "s3",
+                "bucket": "lake",
+                "endpoint": "http://localhost:9000",
+                "access_key": "minio",
+                "secret": "minio123",
+                "region": "us-east-1",
+            },
+        ),
+        ("/var/phlo/delta", {"type": "file", "root_path": "/var/phlo/delta"}),
+    ],
+    ids=["s3-warehouse", "local-root"],
+)
+def test_delta_connection_reflects_warehouse_path(monkeypatch, warehouse_path, expected) -> None:
     from types import SimpleNamespace
 
     from phlo_delta.settings import DeltaSettings
 
     provider = DeltaSettings(
-        delta_warehouse_path="s3://lake/warehouse/delta",
+        delta_warehouse_path=warehouse_path,
         delta_s3_endpoint="http://minio:9000",
         delta_s3_access_key="ak",
         delta_s3_secret_key="sk",
@@ -206,49 +226,22 @@ def test_delta_connection_uses_warehouse_path(monkeypatch) -> None:
     from phlo_sling.connections import _resolve_delta_connection
 
     conn = _resolve_delta_connection()
-    assert conn["PHLO_DELTA"] == {
-        "type": "s3",
-        "bucket": "lake",
-        "endpoint": "http://localhost:9000",
-        "access_key": "minio",
-        "secret": "minio123",
-        "region": "us-east-1",
-    }
+    assert conn["PHLO_DELTA"] == expected
 
 
-def test_delta_connection_local_root_omits_s3_keys(monkeypatch) -> None:
-    from types import SimpleNamespace
-
-    from phlo_delta.settings import DeltaSettings
-
-    provider = DeltaSettings(
-        delta_warehouse_path="/var/phlo/delta",
-        delta_s3_endpoint="http://minio:9000",
-        delta_s3_access_key="ak",
-        delta_s3_secret_key="sk",
-        delta_s3_region="us-east-1",
-    )
-    monkeypatch.setattr("phlo_sling.connections._ensure_capabilities_discovered", lambda *_k: None)
-    monkeypatch.setattr(
-        "phlo_sling.connections.resolve_capability",
-        lambda _kind, _name=None: SimpleNamespace(
-            name=_name,
-            provider=provider,
-            metadata={},
-        ),
-    )
-
-    from phlo_sling.connections import _resolve_delta_connection
-
-    conn = _resolve_delta_connection()
-    assert conn["PHLO_DELTA"] == {"type": "file", "root_path": "/var/phlo/delta"}
-
-
-def test_resolvers_return_empty_when_provider_missing(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "resolver_name",
+    [
+        "_resolve_clickhouse_connection",
+        "_resolve_delta_connection",
+        "_resolve_iceberg_connection",
+        "_resolve_postgres_connection",
+    ],
+)
+def test_resolvers_return_empty_when_provider_missing(monkeypatch, resolver_name: str) -> None:
     import phlo_sling.connections as conn_mod
 
-    def raise_import_error():
-        raise ImportError("not installed")
+    monkeypatch.setattr(conn_mod, "_ensure_capabilities_discovered", lambda *_args: None)
+    monkeypatch.setattr(conn_mod, "resolve_capability", lambda *_args, **_kwargs: None)
 
-    monkeypatch.setattr(conn_mod, "_resolve_clickhouse_connection", lambda: {})
-    assert conn_mod._resolve_clickhouse_connection() == {}
+    assert getattr(conn_mod, resolver_name)() == {}

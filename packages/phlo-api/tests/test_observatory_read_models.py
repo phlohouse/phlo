@@ -239,22 +239,22 @@ def test_validate_saved_query_sql_rejects_delete() -> None:
 
 def test_search_results_matches_services_and_assets() -> None:
     results = search_results(
-        query="post",
+        query="orders",
         services=[
             ObservatoryService(
-                id="postgres",
-                name="Postgres",
+                id="orders-api",
+                name="Orders API",
                 kind="service",
                 status="running",
                 health=ObservatoryHealth(state="ok"),
             )
         ],
-        assets=[ObservatoryAsset(id="raw.events", name="Raw Events", group="raw")],
+        assets=[ObservatoryAsset(id="raw.orders", name="Raw Orders", group="raw")],
         tables=[],
         operations=[],
     )
 
-    assert [result.id for result in results] == ["service:postgres"]
+    assert [result.id for result in results] == ["service:orders-api", "asset:raw.orders"]
 
 
 def test_search_results_includes_datasets_with_stable_ids_and_profile_hrefs() -> None:

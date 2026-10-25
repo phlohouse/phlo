@@ -17,7 +17,6 @@ from phlo.cli.infrastructure.container_backend import (
     select_container_backend,
     select_project_container_backend,
 )
-from phlo.config_schema import InfrastructureConfig
 from phlo.infrastructure import container_backend
 
 
@@ -307,20 +306,19 @@ def test_select_backend_defaults_to_docker(monkeypatch: pytest.MonkeyPatch) -> N
     assert isinstance(backend, DockerBackend)
 
 
-def test_select_backend_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("cli_backend", "expected_name"),
+    [(None, "podman"), ("docker", "docker")],
+    ids=["from-env", "cli-overrides-env"],
+)
+def test_select_backend_env_and_cli_precedence(
+    monkeypatch: pytest.MonkeyPatch, cli_backend: str | None, expected_name: str
+) -> None:
     monkeypatch.setenv("PHLO_CONTAINER_BACKEND", "podman")
 
-    backend = select_container_backend(cli_backend=None, config_backend=None)
+    backend = select_container_backend(cli_backend=cli_backend, config_backend=None)
 
-    assert backend.name == "podman"
-
-
-def test_select_backend_cli_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PHLO_CONTAINER_BACKEND", "podman")
-
-    backend = select_container_backend(cli_backend="docker", config_backend=None)
-
-    assert backend.name == "docker"
+    assert backend.name == expected_name
 
 
 def test_select_project_backend_uses_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -344,12 +342,6 @@ def test_select_backend_rejects_unknown(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(ValueError, match="containerd"):
         select_container_backend(cli_backend=None, config_backend=None)
-
-
-def test_infrastructure_config_accepts_container_backend() -> None:
-    config = InfrastructureConfig(container_backend="podman")
-
-    assert config.container_backend == "podman"
 
 
 def test_require_container_backend_reports_availability_timeout(

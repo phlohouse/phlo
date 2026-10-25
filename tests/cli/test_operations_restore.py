@@ -118,18 +118,32 @@ def test_plan_apply_round_trip(stubbed, tmp_path) -> None:
     assert payload["substrate"] == "fixture"
 
 
-def test_apply_requires_fixture_substrate(stubbed, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("use_plan_token", "fixture_substrate", "expected_message"),
+    [
+        (True, False, "fixture substrate"),
+        (False, True, "token_mismatch"),
+    ],
+    ids=["missing-fixture-substrate", "mismatched-token"],
+)
+def test_apply_rejects_unsafe_requests(
+    stubbed, tmp_path, use_plan_token, fixture_substrate, expected_message
+) -> None:
     set_dir = _make_set(tmp_path)
     plan_result = _invoke(["plan", "--backup-set", str(set_dir), "--target", str(tmp_path / "t")])
     plan = json.loads(plan_result.output)
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
-    apply_result = _invoke(
-        ["apply", "--plan", str(plan_path), "--confirmation-token", plan["plan_token"]],
-        journal_dir=tmp_path / "journal",
-    )
+
+    token = plan["plan_token"] if use_plan_token else "nope"
+    args = ["apply", "--plan", str(plan_path), "--confirmation-token", token]
+    if fixture_substrate:
+        args.append("--fixture-substrate")
+
+    apply_result = _invoke(args, journal_dir=tmp_path / "journal")
+
     assert apply_result.exit_code == 1
-    assert "fixture substrate" in apply_result.output
+    assert expected_message in apply_result.output
 
 
 def test_apply_fails_when_reconciliation_is_corrupt(stubbed, tmp_path) -> None:
@@ -154,25 +168,3 @@ def test_apply_fails_when_reconciliation_is_corrupt(stubbed, tmp_path) -> None:
     )
     assert apply_result.exit_code == 1
     assert "reconciliation" in apply_result.output
-
-
-def test_apply_rejects_mismatched_token(stubbed, tmp_path) -> None:
-    set_dir = _make_set(tmp_path)
-    plan_result = _invoke(["plan", "--backup-set", str(set_dir), "--target", str(tmp_path / "t")])
-    plan = json.loads(plan_result.output)
-    plan_path = tmp_path / "plan.json"
-    plan_path.write_text(json.dumps(plan), encoding="utf-8")
-
-    apply_result = _invoke(
-        [
-            "apply",
-            "--plan",
-            str(plan_path),
-            "--confirmation-token",
-            "nope",
-            "--fixture-substrate",
-        ],
-        journal_dir=tmp_path / "journal",
-    )
-    assert apply_result.exit_code == 1
-    assert "token_mismatch" in apply_result.output

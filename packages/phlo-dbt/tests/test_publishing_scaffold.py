@@ -108,8 +108,16 @@ def test_scaffold_command_writes_file(tmp_path: Path, monkeypatch: pytest.Monkey
     assert entry["dependencies"] == ["mrt_a"]
 
 
-def test_scaffold_command_can_write_physical_table_mappings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("schema_flag", "expected_table"),
+    [
+        ("--physical-schema", "gold.mrt_a"),
+        ("--iceberg-schema", "gold.mrt_a"),
+    ],
+    ids=["physical-schema", "legacy-iceberg-schema"],
+)
+def test_scaffold_command_maps_tables_to_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_flag: str, expected_table: str
 ) -> None:
     from click.testing import CliRunner
 
@@ -133,7 +141,7 @@ def test_scaffold_command_can_write_physical_table_mappings(
             "--source",
             "demo",
             "--physical-tables",
-            "--physical-schema",
+            schema_flag,
             "gold",
         ],
     )
@@ -143,44 +151,5 @@ def test_scaffold_command_can_write_physical_table_mappings(
         yaml.safe_load((tmp_path / "publishing.yaml").read_text())["publishing"]["demo"]["tables"][
             "mrt_a"
         ]
-        == "gold.mrt_a"
-    )
-
-
-def test_scaffold_command_keeps_legacy_iceberg_schema_alias(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from click.testing import CliRunner
-
-    from phlo_dbt.cli_publishing import publishing
-
-    monkeypatch.chdir(tmp_path)
-
-    manifest_path = tmp_path / "manifest.json"
-    _write_manifest(manifest_path, ["mrt_a"])
-
-    result = CliRunner().invoke(
-        publishing,
-        [
-            "scaffold",
-            "--manifest",
-            str(manifest_path),
-            "--output",
-            "publishing.yaml",
-            "--select",
-            "mrt_*",
-            "--source",
-            "demo",
-            "--physical-tables",
-            "--iceberg-schema",
-            "gold",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert (
-        yaml.safe_load((tmp_path / "publishing.yaml").read_text())["publishing"]["demo"]["tables"][
-            "mrt_a"
-        ]
-        == "gold.mrt_a"
+        == expected_table
     )

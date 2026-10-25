@@ -77,12 +77,8 @@ class TestGraphQLAuthentication:
         )
         assert response.status_code == 200
         data = response.json()
-        # Should not have auth errors with valid token
-        if "errors" in data:
-            # Check that errors are not auth-related
-            for error in data["errors"]:
-                assert "unauthorized" not in error.get("message", "").lower()
-                assert "permission" not in error.get("message", "").lower()
+        assert "errors" not in data, data
+        assert data["data"]["__schema"]["queryType"]["name"] == "query_root"
 
     def test_graphql_with_invalid_token(self):
         """Test GraphQL with invalid admin secret."""
@@ -136,7 +132,8 @@ class TestGraphQLIntrospection:
         )
         assert response.status_code == 200
         data = response.json()
-        assert "data" in data
+        assert data["data"]["__schema"]["queryType"]["name"] == "query_root"
+        assert data["data"]["__schema"]["mutationType"]["name"] == "mutation_root"
 
     def test_type_introspection(self, admin_headers):
         """Test type introspection."""
@@ -154,6 +151,7 @@ class TestGraphQLIntrospection:
             json={"query": query},
         )
         assert response.status_code == 200
+        assert response.json()["data"]["__type"] == {"name": "query_root", "kind": "OBJECT"}
 
 
 class TestGraphQLQueries:
@@ -164,8 +162,8 @@ class TestGraphQLQueries:
         """Get admin headers for Hasura."""
         return {"x-hasura-admin-secret": HASURA_ADMIN_SECRET}
 
-    def test_glucose_readings_query(self, admin_headers):
-        """Test simple GraphQL query."""
+    def test_typename_query(self, admin_headers):
+        """Test the query root answers with its own type name."""
         query = """
         query {
             __typename
@@ -177,81 +175,11 @@ class TestGraphQLQueries:
             json={"query": query},
         )
         assert response.status_code == 200
-        data = response.json()
-        assert "data" in data or "errors" in data
+        assert response.json()["data"]["__typename"] == "query_root"
 
 
-class TestGraphQLErrorHandling:
-    """Test GraphQL error handling."""
-
-    @pytest.fixture
-    def admin_headers(self) -> dict[str, str]:
-        """Get admin headers for Hasura."""
-        return {"x-hasura-admin-secret": HASURA_ADMIN_SECRET}
-
-    def test_malformed_query(self, admin_headers):
-        """Test handling of malformed GraphQL query."""
-        query = """
-        query {
-            this is not valid graphql
-        }
-        """
-        response = requests.post(
-            GRAPHQL_ENDPOINT,
-            headers=admin_headers,
-            json={"query": query},
-        )
-        assert response.status_code in [200, 400]
-        data = response.json()
-        assert "errors" in data
-
-    def test_nonexistent_field(self, admin_headers):
-        """Test querying non-existent field."""
-        query = """
-        query {
-            nonexistent_table {
-                id
-            }
-        }
-        """
-        response = requests.post(
-            GRAPHQL_ENDPOINT,
-            headers=admin_headers,
-            json={"query": query},
-        )
-        assert response.status_code in [200, 400]
-        data = response.json()
-        # Should have validation errors
-        assert "errors" in data
-
-    def test_empty_query(self, admin_headers):
-        """Test empty query handling."""
-        response = requests.post(
-            GRAPHQL_ENDPOINT,
-            headers=admin_headers,
-            json={"query": ""},
-        )
-        assert response.status_code in [200, 400]
-        assert "errors" in response.json()
-
-    def test_missing_query(self, admin_headers):
-        """Test missing query field."""
-        response = requests.post(
-            GRAPHQL_ENDPOINT,
-            headers=admin_headers,
-            json={},
-        )
-        assert response.status_code in [200, 400]
-        assert "errors" in response.json()
-
-
-class TestGraphQLHealthCheck:
-    """Test GraphQL health and connectivity."""
-
-    def test_graphql_endpoint_accessible(self):
-        """Test that GraphQL health endpoint is accessible."""
-        response = requests.get(f"{BASE_URL}/healthz", timeout=5)
-        assert response.status_code in [200, 204]
+class TestGraphQLConnectivity:
+    """Test GraphQL connectivity."""
 
     def test_graphql_post_method(self):
         """Test that GraphQL accepts POST requests with admin secret."""

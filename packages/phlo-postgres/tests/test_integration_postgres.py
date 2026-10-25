@@ -29,30 +29,47 @@ class TestPostgresConfiguration:
         assert hasattr(settings, "postgres_db")
         assert hasattr(settings, "postgres_user")
 
-    def test_postgres_config_has_defaults(self):
-        """Test Postgres config has sensible defaults."""
-        from phlo_postgres.settings import get_settings
+    def test_postgres_config_has_defaults(self, monkeypatch, tmp_path):
+        """Test Postgres config has concrete, non-empty defaults."""
+        from phlo_postgres.settings import PostgresSettings
 
-        settings = get_settings()
+        for name in (
+            "POSTGRES_HOST",
+            "POSTGRES_PORT",
+            "POSTGRES_USER",
+            "POSTGRES_DB",
+            "POSTGRES_MART_SCHEMA",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        with patch("phlo.config.network.socket.gethostbyname", lambda _host: "127.0.0.1"):
+            # Isolate from this workspace's .phlo/.env, which may set POSTGRES_PORT.
+            settings = PostgresSettings(_project_root=tmp_path)
 
-        assert settings.postgres_host is not None
-        assert settings.postgres_port > 0
-        assert settings.postgres_db is not None
+        assert settings.postgres_host == "postgres"
+        assert settings.postgres_port == 5432
+        assert settings.postgres_user == "phlo"
+        assert settings.postgres_db == "phlo"
+        assert settings.postgres_mart_schema == "marts"
 
     def test_connection_string_building(self):
-        """Test building a connection string from config."""
-        from phlo_postgres.settings import get_settings
+        """Test the production connection string encodes credentials correctly."""
+        from phlo_postgres.settings import PostgresSettings
 
-        settings = get_settings()
+        with patch("phlo.config.network.socket.gethostbyname", lambda _host: "127.0.0.1"):
+            settings = PostgresSettings(
+                postgres_host="db.internal",
+                postgres_port=6543,
+                postgres_user="svc",
+                postgres_password="p@ss/word",
+                postgres_db="lake",
+            )
 
-        # Build connection string
-        conn_str = (
-            f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
-            f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+        assert settings.get_postgres_connection_string() == (
+            "postgresql://svc:p%40ss%2Fword@db.internal:6543/lake"
         )
-
-        assert "postgresql://" in conn_str
-        assert str(settings.postgres_port) in conn_str
+        assert settings.get_postgres_connection_string(include_db=False) == (
+            "postgresql://svc:p%40ss%2Fword@db.internal:6543"
+        )
 
 
 # =============================================================================
@@ -87,24 +104,19 @@ class TestPostgresServicePlugin:
         plugin = PostgresServicePlugin()
         service_def = plugin.service_definition
 
-        assert isinstance(service_def, dict)
-        # Service definitions have flat structure with 'name' and 'compose' keys
-        assert "name" in service_def or "compose" in service_def
+        assert service_def["name"] == "postgres"
+        assert service_def["category"] == "core"
+        assert service_def["compose"]["healthcheck"]["test"][0] == "CMD-SHELL"
 
     def test_service_definition_has_image(self):
-        """Test service definition has container image specified."""
+        """Test service definition pins the upstream postgres image."""
         from phlo_postgres.plugin import PostgresServicePlugin
 
         plugin = PostgresServicePlugin()
         service_def = plugin.service_definition
 
-        # Navigate to find image
-        services = service_def.get("services", {})
-        if services:
-            # Should have postgres service with image
-            for svc_name, svc_config in services.items():
-                if "postgres" in svc_name.lower():
-                    assert "image" in svc_config or "build" in svc_config
+        assert service_def["image"].startswith("postgres:18.4-alpine3.24@sha256:")
+        assert "build" not in service_def
 
 
 # =============================================================================
@@ -116,48 +128,36 @@ class TestPostgresConnectionMocked:
     """Test Postgres connections with mocks."""
 
     def test_psycopg2_connect_with_config(self):
-        """Test psycopg2 connection using config values."""
-        import psycopg2
-        from phlo_postgres.settings import get_settings
+        """The settings store connects with the DSN built from Postgres settings."""
+        from phlo.capabilities.settings import SettingsScope
+        from phlo_postgres.settings import PostgresSettings
+        from phlo_postgres.settings_store import PostgresSettingsStore
 
-        settings = get_settings()
-
-        mock_conn = MagicMock()
-
-        with patch("psycopg2.connect", return_value=mock_conn) as mock_connect:
-            # Simulate what most code does
-            psycopg2.connect(
-                host=settings.postgres_host,
-                port=settings.postgres_port,
-                database=settings.postgres_db,
-                user=settings.postgres_user,
-                password=settings.postgres_password,
+        with patch("phlo.config.network.socket.gethostbyname", lambda _host: "127.0.0.1"):
+            settings = PostgresSettings(
+                postgres_host="db.internal",
+                postgres_port=6543,
+                postgres_user="svc",
+                postgres_password="p@ss/word",
+                postgres_db="lake",
             )
 
-            mock_connect.assert_called_once()
-            # Verify kwargs
-            call_kwargs = mock_connect.call_args.kwargs
-            assert call_kwargs["host"] == settings.postgres_host
-            assert call_kwargs["database"] == settings.postgres_db
-
-    def test_connection_with_cursor_context(self):
-        """Test connection with cursor context manager."""
-        mock_cursor = MagicMock()
-        mock_cursor.fetchall.return_value = [(1,)]
-
         mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__ = lambda _: mock_cursor
-        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.__enter__.return_value = mock_conn
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-        with patch("psycopg2.connect", return_value=mock_conn):
-            import psycopg2
+        with (
+            patch("phlo_postgres.settings_store.get_postgres_settings", return_value=settings),
+            patch("phlo_postgres.settings_store.ObservatorySettingsStorageConfig") as config,
+            patch("psycopg2.connect", return_value=mock_conn) as mock_connect,
+        ):
+            config.return_value.observatory_settings_db_url = None
+            store = PostgresSettingsStore()
+            assert store.get(SettingsScope.GLOBAL, "demo") is None
 
-            conn = psycopg2.connect(host="localhost", database="test")
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                result = cur.fetchall()
-
-            assert result == [(1,)]
+        mock_connect.assert_called_once_with("postgresql://svc:p%40ss%2Fword@db.internal:6543/lake")
 
 
 # =============================================================================
@@ -265,7 +265,7 @@ class TestPostgresIntegrationReal:
         # Rollback
         postgres_connection.rollback()
 
-        # Table should not exist after rollback
+        # The temporary table must be gone after rollback
         with postgres_connection.cursor() as cur:
             cur.execute("""
                 SELECT COUNT(*) FROM information_schema.tables
@@ -273,8 +273,7 @@ class TestPostgresIntegrationReal:
             """)
             result = cur.fetchone()
 
-        # This may vary based on temp table behavior
-        assert result is not None
+        assert result[0] == 0
 
 
 # =============================================================================
@@ -290,9 +289,3 @@ class TestPostgresExports:
         from phlo_postgres.plugin import PostgresServicePlugin
 
         assert PostgresServicePlugin is not None
-
-    def test_module_importable(self):
-        """Test phlo_postgres module is importable."""
-        import phlo_postgres
-
-        assert phlo_postgres is not None

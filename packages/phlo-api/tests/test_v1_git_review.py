@@ -117,42 +117,61 @@ async def test_project_draft_pr_uses_fixed_target_and_creates_review_only_change
     assert all("test-only-token" not in str(call.url) for call in calls)
 
 
+def _open_draft_pr() -> dict[str, object]:
+    return {
+        "number": 42,
+        "html_url": "https://github.com/acme/project-data/pull/42",
+        "base": {"ref": "main"},
+        "head": {
+            "ref": f"phlo/asset-check-{_proposal().proposal_id}",
+            "repo": {"full_name": "acme/project-data"},
+        },
+        "draft": True,
+        "body": f"Source SHA-256: `{_proposal().source_digest}`",
+    }
+
+
 @pytest.mark.anyio
 async def test_existing_draft_pull_request_is_replayed_without_writes():
+    """A matching open draft is returned as-is; no write request is made."""
+    methods: list[str] = []
+
     async def respond(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
         assert request.method == "GET"
         assert request.url.path.endswith("/pulls")
-        return httpx.Response(
-            200,
-            json=[
-                {
-                    "number": 42,
-                    "html_url": "https://github.com/acme/project-data/pull/42",
-                    "base": {"ref": "main"},
-                    "head": {
-                        "ref": f"phlo/asset-check-{_proposal().proposal_id}",
-                        "repo": {"full_name": "acme/project-data"},
-                    },
-                    "draft": True,
-                    "body": f"Source SHA-256: `{_proposal().source_digest}`",
-                }
-            ],
-        )
+        return httpx.Response(200, json=[_open_draft_pr()])
 
     async with httpx.AsyncClient(
         base_url="https://api.github.com",
         transport=httpx.MockTransport(respond),
     ) as client:
         result = await publish_project_draft_pr(client, _config(), _proposal())
-        previous = "Existing reviewed contract\n"
-        replacement = _proposal(
-            previous_source=previous,
-            previous_source_digest=hashlib.sha256(previous.encode()).hexdigest(),
-        )
-        with pytest.raises(GitReviewConflict):
-            await publish_project_draft_pr(client, _config(), replacement)
 
     assert result.pull_request_number == 42
+    assert set(methods) == {"GET"}
+
+
+@pytest.mark.anyio
+async def test_replayed_pull_request_rejects_a_changed_source_digest():
+    """A review-only PR at the same branch cannot be replayed for different source."""
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(200, json=[_open_draft_pr()])
+
+    previous = "Existing reviewed contract\n"
+    replacement = _proposal(
+        previous_source=previous,
+        previous_source_digest=hashlib.sha256(previous.encode()).hexdigest(),
+    )
+
+    async with httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        with pytest.raises(GitReviewConflict):
+            await publish_project_draft_pr(client, _config(), replacement)
 
 
 @pytest.mark.anyio
@@ -195,7 +214,8 @@ async def test_existing_quality_file_is_never_overwritten():
             await publish_project_draft_pr(client, _config(), _proposal())
 
 
-def test_project_git_review_configuration_is_required_and_fixed(monkeypatch):
+def test_project_git_review_configuration_is_required_and_env_bound(monkeypatch):
+    """All three review settings are mandatory and come only from the environment."""
     for name in (
         "PHLO_V1_GIT_REVIEW_REPOSITORY",
         "PHLO_V1_GIT_REVIEW_BASE_BRANCH",

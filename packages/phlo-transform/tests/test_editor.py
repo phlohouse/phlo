@@ -60,8 +60,26 @@ def test_source_is_not_modified_and_each_draft_revision_remains_immutable(editab
 def test_changed_source_or_workspace_is_rejected_before_save(editable):
     root, workspace = editable
     source = editor.read_model_source(root, "review.inspection")
+    model_path = workspace.root / "transforms/inspection.sql"
+    original_source = model_path.read_text()
+
+    model_path.write_text("SELECT 2")
+    with pytest.raises(editor.TransformEditorError, match="source workspace changed"):
+        editor.save_model_draft(
+            root,
+            "review.inspection",
+            actor="author",
+            env="sandbox",
+            ref="main",
+            sql="SELECT1",
+            source_digest=source["source_digest"],
+            workspace_digest=source["workspace_digest"],
+        )
+    assert model_path.read_text() == "SELECT 2"
+    model_path.write_text(original_source)
+
     (workspace.root / "phlo.toml").write_text('[transform]\ndefault_catalog="other"\n')
-    with pytest.raises(editor.TransformEditorError, match="workspace changed"):
+    with pytest.raises(editor.TransformEditorError, match="source workspace changed"):
         editor.save_model_draft(
             root,
             "review.inspection",

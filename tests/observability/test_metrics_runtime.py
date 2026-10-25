@@ -21,7 +21,6 @@ from phlo.metrics import (
     MetricsCollector,
     MetricsDependencyError,
     MetricsMalformedResponseError,
-    RunMetrics,
     SummaryMetrics,
     get_metrics_collector,
 )
@@ -46,21 +45,6 @@ def test_asset_metrics_defaults() -> None:
     assert metrics.last_10_runs == []
     assert metrics.average_duration == 0.0
     assert metrics.failure_rate == 0.0
-
-
-def test_run_metrics_creation() -> None:
-    now = datetime.now(UTC)
-    run = RunMetrics(
-        asset_name="test_asset",
-        run_id="run123",
-        start_time=now,
-        status="success",
-        rows_processed=1000,
-    )
-    assert run.asset_name == "test_asset"
-    assert run.run_id == "run123"
-    assert run.status == "success"
-    assert run.rows_processed == 1000
 
 
 def test_collect_summary_computes_once_per_period_then_serves_from_cache(
@@ -91,10 +75,11 @@ def test_collect_summary_computes_once_per_period_then_serves_from_cache(
     assert second == first
 
 
-def test_collect_summary_closes_postgres_connection_after_query_failure(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("close_fails", [False, True], ids=["close-succeeds", "close-fails"])
+def test_collect_summary_releases_postgres_connection_after_query_failure(
+    monkeypatch: pytest.MonkeyPatch, close_fails: bool
 ) -> None:
-    """A failed metrics query still releases its owned PostgreSQL connection."""
+    """A failed metrics query still releases its connection; close errors stay best-effort."""
 
     class FailingConnection:
         close_calls = 0
@@ -104,33 +89,8 @@ def test_collect_summary_closes_postgres_connection_after_query_failure(
 
         def close(self) -> None:
             FailingConnection.close_calls += 1
-
-    connection = FailingConnection()
-    monkeypatch.setattr("phlo.metrics.psycopg2.connect", lambda **_kwargs: connection)
-    collector = MetricsCollector()
-    monkeypatch.setattr(collector, "_collect_from_prometheus", lambda _hours: SummaryMetrics())
-    monkeypatch.setattr(collector, "_collect_from_iceberg", dict)
-
-    result = collector.collect_summary(period_hours=24)
-
-    assert result.total_rows_processed_24h == 0
-    assert FailingConnection.close_calls == 1
-
-
-def test_collect_summary_ignores_postgres_close_failure_after_query_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Best-effort cleanup cannot mask the existing partial-result contract."""
-
-    class FailingConnection:
-        close_calls = 0
-
-        def cursor(self, **_kwargs):
-            raise RuntimeError("query unavailable")
-
-        def close(self) -> None:
-            FailingConnection.close_calls += 1
-            raise RuntimeError("close unavailable")
+            if close_fails:
+                raise RuntimeError("close unavailable")
 
     connection = FailingConnection()
     monkeypatch.setattr("phlo.metrics.psycopg2.connect", lambda **_kwargs: connection)

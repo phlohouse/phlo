@@ -13,7 +13,12 @@ from typing import Any
 import pytest
 
 from phlo.migrations.adapters import CsvSourceAdapter, resolve_source_adapter
-from phlo.migrations.specs import MigrationSource, MigrationSourceError, MigrationSourceValue
+from phlo.migrations.specs import (
+    FileMigrationSource,
+    MigrationSource,
+    MigrationSourceError,
+    MigrationSourceValue,
+)
 
 
 def _csv_source(path: str | None = None, **kwargs: Any) -> MigrationSourceValue:
@@ -30,6 +35,7 @@ class TestCsvSourceAdapter:
         assert CsvSourceAdapter().source_type == "csv"
 
     def test_validate_missing_path(self) -> None:
+        """The CSV source contract requires a path before an adapter sees it."""
         with pytest.raises(MigrationSourceError, match="path"):
             _csv_source(path=None)
 
@@ -77,8 +83,13 @@ class TestCsvSourceAdapter:
         assert CsvSourceAdapter().estimate_row_count(_csv_source(path=str(csv_file))) == 3
 
     def test_estimate_row_count_missing_path(self) -> None:
-        with pytest.raises(MigrationSourceError, match="path"):
-            _csv_source(path=None)
+        """The adapter reports no count for a source whose path is absent.
+
+        The public model rejects a pathless file source, so this exercises the
+        adapter's defensive branch directly rather than a reachable input.
+        """
+        source = FileMigrationSource.model_construct(kind="file", type="csv", path=None)
+        assert CsvSourceAdapter().estimate_row_count(source) is None
 
 
 class _FakeRegistry:

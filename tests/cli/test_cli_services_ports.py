@@ -15,52 +15,26 @@ from click.testing import CliRunner
 from phlo.cli.commands.services import ports as ports_module
 from phlo.cli.infrastructure.container_backend import ContainerInfo
 from phlo.plugins.discovery import ServiceDefinition
-from tests.helpers import DummyServicePlugin, FakeDiscovery
+from tests.support import DummyServicePlugin, FakeDiscovery
 
 
-def test_parse_compose_port_with_env_var() -> None:
-    env_var, container_port = ports_module._parse_compose_port("${POSTGRES_PORT:-5432}:5432")
-    assert env_var == "POSTGRES_PORT"
-    assert container_port == "5432"
+@pytest.mark.parametrize(
+    ("spec", "env_var", "host_port", "container_port"),
+    [
+        ("${POSTGRES_PORT:-5432}:5432", "POSTGRES_PORT", "5432", "5432"),
+        ("${POSTGRES_PORT}:5432", "POSTGRES_PORT", None, "5432"),
+        ("5432:5432", None, "5432", "5432"),
+        ("10000:5432", None, "10000", "5432"),
+        ("127.0.0.1:10000:5432", None, "10000", "5432"),
+        ("127.0.0.1:${POSTGRES_PORT:-10000}:5432", "POSTGRES_PORT", "10000", "5432"),
+    ],
+)
+def test_parse_compose_port_spec(spec, env_var, host_port, container_port) -> None:
+    parsed = ports_module._parse_compose_port_spec(spec)
 
-
-def test_parse_compose_port_with_bind_address_and_env_var() -> None:
-    spec = ports_module._parse_compose_port_spec("127.0.0.1:${POSTGRES_PORT:-10000}:5432")
-    assert spec.env_var == "POSTGRES_PORT"
-    assert spec.host_port == "10000"
-    assert spec.container_port == "5432"
-
-
-def test_parse_compose_port_with_default_only() -> None:
-    env_var, container_port = ports_module._parse_compose_port("${POSTGRES_PORT}:5432")
-    assert env_var == "POSTGRES_PORT"
-    assert container_port == "5432"
-
-
-def test_parse_compose_port_no_env() -> None:
-    env_var, container_port = ports_module._parse_compose_port("5432:5432")
-    assert env_var is None
-    assert container_port == "5432"
-
-
-def test_parse_compose_port_with_host_port() -> None:
-    env_var, container_port = ports_module._parse_compose_port("10000:5432")
-    assert env_var is None
-    assert container_port == "5432"
-
-
-def test_parse_compose_port_spec_with_host_port() -> None:
-    spec = ports_module._parse_compose_port_spec("127.0.0.1:10000:5432")
-    assert spec.env_var is None
-    assert spec.host_port == "10000"
-    assert spec.container_port == "5432"
-
-
-def test_parse_compose_port_spec_with_loopback_and_env_default() -> None:
-    spec = ports_module._parse_compose_port_spec("127.0.0.1:${POSTGRES_PORT:-10000}:5432")
-    assert spec.env_var == "POSTGRES_PORT"
-    assert spec.host_port == "10000"
-    assert spec.container_port == "5432"
+    assert parsed.env_var == env_var
+    assert parsed.host_port == host_port
+    assert parsed.container_port == container_port
 
 
 def test_parse_compose_port_spec_with_host_ip_and_env_var() -> None:
@@ -80,22 +54,17 @@ def test_parse_compose_port_spec_with_host_ip_and_env_var() -> None:
     ) == (11001, "env", "MINIO_API_PORT")
 
 
-def test_resolve_env_var_found() -> None:
-    env = {"POSTGRES_PORT": "10000"}
-    result = ports_module._resolve_env_var("POSTGRES_PORT", env)
-    assert result == "10000"
-
-
-def test_resolve_env_var_not_found() -> None:
-    env: dict[str, str] = {}
-    result = ports_module._resolve_env_var("POSTGRES_PORT", env)
-    assert result is None
-
-
-def test_resolve_env_var_none() -> None:
-    env: dict[str, str] = {}
-    result = ports_module._resolve_env_var(None, env)
-    assert result is None
+@pytest.mark.parametrize(
+    ("env_var", "env", "expected"),
+    [
+        ("POSTGRES_PORT", {"POSTGRES_PORT": "10000"}, "10000"),
+        ("POSTGRES_PORT", {}, None),
+        (None, {}, None),
+    ],
+    ids=["found", "missing", "no-var-name"],
+)
+def test_resolve_env_var(env_var: str | None, env: dict[str, str], expected: str | None) -> None:
+    assert ports_module._resolve_env_var(env_var, env) == expected
 
 
 def test_detect_conflicts_no_conflicts() -> None:
@@ -434,32 +403,19 @@ def test_load_environment_merges_config_and_shell_overrides(
     assert env["TRINO_PORT"] == "18080"
 
 
-def test_get_service_ports_no_ports() -> None:
+@pytest.mark.parametrize(
+    ("compose", "show_all"),
+    [({}, False), ({"ports": ["${POSTGRES_PORT:-5432}:5432"]}, False)],
+    ids=["no-ports", "hidden-stopped-port"],
+)
+def test_get_service_ports_returns_nothing(compose, show_all) -> None:
     env: dict[str, str] = {}
     running_containers: dict[str, dict] = {}
-    show_all = False
 
     service = ServiceDefinition(
         name="postgres",
         description="PostgreSQL",
-        compose={},
-    )
-
-    ports = ports_module._get_service_ports(service, env, running_containers, show_all)
-    assert ports == []
-
-
-def test_get_service_ports_hides_stopped_configured_ports_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    env: dict[str, str] = {}
-    running_containers: dict[str, dict] = {}
-    show_all = False
-
-    service = ServiceDefinition(
-        name="postgres",
-        description="PostgreSQL",
-        compose={"ports": ["${POSTGRES_PORT:-5432}:5432"]},
+        compose=compose,
     )
 
     ports = ports_module._get_service_ports(service, env, running_containers, show_all)

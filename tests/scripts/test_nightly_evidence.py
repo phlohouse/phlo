@@ -113,33 +113,31 @@ def test_main_prints_redacted_step_error_and_actions_annotation(
     assert report["error"] == "stack failed: password=<redacted>"
 
 
-def test_journaled_maintenance_rejects_unaccepted_apply(monkeypatch, tmp_path, project):
+@pytest.mark.parametrize(
+    ("journal_state", "apply", "expected_error"),
+    [
+        (
+            "failed",
+            {"accepted": False, "status": "blocked", "blockers": ["concurrent_change"]},
+            "not accepted",
+        ),
+        ("submitted", {"accepted": True, "status": "noop"}, "no succeeded"),
+    ],
+    ids=["unaccepted-apply", "journal-not-succeeded"],
+)
+def test_journaled_maintenance_requires_accepted_and_succeeded_journal(
+    monkeypatch, tmp_path, project, journal_state, apply, expected_error
+):
     journal_dir = tmp_path / "journal"
     journal_dir.mkdir()
     (journal_dir / "op.json").write_text(
-        json.dumps({"action": "x", "state": "failed", "target": "t"}), encoding="utf-8"
+        json.dumps({"action": "x", "state": journal_state, "target": "t"}), encoding="utf-8"
     )
     plan = {"plan_token": "tok", "before_revision": 1}
-    apply = {"accepted": False, "status": "blocked", "blockers": ["concurrent_change"]}
     outputs = iter([json.dumps(plan), json.dumps(apply)])
     monkeypatch.setattr(nightly_evidence, "phlo", lambda *a, **k: next(outputs))
 
-    with pytest.raises(nightly_evidence.StepError, match="not accepted"):
-        nightly_evidence.journaled_maintenance(project, journal_dir)
-
-
-def test_journaled_maintenance_requires_succeeded_journal(monkeypatch, tmp_path, project):
-    journal_dir = tmp_path / "journal"
-    journal_dir.mkdir()
-    (journal_dir / "op.json").write_text(
-        json.dumps({"action": "x", "state": "submitted", "target": "t"}), encoding="utf-8"
-    )
-    plan = {"plan_token": "tok", "before_revision": 1}
-    apply = {"accepted": True, "status": "noop"}
-    outputs = iter([json.dumps(plan), json.dumps(apply)])
-    monkeypatch.setattr(nightly_evidence, "phlo", lambda *a, **k: next(outputs))
-
-    with pytest.raises(nightly_evidence.StepError, match="no succeeded"):
+    with pytest.raises(nightly_evidence.StepError, match=expected_error):
         nightly_evidence.journaled_maintenance(project, journal_dir)
 
 
@@ -191,26 +189,20 @@ def test_enforcement_probe_records_allow_deny_and_nessie_boundary(monkeypatch, p
     assert 'NESSIE_SERVER_AUTHORIZATION_ENABLED: "true"' in override
 
 
-def test_enforcement_probe_fails_when_postgres_deny_allows(monkeypatch, project):
-    probes = _probe_results(
-        (0, "1 row"),
-        (0, "1 row"),  # deny probe wrongly succeeds
-        (0, "raw/"),
-        (0, "Access Denied"),
-    )
-    monkeypatch.setattr(nightly_evidence, "probe_compose", lambda *a, **k: next(probes))
+@pytest.mark.parametrize(
+    "probe_results",
+    [
+        ((0, "1 row"), (0, "1 row"), (0, "raw/"), (0, "Access Denied")),
+        ((0, "1 row"), (1, "permission denied"), (0, "raw/"), (0, "raw/")),
+    ],
+    ids=["postgres-deny-allows", "minio-deny-allows"],
+)
+def test_enforcement_probe_fails_when_deny_probe_allows(monkeypatch, project, probe_results):
+    """Probe order: postgres allow, postgres deny, minio allow, minio deny.
 
-    with pytest.raises(nightly_evidence.StepError, match="deny probe failed"):
-        nightly_evidence.enforcement_probe(project)
-
-
-def test_enforcement_probe_fails_when_minio_deny_allows(monkeypatch, project):
-    probes = _probe_results(
-        (0, "1 row"),
-        (1, "permission denied"),
-        (0, "raw/"),
-        (0, "raw/"),  # bucket-root listing wrongly succeeds — mc exits 0 either way
-    )
+    The deny probes must be refused; the cases make one backend wrongly allow instead.
+    """
+    probes = _probe_results(*probe_results)
     monkeypatch.setattr(nightly_evidence, "probe_compose", lambda *a, **k: next(probes))
 
     with pytest.raises(nightly_evidence.StepError, match="deny probe failed"):

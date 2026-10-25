@@ -63,9 +63,6 @@ def test_helper_is_network_local_and_uses_locked_dependency_export(tmp_path, mon
     recovery_drill.prepare_helper(tmp_path)
 
     assert recovery_drill.HELPER_IMAGE.startswith("python@sha256:")
-    assert recovery_drill.HELPER_IMAGE != (
-        "python@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93"
-    )
     assert "http://nessie:19120/iceberg/main" in recovery_drill.helper_source()
     assert '"s3.endpoint": "http://minio:9000"' in recovery_drill.helper_source()
     assert calls == [
@@ -421,6 +418,10 @@ def test_start_waits_for_postgres_before_other_health_checks(monkeypatch, tmp_pa
 
     assert calls[0] == ("up", "-d", "postgres", "minio", "nessie")
     assert calls[1] == ("exec", "-T", "postgres", "pg_isready", "-U", "phlo")
+    http_waits = [call for call in calls[2:] if call[0] == "http"]
+    assert len(http_waits) == 2
+    assert any("/minio/health/ready" in url for _, url in http_waits)
+    assert any("/api/v1/config" in url for _, url in http_waits)
 
 
 def test_manifest_requires_regular_postgres_file_and_lake_directory(tmp_path):

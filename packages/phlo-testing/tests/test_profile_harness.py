@@ -166,7 +166,14 @@ def test_bundled_stack_harness_read_env_merges_local_secrets(
     assert env_vars["MINIO_ROOT_PASSWORD"] == "minio-secret"
 
 
-def test_bundled_stack_harness_cleanup_skips_kept_stack(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("force", "expected_stop_calls", "expected_removed"),
+    [(False, [], []), (True, [False], [Path("/tmp/project")])],
+    ids=["keep-running", "forced"],
+)
+def test_bundled_stack_harness_cleanup_honours_force(
+    monkeypatch, force: bool, expected_stop_calls: list[bool], expected_removed: list[Path]
+) -> None:
     stop_calls: list[bool] = []
     removed_paths: list[Path] = []
 
@@ -196,46 +203,10 @@ def test_bundled_stack_harness_cleanup_skips_kept_stack(monkeypatch) -> None:
         lambda self, *, stream_output=True: stop_calls.append(stream_output),
     )
 
-    harness.cleanup(stream_output=False)
+    harness.cleanup(stream_output=False, force=force)
 
-    assert stop_calls == []
-    assert removed_paths == []
-
-
-def test_bundled_stack_harness_cleanup_force_stops_kept_stack(monkeypatch) -> None:
-    stop_calls: list[bool] = []
-    removed_paths: list[Path] = []
-
-    monkeypatch.setattr(
-        "phlo_testing.profile_harness.force_remove_directory",
-        lambda path: removed_paths.append(path) or True,
-    )
-
-    harness = BundledStackHarness(
-        project_dir=Path("/tmp/project"),
-        phlo_source=Path("/tmp/source"),
-        python_executable=Path("/tmp/project/.venv/bin/python"),
-        ports=BundledStackPorts(
-            phlo_api=54000,
-            dagster=3000,
-            postgres=5432,
-            trino=8080,
-            minio_api=9000,
-            minio_console=9001,
-            nessie=19120,
-        ),
-        keep_running=True,
-    )
-    monkeypatch.setattr(
-        BundledStackHarness,
-        "stop_services",
-        lambda self, *, stream_output=True: stop_calls.append(stream_output),
-    )
-
-    harness.cleanup(stream_output=False, force=True)
-
-    assert stop_calls == [False]
-    assert removed_paths == [Path("/tmp/project")]
+    assert stop_calls == expected_stop_calls
+    assert removed_paths == expected_removed
 
 
 def test_bundled_stack_harness_get_run_status_reads_metadata_db(monkeypatch) -> None:

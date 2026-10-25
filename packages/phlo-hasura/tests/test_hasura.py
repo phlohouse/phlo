@@ -143,6 +143,10 @@ class TestHasuraClient:
 
         assert result["message"] == "success"
 
+        payload = mock_request.call_args[1]["json"]
+        assert payload["type"] == "pg_untrack_table"
+        assert payload["args"] == {"schema": "api", "table": "glucose_readings"}
+
     @patch("phlo_hasura.client.requests.request")
     def test_create_select_permission(self, mock_request):
         """Should create SELECT permission."""
@@ -447,6 +451,14 @@ class TestHasuraPermissionManager:
         assert results["insert"][("api.glucose_readings", "loader")] is True
         assert results["update"][("api.glucose_readings", "editor")] is True
         assert results["delete"][("api.glucose_readings", "admin")] is True
+        mock_insert.assert_called_once_with(
+            "api",
+            "glucose_readings",
+            "loader",
+            check={"tenant_id": {"_eq": "X-Hasura-Tenant-Id"}},
+            columns=["reading_id", "sgv"],
+            set={"tenant_id": "x-hasura-tenant-id"},
+        )
 
     @patch.object(HasuraClient, "export_metadata")
     def test_export_permissions(self, mock_export, sample_metadata):
@@ -531,6 +543,7 @@ class TestHasuraMetadataSync:
         result = syncer.import_metadata(str(metadata_file))
 
         assert result["message"] == "success"
+        mock_apply.assert_called_once_with(sample_metadata)
 
     def test_get_diff(self, sample_metadata):
         """Should calculate diff between metadata versions."""

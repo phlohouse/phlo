@@ -25,6 +25,24 @@ def test_get_request_correlation_id_sets_request_state():
 
     assert correlation_id
     assert request.state.request_id == correlation_id
+    # A missing id is generated per request, not shared as a constant.
+    assert get_request_correlation_id(SimpleNamespace(headers={}, state=SimpleNamespace())) != (
+        correlation_id
+    )
+
+    # A caller-supplied id is honoured when the request has none...
+    supplied = SimpleNamespace(headers={"x-request-id": "req-from-header"}, state=SimpleNamespace())
+    assert get_request_correlation_id(supplied) == "req-from-header"
+    assert supplied.state.request_id == "req-from-header"
+
+    # ...and an already-established state value wins, so middleware and
+    # handlers cannot disagree about the id for one request.
+    established = SimpleNamespace(
+        headers={"x-request-id": "req-from-header"},
+        state=SimpleNamespace(request_id="req-established"),
+    )
+    assert get_request_correlation_id(established) == "req-established"
+    assert established.state.request_id == "req-established"
 
 
 def test_build_downstream_service_headers_uses_request_identity(monkeypatch):

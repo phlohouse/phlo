@@ -7,12 +7,11 @@ everywhere, so it is expressed once here:
 - reads allow without enforcement,
 - unknown commands deny closed with ``unknown_command``,
 - mutation commands flow a policy allow through enforcement and block a
-  policy deny with the backend's reason code,
-- the shared ``CliPrincipalResolver`` resolves service accounts, human
-  subjects, dev fallbacks, and an anonymous default.
+  policy deny with the backend's reason code.
 
 Package suites call these helpers instead of maintaining near-identical
-copies of the same checks.
+copies of the same checks. The core ``CliPrincipalResolver`` contract lives
+with its owner in ``tests/cli/test_cli_authorization.py``.
 """
 
 from __future__ import annotations
@@ -20,8 +19,6 @@ from __future__ import annotations
 import contextlib
 from typing import Iterator
 from unittest.mock import MagicMock, patch
-
-from phlo.cli.authorization import CliPrincipalResolver
 
 
 @contextlib.contextmanager
@@ -53,10 +50,16 @@ def patched_enforcement(*, allowed: bool, reason_code: str | None = None) -> Ite
 
 
 def assert_read_commands_allow_without_enforcement(adapter) -> None:
-    """Every classified read command must allow without touching enforcement."""
-    for command in adapter.read_commands:
-        result = adapter.check_command_authorization(command)
-        assert result.allowed is True, f"read command {command} should be allowed"
+    """Every classified read command must allow without calling ``enforce``.
+
+    ``phlo.cli.authorization`` binds ``enforce`` at import time, so the patch
+    target must be that module rather than the definition module.
+    """
+    with patch("phlo.cli.authorization.enforce") as mock_enforce:
+        for command in adapter.read_commands:
+            result = adapter.check_command_authorization(command)
+            assert result.allowed is True, f"read command {command} should be allowed"
+        mock_enforce.assert_not_called()
 
 
 def assert_unknown_command_denied(adapter, unknown_command: str) -> None:
@@ -76,37 +79,3 @@ def assert_mutation_enforcement_allows_and_denies(adapter, mutation_command: str
         denied_result = adapter.check_command_authorization(mutation_command)
     assert denied_result.allowed is False
     assert denied_result.reason_code == "policy_denied"
-
-
-def run_cli_principal_resolver_contract() -> None:
-    """Pin every CliPrincipalResolver environment fallback."""
-    from phlo.capabilities.interfaces import AuthPrincipal  # noqa: F401  (import contract)
-
-    with patch.dict("os.environ", {"PHLO_SERVICE_ACCOUNT": "ci-pipeline"}):
-        principal = CliPrincipalResolver.resolve()
-        assert principal.subject == "ci-pipeline"
-        assert principal.principal_type == "service"
-        assert "operators" in principal.groups
-
-    with patch.dict(
-        "os.environ",
-        {
-            "PHLO_AUTH_SUBJECT": "alice",
-            "PHLO_AUTH_TYPE": "user",
-            "PHLO_AUTH_GROUPS": "operators,admins",
-        },
-    ):
-        principal = CliPrincipalResolver.resolve()
-        assert principal.subject == "alice"
-        assert principal.principal_type == "user"
-        assert principal.groups == ("operators", "admins")
-
-    with patch.dict("os.environ", {"PHLO_DEV_MODE": "true"}):
-        principal = CliPrincipalResolver.resolve()
-        assert principal.subject == "local:root"
-        assert principal.groups == ("admin",)
-
-    principal = CliPrincipalResolver.resolve()
-    assert principal.subject == "anonymous"
-    assert principal.principal_type == "user"
-    assert principal.groups == ()

@@ -93,12 +93,13 @@ def test_clickhouse_status_rejects_partial_phlo_directory(monkeypatch, tmp_path)
 
 
 def test_clickhouse_query_authorizes_only_mutating_sql(monkeypatch):
-    calls: list[str] = []
+    backend_calls: list[str] = []
+    authorization_calls: list[tuple] = []
 
     monkeypatch.setattr("phlo_clickhouse.cli._ensure_phlo_dir", lambda: None)
     monkeypatch.setattr(
         "phlo_clickhouse.cli._require_container_backend",
-        lambda: calls.append("backend"),
+        lambda: backend_calls.append("backend"),
     )
     monkeypatch.setattr("phlo_clickhouse.cli.get_project_name", lambda: "demo")
     monkeypatch.setattr(
@@ -111,7 +112,7 @@ def test_clickhouse_query_authorizes_only_mutating_sql(monkeypatch):
     )
     monkeypatch.setattr(
         "phlo_clickhouse.cli.enforce_surface_mutation_authorization",
-        lambda *_args, **_kwargs: calls.append("auth"),
+        lambda *args, **_kwargs: authorization_calls.append(args),
     )
 
     select_result = CliRunner().invoke(clickhouse_group, ["query", "SELECT 1"])
@@ -119,4 +120,6 @@ def test_clickhouse_query_authorizes_only_mutating_sql(monkeypatch):
 
     assert select_result.exit_code == 0
     assert insert_result.exit_code == 0
-    assert calls == ["backend", "auth", "backend"]
+    assert backend_calls == ["backend", "backend"]
+    assert len(authorization_calls) == 1
+    assert authorization_calls[0][0] == "clickhouse.query"

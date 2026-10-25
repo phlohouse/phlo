@@ -111,8 +111,8 @@ class TestRegulatedSurfaceDiscovery:
         assert len(surfaces) >= 1
         assert any(s.name == "test-surface" for s in surfaces)
 
-    def test_mock_surface_can_register_without_core_changes(self) -> None:
-        """A mock surface adapter can register without any core code changes."""
+    def test_mock_surface_registration_preserves_metadata(self) -> None:
+        """A plugin-registered surface keeps its provider metadata in the registry."""
         spec = RegulatedSurfaceSpec(
             name="integration-test-surface",
             provider=MockRegulatedSurfaceAdapter(),
@@ -254,12 +254,14 @@ class TestValidation:
     """Test startup validation."""
 
     def test_validation_report_structure(self) -> None:
-        """Validation report has correct structure."""
+        """Validation report carries typed results and aggregates failures."""
         report = run_regulated_validation()
-        assert hasattr(report, "regulated_enabled")
-        assert hasattr(report, "passed")
-        assert hasattr(report, "checks")
-        assert hasattr(report, "errors")
+        assert isinstance(report.regulated_enabled, bool)
+        assert isinstance(report.passed, bool)
+        assert report.checks
+        assert all(isinstance(check.name, str) and check.name for check in report.checks)
+        assert all(isinstance(check.passed, bool) for check in report.checks)
+        assert report.passed is (not report.errors)
 
     def test_validation_identifies_not_yet_integrated(self) -> None:
         """Validation report includes registered surfaces check (informational).
@@ -448,37 +450,6 @@ class TestPhloAPIIntegration:
 
         assert request.state.request_id == "req-456"
         assert response.headers["x-request-id"] == "req-456"
-
-
-class TestSurfaceOperation:
-    """Test SurfaceOperation type."""
-
-    def test_surface_operation_dict_keys(self) -> None:
-        """SurfaceOperation contains expected dict keys."""
-        op = SurfaceOperation(
-            action="dataset.read",
-            resource_type="dataset",
-            operation_name="dataset.read",
-            resource_id_strategy=None,
-            framework_metadata={},
-        )
-        assert op["action"] == "dataset.read"
-        assert op["resource_type"] == "dataset"
-        assert op["operation_name"] == "dataset.read"
-        assert op["resource_id_strategy"] is None
-        assert op["framework_metadata"] == {}
-
-    def test_surface_operation_with_optional_fields(self) -> None:
-        """SurfaceOperation with optional fields set."""
-        op = SurfaceOperation(
-            action="dataset.write",
-            resource_type="dataset",
-            operation_name="dataset.write",
-            resource_id_strategy="path_param",
-            framework_metadata={"route": "/datasets/{id}"},
-        )
-        assert op["resource_id_strategy"] == "path_param"
-        assert op["framework_metadata"]["route"] == "/datasets/{id}"
 
 
 class TestPhloAPIAdapterOperations:

@@ -197,7 +197,16 @@ class TestCanonicalRBAC:
         policies = PoliciesConfig.from_dict(policies_data)
         rbac = CanonicalRBAC.from_configs(roles, policies)
 
-        assert rbac.version_hash is not None
+        repeat = CanonicalRBAC.from_configs(
+            RolesConfig.from_dict(roles_data), PoliciesConfig.from_dict(policies_data)
+        )
+        assert rbac.version_hash == repeat.version_hash
+
+        policies_data["policies"][0]["action"] = "dataset.write"
+        changed = CanonicalRBAC.from_configs(
+            RolesConfig.from_dict(roles_data), PoliciesConfig.from_dict(policies_data)
+        )
+        assert changed.version_hash != rbac.version_hash
 
     def test_validate(self):
         """Test validation catches errors."""

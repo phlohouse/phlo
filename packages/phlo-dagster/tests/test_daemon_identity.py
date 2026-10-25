@@ -77,8 +77,9 @@ class TestBuildRunTags:
 class TestAuthorizeDaemonRun:
     def test_noop_when_not_regulated(self, monkeypatch):
         monkeypatch.setenv("PHLO_REGULATED", "false")
-        # Should not raise, should not call enforce
-        authorize_daemon_run("schedule", "daily_dbt")
+        with patch("phlo_dagster.daemon_identity.enforce") as mock_enforce:
+            authorize_daemon_run("schedule", "daily_dbt")
+        mock_enforce.assert_not_called()
 
     @patch("phlo_dagster.daemon_identity.is_regulated", return_value=True)
     @patch("phlo_dagster.daemon_identity.enforce")
@@ -190,7 +191,10 @@ class TestQueuedRunCoordinator:
             trigger_name="daily_dbt",
             run_id="run-123",
         )
-        instance.add_run_tags.assert_called_once()
+        instance.add_run_tags.assert_called_once_with(
+            "run-123",
+            build_run_tags(trigger_kind="schedule", trigger_name="daily_dbt"),
+        )
 
     @patch("phlo_dagster.daemon_identity.QueuedRunCoordinator.submit_run")
     @patch("phlo_dagster.daemon_identity.authorize_daemon_run")

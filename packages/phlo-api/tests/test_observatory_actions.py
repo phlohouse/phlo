@@ -26,9 +26,17 @@ def test_observatory_action_exposes_guard_metadata() -> None:
         expected_evidence=["service.status.running"],
     )
     payload = action.model_dump()
-    assert payload["risk_level"] == "medium"
     assert payload["required_permission"] == "service.manage"
     assert payload["expected_evidence"] == ["service.status.running"]
+
+    # The dispatcher derives guard metadata from its action-family table, so the
+    # values must survive into a real decision rather than only a constructor.
+    dispatched = execute_observatory_action(
+        ObservatoryActionRequest(action_id="dataset:gold.orders:publish")
+    )
+    assert dispatched.action.risk_level == "medium"
+    assert dispatched.action.required_capability == "metadata_catalog"
+    assert dispatched.action.enabled is False
 
 
 def test_execute_observatory_action_rejects_unknown_action() -> None:

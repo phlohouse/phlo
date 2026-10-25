@@ -618,6 +618,13 @@ def test_event_append_is_redacted_checksumed_and_idempotent() -> None:
     assert row["payload"]["nested"]["token"] == "<redacted>"
     assert row["schema_version"] == "1.0"
 
+    store.append_event(_event(payload={"value": 2}, event_id="other"))
+    with store._transaction() as (_, cursor):
+        cursor.execute("SELECT event_id, payload_checksum FROM run_event ORDER BY event_id")
+        checksums = dict(cursor.fetchall())
+    assert len(checksums["event"]) == 64
+    assert checksums["event"] != checksums["other"]
+
 
 def test_event_identity_is_scoped_by_project_and_producer() -> None:
     store = SQLiteRunEvidenceStore(":memory:")
@@ -1106,6 +1113,17 @@ def test_normalized_records_are_idempotent_and_conflict_on_content(
 
     append(first)
     append(first)
+    table = {
+        "stage": "run_stage",
+        "resource": "run_resource",
+        "lineage": "run_lineage_edge",
+        "quality": "run_quality_result",
+        "catalog": "run_catalog_change",
+        "artifact": "run_artifact",
+    }[family]
+    with store._transaction() as (_, cursor):
+        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+        assert cursor.fetchone()[0] == 1, family
     with pytest.raises(IdempotencyConflict):
         append(different)
 
@@ -1542,8 +1560,8 @@ def test_incomplete_correlation_is_not_persisted() -> None:
             correlation=HookCorrelation(run_id="run"),
         )
     )
-    assert provider._store is not None
-    assert provider._store.get_run("unknown", "run") is None
+    assert provider._store.get_run("project", "run") is None
+    assert provider._store.count_events("project", "run") == 0
 
 
 def test_quality_and_lineage_identities_include_logical_operation() -> None:

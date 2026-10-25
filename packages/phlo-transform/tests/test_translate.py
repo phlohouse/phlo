@@ -69,7 +69,7 @@ def test_translate_forwards_output_and_verification(
     ]
 
 
-def test_translate_check_only_writes_nothing(
+def test_translate_check_only_passes_check_without_an_output_directory(
     tmp_path: Path, dbt_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _capture(monkeypatch)
@@ -80,7 +80,9 @@ def test_translate_check_only_writes_nothing(
         check_only=True,
     )
 
-    assert calls[0][0] == ["translate", "--from", "dbt", "--check"]
+    args, root = calls[0]
+    assert root == dbt_project
+    assert args == ["translate", "--from", "dbt", "--check"]
 
 
 def test_translate_requires_a_dbt_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

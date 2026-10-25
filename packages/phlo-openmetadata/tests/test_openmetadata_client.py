@@ -31,18 +31,6 @@ def om_client():
 class TestOpenMetadataColumn:
     """Tests for OpenMetadataColumn dataclass."""
 
-    def test_column_creation(self):
-        """Test creating a column."""
-        col = OpenMetadataColumn(
-            name="user_id",
-            dataType="STRING",
-            description="Unique user identifier",
-        )
-
-        assert col.name == "user_id"
-        assert col.dataType == "STRING"
-        assert col.description == "Unique user identifier"
-
     def test_column_to_dict(self):
         """Test converting column to dict."""
         col = OpenMetadataColumn(
@@ -77,22 +65,6 @@ class TestOpenMetadataColumn:
 class TestOpenMetadataTable:
     """Tests for OpenMetadataTable dataclass."""
 
-    def test_table_creation(self):
-        """Test creating a table."""
-        col = OpenMetadataColumn(name="id", dataType="INT")
-        table = OpenMetadataTable(
-            name="users",
-            description="User data",
-            columns=[col],
-            location="s3://bucket/users",
-        )
-
-        assert table.name == "users"
-        assert table.description == "User data"
-        assert table.columns is not None
-        assert len(table.columns) == 1
-        assert table.location == "s3://bucket/users"
-
     def test_table_to_dict(self):
         """Test converting table to dict."""
         col = OpenMetadataColumn(name="id", dataType="INT")
@@ -112,13 +84,6 @@ class TestOpenMetadataTable:
 
 class TestOpenMetadataClient:
     """Tests for OpenMetadataClient."""
-
-    def test_client_initialization(self, om_client):
-        """Test client initialization."""
-        assert om_client.base_url == "http://openmetadata:8585/api"
-        assert om_client.username == "admin"
-        assert om_client.password == "admin"
-        assert om_client.timeout == 10
 
     def test_base_url_trailing_slash_removed(self):
         """Test that trailing slash is removed from base URL."""
@@ -199,6 +164,13 @@ class TestOpenMetadataClient:
 
         assert result == {"id": "123", "name": "users"}
         mock_request.assert_called_once()
+        call = mock_request.call_args
+        assert call.kwargs["method"] == "PUT"
+        assert call.kwargs["url"] == "http://openmetadata:8585/api/v1/tables"
+        body = call.kwargs["json"]
+        assert body["name"] == "users"
+        assert body["databaseSchema"] == "public"
+        assert body["columns"][0]["name"] == "id"
 
     @patch("phlo_openmetadata.openmetadata.requests.Session.request")
     def test_get_table_found(self, mock_request, om_client):

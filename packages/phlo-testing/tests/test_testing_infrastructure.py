@@ -131,10 +131,6 @@ class TestMockIcebergCatalog:
         with pytest.raises(ValueError, match="Schema mismatch"):
             table.append(df_bad)
 
-    def test_placeholders_import_uses_canonical_catalog(self):
-        """Legacy placeholders import exposes the canonical MockIcebergCatalog."""
-        assert PlaceholderMockIcebergCatalog is CanonicalMockIcebergCatalog
-
     def test_create_table_if_not_exists_returns_existing_table(self):
         """Mock catalog keeps placeholder-compatible idempotent table creation."""
         catalog = MockIcebergCatalog()

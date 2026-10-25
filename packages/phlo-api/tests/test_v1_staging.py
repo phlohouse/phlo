@@ -49,6 +49,12 @@ def staging_api(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> tuple[TestClient, dict[str, Any]]:
     """Use real linked worktrees and SQLite, replacing only remote providers."""
+    # Isolate from the developer's global git identity so signing-dependent
+    # scenarios fail or succeed for the reason under test.
+    git_config = tmp_path / "gitconfig"
+    git_config.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(git_config))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(git_config))
     repository = tmp_path / "repository"
     repository.mkdir()
     _git(repository, "init", "-b", "staging")
@@ -212,13 +218,24 @@ def _signature(authority: IdentityAuthority, state: dict[str, Any], justificatio
 
 
 @pytest.mark.parametrize(
-    "query", ["env=prod", "", "env=staging&env=staging", "env=staging&ref=main"]
+    ("query", "expected_status"),
+    [
+        ("env=prod", 422),
+        ("", 422),
+        ("env=staging&env=staging", 422),
+        ("env=staging&ref=main", 400),
+    ],
 )
-def test_every_staging_route_requires_exact_staging_selector(staging_api, query: str) -> None:
+def test_every_staging_route_requires_exact_staging_selector(
+    staging_api, query: str, expected_status: int
+) -> None:
     client, _ = staging_api
     suffix = f"?{query}" if query else ""
     response = client.get(f"/api/v1/staging/promotions/candidate{suffix}")
-    assert response.status_code in {400, 422, 503}
+    # A wrong, missing, or duplicated selector and an unexpected parameter are
+    # request errors, not "staging unavailable": a 503 here would hide a
+    # wholesale promotion outage.
+    assert response.status_code == expected_status, response.text
 
 
 @pytest.mark.parametrize(
@@ -423,13 +440,28 @@ def test_check_evidence_requires_latest_exact_location_ref_code_hash_and_candida
     async def evidence(rows):
         return _runs_response(rows)
 
+    wrong_location = _check_row(state, "tests")
+    wrong_location["repositoryOrigin"]["repositoryLocationName"] = "other_loc"
     variants = [
         [_check_row(state, name) for name in ("tests", "contracts", "audits")],
         [_check_row(state, "tests", **{"phlo/ref": "wrong"})],
         [_check_row(state, "tests", **{"phlo/code_version": "wrong"})],
         [_check_row(state, "tests", **{"phlo/nessie_hash": "wrong"})],
         [_check_row(state, "tests", **{"phlo/promotion_candidate": "0" * 64})],
+        [wrong_location],
     ]
+
+    async def accept(rows):
+        monkeypatch.setattr(v1_staging, "graphql_request", lambda *_a, **_k: evidence(rows))
+        return await v1_staging._checks(state)
+
+    accepted = asyncio.run(accept(variants[0]))
+    assert [(item["name"], item["status"]) for item in accepted] == [
+        ("tests", "passed"),
+        ("contracts", "passed"),
+        ("audits", "passed"),
+    ]
+
     for rows in variants[1:]:
         monkeypatch.setattr(v1_staging, "graphql_request", lambda *_a, r=rows, **_k: evidence(r))
         with pytest.raises(Exception) as error:
@@ -449,24 +481,27 @@ def test_check_evidence_requires_latest_exact_location_ref_code_hash_and_candida
 
 
 @pytest.mark.parametrize(
-    ("rows", "expected"),
+    ("evidence", "expected"),
     [
-        ([], "missing_evidence"),
-        ([], "stale_evidence"),
+        ("no-runs", "missing_evidence"),
+        ("stale-code", "stale_evidence"),
     ],
 )
 def test_candidate_readiness_explains_missing_and_stale_evidence(
-    staging_api, monkeypatch: pytest.MonkeyPatch, rows, expected: str
+    staging_api, monkeypatch: pytest.MonkeyPatch, evidence: str, expected: str
 ) -> None:
     client, _ = staging_api
     state = _candidate(client)
-    if expected == "stale_evidence":
-        rows = [_check_row(state, "tests", **{"phlo/code_version": "old-revision"})]
+    rows = (
+        []
+        if evidence == "no-runs"
+        else [_check_row(state, "tests", **{"phlo/code_version": "old-revision"})]
+    )
 
-    async def evidence(_url, _query, _variables):
+    async def lookup(_url, _query, _variables):
         return _runs_response(rows)
 
-    monkeypatch.setattr(v1_staging, "graphql_request", evidence)
+    monkeypatch.setattr(v1_staging, "graphql_request", lookup)
     readiness = asyncio.run(v1_staging._check_readiness(state))
     assert readiness[0]["status"] == expected
     if expected == "stale_evidence":

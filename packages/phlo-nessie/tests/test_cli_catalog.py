@@ -71,27 +71,20 @@ def test_value_or_call_supports_property_and_method_values() -> None:
     assert cli_catalog._value_or_call(lambda: 2) == 2
 
 
-def test_schema_field_display_supports_current_pyiceberg_nested_field() -> None:
+def test_schema_field_display_current_pyiceberg() -> None:
     field = SimpleNamespace(name="id", field_type="long", required=True)
+    optional = SimpleNamespace(name="nickname", field_type="string", required=False)
 
     assert cli_catalog._schema_field_display(field) == ("id", "long", "✓")
+    assert cli_catalog._schema_field_display(optional) == ("nickname", "string", "")
 
 
-def test_schema_field_display_supports_current_pyiceberg_optional_field() -> None:
-    field = SimpleNamespace(name="nickname", field_type="string", required=False)
+def test_schema_field_display_legacy_type_marker() -> None:
+    optional_type = SimpleNamespace(is_optional=True)
+    required_type = SimpleNamespace(is_optional=False)
 
-    assert cli_catalog._schema_field_display(field) == ("nickname", "string", "")
+    optional = SimpleNamespace(name="name", type=optional_type)
+    required = SimpleNamespace(name="name", type=required_type)
 
-
-def test_schema_field_display_supports_legacy_type_optional_marker() -> None:
-    field_type = SimpleNamespace(is_optional=True)
-    field = SimpleNamespace(name="name", type=field_type)
-
-    assert cli_catalog._schema_field_display(field) == ("name", str(field_type), "")
-
-
-def test_schema_field_display_supports_legacy_type_required_marker() -> None:
-    field_type = SimpleNamespace(is_optional=False)
-    field = SimpleNamespace(name="name", type=field_type)
-
-    assert cli_catalog._schema_field_display(field) == ("name", str(field_type), "✓")
+    assert cli_catalog._schema_field_display(optional) == ("name", str(optional_type), "")
+    assert cli_catalog._schema_field_display(required) == ("name", str(required_type), "✓")

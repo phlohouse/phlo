@@ -108,7 +108,9 @@ def test_root_modules_do_not_import_providers_or_eager_optional_runtime_deps() -
             if blocked:
                 violations.append(f"{self.path}:{node.lineno} imports {', '.join(sorted(blocked))}")
 
-    for path in Path("src/phlo").rglob("*.py"):
+    paths = sorted(Path("src/phlo").rglob("*.py"))
+    assert paths, "no root package modules found to scan"
+    for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         ImportVisitor(path, tree).visit(tree)
 

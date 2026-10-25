@@ -7,21 +7,25 @@ bootstrap marker, and dev branch creation ordering.
 
 from __future__ import annotations
 
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
+
+import pytest
 
 from phlo_nessie import hooks
 
 
-def test_resolve_nessie_url_uses_project_env(monkeypatch) -> None:
-    monkeypatch.setattr(hooks, "load_project_env", lambda: {"NESSIE_PORT": "29120"})
+@pytest.mark.parametrize(
+    ("project_env", "expected"),
+    [
+        ({"NESSIE_PORT": "29120"}, "http://localhost:29120"),
+        ({"NESSIE_URL": "http://custom/"}, "http://custom"),
+    ],
+    ids=["port-env", "explicit-url"],
+)
+def test_resolve_nessie_url(monkeypatch, project_env, expected) -> None:
+    monkeypatch.setattr(hooks, "load_project_env", lambda: project_env)
 
-    assert hooks._resolve_nessie_url() == "http://localhost:29120"
-
-
-def test_resolve_nessie_url_prefers_project_url(monkeypatch) -> None:
-    monkeypatch.setattr(hooks, "load_project_env", lambda: {"NESSIE_URL": "http://custom/"})
-
-    assert hooks._resolve_nessie_url() == "http://custom"
+    assert hooks._resolve_nessie_url() == expected
 
 
 def test_ensure_bootstrap_commit_noops_when_log_exists() -> None:
@@ -46,8 +50,19 @@ def test_ensure_bootstrap_commit_creates_and_deletes_namespace() -> None:
         patch.object(hooks, "_post_json", return_value={}) as post_json,
         patch.object(hooks, "_delete", return_value=204) as delete,
     ):
+        recorder = MagicMock()
+        recorder.attach_mock(delete_namespace, "delete_namespace")
+        recorder.attach_mock(post_json, "post_json")
+        recorder.attach_mock(delete, "delete")
         hooks._ensure_bootstrap_commit("http://nessie", "main")
 
+    # The marker namespace must exist before it is removed, so the bootstrap
+    # commit exists; cleanup-before-create would silently leave no history.
+    assert [name for name, _args, _kwargs in recorder.mock_calls] == [
+        "delete_namespace",
+        "post_json",
+        "delete",
+    ]
     delete_namespace.assert_called_once_with(
         "http://nessie", "main%7Cs3", "__phlo_bootstrap_main__"
     )

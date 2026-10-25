@@ -131,6 +131,10 @@ def test_corrupted_catalog_fails_reconciliation(tmp_path) -> None:
     (target_root / "nessie" / "catalog.json").write_text(json.dumps(tampered), encoding="utf-8")
     reconciliation = _reconcile(set_dir, providers, plan)
     assert reconciliation.ok is False
+    assert any(
+        "nessie" in reason and "catalog_branch_mismatch" in reason
+        for reason in reconciliation.reasons
+    )
 
 
 def test_missing_restored_dump_fails_reconciliation(tmp_path) -> None:

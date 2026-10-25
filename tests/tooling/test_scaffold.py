@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 
 import phlo_dlt.scaffold as scaffold_module
@@ -16,7 +17,7 @@ from phlo_dlt.scaffold import (
     parse_field_specs,
 )
 
-from tests.helpers import isolated_workflows_imports
+from tests.support import isolated_workflows_imports
 
 
 def _requirement_name(requirement: str) -> str:
@@ -236,6 +237,17 @@ def test_generated_partitioned_sql_callable_constructs_partition_window(
     (tmp_path / "workflows" / "__init__.py").write_text("")
     (tmp_path / "workflows" / "schemas" / "__init__.py").write_text("")
 
+    captured: dict[str, object] = {}
+    sentinel = object()
+
+    def fake_resource(_config, **kwargs):
+        captured.update(kwargs)
+        return sentinel
+
+    import phlo_dlt
+
+    monkeypatch.setattr(phlo_dlt, "partitioned_sql_resource", fake_resource)
+
     asset_path = tmp_path / "workflows" / "ingestion" / "warehouse" / "orders.py"
     with isolated_workflows_imports():
         spec = importlib.util.spec_from_file_location("scaffolded_warehouse_orders", asset_path)
@@ -245,7 +257,12 @@ def test_generated_partitioned_sql_callable_constructs_partition_window(
 
         resource = module.orders("2026-06-04")
 
-    assert resource is not None
+    assert resource is sentinel
+    window = captured["window"]
+    assert window.partition_key == "2026-06-04"
+    assert window.start == datetime(2026, 6, 4, tzinfo=UTC)
+    assert window.end == datetime(2026, 6, 5, tzinfo=UTC)
+    assert captured["name"] == "orders"
 
 
 def test_scaffold_uses_unique_key_field_type_when_declared(

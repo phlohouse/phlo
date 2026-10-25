@@ -32,7 +32,7 @@ from phlo.hooks.emitters import (
 )
 from phlo.hooks.events import HookCorrelation
 from phlo.logging import bind_context, clear_context
-from tests.helpers import RecordingBus
+from tests.support import RecordingBus
 
 pytestmark = pytest.mark.core_regression
 

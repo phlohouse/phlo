@@ -53,8 +53,8 @@ def _signature_config(actions: frozenset[str]) -> SignatureServiceConfig:
 class TestSignatureEnforcement:
     """Integration tests for electronic signature enforcement."""
 
-    def test_critical_action_requires_signature(self, signature_repository) -> None:
-        """Critical actions are blocked without a valid signature."""
+    def test_signed_critical_action_records_approval(self, signature_repository) -> None:
+        """Signing a critical action records the approval against that record."""
         events_emitted: list[CanonicalAuditEvent] = []
 
         class MockAuditEmitter:
@@ -89,6 +89,10 @@ class TestSignatureEnforcement:
         result = service.sign(request, session)
         assert result.signature_hash != ""
         assert result.meaning == SignatureMeaning.APPROVED
+        assert result.action == "dataset.publish"
+        assert result.record_id == "dataset-123"
+        assert result.record_version == "v1"
+        assert signature_repository.signatures("alice@example.com")[0].record == result
 
     def test_critical_action_without_signature_is_blocked(self) -> None:
         """Unsigned critical actions trip the enforcement gate without emitting events."""

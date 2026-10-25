@@ -59,9 +59,19 @@ def test_compaction_blocks_stale_snapshot_before_optimize() -> None:
     assert "EXECUTE optimize" not in execute.call_args.args[0]
 
 
-def test_compaction_preflight_failure_is_not_submitted() -> None:
+@pytest.mark.parametrize(
+    ("side_effect", "expected_phase", "expected_calls"),
+    [
+        (RuntimeError("connection refused"), MaintenanceExecutionPhase.PREFLIGHT, 1),
+        ([[(41,)], RuntimeError("connection reset")], MaintenanceExecutionPhase.SUBMISSION, 2),
+    ],
+    ids=["preflight-failure", "submission-failure"],
+)
+def test_compaction_failure_reports_the_failing_phase(
+    side_effect, expected_phase, expected_calls
+) -> None:
     resource, execute = _resource(ref="main")
-    execute.side_effect = RuntimeError("connection refused")
+    execute.side_effect = side_effect
 
     with pytest.raises(MaintenanceExecutionError) as raised:
         resource.compact_table(
@@ -70,23 +80,8 @@ def test_compaction_preflight_failure_is_not_submitted() -> None:
             expected_revision=41,
         )
 
-    assert raised.value.phase is MaintenanceExecutionPhase.PREFLIGHT
-    assert execute.call_count == 1
-
-
-def test_compaction_submission_failure_is_outcome_unknown() -> None:
-    resource, execute = _resource(ref="main")
-    execute.side_effect = [[(41,)], RuntimeError("connection reset")]
-
-    with pytest.raises(MaintenanceExecutionError) as raised:
-        resource.compact_table(
-            table_name="raw.events",
-            ref="main",
-            expected_revision=41,
-        )
-
-    assert raised.value.phase is MaintenanceExecutionPhase.SUBMISSION
-    assert execute.call_count == 2
+    assert raised.value.phase is expected_phase
+    assert execute.call_count == expected_calls
 
 
 def test_snapshot_expiry_checks_snapshot_and_submits_threshold_on_selected_ref() -> None:
@@ -131,24 +126,23 @@ def test_snapshot_expiry_preflight_failure_never_submits() -> None:
     assert execute.call_count == 1
 
 
-def test_compaction_rejects_unsafe_identifier() -> None:
+@pytest.mark.parametrize(
+    ("table_name", "ref", "expected_error"),
+    [
+        ('raw.events; DROP TABLE "other"', "main", "namespace.table"),
+        ("raw.events", "dev", "configured for ref"),
+    ],
+    ids=["unsafe-identifier", "ref-mismatch"],
+)
+def test_compaction_rejects_invalid_requests(
+    table_name: str, ref: str, expected_error: str
+) -> None:
     resource = TrinoResource(ref="main")
 
-    with pytest.raises(ValueError, match="namespace.table"):
+    with pytest.raises(ValueError, match=expected_error):
         resource.compact_table(
-            table_name='raw.events; DROP TABLE "other"',
-            ref="main",
-            expected_revision=41,
-        )
-
-
-def test_compaction_rejects_ref_mismatch() -> None:
-    resource = TrinoResource(ref="main")
-
-    with pytest.raises(ValueError, match="configured for ref"):
-        resource.compact_table(
-            table_name="raw.events",
-            ref="dev",
+            table_name=table_name,
+            ref=ref,
             expected_revision=41,
         )
 

@@ -203,6 +203,8 @@ def test_snapshot_launch_creates_candidate_namespace_binding(monkeypatch, tmp_pa
 
 
 def test_snapshot_launch_rejects_branch_only_catalog(monkeypatch) -> None:
+    from phlo.exceptions import PhloConfigError
+
     monkeypatch.setenv("PHLO_PROJECT_PATH", "/tmp")
     _snapshot_strategy(monkeypatch)
     monkeypatch.setattr(
@@ -219,7 +221,7 @@ def test_snapshot_launch_rejects_branch_only_catalog(monkeypatch) -> None:
         ),
     )
 
-    with pytest.raises(Exception, match="snapshot"):
+    with pytest.raises(PhloConfigError, match="snapshot"):
         prepare_wap_launch(logical_run_id="request-42")
 
 
@@ -402,8 +404,17 @@ def test_advance_snapshot_promotion_resumes_conflicted_intent_when_release_resol
         quality_metadata={},
     )
 
-    assert advance is not None
+    assert advance == {
+        "source_hash": "101",
+        "target_hash_before": "3",
+        "target_hash_after": "3",
+        "source_deleted": True,
+    }
     assert catalog.aborted == [namespace]
+    report = _read(logical_run_id)
+    assert report["merge_state"] == "merged"
+    assert report["source_deleted"] is True
+    assert report["target_hash_after"] == "3"
 
 
 def _read(logical_run_id: str):

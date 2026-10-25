@@ -5,9 +5,10 @@ deduplication, targeted destination routing against in-memory stubs, the
 global manager accessor, and the package-root export surface.
 """
 
+from datetime import datetime, timezone
+
 import phlo_alerting
 from phlo_alerting import get_alert_manager
-
 from phlo_alerting.manager import Alert, AlertManager, AlertDestination, AlertSeverity
 from phlo_alerting.hooks_plugin import (
     AlertingHookPlugin,
@@ -34,7 +35,8 @@ def test_alert_defaults():
     """Verifies default alert severity and timestamp assignment."""
     alert = Alert(title="Test", message="hello")
     assert alert.severity == AlertSeverity.ERROR
-    assert alert.timestamp is not None
+    assert alert.timestamp.tzinfo is timezone.utc
+    assert abs((datetime.now(timezone.utc) - alert.timestamp).total_seconds()) < 60
 
 
 def test_alert_severity_values():
