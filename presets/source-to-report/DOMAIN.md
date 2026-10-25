@@ -1,6 +1,11 @@
 # Adapting the preset to another domain
 
-This preset has two halves.
+This preset ships two packs over one spine: air quality is the reference,
+and the YouTube channel is the same pipeline with a different input. Read the
+YouTube pack beside the steps below to see the pattern twice; the steps
+replace whichever pack you are adapting.
+
+The preset has two halves.
 
 **The spine** is generic. It knows how to run ingestion assets, call dbt,
 query the warehouse, hash inputs, look numbers up strictly, draw charts and

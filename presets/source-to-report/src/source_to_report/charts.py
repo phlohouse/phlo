@@ -27,7 +27,7 @@ FONT = "Inter, 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', s
 
 # Whole ticks where the data is whole, one decimal elsewhere. Vega expression.
 TICK_LABEL = (
-    "datum.value === floor(datum.value) ? format(datum.value, 'd') : format(datum.value, '.1f')"
+    "datum.value === floor(datum.value) ? format(datum.value, ',') : format(datum.value, ',.1f')"
 )
 
 
@@ -210,7 +210,7 @@ def line_chart(
             domain=names,
             range=[PALETTE[index % len(PALETTE)] for index in range(len(names))],
         ),
-        legend=alt.Legend(title=None),
+        legend=alt.Legend(title=None) if len(series) > 1 else None,
     )
     x = alt.X(
         "x:N",

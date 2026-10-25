@@ -14,11 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from source_to_report import paths
-from source_to_report.dbt import run as run_dbt
 from source_to_report.domain import PERIOD_END
 from source_to_report.domain.analysis import build
-from source_to_report.ingest import load_bronze
-from source_to_report.warehouse import Warehouse
+from source_to_report.ingest import asset_specs
+from source_to_report.pipeline import run_stages
 
 
 def _ensure_fixtures(*, regenerate: bool, quiet: bool) -> None:
@@ -68,10 +67,16 @@ def run(
     _ensure_fixtures(regenerate=regenerate, quiet=quiet)
     _reset(output)
 
-    counts = load_bronze(database, as_of=as_of, log=log)
-    run_dbt(database, quiet=not verbose, log=log)
-    with Warehouse(duckdb_path=database) as warehouse:
-        summary = build(warehouse, output, db_path=database, as_of=as_of)
+    counts, summary = run_stages(
+        database=database,
+        output=output,
+        as_of=as_of,
+        assets=asset_specs,
+        build_report=build,
+        exclude="tag:youtube",
+        quiet=quiet,
+        verbose=verbose,
+    )
 
     report = output / "index.html"
     log("")

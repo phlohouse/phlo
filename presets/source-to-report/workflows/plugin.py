@@ -16,10 +16,11 @@ class SourceToReportAssets(AssetProviderPlugin):
         return PluginMetadata(
             name="source-to-report",
             version="0.1.0",
-            description="Reference lakehouse: the air quality report asset",
+            description="Reference lakehouse: the air quality and channel report assets",
         )
 
     def get_assets(self) -> Iterable[AssetSpec]:
-        from workflows.analysis import ASSETS
+        from workflows.analysis import ASSETS as AIR_ASSETS
+        from workflows.youtube_analysis import ASSETS as YOUTUBE_ASSETS
 
-        return list(ASSETS)
+        return [*AIR_ASSETS, *YOUTUBE_ASSETS]

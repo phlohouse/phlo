@@ -16,7 +16,14 @@ from pathlib import Path
 from source_to_report import paths
 
 
-def run(db_path: Path, *, quiet: bool = False, log: Callable[[str], None] = print) -> None:
+def run(
+    db_path: Path,
+    *,
+    quiet: bool = False,
+    log: Callable[[str], None] = print,
+    select: str | None = None,
+    exclude: str | None = None,
+) -> None:
     """Run ``dbt build`` (models and tests) against ``db_path``."""
     dbt_dir = paths.dbt_dir()
     profiles_dir = paths.local_dbt_profiles_dir()
@@ -41,6 +48,10 @@ def run(db_path: Path, *, quiet: bool = False, log: Callable[[str], None] = prin
         "--target",
         "duckdb_local",
     ]
+    if select:
+        command.extend(["--select", select])
+    if exclude:
+        command.extend(["--exclude", exclude])
     if quiet:
         command.append("--quiet")
 

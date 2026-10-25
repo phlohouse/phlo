@@ -50,7 +50,7 @@ def asset_specs() -> tuple[tuple[Any, type, str], ...]:
     )
 
 
-def _quiet_library_logs() -> None:
+def quiet_library_logs() -> None:
     """Keep plugin discovery from narrating a build.
 
     ``phlo.logging_context.get_logger`` — used by plugin discovery — does not go
@@ -66,8 +66,15 @@ def _quiet_library_logs() -> None:
     structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING))
 
 
-def load_bronze(db_path: Path, *, as_of: str, log: Callable[[str], None] = print) -> dict[str, int]:
-    """Build the ``raw`` schema in ``db_path`` from the pack's assets.
+def load_assets(
+    specs: tuple[tuple[Any, type, str], ...],
+    db_path: Path,
+    *,
+    as_of: str,
+    log: Callable[[str], None] = print,
+    pipeline_name: str = "source_to_report_bronze",
+) -> dict[str, int]:
+    """Build the ``raw`` schema in ``db_path`` from a pack's assets.
 
     Always starts from an empty database: the pull is deterministic, so a
     partial previous build must not leak into a new one.
@@ -79,17 +86,17 @@ def load_bronze(db_path: Path, *, as_of: str, log: Callable[[str], None] = print
     if dlt_dir.exists():
         shutil.rmtree(dlt_dir)
 
-    _quiet_library_logs()
+    quiet_library_logs()
 
     pipeline = dlt.pipeline(
-        pipeline_name="source_to_report_bronze",
+        pipeline_name=pipeline_name,
         pipelines_dir=str(dlt_dir),
         destination=dlt.destinations.duckdb(str(db_path)),
         dataset_name="raw",
     )
 
     counts: dict[str, int] = {}
-    for function, schema, table in asset_specs():
+    for function, schema, table in specs:
         rows = list(function(partition_date=as_of))
         if not rows:
             raise RuntimeError(f"asset {table} produced no rows; the source pull is incomplete")
@@ -104,3 +111,8 @@ def load_bronze(db_path: Path, *, as_of: str, log: Callable[[str], None] = print
         counts[table] = len(rows)
         log(f"  load    raw.{table:<18} {len(rows):>7,} rows  contract ok")
     return counts
+
+
+def load_bronze(db_path: Path, *, as_of: str, log: Callable[[str], None] = print) -> dict[str, int]:
+    """Load the air-quality pack's assets into a fresh DuckDB warehouse."""
+    return load_assets(asset_specs(), db_path, as_of=as_of, log=log)

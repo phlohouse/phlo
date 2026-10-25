@@ -32,6 +32,7 @@ dev = [
 
 [project.scripts]
 source-to-report = "source_to_report.cli:main"
+youtube-insights = "source_to_report.youtube.runner:main"
 
 [project.entry-points."phlo.plugins.assets"]
 source_to_report = "workflows.plugin:SourceToReportAssets"
@@ -41,7 +42,8 @@ where = ["src", "."]
 include = ["source_to_report*", "workflows*"]
 
 [tool.setuptools.package-data]
-"source_to_report.domain" = ["*.html.j2"]
+"source_to_report.domain" = ["*.html.j2", "*.css"]
+"source_to_report.youtube" = ["*.html.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

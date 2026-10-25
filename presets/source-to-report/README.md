@@ -1,17 +1,19 @@
 # Source to report
 
-A complete, independently runnable Phlo lakehouse. It answers one question
-from raw sources: **do the figures this organisation publishes match its own
-measurements?**
+A complete, independently runnable Phlo lakehouse: raw sources in, checked
+insights and a report out. Two packs run through the same pipeline:
 
-The shape is the point, and it is the same in every domain:
+* **Air quality**: do the figures the network publishes match its own
+  measurements?
+* **YouTube**: what did one channel publish in 2025, and how did the audience
+  respond?
 
 ```
 source ──▶ evidence ──▶ insight ──▶ analysis ──▶ report
 ```
 
-* **Source**: hourly readings from three reference monitoring stations, and
-  the network's twelve published monthly notes.
+The air pack is the reference. Its source is hourly readings from three
+monitoring stations, and the network's twelve published monthly notes.
 * **Evidence**: every reading validated against a Pandera contract; daily and
   monthly means built in dbt.
 * **Insight**: each published figure extracted with its note and line, so it
@@ -38,11 +40,27 @@ After a build:
 | `reports/provenance.json` | Inputs and hashes, package versions, git commit. |
 | `reports/data/*.csv` | The five tables the report reads. |
 | `reports/charts/*.svg` | The four figures, as standalone files. |
+| `reports/youtube/index.html` | The YouTube brief, built by `uv run youtube-insights`. |
 | `build/source_to_report.duckdb` | The local warehouse, if you want to query it. |
 
 Expected result on the shipped fixtures: 52,560 readings, 12 notes, 72
 published figures checked, 3 of them differing from the measurements (seeded
 on purpose), and 40 PM2.5 station-days over the 24-hour objective.
+
+## Two packs, one pipeline
+
+Both pages are built by the same stages. The runners differ only in which
+pack they hand to those stages: a reader, a Pandera contract, dbt models, the
+questions, and a page.
+
+| Pack | Input | Build | Page |
+| --- | --- | --- | --- |
+| Air quality | `data/raw/` and `data/notes/` | `uv run source-to-report` | `reports/index.html` |
+| YouTube | `data/youtube/channel.json` | `uv run youtube-insights` | `reports/youtube/index.html` |
+
+The YouTube pack publishes 24 videos in 2025: 331,139 views, 5.1% median
+engagement, and a ranked list of the five that travelled. It runs through the
+same `load_assets` → `run_dbt` → `Warehouse` → `Facts` → `render` path.
 
 ## Run it
 
@@ -130,7 +148,7 @@ The rules that keep it useful:
 ## Proof
 
 ```bash
-uv run pytest                     # 34 tests: fixtures, contracts, extraction, charts, facts, pipeline
+uv run pytest                     # 37 tests: fixtures, contracts, extraction, charts, facts, both packs
 uv run python scripts/verify.py   # 9 end-to-end checks, including two byte-identical builds
 uv run python scripts/verify_stack.py   # 9 checks against the Trino/Iceberg build
 ```
@@ -156,29 +174,34 @@ results with the generator's independent ground truth:
 
 ```text
 src/source_to_report/
-  cli.py, runner.py           command line and the end-to-end build
+  cli.py, runner.py           command line and the air pack's end-to-end build
+  pipeline.py                 load -> dbt -> analyse, shared by both packs
   ingest.py, dbt.py           local execution of the Phlo assets and dbt project
   warehouse.py                read-only SQL, DuckDB locally and Trino on the stack
   provenance.py               input hashes and the run record
   facts.py                    strict lookups used by the report
   charts.py                   Altair chart definitions, rendered to static SVG
+  youtube/                    the second pack: reader, analysis, page, runner
   report.py                   Jinja renderer and the self-contained check
   domain/                     the domain pack: vocabulary, sources, extraction,
                               analysis and report.html.j2
 workflows/
   ingestion/monitoring.py     three Phlo dlt assets
+  ingestion/youtube.py        the channel export asset
   schemas/monitoring.py       Pandera contracts
   transforms/dbt/             sources, staging and marts
-  analysis.py                 the report as a Phlo asset
+  analysis.py                 the air report as a Phlo asset
+  youtube_analysis.py         the channel report as a Phlo asset
   plugin.py                   asset discovery
 scripts/
-  generate_fixtures.py        the deterministic pull and its manifest
-  verify.py                   the end-to-end proof
+  generate_fixtures.py        the air pull and its manifest
+  generate_youtube_fixtures.py  the channel export
+  verify.py                   the air end-to-end proof
 tests/                        fixtures, contracts, extraction, charts, facts, pipeline, reproducibility
 ```
 
 ## Scope
 
 * The fixtures are synthetic and labelled as such in the report.
-* This is one small lakehouse, complete enough to run and adapt; it is not a
-  general reporting framework.
+* The pipeline is the product; the two packs are worked examples, not a fixed
+  schema. Adapt a pack, or add a third beside them.

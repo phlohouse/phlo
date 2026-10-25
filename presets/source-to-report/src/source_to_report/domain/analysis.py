@@ -15,7 +15,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from source_to_report import paths, provenance
+from source_to_report import domain, paths, provenance
 from source_to_report.charts import PALETTE, Series, bar_chart, line_chart
 from source_to_report.domain import (
     PERIOD_END,
@@ -295,5 +295,5 @@ def build(warehouse: Warehouse, out_dir: Path, *, db_path: Path, as_of: str) -> 
     provenance.write(out_dir, record)
 
     facts = Facts(data_dir, summary)
-    render(out_dir, facts=facts, charts=charts, provenance=record)
+    render(out_dir, facts=facts, charts=charts, provenance=record, domain=domain)
     return summary

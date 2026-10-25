@@ -13,7 +13,6 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
-from source_to_report import domain
 from source_to_report.facts import Facts
 
 DOMAIN_DIR = Path(__file__).resolve().parent / "domain"
@@ -27,9 +26,10 @@ def _percent(value: Any, digits: int = 0) -> str:
     return f"{float(value) * 100:,.{digits}f}%"
 
 
-def _environment() -> Environment:
+def _environment(extra_paths: list[Path] | None = None) -> Environment:
+    search = [DOMAIN_DIR, *(extra_paths or [])]
     environment = Environment(
-        loader=FileSystemLoader(str(DOMAIN_DIR)),
+        loader=FileSystemLoader([str(path) for path in search]),
         autoescape=select_autoescape(["html", "j2"]),
         undefined=StrictUndefined,
         trim_blocks=True,
@@ -65,9 +65,12 @@ def render(
     facts: Facts,
     charts: dict[str, str],
     provenance: dict[str, Any],
+    domain: Any,
+    template: str = "report.html.j2",
+    extra_paths: list[Path] | None = None,
 ) -> Path:
     """Render ``index.html`` and return its path."""
-    template = _environment().get_template("report.html.j2")
+    template = _environment(extra_paths).get_template(template)
     failed = [check for check in facts.checks() if not check.get("ok")]
     text = template.render(
         facts=facts,

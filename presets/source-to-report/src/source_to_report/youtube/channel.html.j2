@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ domain.TITLE }} · {{ facts.summary("period_label") }}</title>
+<meta name="description" content="{{ domain.DESCRIPTION }}">
+<style>
+{% include "style.css" %}
+</style>
+</head>
+<body>
+<div class="glow" aria-hidden="true"></div>
+<main class="page">
+
+  <header class="masthead">
+    <div class="topline">
+      <p class="brand">
+        <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="0" y="0" width="4" height="4"/><rect x="8" y="0" width="4" height="4"/>
+          <rect x="4" y="4" width="4" height="4"/><rect x="12" y="4" width="4" height="4"/>
+          <rect x="0" y="8" width="4" height="4"/><rect x="8" y="8" width="4" height="4"/>
+          <rect x="4" y="12" width="4" height="4"/>
+        </svg>
+        {{ facts.summary("channel") }} · channel export
+      </p>
+      <p class="pill"><span class="dot"></span> Fixture data</p>
+    </div>
+    <h1>{{ domain.TITLE }}</h1>
+    <p class="standfirst">{{ domain.DESCRIPTION }}</p>
+    <dl class="meta">
+      <div><dt>Period</dt><dd>{{ facts.summary("period_label") }}</dd></div>
+      <div><dt>Videos</dt><dd>{{ facts.summary("counts.videos") }} uploads</dd></div>
+      <div><dt>Views</dt><dd>{{ facts.summary("counts.views") | n0 }}</dd></div>
+      <div><dt>Data date</dt><dd>{{ facts.summary("as_of") | date_label }}</dd></div>
+    </dl>
+  </header>
+
+  {% if failed_checks %}
+  <aside class="notice">
+    <strong>{{ failed_checks | length }} check{% if failed_checks | length != 1 %}s{% endif %} did not pass.</strong>
+    <ul>
+      {% for check in failed_checks %}
+      <li><code>{{ check.name }}</code>: {{ check.detail }}</li>
+      {% endfor %}
+    </ul>
+  </aside>
+  {% endif %}
+
+  {% set videos = facts.rows("videos") %}
+  {% set top = videos[0] %}
+  {% set best_format = facts.rows("formats")[0] %}
+  {% set engagement = (facts.summary("headlines.median_engagement") * 100) | round(1) %}
+
+  <section class="cards" aria-label="At a glance">
+    <article class="card">
+      <p class="value">{{ facts.summary("counts.videos") }}</p>
+      <div>
+        <p class="label">Uploads in {{ facts.summary("period_label") }}</p>
+        <p class="note">two a month, every month</p>
+      </div>
+    </article>
+    <article class="card">
+      <p class="value">{{ facts.summary("counts.views") | n0 }}</p>
+      <div>
+        <p class="label">Views across the channel</p>
+        <p class="note">{{ facts.summary("counts.likes") | n0 }} likes, {{ facts.summary("counts.comments") | n0 }} comments</p>
+      </div>
+    </article>
+    <article class="card accent">
+      <p class="value">{{ engagement }}%</p>
+      <div>
+        <p class="label">Median engagement</p>
+        <p class="note">(likes + comments) ÷ views</p>
+      </div>
+    </article>
+    <article class="card">
+      <p class="value">{{ facts.summary("headlines.best_month_name") }}</p>
+      <div>
+        <p class="label">Strongest month</p>
+        <p class="note">{{ facts.summary("headlines.best_month_views") | n0 }} views</p>
+      </div>
+    </article>
+  </section>
+
+  <section id="summary">
+    <p class="kicker">01 — Summary</p>
+    <h2>What the channel did</h2>
+    <div class="prose">
+      <p>
+        {{ facts.summary("channel") }} published {{ facts.summary("counts.videos") }} videos in
+        {{ facts.summary("period_label") }}, two a month, earning
+        {{ facts.summary("counts.views") | n0 }} views. Half the videos landed above
+        {{ engagement }}% engagement, counting likes and comments against views.
+      </p>
+      <p>
+        {{ facts.summary("headlines.best_month") | month_label }} was the strongest month at
+        <strong>{{ facts.summary("headlines.best_month_views") | n0 }} views</strong>, and
+        <strong>{{ top.title }}</strong> was the most-watched video at {{ top.views | n0 }} views.
+      </p>
+      <p>
+        {{ best_format.format | capitalize }} videos averaged
+        <strong>{{ best_format.avg_views | n0 }} views</strong> each, ahead of the other formats.
+        The marts hold one row per video and one per month; every number here is a lookup from
+        those tables, not re-typed prose.
+      </p>
+    </div>
+  </section>
+
+  <section id="figures">
+    <p class="kicker">02 — Figures</p>
+    <h2>Reach over time</h2>
+    <div class="panel">
+      <figure>
+        {{ charts.monthly_views | safe }}
+        <figcaption><strong>Figure 1.</strong> Views per month across the channel. Two uploads a month, so the line follows how far each pair travelled rather than how much was published.</figcaption>
+      </figure>
+    </div>
+    <div class="panel">
+      <figure>
+        {{ charts.format_views | safe }}
+        <figcaption><strong>Figure 2.</strong> Average views per video by format. Averages, not totals: each format has the same number of uploads.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="videos">
+    <p class="kicker">03 — Videos</p>
+    <h2>The five that travelled</h2>
+    <p class="lede">Ranked by views, with engagement for each. Engagement is likes plus comments over views.</p>
+    <div class="panel">
+      <div class="table-wrap">
+        <table>
+          <caption class="visually-hidden">The five most-watched videos</caption>
+          <thead>
+            <tr><th>#</th><th>Video</th><th>Format</th><th class="num">Views</th><th class="num">Engagement</th></tr>
+          </thead>
+          <tbody>
+            {% for video in videos[:5] %}
+            <tr>
+              <td data-label="#">{{ video.rank }}</td>
+              <td data-label="Video"><strong>{{ video.title }}</strong><br><span class="path">{{ video.published_date | date_label }}</span></td>
+              <td data-label="Format">{{ video.format_label }}</td>
+              <td class="num" data-label="Views">{{ video.views | n0 }}</td>
+              <td class="num" data-label="Engagement">{{ (video.engagement_rate * 100) | round(1) }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="method">
+    <p class="kicker">04 — Method</p>
+    <h2>How this was built</h2>
+    <ol class="stages">
+      <li>
+        <span class="n">01</span>
+        <h3>Source</h3>
+        <p>{{ facts.summary("counts.videos") }} videos from one channel export: title, format, publish date and public counts.</p>
+      </li>
+      <li>
+        <span class="n">02</span>
+        <h3>Evidence</h3>
+        <p>Every video validated against its contract before it landed. dbt then typed the rows and derived the engagement rate.</p>
+      </li>
+      <li>
+        <span class="n">03</span>
+        <h3>Insight</h3>
+        <p>Two marts: reach by month ({{ facts.summary("counts.months") }} rows) and reach by format ({{ facts.summary("counts.formats") }} rows).</p>
+      </li>
+      <li>
+        <span class="n">04</span>
+        <h3>Analysis</h3>
+        <p>Two tables, one ranked list, two charts and {{ facts.checks() | length }} checks. Every figure is a lookup from a table.</p>
+      </li>
+      <li>
+        <span class="n">05</span>
+        <h3>Report</h3>
+        <p>This page. It is self-contained, opens offline, and is rebuilt byte-for-byte from the same export.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section id="provenance">
+    <p class="kicker">05 — Provenance</p>
+    <h2>What this was built from</h2>
+    <p class="lede">Every input is pinned by hash. These are the exact bytes this report was built from.</p>
+    <div class="panel">
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Input</th><th class="num">Bytes</th><th>SHA-256</th></tr>
+        </thead>
+        <tbody>
+          {% for item in provenance.inputs %}
+          <tr>
+            <td data-label="Input">{{ item.label }}<br><span class="path">{{ item.path }}</span></td>
+            <td class="num" data-label="Bytes">{{ item.bytes | n0 }}</td>
+            <td data-label="SHA-256"><span class="hash">{{ item.sha256[:16] }}…</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <p class="versions">
+        Data date {{ facts.summary("as_of") | date_label }}. Built from
+        {% if provenance.git.commit %}{{ provenance.git.branch }} at {{ provenance.git.commit[:12] }}{% if provenance.git.dirty %} with uncommitted changes{% endif %}{% else %}a checkout with no git metadata{% endif %}.
+        Python {{ provenance.python }}.
+      </p>
+      <p class="versions">
+        {% for name, version in provenance.packages.items() %}{{ name }} {{ version or "not installed" }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <p class="ghost" aria-hidden="true">source → report</p>
+    <div class="colophon">
+      <p><strong>Fixture data.</strong> The channel and its statistics are synthetic and deterministic; they are not a real YouTube channel.</p>
+      <p>Reference preset for Phlo. The same pipeline runs the air-quality pack: one source, one contract, dbt marts, and a page.</p>
+    </div>
+  </footer>
+
+</main>
+</body>
+</html>

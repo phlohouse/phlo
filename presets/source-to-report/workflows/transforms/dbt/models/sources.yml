@@ -19,3 +19,7 @@ sources:
         description: Figures published in the notes, each with its note and line.
         meta:
           phlo_asset_key: dlt_note_claims
+      - name: youtube_videos
+        description: One row per video in the channel export.
+        meta:
+          phlo_asset_key: dlt_youtube_videos
