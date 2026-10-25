@@ -1188,7 +1188,7 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.141.1"
+version = "0.136.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
@@ -1197,18 +1197,18 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/02/91e3416a8fdd715abb903a952a6bec7cdd8d14eed55d415fc8595524c319/fastapi-0.141.1.tar.gz", hash = "sha256:e8822fc40db1e1858054d7a949a888695bc9bdce70139178e33bd2871a453ca1", size = 425799, upload-time = "2026-07-29T17:18:05.568Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/2d/ff8d91d7b564d464629a0fd50a4489c97fcb836ac230bf3a7269232a9b1f/fastapi-0.136.3.tar.gz", hash = "sha256:e487fae93ad408e6f47641ee4dfe389864fd7bec92e547ea8498fc13f43e83ab", size = 396410, upload-time = "2026-05-23T18:53:15.192Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/03/10388a42375ee7e4ac9b94eb2c5c569c8b5795e377e701c9ac3ad63de890/fastapi-0.141.1-py3-none-any.whl", hash = "sha256:bfb91aa2d334c61cb35ba9a116fc123b3d3df31640b801cf57a7a78ec3f603b3", size = 131954, upload-time = "2026-07-29T17:18:04.364Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/82/45359b62a067409bd929ae8a56b8ed13e5a8c8a61194b3c236920999ab83/fastapi-0.136.3-py3-none-any.whl", hash = "sha256:3d2a69bdf04b7e9f3afa292c3bc7a98816bbfafa10bc9b45f3f3700d2f761620", size = 117481, upload-time = "2026-05-23T18:53:16.924Z" },
 ]
 
 [[package]]
 name = "filelock"
-version = "3.32.4"
+version = "4.2.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6d/30/03b03951873a1a0ffc7e8ca0e10c15597b59e8d0e39260704cd2ea087bc4/filelock-3.32.4.tar.gz", hash = "sha256:2bde2e4cf732e0153406d8a7bc80620ecf5e621fe0d25e41143c4e3b4733ff30", size = 222126, upload-time = "2026-08-23T17:37:55.363Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/28/3893324bcadf8f89b1616637468d766af3f625008c0735bf704fdfa86617/filelock-4.2.4.tar.gz", hash = "sha256:c6d8663535e1650ee430507b4ffbac7b464dd64b7647ea0112a9f406499d163d", size = 652444, upload-time = "2026-10-19T01:57:51.001Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/a4/9b63d595d748e3aff8812b65eacc1a2c4bd90b7c2012e08e72373b4835eb/filelock-3.32.4-py3-none-any.whl", hash = "sha256:22e58ca3b1ae3b98993b762d7338367ae64fe50252bf78d59da3bfebcdf1cedd", size = 99864, upload-time = "2026-08-23T17:37:53.913Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/1b/5e74289a1878e666bb4b65fe5805a04cafcac2aa5f519ef1ead67ef91c56/filelock-4.2.4-py3-none-any.whl", hash = "sha256:301241438c57936ef93f4243a94f2559022268bfcf9b375a9a72eb0f8db8358e", size = 162475, upload-time = "2026-10-19T01:57:49.419Z" },
 ]
 
 [[package]]
@@ -2487,21 +2487,18 @@ wheels = [
 
 [[package]]
 name = "phlo"
-version = "0.17.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.18.0"
+source = { editable = "../../../" }
 dependencies = [
     { name = "click" },
     { name = "httpx" },
     { name = "jsonschema" },
     { name = "packaging" },
     { name = "pydantic-settings" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "structlog" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/43/e0b92605436ae8a8c1024c13a41c6acdf575adcac54f48936fe019519890/phlo-0.17.0.tar.gz", hash = "sha256:c4235ebfda384503d191aaab29a4da46bbb8aaf55431973cca34ada1e26f987a", size = 534632, upload-time = "2026-09-23T11:23:12.043Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/1d/bf95be39ecf70814335df6c58c2b674052e394e6d1b35d319675ec5650cc/phlo-0.17.0-py3-none-any.whl", hash = "sha256:036380ebd8d9e281f25e2a2a0e48caf45b56d2deac5c7a6c5894cb6f6d07672b", size = 673959, upload-time = "2026-09-23T11:22:33.887Z" },
 ]
 
 [package.optional-dependencies]
@@ -2521,39 +2518,182 @@ defaults = [
     { name = "phlo-trino" },
 ]
 
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
+    { name = "click", specifier = ">=8.3.3" },
+    { name = "dagster", marker = "extra == 'runtime'", specifier = ">=1.13,<1.14" },
+    { name = "dagster-webserver", marker = "extra == 'runtime'", specifier = ">=1.13,<1.14" },
+    { name = "duckdb", marker = "extra == 'runtime'", specifier = ">=0.9.0" },
+    { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.127.0,<0.137" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "jsonschema", specifier = ">=4.23.0" },
+    { name = "libcst", marker = "extra == 'codemods'", specifier = ">=1.5.0" },
+    { name = "packaging", specifier = ">=24.0" },
+    { name = "pandas", marker = "extra == 'runtime'", specifier = ">=2.3.3" },
+    { name = "pandera", marker = "extra == 'runtime'", specifier = ">=0.26.1" },
+    { name = "phlo-api", marker = "extra == 'defaults'", editable = "../../../packages/phlo-api" },
+    { name = "phlo-core-plugins", marker = "extra == 'defaults'", editable = "../../../packages/phlo-core-plugins" },
+    { name = "phlo-dagster", marker = "extra == 'core-services'", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-dagster", marker = "extra == 'defaults'", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-dbt", marker = "extra == 'defaults'", editable = "../../../packages/phlo-dbt" },
+    { name = "phlo-dlt", marker = "extra == 'defaults'", editable = "../../../packages/phlo-dlt" },
+    { name = "phlo-iceberg", marker = "extra == 'defaults'", editable = "../../../packages/phlo-iceberg" },
+    { name = "phlo-minio", marker = "extra == 'core-services'", editable = "../../../packages/phlo-minio" },
+    { name = "phlo-minio", marker = "extra == 'defaults'", editable = "../../../packages/phlo-minio" },
+    { name = "phlo-nessie", marker = "extra == 'core-services'", editable = "../../../packages/phlo-nessie" },
+    { name = "phlo-nessie", marker = "extra == 'defaults'", editable = "../../../packages/phlo-nessie" },
+    { name = "phlo-observatory", marker = "extra == 'defaults'", editable = "../../../packages/phlo-observatory" },
+    { name = "phlo-observe-plugin", marker = "extra == 'defaults'", editable = "../../../packages/phlo-observe-plugin" },
+    { name = "phlo-observe-plugin", marker = "extra == 'observe'", editable = "../../../packages/phlo-observe-plugin" },
+    { name = "phlo-openmetadata", marker = "extra == 'openmetadata'", editable = "../../../packages/phlo-openmetadata" },
+    { name = "phlo-pandera", marker = "extra == 'defaults'", editable = "../../../packages/phlo-pandera" },
+    { name = "phlo-postgres", marker = "extra == 'core-services'", editable = "../../../packages/phlo-postgres" },
+    { name = "phlo-postgres", marker = "extra == 'defaults'", editable = "../../../packages/phlo-postgres" },
+    { name = "phlo-trino", marker = "extra == 'core-services'", editable = "../../../packages/phlo-trino" },
+    { name = "phlo-trino", marker = "extra == 'defaults'", editable = "../../../packages/phlo-trino" },
+    { name = "psycopg2-binary", marker = "extra == 'runtime'", specifier = ">=2.9.11" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.0" },
+    { name = "pyyaml", specifier = ">=6.0.1" },
+    { name = "rich", specifier = ">=13.0" },
+    { name = "structlog", specifier = ">=25.5.0" },
+]
+provides-extras = ["codemods", "core-services", "defaults", "observe", "openmetadata", "runtime"]
+
+[package.metadata.requires-dev]
+coverage-report = [{ name = "coverage", specifier = "==7.13.5" }]
+dev = [
+    { name = "asyncpg", specifier = ">=0.30.0" },
+    { name = "dagster", specifier = ">=1.13,<1.14" },
+    { name = "dagster-webserver", specifier = ">=1.13,<1.14" },
+    { name = "dbt-duckdb", specifier = ">=1.9,<1.12" },
+    { name = "duckdb", specifier = ">=0.9.0" },
+    { name = "fastapi", specifier = ">=0.127.0,<0.137" },
+    { name = "import-linter", specifier = ">=2.15" },
+    { name = "libcst", specifier = ">=1.5.0" },
+    { name = "minio", specifier = ">=7.2.20" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pandera", specifier = ">=0.26.1" },
+    { name = "phlo-airbyte", editable = "../../../packages/phlo-airbyte" },
+    { name = "phlo-alerting", editable = "../../../packages/phlo-alerting" },
+    { name = "phlo-alloy", editable = "../../../packages/phlo-alloy" },
+    { name = "phlo-api", editable = "../../../packages/phlo-api" },
+    { name = "phlo-clickhouse", editable = "../../../packages/phlo-clickhouse" },
+    { name = "phlo-clickstack", editable = "../../../packages/phlo-clickstack" },
+    { name = "phlo-core-plugins", editable = "../../../packages/phlo-core-plugins" },
+    { name = "phlo-dagster", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-dbt", editable = "../../../packages/phlo-dbt" },
+    { name = "phlo-delta", editable = "../../../packages/phlo-delta" },
+    { name = "phlo-dlt", editable = "../../../packages/phlo-dlt" },
+    { name = "phlo-grafana", editable = "../../../packages/phlo-grafana" },
+    { name = "phlo-hasura", editable = "../../../packages/phlo-hasura" },
+    { name = "phlo-iceberg", editable = "../../../packages/phlo-iceberg" },
+    { name = "phlo-kafka", editable = "../../../packages/phlo-kafka" },
+    { name = "phlo-lineage", editable = "../../../packages/phlo-lineage" },
+    { name = "phlo-loki", editable = "../../../packages/phlo-loki" },
+    { name = "phlo-mcp", editable = "../../../packages/phlo-mcp" },
+    { name = "phlo-minio", editable = "../../../packages/phlo-minio" },
+    { name = "phlo-nessie", editable = "../../../packages/phlo-nessie" },
+    { name = "phlo-oauth2-proxy", editable = "../../../packages/phlo-oauth2-proxy" },
+    { name = "phlo-observatory", editable = "../../../packages/phlo-observatory" },
+    { name = "phlo-observatory-example", editable = "../../../packages/phlo-observatory-example" },
+    { name = "phlo-observe", specifier = ">=0.2.3,<0.3" },
+    { name = "phlo-observe-plugin", editable = "../../../packages/phlo-observe-plugin" },
+    { name = "phlo-openmetadata", editable = "../../../packages/phlo-openmetadata" },
+    { name = "phlo-otel", editable = "../../../packages/phlo-otel" },
+    { name = "phlo-pandera", editable = "../../../packages/phlo-pandera" },
+    { name = "phlo-pgweb", editable = "../../../packages/phlo-pgweb" },
+    { name = "phlo-polaris", editable = "../../../packages/phlo-polaris" },
+    { name = "phlo-postgres", editable = "../../../packages/phlo-postgres" },
+    { name = "phlo-postgrest", editable = "../../../packages/phlo-postgrest" },
+    { name = "phlo-prometheus", editable = "../../../packages/phlo-prometheus" },
+    { name = "phlo-rustfs", editable = "../../../packages/phlo-rustfs" },
+    { name = "phlo-sling", editable = "../../../packages/phlo-sling" },
+    { name = "phlo-superset", editable = "../../../packages/phlo-superset" },
+    { name = "phlo-testing", editable = "../../../packages/phlo-testing" },
+    { name = "phlo-traefik", editable = "../../../packages/phlo-traefik" },
+    { name = "phlo-transform", editable = "../../../packages/phlo-transform" },
+    { name = "phlo-trino", editable = "../../../packages/phlo-trino" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pyiceberg", specifier = ">=0.10.0,<0.12" },
+    { name = "pymdx", specifier = ">=0.1.1" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "pytest-timeout", specifier = ">=2.4" },
+    { name = "pytest-xdist", specifier = ">=3.8" },
+    { name = "ruff", specifier = ">=0.14.1" },
+    { name = "s3fs", specifier = ">=2026.6.0" },
+    { name = "sqlfluff", specifier = ">=4.2.0" },
+    { name = "testcontainers", specifier = ">=4.13.3" },
+    { name = "ty", specifier = "==0.0.29" },
+]
+
 [[package]]
 name = "phlo-api"
-version = "0.17.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.18.0"
+source = { editable = "../../../packages/phlo-api" }
 dependencies = [
     { name = "anyio" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "phlo" },
+    { name = "phlo-pandera" },
+    { name = "phlo-postgres" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "sqlglot" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/17/307edaf11f4f7ec38ec62a1ab77da1042dbec3239dd5f1c9cfd15e83ac21/phlo_api-0.17.0.tar.gz", hash = "sha256:50b95781ab5f6dd9af7185d4c661c725b98e43f2d4ec5b296f97cb7db9113ead", size = 269475, upload-time = "2026-09-23T11:23:14.812Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/2b/d6d4161191cd03c42a314bb8c98e3dae6c3d172593cf80250d47dfea6d05/phlo_api-0.17.0-py3-none-any.whl", hash = "sha256:84d02e1beb66a76af7457095fe5682fb1885df4925476184f52b09b815f878a8", size = 201845, upload-time = "2026-09-23T11:22:38.126Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.14.2" },
+    { name = "fastapi", specifier = ">=0.127.0,<0.137" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-dagster", marker = "extra == 'dagster'", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-dlt", marker = "extra == 'dlt'", editable = "../../../packages/phlo-dlt" },
+    { name = "phlo-iceberg", marker = "extra == 'iceberg'", editable = "../../../packages/phlo-iceberg" },
+    { name = "phlo-lineage", marker = "extra == 'lineage'", editable = "../../../packages/phlo-lineage" },
+    { name = "phlo-pandera", editable = "../../../packages/phlo-pandera" },
+    { name = "phlo-postgres", editable = "../../../packages/phlo-postgres" },
+    { name = "phlo-transform", marker = "extra == 'transform'", editable = "../../../packages/phlo-transform" },
+    { name = "phlo-trino", marker = "extra == 'trino'", editable = "../../../packages/phlo-trino" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pyyaml", specifier = ">=6.0.1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "sqlglot", specifier = ">=30.2.1,<31" },
+    { name = "uvicorn", specifier = ">=0.38.0" },
 ]
+provides-extras = ["dagster", "dlt", "dev", "iceberg", "lineage", "transform", "trino"]
 
 [[package]]
 name = "phlo-clickhouse"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.16.1"
+source = { editable = "../../../packages/phlo-clickhouse" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "pandas" },
     { name = "phlo" },
     { name = "pyarrow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/36/d8f19d133fc57ca01f9156f3af6db488f332d82fe5efeb1b1dbc1aa85fbe/phlo_clickhouse-0.16.0.tar.gz", hash = "sha256:ad6f2bcad2d7522c11f30dfc0d324ab603e988cc1069cedac1ae8c2bd4f64feb", size = 21527, upload-time = "2026-09-23T11:23:15.571Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/34/13ea9821bc8075ffd56e12daa0366bf10a25c8ce32ff8b1d8f8fab292ee6/phlo_clickhouse-0.16.0-py3-none-any.whl", hash = "sha256:85bb316de44f354654ce670db4c543f54934dfaf1bf18f11f93625610b95a961", size = 17806, upload-time = "2026-09-23T11:22:39.329Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "clickhouse-connect", specifier = ">=0.8.0" },
+    { name = "dbt-clickhouse", marker = "extra == 'dbt'", specifier = ">=1.8" },
+    { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.8" },
+    { name = "pandas", specifier = ">=2.0.0" },
+    { name = "phlo", editable = "../../../" },
+    { name = "pyarrow", specifier = ">=12.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dbt", "dev"]
 
 [[package]]
 name = "phlo-clickhouse-ops-example"
@@ -2586,41 +2726,48 @@ requires-dist = [
     { name = "dbt-clickhouse", specifier = ">=1.10,<1.11" },
     { name = "dlt", extras = ["filesystem"], specifier = ">=1.20,<2" },
     { name = "pandas", specifier = ">=2.3,<3.1" },
-    { name = "phlo", extras = ["defaults"], specifier = "==0.17.0" },
-    { name = "phlo-clickhouse", specifier = "==0.16.0" },
-    { name = "phlo-dagster", specifier = "==0.17.0" },
-    { name = "phlo-dbt", specifier = "==0.16.0" },
-    { name = "phlo-dlt", specifier = "==0.16.0" },
-    { name = "phlo-sling", specifier = "==0.16.0" },
+    { name = "phlo", extras = ["defaults"], editable = "../../../" },
+    { name = "phlo-clickhouse", editable = "../../../packages/phlo-clickhouse" },
+    { name = "phlo-dagster", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-dbt", editable = "../../../packages/phlo-dbt" },
+    { name = "phlo-dlt", editable = "../../../packages/phlo-dlt" },
+    { name = "phlo-sling", editable = "../../../packages/phlo-sling" },
     { name = "psycopg2-binary", specifier = ">=2.9,<3.1" },
-    { name = "pyarrow", specifier = ">=21,<26" },
+    { name = "pyarrow", specifier = ">=26,<27" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "duckdb", specifier = ">=1.4,<1.6" },
-    { name = "phlo-pandera", specifier = "==0.16.0" },
+    { name = "phlo-pandera", editable = "../../../packages/phlo-pandera" },
     { name = "pytest" },
     { name = "ruff" },
 ]
 
 [[package]]
 name = "phlo-core-plugins"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.16.1"
+source = { editable = "../../../packages/phlo-core-plugins" }
 dependencies = [
     { name = "phlo" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/7a/bd0dbaec5529c0f03afb7c5489479c94ddfab738dd412eb9ce804744d5a8/phlo_core_plugins-0.16.0.tar.gz", hash = "sha256:2428ae641e85edfbc04eece5685e36829c781b2c63f10faf8629ec47751e26e7", size = 12064, upload-time = "2026-09-23T11:23:16.727Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/b1/88ec5cd2ad9ac76a0846a805f51dc17f405d0dd3b2612650ac209c6ce07d/phlo_core_plugins-0.16.0-py3-none-any.whl", hash = "sha256:b95d37da89f18cebb9cb28e5ff77eff878d570d745dd0183e9cecc4333215c48", size = 12503, upload-time = "2026-09-23T11:22:41.232Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-pandera", marker = "extra == 'quality'", editable = "../../../packages/phlo-pandera" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
+    { name = "requests", specifier = ">=2.28.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev", "quality"]
 
 [[package]]
 name = "phlo-dagster"
-version = "0.17.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.18.0"
+source = { editable = "../../../packages/phlo-dagster" }
 dependencies = [
     { name = "cryptography" },
     { name = "dagster" },
@@ -2632,30 +2779,55 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a0/b2/394d98029a95a451374e3dd172ebbc510154d239e12cdf9906a94f3c1d87/phlo_dagster-0.17.0.tar.gz", hash = "sha256:4b7ebdf2704c7c68db2921821a04c0e9c1f9272d820cda0ad63503c9006dfcc9", size = 189358, upload-time = "2026-09-23T11:23:17.324Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/42/80a7647285e3fcf5c679ae8d3bdd9acab82b7ff53d21630684c3fa969069/phlo_dagster-0.17.0-py3-none-any.whl", hash = "sha256:6db5352981f9074cf618a0f4dd23811629cc303bf26f98850be14188ed84ed6f", size = 140594, upload-time = "2026-09-23T11:22:42.156Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", specifier = ">=48.0.1" },
+    { name = "dagster", specifier = ">=1.13,<1.14" },
+    { name = "dagster-graphql", specifier = ">=1.13,<1.14" },
+    { name = "dagster-webserver", specifier = ">=1.13,<1.14" },
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-alerting", marker = "extra == 'alerting'", editable = "../../../packages/phlo-alerting" },
+    { name = "phlo-iceberg", marker = "extra == 'iceberg'", editable = "../../../packages/phlo-iceberg" },
+    { name = "phlo-nessie", marker = "extra == 'nessie'", editable = "../../../packages/phlo-nessie" },
+    { name = "phlo-observatory", marker = "extra == 'observatory'", editable = "../../../packages/phlo-observatory" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pyyaml", specifier = ">=6.0.1" },
+    { name = "requests", specifier = ">=2.32.5" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["alerting", "dev", "iceberg", "nessie", "observatory"]
 
 [[package]]
 name = "phlo-dbt"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.17.0"
+source = { editable = "../../../packages/phlo-dbt" }
 dependencies = [
     { name = "dbt-core" },
     { name = "dbt-postgres" },
     { name = "dbt-trino" },
     { name = "phlo" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/97/acf112d8bbda5fe0918645e4001a78ee42cd1bda8a16da6e071cc0fad195/phlo_dbt-0.16.0.tar.gz", hash = "sha256:53bcd0831e3e21f0fab24e42dee544a698ef298cb399bbd7d76586dfd04a6178", size = 69775, upload-time = "2026-09-23T11:23:18.091Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/6f/a718cd8c389aa58ce0d9a5efc97e95eb9d71f6d60ea175fe4712add7cb7e/phlo_dbt-0.16.0-py3-none-any.whl", hash = "sha256:fe0b2069792fe21efdf034a303fe98499b4917488b69a1fca7d4da56ddc382d6", size = 54937, upload-time = "2026-09-23T11:22:43.936Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "dbt-core", specifier = ">=1.10.8,<1.13" },
+    { name = "dbt-postgres", specifier = ">=1.9.1" },
+    { name = "dbt-trino", specifier = ">=1.9.3" },
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-dagster", marker = "extra == 'dagster'", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-pandera", marker = "extra == 'quality'", editable = "../../../packages/phlo-pandera" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dagster", "dev", "quality"]
 
 [[package]]
 name = "phlo-dlt"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.17.0"
+source = { editable = "../../../packages/phlo-dlt" }
 dependencies = [
     { name = "dlt" },
     { name = "pandas" },
@@ -2664,64 +2836,101 @@ dependencies = [
     { name = "pyiceberg" },
     { name = "python-ulid" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/7b/9c878a7cd7f842fd7479c9b749136238292d24e0a68dc51b62b87e189ca8/phlo_dlt-0.16.0.tar.gz", hash = "sha256:a6dc2f01f2d7b4c228ca6241d095e678420aadcc9cc422dffac097004c9c5655", size = 68437, upload-time = "2026-09-23T11:23:19.404Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/66/2c157ed69dc37a86e8fca54fcfad3ce8ddeb9b1b51ae88a9cf451381f53b/phlo_dlt-0.16.0-py3-none-any.whl", hash = "sha256:1d9c4beced233372c3052cbdd333bca7017e73ffc3d97b7756d2f7daa297da8b", size = 54049, upload-time = "2026-09-23T11:22:45.95Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "dlt", specifier = ">=1.18.2" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "phlo", editable = "../../../" },
+    { name = "pyarrow", specifier = ">=26.0.0,<27" },
+    { name = "pyiceberg", specifier = ">=0.10.0,<0.12" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "python-ulid", specifier = ">=2.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-iceberg"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.17.0"
+source = { editable = "../../../packages/phlo-iceberg" }
 dependencies = [
     { name = "pandera", extra = ["pandas"] },
     { name = "phlo" },
     { name = "pyarrow" },
     { name = "pyiceberg", extra = ["s3fs"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/30/d7/3f1b6ba32690c15938242efb5dedff9a239c9f7377c4c2aa168e7c499a9a/phlo_iceberg-0.16.0.tar.gz", hash = "sha256:2445a8b082ac745d661c80b69eda3d5cb5ff6d14e5c350deb112abedff50bc7f", size = 69595, upload-time = "2026-09-23T11:23:21.311Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/db/20e88bb37ff4bbcd2d8b3d45ccaaec87116462a3b10e756b27eb431c2804/phlo_iceberg-0.16.0-py3-none-any.whl", hash = "sha256:2c9c8b3a4b2caad075a59713c8d3aa5ff18ae85229ed4756b46d1181cac20b0b", size = 49301, upload-time = "2026-09-23T11:22:48.999Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "pandera", extras = ["pandas"], specifier = ">=0.26.1" },
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-minio", marker = "extra == 'minio'", editable = "../../../packages/phlo-minio" },
+    { name = "phlo-nessie", marker = "extra == 'nessie'", editable = "../../../packages/phlo-nessie" },
+    { name = "pyarrow", specifier = ">=26.0.0,<27" },
+    { name = "pyiceberg", extras = ["s3fs"], specifier = ">=0.11.0,<0.12" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev", "minio", "nessie"]
 
 [[package]]
 name = "phlo-minio"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.17.0"
+source = { editable = "../../../packages/phlo-minio" }
 dependencies = [
     { name = "phlo" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d9/62/032e6084fd1f29f88d26858fc24042c164b31c9bbfb3a6461a3dee4a514d/phlo_minio-0.16.0.tar.gz", hash = "sha256:7618b598ed0012c6736f5402893f401767a8a56ed26f1b48ffacce06bce782d1", size = 26491, upload-time = "2026-09-23T11:23:24.285Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/b6/379be563cffab26eb7d5defcc9a522eb4d5db8d193d21a98ca4421c74671/phlo_minio-0.16.0-py3-none-any.whl", hash = "sha256:a08f6b5bfa3ed808d6106a2b3e4a540ff4b9a0e7592b9aa50cbdb1b1b8632310", size = 21080, upload-time = "2026-09-23T11:22:53.76Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "../../../" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-nessie"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.17.0"
+source = { editable = "../../../packages/phlo-nessie" }
 dependencies = [
     { name = "marshmallow" },
     { name = "phlo" },
     { name = "pynessie" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/47/d1/741dc84e2020ecf160274234b1194a8a3e7c67c86f637d5cae4993cc322c/phlo_nessie-0.16.0.tar.gz", hash = "sha256:9039d17e95834f56e528219daeeb733ea014f0e577de15e64534cd4c72d69fd1", size = 42097, upload-time = "2026-09-23T11:23:24.871Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/33/dab978f027708a4eba6449411df516103289ae2b10046eaacc5ded3afbc8/phlo_nessie-0.16.0-py3-none-any.whl", hash = "sha256:dbb87790effb338bd04dc463381c272b3d9bce5fe96af2a8f2dc319fbcc8536c", size = 38076, upload-time = "2026-09-23T11:22:54.68Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "marshmallow", specifier = ">=3.18,<4" },
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-iceberg", marker = "extra == 'iceberg-cli'", editable = "../../../packages/phlo-iceberg" },
+    { name = "phlo-observatory", marker = "extra == 'observatory'", editable = "../../../packages/phlo-observatory" },
+    { name = "phlo-trino", marker = "extra == 'trino'", editable = "../../../packages/phlo-trino" },
+    { name = "pynessie", specifier = ">=0.67.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "requests", specifier = ">=2.32.5" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev", "iceberg-cli", "observatory", "trino"]
 
 [[package]]
 name = "phlo-observatory"
-version = "0.17.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.18.0"
+source = { editable = "../../../packages/phlo-observatory" }
 dependencies = [
     { name = "phlo" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/30/6b07cf85c5ac6b5b656f5f8b0fa85002bfaf0c904d74b308a08246ae52d5/phlo_observatory-0.17.0.tar.gz", hash = "sha256:068b9fd9ca8b5411a37448529c143fde2141b49fb4e8f6e4a7d35c48378ba4b4", size = 752678, upload-time = "2026-09-23T11:23:26.017Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b4/7d/4b43e54e363da0eba2a48359c4ab3cd4289789d9ccc93707103bd3fe29f5/phlo_observatory-0.17.0-py3-none-any.whl", hash = "sha256:bb3c2227ac233f05c0568fbabcca84a4ea2bb44e705e0f55d9f04d0cb7f8f0e7", size = 834842, upload-time = "2026-09-23T11:22:56.481Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-postgres", marker = "extra == 'postgres'", editable = "../../../packages/phlo-postgres" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev", "postgres"]
 
 [[package]]
 name = "phlo-observe"
@@ -2754,17 +2963,23 @@ wheels = [
 
 [[package]]
 name = "phlo-observe-plugin"
-version = "0.2.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.2.1"
+source = { editable = "../../../packages/phlo-observe-plugin" }
 dependencies = [
     { name = "phlo" },
     { name = "phlo-dagster" },
     { name = "phlo-observe" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/b7/fe8ce35dfd0796356814477563cb8000e3932d0969f3a700b2ec45796340/phlo_observe_plugin-0.2.0.tar.gz", hash = "sha256:28336dec31b2c26a17bf63c73e5c88b8cb0390e088db34639a72afc66ce2b86a", size = 27450, upload-time = "2026-09-23T11:23:27.672Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/74/7acea0073ddf6d580ed9b6661113f4f5068c0b01c2d049ac3b2b608a1950/phlo_observe_plugin-0.2.0-py3-none-any.whl", hash = "sha256:efc8da70fb7acedc5a660bb5eaa8bd07a0f088086b0796068e926586400a2103", size = 20237, upload-time = "2026-09-23T11:22:58.322Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-dagster", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-observe", specifier = ">=0.2.3,<0.3" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-observe-query"
@@ -2781,61 +2996,95 @@ wheels = [
 
 [[package]]
 name = "phlo-pandera"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.16.1"
+source = { editable = "../../../packages/phlo-pandera" }
 dependencies = [
     { name = "click" },
     { name = "pandas" },
     { name = "pandera" },
     { name = "phlo" },
+    { name = "pyarrow" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/c5/e8a9b9dd6f94d17904698f2142b7843239f202a98fc67b4077b56fa103f3/phlo_pandera-0.16.0.tar.gz", hash = "sha256:ea7f0ea0bdf364d2bb2e345f79c87a1c21a7f0175f62d0e41a5f5c070e758601", size = 81544, upload-time = "2026-09-23T11:23:29.495Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/62/2f14093085b60e91e63051e22c47b1253b74ab191b53fdf6a1b207fc75c1/phlo_pandera-0.16.0-py3-none-any.whl", hash = "sha256:db22b391fb1983e8dac6e0152e5bd20cda95e26ccca2541915b40b6994f03dfe", size = 74601, upload-time = "2026-09-23T11:23:01.03Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.3.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pandera", specifier = ">=0.26.1" },
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-observatory", marker = "extra == 'observatory'", editable = "../../../packages/phlo-observatory" },
+    { name = "phlo-trino", marker = "extra == 'trino'", editable = "../../../packages/phlo-trino" },
+    { name = "pyarrow", specifier = ">=21.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "rich", specifier = ">=14.2.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev", "observatory", "trino"]
 
 [[package]]
 name = "phlo-postgres"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.17.0"
+source = { editable = "../../../packages/phlo-postgres" }
 dependencies = [
     { name = "phlo" },
     { name = "psycopg2-binary" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/10/18a37edb27c03566f5201c809d3e2dacd0642abe62839515ced3d7a1b851/phlo_postgres-0.16.0.tar.gz", hash = "sha256:78d8d8360b443c1545b01764e715f33a1bdebcf51ee2779955c7630f7353814a", size = 43801, upload-time = "2026-09-23T11:23:31.274Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/be/fa28d93f3e46c6af673a0d8820af6ce11a2892a59b81da70b3c2841eca5c/phlo_postgres-0.16.0-py3-none-any.whl", hash = "sha256:9fe1ebde3d4b8249c3ce8617fc7606421c59beefb096fb47082ac1d36af9d474", size = 34549, upload-time = "2026-09-23T11:23:03.475Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "../../../" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-sling"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.16.1"
+source = { editable = "../../../packages/phlo-sling" }
 dependencies = [
     { name = "phlo" },
     { name = "pyarrow" },
     { name = "sling" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d8/7c/00ab7cd35f4161d1ad6889a6dad3c84a9e90ec823e7785966aaf43af0650/phlo_sling-0.16.0.tar.gz", hash = "sha256:36c10f2a3a14e951e23856ef789d603e963251c874d1b6975281a5908bb323dc", size = 30753, upload-time = "2026-09-23T11:23:33.579Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/53/ddd035c9a4f6d1fb06bab281918d7623acab843bc7c0d85a8d0dc525fd25/phlo_sling-0.16.0-py3-none-any.whl", hash = "sha256:8a71a9b6216f8f41636f3f27cfab5a77dcc8117cc01b641957b3bbca382eb2cc", size = 25312, upload-time = "2026-09-23T11:23:07.024Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "phlo", editable = "../../../" },
+    { name = "pyarrow", specifier = ">=21.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "sling", specifier = ">=1.0.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-trino"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.17.0"
+source = { editable = "../../../packages/phlo-trino" }
 dependencies = [
     { name = "pandas" },
     { name = "phlo" },
     { name = "psycopg2-binary" },
+    { name = "sqlglot" },
     { name = "trino" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/90/05b00aacd5ef60bc6d82d1b66ae90d8d57742503f26ccc9ce16a60dfea6c/phlo_trino-0.16.0.tar.gz", hash = "sha256:4e7fe1c18a28514a18184cd207f369121501baa78a667b668f2bcdd6c4c1c6cb", size = 46402, upload-time = "2026-09-23T11:23:36.687Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/3f/93fb4d9fac10717ca92909f3edff3c08aa9f3bdaf12acffbf63a8aa80b9b/phlo_trino-0.16.0-py3-none-any.whl", hash = "sha256:91b5c14a7c340b03d13a5f0e551a4f236625a0308f90aa26ccce165bfc917705", size = 34363, upload-time = "2026-09-23T11:23:10.931Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "pandas", specifier = ">=2.0.0" },
+    { name = "phlo", editable = "../../../" },
+    { name = "phlo-observatory", marker = "extra == 'observatory'", editable = "../../../packages/phlo-observatory" },
+    { name = "phlo-postgres", marker = "extra == 'postgres'", editable = "../../../packages/phlo-postgres" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "sqlglot", specifier = ">=30.2.1,<31" },
+    { name = "trino", specifier = ">=0.336.0" },
 ]
+provides-extras = ["dev", "observatory", "postgres"]
 
 [[package]]
 name = "platformdirs"
@@ -3021,38 +3270,52 @@ wheels = [
 
 [[package]]
 name = "pyarrow"
-version = "25.0.1"
+version = "26.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3d/e3/27f57f80141379d60defe6703eb50a707325706f07fedfd1312c7a751995/pyarrow-25.0.1.tar.gz", hash = "sha256:9150a83248bfed9813ea3c3af74c3856c1984d444aa28e58bf7733b9750ddf6a", size = 1201653, upload-time = "2026-08-10T12:40:53.904Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/34/17c34cb38e5d940e38f0f0d9fdfa0e8a506676409ea9b85aff7e3079f831/pyarrow-26.0.0.tar.gz", hash = "sha256:0cccd36e00ea3afeb52ded61f2721ce71f604853d70c45365c58324eb773d6ae", size = 1239433, upload-time = "2026-10-09T08:26:25.315Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/e2/9ab15b88cbfac28e16419ce5439ec29234c5172cb8259301b4ba639bdec0/pyarrow-25.0.1-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:df961f2e7ae9cf496459259d798652c70625f6c080650d6952f8c04053c58ee9", size = 35861559, upload-time = "2026-08-10T12:38:02.567Z" },
-    { url = "https://files.pythonhosted.org/packages/58/79/a0036dbe1eabe1f73127427342f1d99982584c4a2cde2651d6c93499c6f6/pyarrow-25.0.1-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:cc4aa407fde9fc660be3939e49ea31f50f3e9fec17c0ec63159f7711edd3efc9", size = 37628383, upload-time = "2026-08-10T12:38:09.083Z" },
-    { url = "https://files.pythonhosted.org/packages/13/49/d93a57d375f4bf0cf82913dd6bb54acafde83dd993be2282c81ac5616cad/pyarrow-25.0.1-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:4340f0ba6c1d2e13f21658de1d7c662ca2545018568d0030a1e9afca159d87e3", size = 46820190, upload-time = "2026-08-10T12:38:15.458Z" },
-    { url = "https://files.pythonhosted.org/packages/60/c9/711ca85d79f1ec98f29a5eae2b051e25b4ecec5de3e3c0e2d5c5dcb15664/pyarrow-25.0.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:5389cdf79447ed1515c9e31620e6e1e2302249564d603f2ad727d4f6d313e4c3", size = 50102437, upload-time = "2026-08-10T12:38:22.487Z" },
-    { url = "https://files.pythonhosted.org/packages/80/53/8fb8359ff17cfb6263a1cf3ebf7caec9fe197de118719e84fcb1d0618026/pyarrow-25.0.1-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:d51592cb7561e87877c506113e7adbf1342ab579e6c21f0ef44b8ba41cb74c80", size = 49942424, upload-time = "2026-08-10T12:38:28.755Z" },
-    { url = "https://files.pythonhosted.org/packages/e8/83/4e5ae02a9341571b18a6fca380ac7a58ce6ddae7ab3c060208c0a1e79f02/pyarrow-25.0.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:6109c94d8b9f3b17a041daca16cacb2f651ad8f1ef70a4232c2c0f37a23da2a8", size = 53144206, upload-time = "2026-08-10T12:38:34.862Z" },
-    { url = "https://files.pythonhosted.org/packages/65/ee/197cbf47e49f83e6ebeb946a5259a48a638dea27ac774db42fe78022179d/pyarrow-25.0.1-cp312-cp312-win_amd64.whl", hash = "sha256:8858d7bfc22e3f51529aeaa4077225029724623e4595dc9eff8c793935c34140", size = 27953934, upload-time = "2026-08-10T12:38:39.808Z" },
-    { url = "https://files.pythonhosted.org/packages/cc/8d/8f271a7a034c834910ec925d56fa4b29733b1380f5289419f5aaa3b02777/pyarrow-25.0.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:c7c534ec03c358a76ea3e505e74c1b6aef290af90c444dfd092dbfe23e755b85", size = 35855328, upload-time = "2026-08-10T12:38:45.489Z" },
-    { url = "https://files.pythonhosted.org/packages/d2/cd/5bac242f4e841b9971d5eb94fdfe2577e2b70be983e27401e72055786037/pyarrow-25.0.1-cp313-cp313-macosx_12_0_x86_64.whl", hash = "sha256:dda9470024204d7bbf2042b47c6e8a0e47a3eeb8e34405882dfaea6577e0c153", size = 37622415, upload-time = "2026-08-10T12:38:51.107Z" },
-    { url = "https://files.pythonhosted.org/packages/63/1f/96d03b4e1506524f7087adb0fd6b2f69f0c9c7aaff1ec36d8030082e15a5/pyarrow-25.0.1-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:44a9120ce5bd81936b8ab9a88076e3fd47c2c6838e0e43630fed83626aca81d9", size = 46813813, upload-time = "2026-08-10T12:38:57.773Z" },
-    { url = "https://files.pythonhosted.org/packages/98/d6/33a411115b61dbfc16ad6ad73e71730f6fea654ee3667673bc53ab0e2fe7/pyarrow-25.0.1-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:0befcf816e45a1af33ac775a9970b749e4868a230c7372f0ae5e932bee27039f", size = 50104452, upload-time = "2026-08-10T12:39:04.579Z" },
-    { url = "https://files.pythonhosted.org/packages/33/ae/b1b97c9ca87f9f9ddbb5230c798df94eccce61bd79b9b45458c69a478588/pyarrow-25.0.1-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:3f89685964f46e4216103c75483aac0c0692a5f72212d7ca835adba5ede56ce3", size = 49951343, upload-time = "2026-08-10T12:39:11.8Z" },
-    { url = "https://files.pythonhosted.org/packages/98/9e/a112df5cfd5a68cb1d9fc31cfe38c28d5aec9f10865ce37ecef2e4450873/pyarrow-25.0.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:6943e2fe7954d29d84de45d29d34c8dc36ce96570e67d89aa9976e650a4a9138", size = 53144784, upload-time = "2026-08-10T12:39:20.503Z" },
-    { url = "https://files.pythonhosted.org/packages/31/24/97e8bd98f1e3b07e2ba08bcdff690674fbe16d69a7d2712cc3884665e615/pyarrow-25.0.1-cp313-cp313-win_amd64.whl", hash = "sha256:31e49a7888fcdf3a835da33ae777f6bb9a866334e5a789282fc26dcf426f7f15", size = 27870159, upload-time = "2026-08-10T12:39:26.161Z" },
-    { url = "https://files.pythonhosted.org/packages/36/4c/b525824ad3094076919273cd97db61fb3d78252dee76fa3b8dc8f76774aa/pyarrow-25.0.1-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:bf0b672390cdcb640d7288f96b826d71ff4e9abb254a86c89890baf51a29cee6", size = 35885255, upload-time = "2026-08-10T12:39:32.366Z" },
-    { url = "https://files.pythonhosted.org/packages/08/62/448bb0e940de41aec31d1a956e63ad9c54afdf122a103cc3ab20c2a3ce33/pyarrow-25.0.1-cp314-cp314-macosx_12_0_x86_64.whl", hash = "sha256:38a9a4b4b9613380e200641891495a56c3d5a98a092db4a870af9975e220471d", size = 37644461, upload-time = "2026-08-10T12:39:38.142Z" },
-    { url = "https://files.pythonhosted.org/packages/6e/9a/13587e38bd4806fd218f50fd13b8903fab60588a699ff0c406372e5b4043/pyarrow-25.0.1-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:0b726ad7e7b669be982b0c71c07fe4b037d654354130da79a7902a669e93a66b", size = 46877146, upload-time = "2026-08-10T12:39:43.722Z" },
-    { url = "https://files.pythonhosted.org/packages/8d/61/1c5d1229fa21da4cff5365e41e57177aaac57c563c727f35419b8513d1c1/pyarrow-25.0.1-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:9171748cdf796972d85a4b60157c279913e242992e350c90c7450182a9838b2a", size = 50131616, upload-time = "2026-08-10T12:39:49.304Z" },
-    { url = "https://files.pythonhosted.org/packages/43/20/291e1d65cc0b09aa19f03cf25cf51a2f5fa94b5db315178f2d254ed5cad4/pyarrow-25.0.1-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:b7a296aac7a71fa0886c08e155ddb6c636a50013f801f6178daafa0f9e726188", size = 50008879, upload-time = "2026-08-10T12:39:56.891Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/7c/1b7c9ec28e76576337e4f97b31141c9a181b89b6d1d6221e9d8205621a58/pyarrow-25.0.1-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:0fe7c8b6c03969b49c8c66182e4a18e3819ab92d07cfab5d8370c531b9369ef0", size = 53170864, upload-time = "2026-08-10T12:40:04.918Z" },
-    { url = "https://files.pythonhosted.org/packages/b7/75/f3d789dc06011a765d14d86bda799cf72ac1d715b6a6edecaa0d73d95062/pyarrow-25.0.1-cp314-cp314-win_amd64.whl", hash = "sha256:f729cfdbd36fd99d543b67a914d2de044c84ebe45be8b34902b299b608c15c8f", size = 28620729, upload-time = "2026-08-10T12:40:51.41Z" },
-    { url = "https://files.pythonhosted.org/packages/fc/05/647a8ee6f7c2662feb6921315617bc04dcd6034763fb61b1199720bf6162/pyarrow-25.0.1-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:59a2de54c0cbd954da861eee4d1d330f8e909c45b53455baef696380f2c55033", size = 36130288, upload-time = "2026-08-10T12:40:11.014Z" },
-    { url = "https://files.pythonhosted.org/packages/93/f8/c9ee997554d7bea94520667dd1933f109ac1da3ee3556d2b49381e023484/pyarrow-25.0.1-cp314-cp314t-macosx_12_0_x86_64.whl", hash = "sha256:35935cd5de130aa5cf4dea052a63e6bf2e17006c35c3a468194242b9b2bf5956", size = 37762187, upload-time = "2026-08-10T12:40:16.592Z" },
-    { url = "https://files.pythonhosted.org/packages/a2/08/a28c01c7fe9e96e8233ce2d13df1d402f4f999f848f51d2daacd6bb4c036/pyarrow-25.0.1-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:f3831aaa25c67a99f99dc8b05873cb9d64560390372e2aa197ce9dd4a3f06a44", size = 46888003, upload-time = "2026-08-10T12:40:23.242Z" },
-    { url = "https://files.pythonhosted.org/packages/1b/b9/58612e977d28dc58c878448866838369ee8da2f1e7cc8ed2c84b952aafee/pyarrow-25.0.1-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:6a1fdfc6659b6b19022f2e50627fb5cf7156a66c46bf4299379955cbe742382a", size = 50079036, upload-time = "2026-08-10T12:40:29.169Z" },
-    { url = "https://files.pythonhosted.org/packages/72/13/66e1402dcc860e1dc2760b1e0292c9a569b62b3bccab69def1b3e907d006/pyarrow-25.0.1-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:169d3429d5be7c752125890620f75a60776d38b0035eddae939651640822332e", size = 50040226, upload-time = "2026-08-10T12:40:35.186Z" },
-    { url = "https://files.pythonhosted.org/packages/78/10/3f1a5497a7ef732ab0f03ecca3e66d89d9c0f57fdc61b4794c456b781f01/pyarrow-25.0.1-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:119297a6dc197e45d9c6d4415f7814a67ffa36c180d26f68c154c58067ae782d", size = 53149035, upload-time = "2026-08-10T12:40:41.454Z" },
-    { url = "https://files.pythonhosted.org/packages/93/c0/37d4a7e8e2f7a6076283673d5298018ca26478b934c6ee369e10505ab32c/pyarrow-25.0.1-cp314-cp314t-win_amd64.whl", hash = "sha256:4288f27577352d608ca08553b0865e4a9b3aa14820c5d95b53337218d609835b", size = 28753071, upload-time = "2026-08-10T12:40:46.623Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/60/6793778f2617cce469383dac0ba08c4f2401cf342df0c7b9ca53939d9b46/pyarrow-26.0.0-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:90ddaf7c625307ad52f31a9b25c34fe5e4897c7529ee3481135822b2b6842ff1", size = 36333953, upload-time = "2026-10-09T08:14:00.387Z" },
+    { url = "https://files.pythonhosted.org/packages/db/81/f944cc63ce8a753e5fbff25de6d1d475ebd7fffdf9cf98c65130294fc896/pyarrow-26.0.0-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:ee341973f78a0b46e073d065e88e75026a9c584051e97f98a0d05d96c6bac7dd", size = 38688456, upload-time = "2026-10-09T08:14:04.344Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/2d/7e5c722fa5d5d9f3b75e62fe11694b34217664d4f05ac88031197166b277/pyarrow-26.0.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:01c863a18bd9c8412453dd0d92de6d0ee7b2b3d6fb079d9734a4b2a3c8bd4453", size = 50867603, upload-time = "2026-10-09T08:14:09.115Z" },
+    { url = "https://files.pythonhosted.org/packages/88/e4/9cd356d906e71bd79b0c3fc5c9a54e01a0020dcf14c152ccfbcb503c7298/pyarrow-26.0.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:6a628922ba20705fa964ca73e4ef959c2fb2f14b9bbec5589a6a1e68e6257c85", size = 53931932, upload-time = "2026-10-09T08:14:24.051Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/e4/5bae3133b7fe04c24907a20f3bc1fba388cbbde659199e7b76445982047a/pyarrow-26.0.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:954d971b363b16ee41f89389a4053315dc71265f2ce5c2468eb0a910b1166268", size = 54444720, upload-time = "2026-10-09T08:14:31.214Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/b4/ee422493bb6dafdbef776cfe2c2a73106a1063a79bf4e78d1e5f51176885/pyarrow-26.0.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:5d5768d03426abe6526d5274adefa00abf00a7f81118c46e98b5a46390f5549e", size = 57388949, upload-time = "2026-10-09T08:14:38.964Z" },
+    { url = "https://files.pythonhosted.org/packages/54/3c/1783aab1dac28e175dcf26dfc7123725efc474caecaed91e8a34cb89cad0/pyarrow-26.0.0-cp312-cp312-win_amd64.whl", hash = "sha256:cc903e1069e9dd5e9dcf780324c0112e27e051e422ecfaff574fb33ed65d9160", size = 28567581, upload-time = "2026-10-09T08:14:44.279Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/35/ca95493712af97c46a312945c8e9d16b21c5fe2f148be5466168d0290505/pyarrow-26.0.0-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:a6ca849f90cf73fe361f08a5762c783ead9671e4548c1f558cc637b54c9103f2", size = 36336700, upload-time = "2026-10-09T08:14:51.399Z" },
+    { url = "https://files.pythonhosted.org/packages/69/ef/b1a675f79c9babfd4fcd99af62141d3c2d1a78a524e311b0c6b80110445a/pyarrow-26.0.0-cp313-cp313-macosx_12_0_x86_64.whl", hash = "sha256:c2ba350957076b1b3a22f549261dc3e9c67ca20816d8bd5f79d7b9c69be4c4c2", size = 38698502, upload-time = "2026-10-09T08:14:57.114Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/7c/cea852a832a327a8de797b3a68e5c25ce0f5aa1d20503807671bd90ec642/pyarrow-26.0.0-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:e3b190ba1d3d22a5a8758597f797111b77d433473744352a184a5ee0a42d672e", size = 50865064, upload-time = "2026-10-09T08:20:01.614Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/d6/e95834b29360092376fe4da9956ba41bb7b021869efe6ee9d4172d05cb15/pyarrow-26.0.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:240bd18a7487f8767616a948a69dd4e740a8bc36a1c9da49e4dc9a32c5c2faed", size = 53926722, upload-time = "2026-10-09T08:23:10.829Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/7f/98257444e2aea2e1fddceee3af3bd2077236d550428413f80393bd1f888d/pyarrow-26.0.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:2b5fcd69c0e1107b79e55839877db5a6ed04651b73fd6fec581d09e230bed5e4", size = 54443093, upload-time = "2026-10-09T08:23:16.971Z" },
+    { url = "https://files.pythonhosted.org/packages/88/ca/dac99cfb25cfa62bf7194600cc99abc14a6bd2af50d7fdb7f15eeaf6e202/pyarrow-26.0.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:f7444ea6975c49a857c68f9bd8fa11acae96dede63d120ffb3bf0a603ea82516", size = 57381937, upload-time = "2026-10-09T08:23:24.95Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/ed/138d29fddaf803b90f4527e124bb6aaddc18aaf4a6c50fd0a5f577c94989/pyarrow-26.0.0-cp313-cp313-win_amd64.whl", hash = "sha256:3de30a7432b48b98b9decbd9e25a53bb9251d202c2e6c5a29a50869592ccb117", size = 28478571, upload-time = "2026-10-09T08:23:30.535Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/32/01858422a37f083911c2bb4d15cc32c5eeaa9d9b2bf5ddedee995a7146a6/pyarrow-26.0.0-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:5780d487ff6c6ed7b42298609680d87fe0036e529a9dc2e1105364bce9697f50", size = 36378402, upload-time = "2026-10-09T08:23:36.537Z" },
+    { url = "https://files.pythonhosted.org/packages/00/85/f6b5976c2878b752d0804d371684e0495a71de296b6dc6559e6fbaa4311a/pyarrow-26.0.0-cp314-cp314-macosx_12_0_x86_64.whl", hash = "sha256:a0e4e92eeb088f1d7c2c04d6c7de8434c75abb4b4ccf0bbcd045aa7164c68d93", size = 38733074, upload-time = "2026-10-09T08:23:42.873Z" },
+    { url = "https://files.pythonhosted.org/packages/81/bc/c90fcbbcf893631e23dab1b0fb3fa29a508a8614326571b03c0894eda00b/pyarrow-26.0.0-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:eaf9e7cc7ab59f6c760232bbde18f64d559bbc50544841303bfb32be53533297", size = 50929201, upload-time = "2026-10-09T08:23:50.507Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/c1/0c1ff38ab7df1b2cf54cf0ad9f19a516c4e416c6c9b4c966cc2c9d587f77/pyarrow-26.0.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:ab6914db225d7f399652ae1f08588dfbc9efe617612715701e3d9d5cfa5ca19f", size = 53951865, upload-time = "2026-10-09T08:23:57.692Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/70/6a6b170496925472adad45a32528770fc8632db35fc60d4edd1e9ce1be0b/pyarrow-26.0.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:41dd3661ef40790a78870052ad7a58ad827b27c67a4511f06962eb9e9b74d19b", size = 54496388, upload-time = "2026-10-09T08:24:05.23Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/32/033ef9dba80976820190e292a10a5a23e9406572b76bbeb4d685d90e5c8d/pyarrow-26.0.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:6e949744dcfc2d379808f7013c5f9cafaf0f817656dff7d46c6931528dd1784b", size = 57411588, upload-time = "2026-10-09T08:24:12.043Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/ff/a74892c50aaf1f9f744a84493e08a2f99221e77c39d2d4a926de21a99edf/pyarrow-26.0.0-cp314-cp314-win_amd64.whl", hash = "sha256:4a5fa8dc70dd50808990ff36faf44088e357b353d86c7682dd92d4b78d4c97d5", size = 29237858, upload-time = "2026-10-09T08:24:58.106Z" },
+    { url = "https://files.pythonhosted.org/packages/03/10/f0ee0976ef08a851a743c57608917ac9a47623f688b9ee0efe5429975ba1/pyarrow-26.0.0-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:e2a1856e9565fe2679863b372478c681806aebbf7d0a6e72f33e77f804e647d6", size = 36495870, upload-time = "2026-10-09T08:24:16.479Z" },
+    { url = "https://files.pythonhosted.org/packages/27/ca/0bc431a509bf10b4472dbb94f4184752ecbbddeb7f467152dac0fdaed469/pyarrow-26.0.0-cp314-cp314t-macosx_12_0_x86_64.whl", hash = "sha256:4bcba83299cb2b8f8e443d36c6ba6269a5034431879015fb0719495df8a14de2", size = 38819754, upload-time = "2026-10-09T08:24:20.875Z" },
+    { url = "https://files.pythonhosted.org/packages/61/59/2be41d26af7a07fb71581fb753cae396403ba1a2978355fd553929d44a9a/pyarrow-26.0.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:3a4d235876f14b4136b4d616ec42eb469ea0d6ead336cae631aa1dd29b21c962", size = 50933671, upload-time = "2026-10-09T08:24:27.199Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/cb/b6d5048cf3178be9678f5c9c60040199894b2f69c3439c87ced91fd24da9/pyarrow-26.0.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:210cc9b83888b87cdc8f793eebb264f22b20d0dedbedefc73b9687a7047b4747", size = 53906419, upload-time = "2026-10-09T08:24:33.536Z" },
+    { url = "https://files.pythonhosted.org/packages/09/2b/23e30fbd776c81d18d134d2592eb60daca13e8a57ab087d0fa042f9d9f3d/pyarrow-26.0.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:ca77c43ca55bfc9a4eeb1f0cd5f093f08731b77c24cdba0829035f084959b0bb", size = 54527960, upload-time = "2026-10-09T08:24:41.292Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/23/fce251cd6b0546dfc181b00d5c8ef1c95a8c4cae83266bc3dfd5f719c62c/pyarrow-26.0.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:290a74c48e9491b436fd5edacfadf357943f82aa45c81110bd83a69aab33d1cf", size = 57388010, upload-time = "2026-10-09T08:24:48.186Z" },
+    { url = "https://files.pythonhosted.org/packages/44/a5/0126fb0ef8d59bf257bdd68bb41623b72afc6e81790a0b4ac863a0f58861/pyarrow-26.0.0-cp314-cp314t-win_amd64.whl", hash = "sha256:515a10dae2a1d236bc9c9209d0317acb6746ea63cd4f98704904af7156d90ed1", size = 29406123, upload-time = "2026-10-09T08:24:53.387Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/66/8ada1b5165359d84b4b9b5384742304d1081da670f77d458fd9c9b8a2161/pyarrow-26.0.0-cp315-cp315-macosx_12_0_arm64.whl", hash = "sha256:e890816e5ee89c74a0f8b9379fe8b5ba83f46132b2a0bbb9b1c21359ec30dfda", size = 36373215, upload-time = "2026-10-09T08:25:03.067Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/83/74f10c3d803a6834b2acab21847724d4bdbc74d246eb17321432844707f3/pyarrow-26.0.0-cp315-cp315-macosx_12_0_x86_64.whl", hash = "sha256:9db18a9dc0af52135c9eac549d80a7a882696efbe5406cf882b044525d4ecc2e", size = 38730866, upload-time = "2026-10-09T08:25:07.924Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/5a/ea2fa2163b1bd8ff73efd39c4060be63fd6ddec03e7887a471acd1e042a4/pyarrow-26.0.0-cp315-cp315-manylinux_2_28_aarch64.whl", hash = "sha256:734312d3d99088d9ec28c5b17bad40389bd8373a1afc10acb60b83fd217af087", size = 50924443, upload-time = "2026-10-09T08:25:13.864Z" },
+    { url = "https://files.pythonhosted.org/packages/78/80/8c47b6cf8cfd42826df65193eff026c1cc81fa6cb213a3c3f5d203e6f67a/pyarrow-26.0.0-cp315-cp315-manylinux_2_28_x86_64.whl", hash = "sha256:24f892fdf1ae1942d69d3f7742e2f49960ec95277cfb1a70b8a1d91f4a96d935", size = 53948540, upload-time = "2026-10-09T08:25:19.305Z" },
+    { url = "https://files.pythonhosted.org/packages/69/1f/3a506a76d944ec5c5e4b7f01d8d0446b392a6fb384de627a12e503f616b4/pyarrow-26.0.0-cp315-cp315-musllinux_1_2_aarch64.whl", hash = "sha256:879331ddea2a26479fa18fade71e6facf684a6cf19f67daec3775c871569e8e5", size = 54494863, upload-time = "2026-10-09T08:25:24.517Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/50/08c4bb04d651788d2eaca78065743f4f6ded974d4ef96ae3c473993e9d0c/pyarrow-26.0.0-cp315-cp315-musllinux_1_2_x86_64.whl", hash = "sha256:5b827650e874f1f9f9392524ea3e9e3e8a245de5ba64acca1f81ab188090afb9", size = 57409877, upload-time = "2026-10-09T08:25:31.157Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/f3/c64781fbd7b6d3c07993b698c14944d0d195f07e800fa931c486ae6ab36a/pyarrow-26.0.0-cp315-cp315-win_amd64.whl", hash = "sha256:8e8e28c464552b5ca03e30d4504168c4425ce383884f8611b00e972f9fd933fc", size = 29236658, upload-time = "2026-10-09T08:26:22.607Z" },
+    { url = "https://files.pythonhosted.org/packages/06/55/2ee3729daea999f19f061f03898d4895a242c4cd94f26e1324e5fdfbfe10/pyarrow-26.0.0-cp315-cp315t-macosx_12_0_arm64.whl", hash = "sha256:ce28748cbeb0f29c3ce9603782979c7117580fc76f16aa3ca448b38a22281adb", size = 36489011, upload-time = "2026-10-09T08:25:37.64Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/7d/3eb17f601f2bf13eda5f2ed28956379ca628b4dda97619cbb1cb1721622d/pyarrow-26.0.0-cp315-cp315t-macosx_12_0_x86_64.whl", hash = "sha256:106bb9290fc6fd9a84138a9440038ef184bac86463543c5ff099229cb30d996c", size = 38808480, upload-time = "2026-10-09T08:25:43.579Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/e3/f0047360b0f4bfc031b256dc0aec3837a61f245b2fb70f8363438e2db665/pyarrow-26.0.0-cp315-cp315t-manylinux_2_28_aarch64.whl", hash = "sha256:2e4a413046eba9896e632925066c74095182200ba32e19ff0166bf64d2f936ac", size = 50923273, upload-time = "2026-10-09T08:25:51.445Z" },
+    { url = "https://files.pythonhosted.org/packages/38/d9/56d9fb91210407df31cbeb9b91138601c88c7c8fb5f6bf773b20d65509bf/pyarrow-26.0.0-cp315-cp315t-manylinux_2_28_x86_64.whl", hash = "sha256:d58798c4d8d629700058e9afc1e16b9801023f3ce4dc1c92d945e79b5ffe4e98", size = 53900905, upload-time = "2026-10-09T08:25:59.554Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/40/8e8a7e9e027c731520c7eb179dd00a153b76ebf0bc11d213c6c8f8502851/pyarrow-26.0.0-cp315-cp315t-musllinux_1_2_aarch64.whl", hash = "sha256:645917e976671debabf854abab6e2b75c571ca4f82adc33a2d338697f7c27d93", size = 54518345, upload-time = "2026-10-09T08:26:07.125Z" },
+    { url = "https://files.pythonhosted.org/packages/be/89/1e768a3fdb88d34e708ad2dc00dbf8e4e30290784eb84198d59308963bea/pyarrow-26.0.0-cp315-cp315t-musllinux_1_2_x86_64.whl", hash = "sha256:7c3fda041e7078802589cf257750323ee3d0cd1e56e53a9b20ec845697fb3d28", size = 57379403, upload-time = "2026-10-09T08:26:13.624Z" },
+    { url = "https://files.pythonhosted.org/packages/96/be/7b81a44d6a8e70581dcc1d6f01541f9000a973b1e5d75394aec91e7b179a/pyarrow-26.0.0-cp315-cp315t-win_amd64.whl", hash = "sha256:68cd662e9e2b00876a131950cf32336ace2d0865e1f9418763e3d3be8481dfa4", size = 29389953, upload-time = "2026-10-09T08:26:18.277Z" },
 ]
 
 [[package]]
@@ -3705,11 +3968,11 @@ wheels = [
 
 [[package]]
 name = "setuptools"
-version = "84.0.0"
+version = "84.2.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6d/44/f5da03a8ef95d369145c5bb53050e7877c9f3d312e128605fd9504829143/setuptools-84.0.0.tar.gz", hash = "sha256:f4695c21257f0d9b537ec2692c941d02ee143b7cc1276941349a546573b2ef73", size = 1168449, upload-time = "2026-08-08T18:27:58.365Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/b3/c19426f783614d625699a4b247faf628ea9ab1db228674491767b417f9e1/setuptools-84.2.1.tar.gz", hash = "sha256:3ff8b3b5492a0aa66960f4419365a86b84e013070d4313e4d4a6894f5d64d6bc", size = 1230289, upload-time = "2026-10-20T19:01:37.742Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl", hash = "sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670", size = 818216, upload-time = "2026-08-08T18:27:56.719Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/55/6dc6d6bb953bdfc52519a0059592c52b6e3b8ad51cf8256dffceb55b0610/setuptools-84.2.1-py3-none-any.whl", hash = "sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2", size = 876263, upload-time = "2026-10-20T19:01:35.678Z" },
 ]
 
 [[package]]

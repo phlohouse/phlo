@@ -1,9 +1,13 @@
 # SaaS Product Analytics lakehouse
 
-This standalone Phlo lakehouse replays a paginated SaaS API and an account-plan
+This Phlo lakehouse replays a paginated SaaS API and an account-plan
 CSV into Iceberg, then builds six product analytics tables through dbt.
 
 ## Run it
+
+Use a full Phlo repository checkout and keep this example in its original
+directory. The locked environment installs Phlo and its providers from relative
+editable source paths in that checkout.
 
 Start the deterministic replay API in one terminal. The baseline fixture has no
 `experiment_variant` field and deliberately returns one retryable HTTP 429:

@@ -2204,6 +2204,8 @@ dev = [
     { name = "pymdx", specifier = ">=0.1.1" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "pytest-timeout", specifier = ">=2.4" },
+    { name = "pytest-xdist", specifier = ">=3.8" },
     { name = "ruff", specifier = ">=0.14.1" },
     { name = "s3fs", specifier = ">=2026.6.0" },
     { name = "sqlfluff", specifier = ">=4.2.0" },
@@ -2236,10 +2238,13 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "phlo", editable = "../../../" },
     { name = "phlo-dagster", marker = "extra == 'dagster'", editable = "../../../packages/phlo-dagster" },
+    { name = "phlo-dlt", marker = "extra == 'dlt'", editable = "../../../packages/phlo-dlt" },
     { name = "phlo-iceberg", marker = "extra == 'iceberg'", editable = "../../../packages/phlo-iceberg" },
     { name = "phlo-lineage", marker = "extra == 'lineage'", editable = "../../../packages/phlo-lineage" },
     { name = "phlo-pandera", editable = "../../../packages/phlo-pandera" },
     { name = "phlo-postgres", editable = "../../../packages/phlo-postgres" },
+    { name = "phlo-transform", marker = "extra == 'transform'", editable = "../../../packages/phlo-transform" },
+    { name = "phlo-trino", marker = "extra == 'trino'", editable = "../../../packages/phlo-trino" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
@@ -2248,7 +2253,7 @@ requires-dist = [
     { name = "sqlglot", specifier = ">=30.2.1,<31" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-provides-extras = ["dagster", "dev", "iceberg", "lineage"]
+provides-extras = ["dagster", "dlt", "dev", "iceberg", "lineage", "transform", "trino"]
 
 [[package]]
 name = "phlo-core-plugins"

@@ -47,6 +47,10 @@ model-paths:
 
 ## Run the lakehouse
 
+Use a full Phlo repository checkout and keep this example in its original
+directory. The locked environment installs Phlo and its providers from relative
+editable source paths in that checkout.
+
 From this directory:
 
 ```bash

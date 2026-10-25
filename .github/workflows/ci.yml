@@ -44,6 +44,9 @@ jobs:
       - name: Require workflow job deadlines
         run: python3 scripts/check_workflow_timeouts.py
 
+      - name: Check example lock consistency
+        run: make check-example-locks
+
       - name: Select package matrix
         id: groups
         env:

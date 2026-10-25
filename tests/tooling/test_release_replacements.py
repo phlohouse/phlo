@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
+import shutil
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -12,6 +16,57 @@ import yaml
 from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_release_refreshes_example_locks_for_unpublished_versions(tmp_path: Path) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "release_example_locks_transformer.py"
+    shutil.copyfile(ROOT / script.relative_to(tmp_path), script)
+    provider = tmp_path / "provider"
+    provider.mkdir()
+    metadata = provider / "pyproject.toml"
+    metadata.write_text('[project]\nname = "local-release-provider"\nversion = "0.1.0"\n')
+    example = tmp_path / "examples" / "sample"
+    example.mkdir(parents=True)
+    manifest = example / "pyproject.toml"
+    manifest.write_text(
+        '[project]\nname = "release-example"\nversion = "0.1.0"\n'
+        'requires-python = ">=3.12"\ndependencies = ["local-release-provider==0.1.0"]\n'
+        '[tool.uv.sources]\nlocal-release-provider = {path = "../../provider", editable = true}\n'
+    )
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["uv", "lock", "--directory", str(example)], check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    metadata.write_text(metadata.read_text().replace("0.1.0", "99.1.0"))
+    manifest.write_text(manifest.read_text().replace("provider==0.1.0", "provider==99.1.0"))
+    assert subprocess.run(["uv", "lock", "--check", "--directory", str(example)]).returncode != 0
+
+    # Match ReleaseX's cleared environment, with only executable discovery supplied.
+    env = {"PATH": os.environ["PATH"]}
+    command = [sys.executable, "-B", str(script)]
+    first = subprocess.run(
+        command, input='{"schema_version":1}', text=True, capture_output=True, env=env, check=True
+    )
+    assert json.loads(first.stdout) == {
+        "schema_version": 1,
+        "changed_files": ["examples/sample/uv.lock"],
+    }
+    lock = tomllib.loads((example / "uv.lock").read_text())
+    assert next(p for p in lock["package"] if p["name"] == "local-release-provider")["version"] == (
+        "99.1.0"
+    )
+    second = subprocess.run(
+        command, input='{"schema_version":1}', text=True, capture_output=True, env=env, check=True
+    )
+    assert json.loads(second.stdout) == {"schema_version": 1, "changed_files": []}
+    subprocess.run(["uv", "lock", "--check", "--directory", str(example)], check=True)
+    manifest.write_text(manifest.read_text().replace("../../provider", "../../missing-provider"))
+    failed = subprocess.run(
+        command, input='{"schema_version":1}', text=True, capture_output=True, env=env
+    )
+    assert failed.returncode != 0
+    assert not failed.stdout
 
 
 def _workspace_versions() -> dict[str, str]:
