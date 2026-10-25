@@ -50,7 +50,6 @@ from functools import wraps
 from typing import Any, Callable, TypeVar
 
 import structlog
-
 from phlo.logging import bind_context, clear_context, get_logger
 
 try:
@@ -84,21 +83,6 @@ def get_correlation_fields(context: AssetExecutionContext | OpExecutionContext) 
         fields["partition_key"] = context.partition_key
 
     return fields
-
-
-def log_with_context(
-    context: AssetExecutionContext | OpExecutionContext,
-    message: str,
-    level: str = "info",
-    **extra: Any,
-) -> None:
-    """Log a message through context.log at `level`, adding correlation and extra fields."""
-
-    correlation = get_correlation_fields(context)
-    all_extra = {**correlation, **extra}
-
-    logger = getattr(context.log, level)
-    logger(message, extra=all_extra)
 
 
 def with_asset_logging(

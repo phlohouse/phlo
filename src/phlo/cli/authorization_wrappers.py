@@ -28,10 +28,8 @@ from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
 
 from phlo.cli.output import user_error
-from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 from phlo.security.adapters import EnforcementResult
-from phlo.security.enforcement import EnforcementContext
 
 logger = get_logger(__name__)
 
@@ -188,38 +186,6 @@ def enforce_mutation_context(
                 # perform stop
     """
     return MutationContext(command=command, resource_id=resource_id)
-
-
-def emit_cli_audit_event(
-    command: str,
-    decision: str,
-    subject: str,
-    resource_type: str,
-    resource_id: str,
-    reason_code: str | None = None,
-) -> None:
-    """Emit a CLI audit event after an authorization decision ("allowed" or "denied").
-
-    Called by command wrappers; emission failures are logged, never raised.
-    """
-    try:
-        ctx = EnforcementContext.get_instance()
-        ctx.audit_emitter.emit_authorization(
-            surface="phlo-cli",
-            action=f"cli.{command}",
-            resource_type=resource_type,
-            resource_id=resource_id,
-            actor_subject=subject,
-            actor_type="user",
-            actor_roles=(),
-            authentication_source=get_process_settings().get("PHLO_AUTH_TYPE", "unknown"),
-            decision=decision,
-            reason_code=reason_code or "",
-            policy_id=None,
-            request_id=get_process_settings().phlo_request_id,
-        )
-    except Exception:
-        logger.exception("cli_audit_event_emission_failed")
 
 
 def check_cli_surface_active() -> bool:

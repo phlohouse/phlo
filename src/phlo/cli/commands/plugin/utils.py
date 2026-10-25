@@ -332,14 +332,6 @@ def get_installed_version(package: str) -> str | None:
         return None
 
 
-def version_tuple(version: str) -> tuple[int, object]:
-    """Convert version string to tuple for comparison."""
-    try:
-        return (0, parse(version))
-    except Exception:
-        return (0, parse("0"))
-
-
 def is_version_newer(installed: str, available: str) -> bool:
     """Check if available version is newer than installed.
 

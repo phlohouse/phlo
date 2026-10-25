@@ -6,15 +6,15 @@ classifies schema changes as SAFE, WARNING, or BREAKING.
 """
 
 import importlib
-from importlib import import_module
 import sys
+from importlib import import_module
 from pathlib import Path
 from typing import Optional
 
 from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
+
 from phlo_pandera.settings import get_settings
-from rich.table import Table
 
 logger = get_logger(__name__)
 
@@ -33,16 +33,6 @@ def _default_schema_search_paths() -> list[str]:
         ]
 
     return ["examples", "workflows"]
-
-
-def format_table(title: str, columns: list[str], rows: list[tuple]) -> Table:
-    """Build a Rich Table with the given title, column headers, and rows."""
-    table = Table(title=title)
-    for col in columns:
-        table.add_column(col)
-    for row in rows:
-        table.add_row(*[str(item) for item in row])
-    return table
 
 
 def validate_schema_file(schema_path: Path) -> None:
