@@ -113,14 +113,15 @@ class FakeRegistry:
 
 def test_orchestrator_inventory_uses_the_canonical_plugin_family(monkeypatch) -> None:
     """Installed orchestrators are exposed through the singular family name."""
-    families: list[str] = []
+    discovered: list[str] = []
+    listed: list[str] = []
 
     def discover(plugin_type: str, *, auto_register: bool) -> None:
         assert auto_register is True
-        families.append(plugin_type)
+        discovered.append(plugin_type)
 
     def list_registered(plugin_type: str) -> dict[str, list[str]]:
-        families.append(plugin_type)
+        listed.append(plugin_type)
         return {plugin_type: ["dagster"]}
 
     monkeypatch.setattr("phlo.plugins.discovery.discover_plugins", discover)
@@ -129,7 +130,8 @@ def test_orchestrator_inventory_uses_the_canonical_plugin_family(monkeypatch) ->
 
     _add_orchestrator_plugin_providers(inventory)
 
-    assert families == ["orchestrator", "orchestrator"]
+    assert discovered == ["orchestrator"]
+    assert listed == ["orchestrator"]
     assert [provider.name for provider in inventory.providers["orchestrator"]] == ["dagster"]
 
 
@@ -173,8 +175,22 @@ def test_observatory_capability_inventory_serializes_support_and_requirements() 
 
     payload = inventory.model_dump()
 
-    assert payload["providers"]["query_engine"][0]["name"] == "trino"
-    assert payload["providers"]["query_engine"][0]["support"]["supports_metrics"] is True
+    provider_payload = payload["providers"]["query_engine"][0]
+    assert set(provider_payload) == {
+        "capability_type",
+        "name",
+        "display_name",
+        "package",
+        "metadata",
+        "support",
+        "health",
+        "native_links",
+    }
+    assert provider_payload["name"] == "trino"
+    assert provider_payload["support"]["supports_metrics"] is True
+    assert set(provider_payload["support"]) == {
+        name for name in ObservatoryCapabilitySupport.model_fields if name.startswith("supports_")
+    }
     assert payload["requirements"][0]["required_any"] == ["query_engine", "table_store"]
 
 

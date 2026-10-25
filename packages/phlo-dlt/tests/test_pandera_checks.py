@@ -64,21 +64,15 @@ def test_empty_staged_file_set_cannot_pass_validation(mode) -> None:
         evaluate_pandera_contract_parquet_files([], schema_class=MultiFileSchema, mode=mode)
 
 
-def test_evaluate_pandera_contract_backfills_missing_nullable_columns() -> None:
+@pytest.mark.parametrize(
+    "schema_class",
+    [NullableFieldSchema, NullableTypedFieldSchema],
+    ids=["plain", "schema-dtype"],
+)
+def test_evaluate_pandera_contract_backfills_missing_nullable_columns(schema_class) -> None:
     evaluation = evaluate_pandera_contract(
         pd.DataFrame([{"id": 1}]),
-        schema_class=NullableFieldSchema,
-    )
-
-    assert evaluation.passed is True
-    assert evaluation.total_count == 1
-    assert evaluation.failed_count == 0
-
-
-def test_evaluate_pandera_contract_backfills_missing_nullable_columns_with_schema_dtype() -> None:
-    evaluation = evaluate_pandera_contract(
-        pd.DataFrame([{"id": 1}]),
-        schema_class=NullableTypedFieldSchema,
+        schema_class=schema_class,
     )
 
     assert evaluation.passed is True

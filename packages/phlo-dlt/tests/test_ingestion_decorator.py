@@ -37,11 +37,6 @@ def _clear_ingestion_registry() -> None:
     clear_ingestion_assets()
 
 
-def test_phlo_ingestion_export_is_available() -> None:
-    """Verify the ingestion decorator export is callable."""
-    assert callable(phlo_ingestion)
-
-
 def test_ingestion_declares_its_physical_relation() -> None:
     class ReadingSchema(DataFrameModel):
         id: int
@@ -721,8 +716,7 @@ class TestSchemaAutoGeneration:
             """Placeholder asset function used for decorator registration tests."""
             pass
 
-        # Asset should be created successfully
-        assert test_asset is not None
+        assert test_asset._phlo_table_config.table_schema is explicit_schema
         spec = get_asset_spec("dlt_test_table")
         assert spec.key == "dlt_test_table"
 
@@ -785,8 +779,7 @@ class TestDecoratorConfiguration:
             """Placeholder asset function used for decorator registration tests."""
             pass
 
-        # Asset should be created
-        assert test_asset is not None
+        assert get_asset_spec("dlt_test_table").metadata["primary_key"] == ["custom_id"]
 
     def test_group_name_configuration(self):
         """Test group_name parameter is applied to asset."""
@@ -1313,3 +1306,27 @@ class TestEdgeCases:
         spec = get_asset_spec("dlt_test_table")
         assert spec.run is not None
         assert spec.run.max_runtime_seconds == 900
+
+
+def test_decorator_applies_asset_key_and_description() -> None:
+    """An explicit asset_key and the docstring reach the registered spec."""
+
+    class TestSchema(DataFrameModel):
+        """Pandera schema used for this test case."""
+
+        id: str
+
+    @phlo_ingestion(
+        table_name="test_table",
+        unique_key="id",
+        validation_schema=TestSchema,
+        group="test",
+        asset_key="custom.orders",
+    )
+    def test_asset(partition_date: str):
+        """Curated orders for the warehouse."""
+        pass
+
+    spec = get_asset_spec("custom.orders")
+    assert spec.key == "custom.orders"
+    assert spec.description == "Curated orders for the warehouse."

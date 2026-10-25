@@ -85,17 +85,6 @@ def test_discover_capabilities_registers_core_default_providers() -> None:
     assert observability_specs[0].support.supports_alerts is True
 
 
-def test_default_observability_backend_has_required_methods() -> None:
-    backend = DefaultObservabilityBackend()
-    assert hasattr(backend, "health_summary")
-    assert hasattr(backend, "service_status")
-    assert hasattr(backend, "platform_metrics")
-    assert hasattr(backend, "recent_alerts")
-    assert hasattr(backend, "dashboard_links")
-    assert hasattr(backend, "logs_query_link")
-    assert hasattr(backend, "metrics_query_link")
-
-
 def test_default_observability_backend_returns_expected_types() -> None:
     backend = DefaultObservabilityBackend()
     assert hasattr(backend.health_summary(), "overall_status")

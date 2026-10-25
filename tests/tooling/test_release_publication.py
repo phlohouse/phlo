@@ -498,8 +498,12 @@ def test_release_archives_final_receipt_only_after_matched_publication(
     monkeypatch.setenv("CANDIDATE_SHA", "e" * 40)
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    # GitHub applies the step's env block; mirror its literal entries so the
+    # harness sees the same archive settings as a runner.
+    env = dict(os.environ)
+    env.update({key: value for key, value in (step.get("env") or {}).items() if "${{" not in value})
     result = subprocess.run(
-        ["bash", "-c", step["run"]], cwd=tmp_path, capture_output=True, text=True
+        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
     )
     assert (result.returncode == 0) is promoted, result.stderr
     assert (tmp_path / "uploaded-archive").exists() is promoted

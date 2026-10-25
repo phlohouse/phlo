@@ -147,13 +147,6 @@ class TestServiceHealth:
         assert "status" in result
         assert result["name"] == "TestService"
 
-    def test_service_health_returns_required_fields(self):
-        """Test that service health returns all required fields."""
-        result = _check_service_health("http://localhost:9999/test", "TestService")
-
-        required_fields = {"name", "status"}
-        assert required_fields.issubset(result.keys())
-
     def test_service_health_handles_invalid_url(self):
         """Test that invalid URLs are handled gracefully."""
         result = _check_service_health("not-a-valid-url", "TestService")
@@ -264,20 +257,6 @@ class TestStatusCLI:
         assert result.exit_code == 0
         assert "Service Health" in result.output
 
-    def test_status_filter_by_group(self):
-        """Test filtering by asset group."""
-        runner = CliRunner()
-        result = runner.invoke(status, ["--assets", "--group", "nightscout"])
-
-        assert result.exit_code == 0
-
-    def test_status_filter_stale_only(self):
-        """Test showing only stale assets."""
-        runner = CliRunner()
-        result = runner.invoke(status, ["--assets", "--stale"])
-
-        assert result.exit_code == 0
-
     def test_status_json_output(self):
         """JSON output must parse and carry the required top-level keys."""
         runner = CliRunner()
@@ -297,30 +276,6 @@ class TestStatusCLI:
         data = json.loads(result.stdout)["data"]
         assert "assets" in data
         assert "services" not in data
-
-    def test_status_json_with_group_filter(self):
-        """Group-filtered JSON only contains assets from that group."""
-        runner = CliRunner()
-        result = runner.invoke(status, ["--assets", "--group", "nightscout", "--json"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)["data"]
-        assert "assets" in data
-        for asset in data["assets"]:
-            assert asset["group"] == "nightscout"
-
-    def test_status_response_time(self):
-        """Test that response time is reasonable."""
-        import time
-
-        runner = CliRunner()
-        start = time.time()
-        result = runner.invoke(status, ["--assets"])
-        elapsed = time.time() - start
-
-        assert result.exit_code == 0
-        # Should complete in less than 5 seconds
-        assert elapsed < 5.0
 
 
 class TestStatusOutput:
@@ -360,49 +315,6 @@ class TestStatusOutput:
         assert result.exit_code == 0
         data = json.loads(result.stdout)["data"]
         datetime.fromisoformat(data["timestamp"])
-
-    def test_group_filter_excludes_other_groups(self):
-        """Group filter excludes assets outside the requested group."""
-        runner = CliRunner()
-        result = runner.invoke(status, ["--assets", "--group", "nightscout", "--json"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)["data"]
-        for asset in data["assets"]:
-            assert asset["group"] == "nightscout"
-
-    def test_stale_filter_shows_only_stale(self):
-        """Stale filter only returns stale assets."""
-        runner = CliRunner()
-        result = runner.invoke(status, ["--assets", "--stale", "--json"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)["data"]
-        for asset in data["assets"]:
-            assert asset["is_stale"]
-
-    def test_combined_filters(self):
-        """Combined group and staleness filters intersect."""
-        runner = CliRunner()
-        result = runner.invoke(
-            status,
-            ["--assets", "--group", "nightscout", "--stale", "--json"],
-        )
-
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)["data"]
-        for asset in data["assets"]:
-            assert asset["group"] == "nightscout"
-            assert asset["is_stale"]
-
-    def test_non_existent_group_returns_empty(self):
-        """Unknown groups return an empty asset list."""
-        runner = CliRunner()
-        result = runner.invoke(status, ["--assets", "--group", "nonexistent", "--json"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)["data"]
-        assert data["assets"] == []
 
 
 class TestStatusEdgeCases:
@@ -529,18 +441,79 @@ class TestStatusEdgeCases:
         assert "assets" in data
         assert "services" in data
 
-    def test_status_json_is_serializable(self):
-        """Test that JSON output is fully serializable."""
-        runner = CliRunner()
-        result = runner.invoke(status, ["--json"])
 
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)["data"]
-        assert json.dumps(data)
+def test_status_filters_by_group_and_staleness(monkeypatch) -> None:
+    """Group and stale filters must exclude assets, not merely not crash.
 
-    def test_status_handles_missing_requests_library(self):
-        """Test that status handles missing requests library gracefully."""
-        runner = CliRunner()
-        # Even without requests, should not crash
-        result = runner.invoke(status, ["--services"])
-        assert result.exit_code == 0
+    The default fixture serves an empty inventory, so a populated response is
+    required: otherwise an ignored filter and a working filter look identical.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from phlo_dagster.cli_status import AssetRunEvidence
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "data": {
+                    "assetsOrError": {
+                        "__typename": "AssetConnection",
+                        "nodes": [
+                            {
+                                "key": {"path": ["raw_orders"]},
+                                "definition": {"groupName": "nightscout", "description": ""},
+                            },
+                            {
+                                "key": {"path": ["gold_sales"]},
+                                "definition": {"groupName": "finance", "description": ""},
+                            },
+                        ],
+                    },
+                    "version": "test",
+                }
+            }
+
+    now = datetime.now(timezone.utc)
+    stale = AssetRunEvidence(
+        available=True,
+        last_run={"status": "success", "timestamp": now - timedelta(hours=48)},
+    )
+    fresh = AssetRunEvidence(
+        available=True,
+        last_run={"status": "success", "timestamp": now - timedelta(hours=1)},
+    )
+    monkeypatch.setattr(status_module.http_requests, "post", lambda *a, **kw: Response())
+    monkeypatch.setattr(
+        status_module,
+        "_get_asset_last_run",
+        lambda name: stale if name == "raw_orders" else fresh,
+    )
+    runner = CliRunner()
+
+    def names(*args: str) -> list[str]:
+        result = runner.invoke(status, ["--assets", "--json", *args])
+        assert result.exit_code == 0, result.output
+        return [asset["name"] for asset in json.loads(result.stdout)["data"]["assets"]]
+
+    assert names("--group", "nightscout") == ["raw_orders"]
+    assert names("--group", "finance") == ["gold_sales"]
+    assert names("--group", "unknown") == []
+    assert names("--stale") == ["raw_orders"]
+    assert names("--group", "nightscout", "--stale") == ["raw_orders"]
+    assert names("--group", "finance", "--stale") == []
+
+    payload = json.loads(runner.invoke(status, ["--assets", "--json"]).stdout)
+    timestamps = [asset["last_run"]["timestamp"] for asset in payload["data"]["assets"]]
+    assert all(isinstance(value, str) for value in timestamps)
+    assert stale.last_run is not None
+    assert stale.last_run["timestamp"].isoformat() in timestamps
+
+    # The human-readable path still formats the same datetime.
+    rendered = runner.invoke(status, ["--assets", "--group", "nightscout"])
+    assert rendered.exit_code == 0, rendered.output
+    assert "raw_orders" in rendered.output

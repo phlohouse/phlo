@@ -181,54 +181,36 @@ def test_apply_rejects_tampered_backup(tmp_path) -> None:
     assert all(p.upgrade_calls == 0 for p in providers.values())
 
 
-def test_failure_at_rollback_boundary_issues_restore(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("fail_step", "expected_rollback", "expects_forward_repair"),
+    [
+        ("postgres.schema", "restore", False),
+        ("nessie.catalog", None, True),
+        ("minio.policy", None, True),
+    ],
+    ids=["rollback-safe", "irreversible-nessie", "irreversible-minio"],
+)
+def test_failure_outcome_depends_on_rollback_boundary(
+    tmp_path, fail_step, expected_rollback, expects_forward_repair
+) -> None:
     set_dir = _make_set(tmp_path)
     plan = _plan(set_dir, tmp_path)
-    # postgres.schema is the rollback-safe step; faulting it restores via Plan 012.
-    providers = _providers(fail_step="postgres.schema")
+    providers = _providers(fail_step=fail_step)
+
     result = upgrade_apply(
         plan=plan,
         confirmation_token=plan.plan_token,
         contributors=providers,
         journal=InMemoryOperationJournalStore(),
     )
+
     assert result.accepted is False
-    assert result.rollback_action == "restore"
-    assert result.forward_repair is None
-    assert result.reconciliation is None
-
-
-def test_failure_after_rollback_boundary_emits_forward_repair(tmp_path) -> None:
-    set_dir = _make_set(tmp_path)
-    plan = _plan(set_dir, tmp_path)
-    # nessie, iceberg, and minio are irreversible; faulting minio must not
-    # claim a rollback (no false downgrade).
-    providers = _providers(fail_step="minio.policy")
-    result = upgrade_apply(
-        plan=plan,
-        confirmation_token=plan.plan_token,
-        contributors=providers,
-        journal=InMemoryOperationJournalStore(),
-    )
-    assert result.accepted is False
-    assert result.forward_repair is not None
-    assert result.forward_repair["must_not_rollback"] is True
-    assert result.rollback_action is None
-
-
-def test_failure_at_irreversible_step_does_not_claim_rollback(tmp_path) -> None:
-    set_dir = _make_set(tmp_path)
-    plan = _plan(set_dir, tmp_path)
-    providers = _providers(fail_step="nessie.catalog")
-    result = upgrade_apply(
-        plan=plan,
-        confirmation_token=plan.plan_token,
-        contributors=providers,
-        journal=InMemoryOperationJournalStore(),
-    )
-    assert result.accepted is False
-    assert result.rollback_action is None
-    assert result.forward_repair is not None
+    assert result.rollback_action == expected_rollback
+    assert (result.forward_repair is not None) is expects_forward_repair
+    if expects_forward_repair:
+        assert result.forward_repair["must_not_rollback"] is True
+    else:
+        assert result.reconciliation is None
 
 
 def test_apply_is_exactly_once_with_replay(tmp_path) -> None:

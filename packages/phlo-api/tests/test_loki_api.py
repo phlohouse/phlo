@@ -33,7 +33,15 @@ def test_build_log_query_matches_dagster_run_id_in_plain_container_logs() -> Non
     assert build_log_query(run_id="run-123") == ('{container=~".+"} |= "run-123" | json')
 
 
-def test_parse_loki_response_emits_function_and_legacy_fn_metadata() -> None:
+@pytest.mark.parametrize(
+    "log_payload",
+    [
+        {"level": "info", "message": "hello", "function": "run_step"},
+        {"level": "info", "message": "hello", "fn": "run_step"},
+    ],
+    ids=["function", "legacy-fn"],
+)
+def test_parse_loki_response_normalises_function_metadata(log_payload) -> None:
     response = {
         "data": {
             "result": [
@@ -42,36 +50,7 @@ def test_parse_loki_response_emits_function_and_legacy_fn_metadata() -> None:
                     "values": [
                         [
                             "1700000000000000000",
-                            json.dumps(
-                                {
-                                    "level": "info",
-                                    "message": "hello",
-                                    "function": "run_step",
-                                }
-                            ),
-                        ]
-                    ],
-                }
-            ]
-        }
-    }
-
-    entries = parse_loki_response(response)
-
-    assert entries[0].metadata["function"] == "run_step"
-    assert entries[0].metadata["fn"] == "run_step"
-
-
-def test_parse_loki_response_reads_legacy_fn_metadata() -> None:
-    response = {
-        "data": {
-            "result": [
-                {
-                    "stream": {},
-                    "values": [
-                        [
-                            "1700000000000000000",
-                            json.dumps({"level": "info", "message": "hello", "fn": "run_step"}),
+                            json.dumps(log_payload),
                         ]
                     ],
                 }
@@ -185,16 +164,19 @@ async def test_run_log_regex_timeout_does_not_stall_heartbeat_request(monkeypatc
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        started = monotonic()
         filter_request = asyncio.create_task(
             client.get("/api/loki/runs/run-1", params={"regex": r"(a+)+$"})
         )
         await asyncio.wait_for(fetched.wait(), timeout=5)
+        heartbeat_started = monotonic()
         heartbeat_response = await client.get("/heartbeat")
+        heartbeat_seconds = monotonic() - heartbeat_started
         filter_response = await filter_request
 
     assert heartbeat_response.json() == {"alive": True}
-    assert monotonic() - started < 0.5
+    # In-process backtracking would block the loop for seconds; the worker's
+    # 0.1s budget must keep the heartbeat well under a second.
+    assert heartbeat_seconds < 1.0
     assert filter_response.status_code == 422
     assert filter_response.json() == {"detail": {"error": "regex_evaluation_timeout"}}
     assert secret_message not in filter_response.text

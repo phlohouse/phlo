@@ -248,7 +248,7 @@ jobs:
         if: matrix.shard == 0
         id: core_regression
         env:
-          CORE_REGRESSION_PYTEST_ARGS: --tb=short --ignore=tests/cli/test_quickstart_smoke.py --junitxml=test-results/core-regression.xml --cov=phlo --cov-report=
+          CORE_REGRESSION_PYTEST_ARGS: --tb=short --ignore=tests/cli/test_quickstart_smoke.py --junitxml=test-results/core-regression.xml --cov=phlo --cov-report= -n 2 --dist worksteal --timeout=300
         run: make test-core-regression
 
       - name: Run core tests
@@ -256,6 +256,7 @@ jobs:
         run: >-
           uv run --locked python -m pytest tests -m "not integration and not core_regression"
           -p scripts.ci_shard --ci-shard-index=${{ matrix.shard }} --ci-shard-count=3
+          -n 2 --dist worksteal --timeout=300
           -o faulthandler_timeout=60 -o faulthandler_exit_on_timeout=true
           --tb=short --durations=25 --junitxml=test-results/core.xml
           --cov=phlo --cov=scripts --cov-append --cov-report=xml:test-results/coverage.xml
@@ -296,6 +297,9 @@ jobs:
       - name: Run package test group
         env:
           PACKAGES: ${{ matrix.packages }}
+          # phlo-api is a single large package and fills a four-core runner;
+          # the other groups interleave packages and stay at two workers.
+          PYTEST_WORKERS: ${{ matrix.group == 'api' && '4' || '2' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -312,8 +316,8 @@ jobs:
             echo "::group::${package}"
             set +e
             COVERAGE_FILE="test-results/.coverage.${package}" \
-              uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest --with pytest-cov==7.1.0 \
-              pytest -m "not integration" --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
+              uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest --with pytest-xdist --with pytest-timeout --with pytest-cov==7.1.0 \
+              pytest -m "not integration" -n "${PYTEST_WORKERS}" --dist worksteal --timeout=300 --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
             exit_code=$?
             set -e
             echo "::endgroup::"
@@ -358,6 +362,7 @@ jobs:
           make test-coverage-workspace
           COVERAGE_SHARD_INDEX=${{ matrix.shard }}
           COVERAGE_SHARD_COUNT=${{ strategy.job-total }}
+          PYTEST_WORKERS=2
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:

@@ -71,8 +71,15 @@ def test_each_stage_and_record_family_is_required() -> None:
     composed = compose_evidence_profile("wap", "1", BLESSED_ROOT, _blessed_contributions())
     stage_types = {stage.stage_type for stage in composed.profile.stages}
     assert stage_types == {"ingest", "transform", "check", "publish", "lineage"}
+    assert all(stage.provider for stage in composed.profile.stages)
     families = {record.family for record in composed.profile.required_records}
     assert families == {"resource", "artifact", "quality_result", "catalog_change"}
+    assert {record.family: record.minimum for record in composed.profile.required_records} == {
+        "resource": 1,
+        "artifact": 1,
+        "quality_result": 1,
+        "catalog_change": 1,
+    }
 
 
 def test_blessed_profile_resolves_from_the_capability_registry() -> None:

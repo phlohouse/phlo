@@ -202,7 +202,10 @@ def test_extension_settings_route_enforces_admin_scope(
     assert operator.status_code == 403
 
     admin = authenticated_client("admin").put(url, json={"settings": {}})
-    assert admin.status_code not in (401, 403)
+    # The demo extension does not exist, so a permitted admin reaches the handler
+    # and gets its 404. 403/401 above prove the 404 is not an auth short-circuit.
+    assert admin.status_code == 404
+    assert "Observatory extension not found: demo" in admin.text
 
 
 def test_observatory_action_route_rejects_anonymous(
@@ -228,7 +231,7 @@ def test_saved_query_route_enforces_project_write_scope(
     """POST /saved-queries: 401 anonymous, 403 analyst, allowed operator."""
     _apply_env(monkeypatch, tmp_path, authorization_mode="required")
     url = "/api/observatory/saved-queries"
-    body = {"name": "probe", "sql": "select 1"}
+    body = {"name": "probe", "sql": "select * from raw.orders"}
 
     anonymous = TestClient(app).post(url, json=body)
     assert anonymous.status_code == 401
@@ -237,4 +240,5 @@ def test_saved_query_route_enforces_project_write_scope(
     assert analyst.status_code == 403
 
     operator = authenticated_client("operator").post(url, json=body)
-    assert operator.status_code not in (401, 403)
+    assert operator.status_code == 200, operator.text
+    assert operator.json()["name"] == "probe"

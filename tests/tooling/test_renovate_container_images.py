@@ -203,6 +203,9 @@ def test_phlo_owned_images_are_explicitly_disabled_and_never_automerged() -> Non
     assert all(
         _image_match(manager, path.read_text(encoding="utf-8")) is None for path in phlo_owned_files
     )
+    # The phlo-observe pin has landed, so the manager must match every file that
+    # references it; the non-empty guard keeps this from passing vacuously.
+    assert observer_files
     assert all(
         _image_match(manager, path.read_text(encoding="utf-8")) is not None
         for path in observer_files

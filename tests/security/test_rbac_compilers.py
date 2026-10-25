@@ -553,9 +553,7 @@ class TestMinioCompiler:
         assert {"s3:GetObject", "s3:GetObjectVersion", "s3:ListBucket"} <= actions
         assert "s3:PutObject" not in actions
         resources = {resource for stmt in document["Statement"] for resource in stmt["Resource"]}
-        assert "arn:aws:s3:::lake/lake/orders*" in resources or any(
-            r.startswith("arn:aws:s3:::lake/") for r in resources
-        )
+        assert resources == {"arn:aws:s3:::lake", "arn:aws:s3:::lake/lake/orders*"}
 
     def test_dataset_write_includes_put_and_delete(self) -> None:
         rbac = _rbac([_policy("p1", "dataset.write", "dataset", "lake.orders")])

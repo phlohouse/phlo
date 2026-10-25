@@ -341,8 +341,27 @@ class TestPhloQualityDecorator:
         checks = get_quality_checks()
         assert len(checks) > baseline
 
-    def test_decorator_with_multiple_checks(self):
-        """Test decorator with multiple quality checks."""
+    def test_decorator_propagates_description_and_custom_asset_key(self):
+        """The description and asset_key options reach the registered check spec."""
+
+        @phlo_pandera(
+            table="test.table",
+            checks=[NullCheck(columns=["id"])],
+            description="Custom quality check description",
+            asset_key="custom.path",
+        )
+        def custom_key_check():
+            """No-op asset function used to register custom asset-key checks."""
+
+            pass
+
+        spec = next(spec for spec in get_quality_checks() if spec.name == "custom_key_check")
+        assert spec.asset_key == "custom.path"
+        assert "Custom quality check description" in (spec.description or "")
+
+    def test_decorator_registers_all_declared_checks_on_one_spec(self):
+        """Every declared check lands on the asset's single registered spec."""
+        baseline = len(get_quality_checks())
 
         @phlo_pandera(
             table="test.table",
@@ -356,57 +375,11 @@ class TestPhloQualityDecorator:
 
             pass
 
-        # Verify the decorator works
-        checks = get_quality_checks()
-        assert len(checks) > 0
-
-    def test_decorator_with_warn_threshold(self):
-        """Test decorator with warn_threshold parameter."""
-
-        @phlo_pandera(
-            table="test.table",
-            checks=[NullCheck(columns=["id"])],
-            warn_threshold=0.5,
-        )
-        def warn_check():
-            """No-op asset function used to register warn-threshold checks."""
-
-            pass
-
-        checks = get_quality_checks()
-        assert len(checks) > 0
-
-    def test_decorator_with_custom_description(self):
-        """Test decorator with custom description."""
-
-        @phlo_pandera(
-            table="test.table",
-            checks=[NullCheck(columns=["id"])],
-            description="Custom quality check description",
-        )
-        def described_check():
-            """No-op asset function used to register described checks."""
-
-            pass
-
-        checks = get_quality_checks()
-        assert len(checks) > 0
-
-    def test_decorator_with_custom_asset_key(self):
-        """Test decorator with custom asset key."""
-
-        @phlo_pandera(
-            table="test.table",
-            checks=[NullCheck(columns=["id"])],
-            asset_key="custom.path",
-        )
-        def custom_key_check():
-            """No-op asset function used to register custom asset-key checks."""
-
-            pass
-
-        checks = get_quality_checks()
-        assert len(checks) > 0
+        registered = get_quality_checks()
+        assert len(registered) - baseline == 1
+        spec = next(spec for spec in registered if spec.name == "multi_check")
+        assert "null_check_id" in spec.description
+        assert "range_check_value" in spec.description
 
     def test_decorator_contract_metadata_tags(self):
         """Contract metadata is propagated to check tags."""
@@ -440,8 +413,12 @@ class TestQualityCheckIntegration:
 
         result = check.execute(df, context=None)
 
-        assert isinstance(result, object)  # Should return valid result
+        # An empty frame has no nulls to fail on; the check reports a zero count
+        # rather than dividing by zero or treating absence of rows as a failure.
+        assert result.passed is True
         assert result.metric_name == "null_check"
+        assert result.metric_value["id"] == 0
+        assert result.metadata["null_percentages"] == {"id": 0.0}
 
     def test_quality_check_with_null_values(self):
         """Test quality checks handle dataframes with all nulls."""

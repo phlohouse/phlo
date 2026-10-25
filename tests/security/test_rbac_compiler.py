@@ -18,9 +18,7 @@ from phlo.rbac.models import (
     BackendArtifact,
     CanonicalRBAC,
     PoliciesConfig,
-    PolicyChange,
     RolesConfig,
-    SyncPlan,
 )
 
 
@@ -87,30 +85,48 @@ def test_trino_revert_decodes_revert_id_to_artifact_name() -> None:
 
 def test_trino_plan_emits_revert_ids_that_round_trip() -> None:
     compiler = TrinoCompiler()
-    artifact = BackendArtifact(
-        backend="trino",
-        artifact_type="grant",
-        name="phlo_admin_dataset_analytics.table",
-        statement="GRANT SELECT ON TABLE analytics.table TO ROLE phlo_admin",
-        metadata={},
+    roles = RolesConfig.from_dict({"version": 1, "roles": {"phlo_admin": {"inherits": []}}})
+    policies = PoliciesConfig.from_dict(
+        {
+            "version": 1,
+            "policies": [
+                {
+                    "policy_id": "allow_admin_read",
+                    "effect": "allow",
+                    "principal": {"roles": ["phlo_admin"]},
+                    "action": "dataset.read",
+                    "resource": {"type": "dataset", "id_pattern": "analytics.table"},
+                }
+            ],
+        }
     )
-    plan = SyncPlan(
-        version_hash="abc123",
-        backend="trino",
-        changes=(
-            PolicyChange(
-                change_type="create",
-                backend="trino",
-                artifact=artifact,
-                revert_id=compiler._encode_revert_id(artifact.name),
-            ),
-        ),
+    rbac = CanonicalRBAC.from_configs(roles, policies)
+    context = CompilerContext(environment="test", backend_name="trino")
+
+    plan = compiler.plan(rbac, context)
+
+    assert [change.change_type for change in plan.changes] == ["create"]
+    change = plan.changes[0]
+    assert change.artifact.name == "phlo_admin_dataset_analytics.table"
+    assert change.revert_id is not None
+    # The id the plan emitted must be decodable back to the artifact it grants.
+    assert compiler._decode_revert_id(change.revert_id) == change.artifact.name
+
+    backend = _FakeTrinoBackend()
+    backend._policies = [
+        {
+            "grantee": "phlo_admin",
+            "schema": "analytics",
+            "table": "table",
+            "privilege": "SELECT",
+        }
+    ]
+    success_ids, errors = TrinoCompiler(backend=cast(GovernanceBackend, backend)).revert(
+        [change.revert_id], context
     )
-
-    revert_id = plan.changes[0].revert_id
-
-    assert revert_id is not None
-    assert compiler._decode_revert_id(revert_id) == artifact.name
+    assert success_ids == [change.revert_id]
+    assert errors == []
+    assert backend.revoked_policy_ids == ["SELECT:analytics.table:phlo_admin"]
 
 
 @pytest.mark.parametrize("revert_id", ["postgresql:abc123", "trino:", "trino:!!!!"])
@@ -156,28 +172,29 @@ def test_trino_read_current_state_uses_compile_compatible_names() -> None:
     assert artifacts[0].metadata["resource_type"] == "dataset"
 
 
-def test_trino_does_not_compile_control_plane_policies() -> None:
+@pytest.mark.parametrize(
+    ("role", "action", "resource_type"),
+    [
+        ("admin", "admin.manage", "admin"),
+        ("operator", "service.manage", "service"),
+    ],
+    ids=["admin-manage", "service-manage"],
+)
+def test_trino_does_not_compile_control_plane_policies(
+    role: str, action: str, resource_type: str
+) -> None:
     compiler = TrinoCompiler()
-    roles = RolesConfig.from_dict(
-        {
-            "version": 1,
-            "roles": {
-                "viewer": {"inherits": []},
-                "analyst": {"inherits": ["viewer"]},
-                "admin": {"inherits": ["analyst"]},
-            },
-        }
-    )
+    roles = RolesConfig.from_dict({"version": 1, "roles": {role: {"inherits": []}}})
     policies = PoliciesConfig.from_dict(
         {
             "version": 1,
             "policies": [
                 {
-                    "policy_id": "allow_admin_manage",
+                    "policy_id": f"allow_{resource_type}_manage",
                     "effect": "allow",
-                    "principal": {"roles": ["admin"]},
-                    "action": "admin.manage",
-                    "resource": {"type": "admin", "id_pattern": "dagster"},
+                    "principal": {"roles": [role]},
+                    "action": action,
+                    "resource": {"type": resource_type, "id_pattern": "dagster"},
                 }
             ],
         }
@@ -294,31 +311,6 @@ def test_trino_compile_rejects_wildcards_before_final_resource_segment() -> None
 
     with pytest.raises(ValueError, match="Wildcards only allowed in final segment"):
         compiler.compile(rbac, context)
-
-
-def test_trino_does_not_compile_service_control_plane_grants() -> None:
-    compiler = TrinoCompiler()
-    roles = RolesConfig.from_dict({"version": 1, "roles": {"operator": {"inherits": []}}})
-    policies = PoliciesConfig.from_dict(
-        {
-            "version": 1,
-            "policies": [
-                {
-                    "policy_id": "allow_service_manage",
-                    "effect": "allow",
-                    "principal": {"roles": ["operator"]},
-                    "action": "service.manage",
-                    "resource": {"type": "service", "id_pattern": "dagster"},
-                }
-            ],
-        }
-    )
-    rbac = CanonicalRBAC.from_configs(roles, policies)
-    context = CompilerContext(environment="test", backend_name="trino")
-
-    artifacts = compiler.compile(rbac, context)
-
-    assert artifacts == []
 
 
 def test_trino_skips_control_plane_deny_for_surface_pdp() -> None:

@@ -105,8 +105,11 @@ class TestCatalogOperations:
         assert all_tables == ["raw.entries", "raw.treatments", "bronze.entries"]
         assert mock_catalog.list_tables.call_count == 2  # Called for each namespace
 
+    @patch("phlo_iceberg.catalog.logger")
     @patch("phlo_iceberg.catalog.get_catalog")
-    def test_create_namespace_handles_existing_namespaces_without_errors(self, mock_get_catalog):
+    def test_create_namespace_handles_existing_namespaces_without_errors(
+        self, mock_get_catalog, mock_logger
+    ):
         """Test that create_namespace handles existing namespaces without errors."""
         mock_catalog = MagicMock()
         mock_get_catalog.return_value = mock_catalog
@@ -115,11 +118,19 @@ class TestCatalogOperations:
         mock_catalog.create_namespace.return_value = None
         create_namespace("raw")
         mock_catalog.create_namespace.assert_called_with("raw")
+        mock_logger.warning.assert_not_called()
 
-        # Test existing namespace (should not raise error)
+        # Message-only conflicts (no typed error from the transport) are still
+        # treated as idempotent rather than as a failure worth a warning.
         mock_catalog.create_namespace.side_effect = Exception("Namespace already exists")
         create_namespace("raw")  # Should not raise
         assert mock_catalog.create_namespace.call_count == 2
+        mock_logger.warning.assert_not_called()
+        mock_logger.info.assert_any_call(
+            "iceberg_catalog_create_namespace_exists",
+            namespace="raw",
+            ref="main",
+        )
 
     @patch("phlo_iceberg.catalog.logger")
     @patch("phlo_iceberg.catalog.get_catalog")
@@ -385,6 +396,10 @@ class TestTableOperations:
             result = append_to_table("ns.table", parquet_path, schema_policy="drop_extra")
 
         assert result["rows_inserted"] == 2
+        appended = mock_table.transaction.return_value.__enter__.return_value.append
+        appended.assert_called_once()
+        written = appended.call_args.args[0]
+        assert written.schema.names == ["id"]
 
     def test_align_arrow_table_to_target_schema_backfills_missing_nullable_columns(self):
         """Missing nullable target columns should be added as nulls before projection."""

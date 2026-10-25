@@ -427,5 +427,9 @@ def cli_surface_adapter_class(
             "default_action_prefix": default_action_prefix,
             "default_resource_prefix": resource_prefix,
             "__module__": __name__,
+            # Each generated adapter owns its singleton. Without this, the
+            # subclass reads the base adapter's ``_instance`` and a package
+            # mutation would be checked against the core CLI command tables.
+            "_instance": None,
         },
     )

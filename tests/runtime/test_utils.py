@@ -3,6 +3,8 @@ order-preserving dedupe."""
 
 from __future__ import annotations
 
+import pytest
+
 from phlo.utils import compact_dict, dedupe_preserve_order
 
 
@@ -21,26 +23,16 @@ def test_compact_dict_empty_input() -> None:
     assert result == {}
 
 
-def test_dedupe_preserve_order_removes_duplicates() -> None:
-    result = dedupe_preserve_order([1, 2, 1, 3, 2, 4])
-    assert result == [1, 2, 3, 4]
-
-
-def test_dedupe_preserve_order_keeps_first_occurrence() -> None:
-    result = dedupe_preserve_order(["a", "b", "a", "c", "b"])
-    assert result == ["a", "b", "c"]
-
-
-def test_dedupe_preserve_order_empty_input() -> None:
-    result = dedupe_preserve_order([])
-    assert result == []
-
-
-def test_dedupe_preserve_order_no_duplicates() -> None:
-    result = dedupe_preserve_order([1, 2, 3])
-    assert result == [1, 2, 3]
-
-
-def test_dedupe_preserve_order_with_mixed_types() -> None:
-    result = dedupe_preserve_order([1, "1", 1, True, "a", "a"])
-    assert result == [1, "1", "a"]
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ([1, 2, 1, 3, 2, 4], [1, 2, 3, 4]),
+        (["a", "b", "a", "c", "b"], ["a", "b", "c"]),
+        ([], []),
+        ([1, 2, 3], [1, 2, 3]),
+        ([1, "1", 1, True, "a", "a"], [1, "1", "a"]),
+    ],
+    ids=["duplicates", "first-occurrence", "empty", "already-unique", "mixed-types"],
+)
+def test_dedupe_preserve_order(values: list, expected: list) -> None:
+    assert dedupe_preserve_order(values) == expected

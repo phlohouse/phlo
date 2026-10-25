@@ -122,7 +122,11 @@ def test_jwt_provider_accepts_valid_rs256_token_without_optional_nbf(monkeypatch
         headers={"kid": "one"},
     )
 
-    assert provider.validate_token(token) is not None
+    session = provider.validate_token(token)
+
+    assert session is not None
+    assert session.principal.subject == "user"
+    assert session.principal.principal_type == "user"
 
 
 @pytest.mark.parametrize(

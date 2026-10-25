@@ -3,6 +3,8 @@ contract failures as errors, and dbt tag overrides of default severities."""
 
 from __future__ import annotations
 
+import pytest
+
 from phlo_pandera.severity import (
     severity_for_dbt_test,
     severity_for_pandera_contract,
@@ -10,18 +12,18 @@ from phlo_pandera.severity import (
 )
 
 
-def test_quality_check_warn_threshold_emits_warn_severity() -> None:
-    """Verify warn severity when failure fraction meets warn threshold."""
-
-    severity = severity_for_quality_check(passed=False, failure_fraction=0.5, warn_threshold=0.5)
-    assert severity == "warn"
-
-
-def test_quality_check_below_warn_threshold_emits_error_severity() -> None:
-    """Verify error severity when failure fraction exceeds warn policy."""
-
-    severity = severity_for_quality_check(passed=False, failure_fraction=0.5, warn_threshold=0.49)
-    assert severity == "error"
+@pytest.mark.parametrize(
+    ("warn_threshold", "expected"),
+    [(0.5, "warn"), (0.49, "error")],
+    ids=["at-warn-threshold", "above-warn-threshold"],
+)
+def test_quality_check_severity_respects_warn_threshold(
+    warn_threshold: float, expected: str
+) -> None:
+    severity = severity_for_quality_check(
+        passed=False, failure_fraction=0.5, warn_threshold=warn_threshold
+    )
+    assert severity == expected
 
 
 def test_pandera_contract_failure_emits_error_severity() -> None:

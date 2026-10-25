@@ -198,7 +198,7 @@ def status(
         result["elapsed_seconds"] = round(elapsed, 2)
         click.echo(
             json_envelope(
-                data=result,
+                data=_jsonable(result),
                 errors=errors,
                 status="partial" if errors and show_services else "error" if errors else "success",
                 reason_code="status_incomplete" if errors else "status_collected",
@@ -577,6 +577,17 @@ def _check_service_health(
             "latency_ms": None,
             "error": str(e),
         }
+
+
+def _jsonable(value):
+    """Return a JSON-safe copy of a status payload (datetimes become ISO strings)."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def _display_asset_status(

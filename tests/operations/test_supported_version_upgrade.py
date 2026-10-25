@@ -123,7 +123,14 @@ def test_unsupported_pair_refuses_before_mutation(tmp_path) -> None:
     assert not (tmp_path / "deploy").exists()
 
 
-def test_post_boundary_failure_emits_forward_repair_not_rollback(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("blocker_subdir", "expected_rollback", "expects_forward_repair"),
+    [("minio", None, True), ("postgres", "restore", False)],
+    ids=["post-boundary", "pre-boundary"],
+)
+def test_failure_outcome_depends_on_rollback_boundary(
+    tmp_path, blocker_subdir, expected_rollback, expects_forward_repair
+) -> None:
     set_dir = _make_source_set(tmp_path)
     providers = _real_providers()
     deploy = RestoreTarget.of(tmp_path / "deployment")
@@ -133,8 +140,9 @@ def test_post_boundary_failure_emits_forward_repair_not_rollback(tmp_path) -> No
         backup_set_dir=set_dir,
         target=deploy,
     )
-    # make the minio policy step fail by pre-creating its target dir as a file
-    blocker = Path(deploy.location) / "minio"
+    # Block a step directory by pre-creating it as a file: "minio" is past the
+    # rollback boundary, "postgres" is the rollback-safe step.
+    blocker = Path(deploy.location) / blocker_subdir
     blocker.parent.mkdir(parents=True, exist_ok=True)
     blocker.write_text("occupies path")
 
@@ -144,32 +152,9 @@ def test_post_boundary_failure_emits_forward_repair_not_rollback(tmp_path) -> No
         contributors=providers,
         journal=InMemoryOperationJournalStore(),
     )
+
     assert result.accepted is False
-    assert result.rollback_action is None
-    assert result.forward_repair is not None
-    assert result.forward_repair["must_not_rollback"] is True
-
-
-def test_pre_boundary_failure_issues_restore_action(tmp_path) -> None:
-    set_dir = _make_source_set(tmp_path)
-    providers = _real_providers()
-    deploy = RestoreTarget.of(tmp_path / "deployment")
-    plan = plan_upgrade(
-        from_version=SUPPORTED_FROM_VERSION,
-        to_version=SUPPORTED_TO_VERSION,
-        backup_set_dir=set_dir,
-        target=deploy,
-    )
-    # postgres.schema is the rollback-safe step; block it so restore is issued.
-    blocker = Path(deploy.location) / "postgres"
-    blocker.parent.mkdir(parents=True, exist_ok=True)
-    blocker.write_text("occupies path")
-
-    result = upgrade_apply(
-        plan=plan,
-        confirmation_token=plan.plan_token,
-        contributors=providers,
-        journal=InMemoryOperationJournalStore(),
-    )
-    assert result.accepted is False
-    assert result.rollback_action == "restore"
+    assert result.rollback_action == expected_rollback
+    assert (result.forward_repair is not None) is expects_forward_repair
+    if expects_forward_repair:
+        assert result.forward_repair["must_not_rollback"] is True

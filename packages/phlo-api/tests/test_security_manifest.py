@@ -831,4 +831,7 @@ def test_production_unset_mode_does_not_fail_startup(monkeypatch) -> None:
 
     monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
     monkeypatch.delenv("PHLO_AUTHORIZATION_MODE", raising=False)
-    security_manifest._reject_explicit_optional_in_production()
+
+    # An unset mode is not an explicit opt-out: startup validation must return
+    # rather than raise, while the explicit "optional" case above still fails.
+    assert security_manifest._reject_explicit_optional_in_production() is None

@@ -31,21 +31,40 @@ def _service(
     )
 
 
-def test_selection_plan_includes_default_and_profile_services() -> None:
-    services = {
-        "postgres": _service("postgres", default=True),
-        "grafana": _service("grafana", profile="observability"),
-        "hasura": _service("hasura", profile="api"),
-    }
-
+@pytest.mark.parametrize(
+    ("services", "requested_names", "expected"),
+    [
+        (
+            {
+                "postgres": _service("postgres", default=True),
+                "grafana": _service("grafana", profile="observability"),
+                "hasura": _service("hasura", profile="api"),
+            },
+            [],
+            ["postgres", "grafana"],
+        ),
+        (
+            {
+                "postgres": _service("postgres", default=True),
+                "grafana": _service("grafana", default=True, profile="observability"),
+            },
+            ["postgres"],
+            ["postgres"],
+        ),
+    ],
+    ids=["default-plus-profile", "requested-only"],
+)
+def test_selection_plan_selects_defaults_profiles_or_requested(
+    services, requested_names, expected
+) -> None:
     plan = build_service_selection_plan(
         services=services,
         config={},
         profiles=("observability",),
-        requested_names=[],
+        requested_names=requested_names,
     )
 
-    assert [service.name for service in plan.selected_services] == ["postgres", "grafana"]
+    assert [service.name for service in plan.selected_services] == expected
     assert plan.disabled_names == frozenset()
 
 
@@ -64,23 +83,6 @@ def test_selection_plan_excludes_disabled_services() -> None:
 
     assert [service.name for service in plan.selected_services] == ["postgres"]
     assert plan.disabled_names == frozenset({"grafana"})
-
-
-def test_selection_plan_respects_requested_names() -> None:
-    services = {
-        "postgres": _service("postgres", default=True),
-        "grafana": _service("grafana", default=True, profile="observability"),
-    }
-
-    plan = build_service_selection_plan(
-        services=services,
-        config={},
-        profiles=("observability",),
-        requested_names=["postgres"],
-    )
-
-    assert [service.name for service in plan.selected_services] == ["postgres"]
-    assert plan.disabled_names == frozenset()
 
 
 def test_selection_plan_rejects_disabled_requested_service() -> None:

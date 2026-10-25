@@ -87,31 +87,38 @@ def test_warns_when_external_reference_missing(ref_warnings) -> None:
     assert "dlt_finance_invoices" in records[0].getMessage()
 
 
-def test_warns_once_per_spec_and_key_pair(ref_warnings) -> None:
-    one = _spec(
-        "a.model",
-        metadata={"phlo/external_deps": ["dlt_missing", "dlt_missing"]},
-    )
-    two = _spec("b.model", deps=[])
+@pytest.mark.parametrize(
+    ("specs", "expected_warnings"),
+    [
+        (
+            [
+                _spec("a.model", metadata={"phlo/external_deps": ["dlt_missing", "dlt_missing"]}),
+                _spec("b.model", deps=[]),
+            ],
+            1,
+        ),
+        (
+            [
+                _spec("a.model", metadata={"phlo/external_deps": ["dlt_missing"]}),
+                _spec("b.model", metadata={"phlo/external_deps": ["dlt_missing"]}),
+            ],
+            2,
+        ),
+    ],
+    ids=["deduped-per-spec", "one-per-referencing-spec"],
+)
+def test_missing_key_warns_once_per_referencing_spec(
+    ref_warnings, specs, expected_warnings
+) -> None:
+    validate_external_asset_references(specs)
 
-    validate_external_asset_references([one, two])
-
-    assert len(_warning_records(ref_warnings)) == 1
+    assert len(_warning_records(ref_warnings)) == expected_warnings
 
 
 def test_specs_without_external_metadata_are_skipped(ref_warnings) -> None:
     validate_external_asset_references([_spec("solo.asset", deps=["nowhere"])])
 
     assert _warning_records(ref_warnings) == []
-
-
-def test_missing_key_referenced_by_two_specs_warns_twice(ref_warnings) -> None:
-    one = _spec("a.model", metadata={"phlo/external_deps": ["dlt_missing"]})
-    two = _spec("b.model", metadata={"phlo/external_deps": ["dlt_missing"]})
-
-    validate_external_asset_references([one, two])
-
-    assert len(_warning_records(ref_warnings)) == 2
 
 
 def test_resolvable_key_from_any_provider_silences_warning(ref_warnings) -> None:

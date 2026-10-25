@@ -36,6 +36,8 @@ def test_query_accepts_ctes_joins_and_comments_inside_selected_catalog() -> None
 
     assert "WITH orders AS" in result
     assert "prod_catalog.analytics.orders" in result
+    assert "prod_catalog.analytics.customers" in result
+    assert validate_workspace_query(result, "prod_catalog") == result
 
 
 def test_query_rejects_empty_and_oversized_sql() -> None:
@@ -64,7 +66,7 @@ def test_output_bound_keeps_union_order_at_the_top_level() -> None:
     )
 
 
-def test_output_bound_preserves_ordered_fetch_and_top_level_parentheses() -> None:
+def test_output_bound_preserves_nested_fetch_and_parenthesized_limits() -> None:
     for sql in (
         "SELECT id FROM orders ORDER BY id FETCH FIRST 2 ROWS ONLY",
         "(SELECT id FROM orders ORDER BY id LIMIT 2)",

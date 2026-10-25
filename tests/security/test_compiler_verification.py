@@ -63,6 +63,31 @@ class TestVerifyCompiledRbac:
 
     @patch("phlo.security.validation.RBACConfigLoader")
     @patch("phlo.security.validation.COMPILER_REGISTRY")
+    def test_backend_content_mismatch_is_reported(self, mock_registry, mock_loader_cls):
+        """Content drift (same artifact name, different statement) must be named.
+
+        The compiler reports in_sync=False for mismatched artifacts, so a check
+        that only summarises missing/extra would emit an out-of-sync warning with
+        no cause.
+        """
+        mock_loader_cls.return_value.load.return_value = MagicMock()
+        drifted = MagicMock()
+        drifted.name = "phlo_analyst__analytics.orders__SELECT"
+        mock_compiler = MagicMock()
+        mock_compiler.return_value.verify.return_value = MagicMock(
+            in_sync=False, missing=(), extra=(), mismatched=(drifted,)
+        )
+        mock_registry.items.return_value = [("postgres", mock_compiler)]
+        report = _empty_report()
+
+        _verify_compiled_rbac(report)
+
+        assert len(report.warnings) == 1
+        assert "1 mismatched" in report.warnings[0]
+        assert drifted.name in report.warnings[0]
+
+    @patch("phlo.security.validation.RBACConfigLoader")
+    @patch("phlo.security.validation.COMPILER_REGISTRY")
     def test_verify_not_implemented(self, mock_registry, mock_loader_cls):
         mock_loader_cls.return_value.load.return_value = MagicMock()
         mock_compiler = MagicMock()

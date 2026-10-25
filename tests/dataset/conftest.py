@@ -34,8 +34,8 @@ CANONICAL_CANDIDATE_ID = candidate_dataset_id(CANONICAL_TABLE_ID)
 CANONICAL_DATASET_ID = CANONICAL_TABLE_ID
 FIXTURE_POLICY_VERSION = "2026.09-project-policy"
 
+# Test-fixture name of the complete run-evidence profile.
 BLESSED_EVIDENCE_PROFILE = "blessed"
-"""Test-fixture name of the complete run-evidence profile."""
 
 
 class InMemoryStateStore:

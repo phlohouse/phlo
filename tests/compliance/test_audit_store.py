@@ -18,7 +18,10 @@ def test_postgres_audit_store_commits_schema_creation() -> None:
 
     PostgresAuditStore(conn)
 
-    assert cursor.execute.call_count == 2
+    executed = [call.args[0] for call in cursor.execute.call_args_list]
+    assert len(executed) == 2
+    assert "CREATE TABLE IF NOT EXISTS compliance_audit_log" in executed[0]
+    assert "CREATE INDEX IF NOT EXISTS idx_compliance_audit_log_surface_seq" in executed[1]
     conn.commit.assert_called_once()
     cursor.close.assert_called_once()
 

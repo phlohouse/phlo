@@ -18,7 +18,7 @@ import pytest
 from phlo.cli.commands.services import utils as service_utils
 from phlo.hooks.events import ServiceLifecycleEvent
 from phlo.plugins.discovery import ServiceDefinition
-from tests.helpers import FakeDiscovery, RecordingBus, _service
+from tests.support import FakeDiscovery, RecordingBus, _service
 
 
 def test_api_authoring_directories_are_private_and_preserve_existing_permissions(

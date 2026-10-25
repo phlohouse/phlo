@@ -9,9 +9,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-def test_missing_minio_cannot_pass_required_lane(tmp_path):
+def test_missing_service_cannot_pass_required_lane(tmp_path):
     # Reserve a loopback port without listening, so the endpoint really refuses
-    # connections and cannot accidentally address a developer's running MinIO.
+    # connections and cannot accidentally address a developer's running service.
     with socket.socket() as unavailable:
         unavailable.bind(("127.0.0.1", 0))
         report = tmp_path / "missing-service.xml"
@@ -27,12 +27,15 @@ def test_missing_minio_cannot_pass_required_lane(tmp_path):
                 "-m",
                 "integration",
                 "-rs",
-                "packages/phlo-minio/tests/test_integration_minio.py::TestMinioIntegrationReal::test_list_buckets",
+                "packages/phlo-trino/tests/test_integration_trino.py"
+                "::TestTrinoIntegrationReal::test_simple_query",
                 f"--junitxml={report}",
             ],
             cwd=Path(__file__).resolve().parents[2],
             env=dict(
                 os.environ,
+                TRINO_HOST="127.0.0.1",
+                TRINO_PORT=str(unavailable.getsockname()[1]),
                 MINIO_HOST="127.0.0.1",
                 MINIO_API_PORT=str(unavailable.getsockname()[1]),
                 MINIO_ROOT_USER="disposable",
@@ -47,8 +50,8 @@ def test_missing_minio_cannot_pass_required_lane(tmp_path):
     assert "Required suite must run tests without skips or xfails" in result.stdout
     skipped = ET.parse(report).find(".//testcase/skipped")
     assert skipped is not None
-    assert "MinIO not available" in skipped.attrib["message"]
+    assert "Trino not available" in skipped.attrib["message"]
     summarize = runpy.run_path("scripts/test_summary.py")["summarize"]
     summary = summarize(tmp_path)
     assert "| missing-service.xml | 0 | 1 | 0 |" in summary
-    assert "MinIO not available" in summary
+    assert "Trino not available" in summary

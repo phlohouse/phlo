@@ -18,5 +18,10 @@ def test_hasura_resource_provider_exposes_api_backend(monkeypatch) -> None:
 
     assert [spec.name for spec in specs] == ["hasura"]
     assert specs[0].metadata["backend_kind"] == "graphql"
-    assert hasattr(specs[0].provider, "health_check")
-    assert hasattr(specs[0].provider, "describe")
+
+    backend = specs[0].provider
+    assert callable(backend.health_check)
+    description = backend.describe()
+    assert description["service_name"] == "hasura"
+    assert description["backend_kind"] == "graphql"
+    assert description["default_path"] == "/v1/graphql"

@@ -30,7 +30,9 @@ def test_workflow_group_help_lists_create() -> None:
     result = runner.invoke(cli, ["workflow", "--help"])
 
     assert result.exit_code == 0
-    assert "create" in result.output
+    commands = result.output.split("Commands:", 1)[1]
+    rows = [line.split()[0] for line in commands.splitlines() if line.strip()]
+    assert "create" in rows
 
 
 def test_workflow_create_uses_cron_default_noninteractively(monkeypatch) -> None:

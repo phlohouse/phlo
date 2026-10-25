@@ -15,7 +15,7 @@ import yaml
 from click.testing import CliRunner
 
 from phlo.cli.infrastructure.selection import select_services_to_install
-from tests.helpers import FakeDiscovery, _service
+from tests.support import FakeDiscovery, _service
 
 
 def _write_project_config(config_file: Path, *, enabled: list[str], disabled: list[str]) -> None:

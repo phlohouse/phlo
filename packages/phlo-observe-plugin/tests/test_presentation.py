@@ -343,8 +343,29 @@ def test_failure_escalation_and_error_block() -> None:
 
 
 def test_context_fields_resolve() -> None:
-    paths = {cf.path for cf in PHLO_CONTEXT}
-    assert "correlation.run_id" in paths
+    """Every declared context path resolves from the event into the run header."""
+    assert {cf.path for cf in PHLO_CONTEXT} == {
+        "correlation.run_id",
+        "correlation.partition_key",
+    }
+    correlation = {"run_id": RUN, "partition_key": "2025-01-01"}
+    events = [
+        {
+            "event": "pipeline.run",
+            "outcome": "success",
+            "severity": "info",
+            "correlation": dict(correlation),
+            "attributes": {"job_name": "ingest_job", "dagster_status": "SUCCESS"},
+        }
+        for _ in range(2)
+    ]
+
+    out = pretty_renderer(color="never", symbols="unicode", stream=io.StringIO()).render_many(
+        events
+    )
+
+    assert out.count("── Run:") == 1
+    assert "Partition: 2025-01-01" in out
 
 
 def test_drain_protocol_surface() -> None:

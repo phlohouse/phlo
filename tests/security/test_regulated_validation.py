@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from phlo.security.validation import run_regulated_validation
@@ -97,28 +98,29 @@ def test_regulated_backend_boundary_rejects_invalid_utf8_compose(
     assert "Could not read generated Compose configuration" in result.message
 
 
-def test_regulated_validation_requires_audit_hmac_key(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("audit_key", "expected_message"),
+    [
+        (None, "PHLO_AUDIT_HMAC_KEY is required"),
+        ("test-audit-key", "PHLO_SIGNATURE_HMAC_KEY is required"),
+    ],
+    ids=["audit-key-missing", "signature-key-missing"],
+)
+def test_regulated_validation_requires_both_hmac_keys(
+    monkeypatch, audit_key, expected_message
+) -> None:
     monkeypatch.setenv("PHLO_REGULATED", "true")
-    monkeypatch.delenv("PHLO_AUDIT_HMAC_KEY", raising=False)
+    if audit_key is None:
+        monkeypatch.delenv("PHLO_AUDIT_HMAC_KEY", raising=False)
+    else:
+        monkeypatch.setenv("PHLO_AUDIT_HMAC_KEY", audit_key)
     monkeypatch.delenv("PHLO_SIGNATURE_HMAC_KEY", raising=False)
 
     report = run_regulated_validation(surface_actions=[], surface_resource_types=[])
 
     check = next(item for item in report.checks if item.name == "compliance_hmac_keys_configured")
     assert check.passed is False
-    assert "PHLO_AUDIT_HMAC_KEY is required" in check.message
-
-
-def test_regulated_validation_requires_signature_hmac_key(monkeypatch) -> None:
-    monkeypatch.setenv("PHLO_REGULATED", "true")
-    monkeypatch.setenv("PHLO_AUDIT_HMAC_KEY", "test-audit-key")
-    monkeypatch.delenv("PHLO_SIGNATURE_HMAC_KEY", raising=False)
-
-    report = run_regulated_validation(surface_actions=[], surface_resource_types=[])
-
-    check = next(item for item in report.checks if item.name == "compliance_hmac_keys_configured")
-    assert check.passed is False
-    assert "PHLO_SIGNATURE_HMAC_KEY is required" in check.message
+    assert expected_message in check.message
 
 
 def test_regulated_validation_accepts_configured_hmac_keys(monkeypatch) -> None:

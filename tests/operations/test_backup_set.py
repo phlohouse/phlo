@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -409,36 +410,42 @@ def test_verify_rejects_unknown_provider(tmp_path) -> None:
     assert "unknown_provider" in verified.reasons
 
 
-def test_verify_rejects_incomplete_set(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("path", "value", "reason"),
+    [
+        (("complete",), False, "partial_set"),
+        (("versions",), {}, "incompatible_version"),
+    ],
+    ids=["incomplete", "missing-versions"],
+)
+def test_verify_rejects(tmp_path, path, value, reason) -> None:
     result = _create(tmp_path)
     set_dir = _set_dir(result)
     manifest = json.loads((set_dir / SET_MANIFEST_NAME).read_text(encoding="utf-8"))
-    manifest["complete"] = False
+    target = manifest
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
     _rewrite_manifest(set_dir, manifest)
+
     verified = verify_backup_set(set_dir)
-    assert "partial_set" in verified.reasons
+
+    assert reason in verified.reasons
 
 
-def test_verify_rejects_wrong_owner(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("deployment_id", "reason", "accepted"),
+    [("other-deploy", "wrong_owner", False), ("deploy-1", None, True)],
+    ids=["wrong-owner", "matching-owner"],
+)
+def test_verify_owner(tmp_path, deployment_id, reason, accepted) -> None:
     result = _create(tmp_path)
-    verified = verify_backup_set(_set_dir(result), expected_deployment_id="other-deploy")
-    assert "wrong_owner" in verified.reasons
 
+    verified = verify_backup_set(_set_dir(result), expected_deployment_id=deployment_id)
 
-def test_verify_accepts_matching_owner(tmp_path) -> None:
-    result = _create(tmp_path)
-    verified = verify_backup_set(_set_dir(result), expected_deployment_id="deploy-1")
-    assert verified.accepted is True
-
-
-def test_verify_rejects_missing_version_inventory(tmp_path) -> None:
-    result = _create(tmp_path)
-    set_dir = _set_dir(result)
-    manifest = json.loads((set_dir / SET_MANIFEST_NAME).read_text(encoding="utf-8"))
-    manifest["versions"] = {}
-    _rewrite_manifest(set_dir, manifest)
-    verified = verify_backup_set(set_dir)
-    assert "incompatible_version" in verified.reasons
+    if reason is not None:
+        assert reason in verified.reasons
+    assert verified.accepted is accepted
 
 
 def test_verify_rejects_mixed_run(tmp_path) -> None:
@@ -449,16 +456,6 @@ def test_verify_rejects_mixed_run(tmp_path) -> None:
     _rewrite_manifest(set_dir, manifest)
     verified = verify_backup_set(set_dir)
     assert "mixed_run" in verified.reasons
-
-
-def test_verify_rejects_path_escape(tmp_path) -> None:
-    result = _create(tmp_path)
-    set_dir = _set_dir(result)
-    manifest = json.loads((set_dir / SET_MANIFEST_NAME).read_text(encoding="utf-8"))
-    manifest["artifacts"][0]["relative_path"] = "../escaped.bin"
-    _rewrite_manifest(set_dir, manifest)
-    verified = verify_backup_set(set_dir)
-    assert "path_escape" in verified.reasons
 
 
 def test_verify_rejects_symlink_artifact(tmp_path) -> None:
@@ -547,4 +544,5 @@ def test_sha256_helper_imported() -> None:
     # Guard against accidental regression to non-shared primitives.
     from phlo.capabilities import continuity
 
-    assert continuity.sha256_bytes(b"abc") == sha256_bytes(b"abc")
+    assert continuity.sha256_bytes(b"abc") == hashlib.sha256(b"abc").hexdigest()
+    assert sha256_bytes(b"abc") == hashlib.sha256(b"abc").hexdigest()

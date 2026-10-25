@@ -253,7 +253,7 @@ def test_report_policy_fixture_relies_on_the_service_token_scope(
 def test_main_configures_wap_before_launching_the_generated_run(
     tmp_path: Path, monkeypatch
 ) -> None:
-    captured: dict[str, str] = {}
+    calls: list[str] = []
 
     for name in (
         "build_wheelhouse",
@@ -276,14 +276,19 @@ def test_main_configures_wap_before_launching_the_generated_run(
     ):
         monkeypatch.setattr(release_golden_path, name, lambda *_args, **_kwargs: None)
 
-    def configure(_config) -> None:
-        captured["configured"] = "true"
+    monkeypatch.setattr(
+        release_golden_path,
+        "configure_non_dev_compose",
+        lambda _config: calls.append("configure_non_dev_compose"),
+    )
+    monkeypatch.setattr(
+        release_golden_path, "configure_wap", lambda _config: calls.append("configure_wap")
+    )
 
     def materialize(_config) -> release_golden_path.WapRun:
-        captured["wap"] = "generated"
+        calls.append("materialize_wap")
         return release_golden_path.WapRun("generated", "dagster-run")
 
-    monkeypatch.setattr(release_golden_path, "configure_non_dev_compose", configure)
     monkeypatch.setattr(release_golden_path, "materialize_wap", materialize)
     monkeypatch.setattr(release_golden_path, "project_name", lambda: "phlo-qa001-test")
     logical_run_ids = iter(("rejected-logical-run", "promoted-logical-run"))
@@ -299,10 +304,7 @@ def test_main_configures_wap_before_launching_the_generated_run(
         )
         == 0
     )
-    assert captured == {
-        "configured": "true",
-        "wap": "generated",
-    }
+    assert calls == ["configure_non_dev_compose", "configure_wap", "materialize_wap"]
 
 
 def test_transform_materialization_preserves_the_partition(tmp_path: Path, monkeypatch) -> None:
@@ -451,6 +453,27 @@ def test_wap_wait_requires_success_then_promotion_tag(tmp_path: Path, monkeypatc
         config, release_golden_path.WapRun("logical", "dagster-1")
     )
 
+    monkeypatch.setattr(
+        release_golden_path,
+        "graphql",
+        lambda *_: {"data": {"pipelineRunOrError": {"status": "SUCCESS", "tags": []}}},
+    )
+    monkeypatch.setattr(release_golden_path, "WAP_PROMOTION_TIMEOUT_SECONDS", 0)
+    with pytest.raises(TimeoutError, match="was not promoted"):
+        release_golden_path.wait_for_wap_promotion(
+            config, release_golden_path.WapRun("logical", "dagster-1")
+        )
+
+    monkeypatch.setattr(
+        release_golden_path,
+        "graphql",
+        lambda *_: {"data": {"pipelineRunOrError": {"status": "FAILURE", "tags": []}}},
+    )
+    with pytest.raises(RuntimeError, match="finished with FAILURE"):
+        release_golden_path.wait_for_wap_promotion(
+            config, release_golden_path.WapRun("logical", "dagster-1")
+        )
+
 
 def test_report_token_is_scoped_to_the_actual_run_and_rotated(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
@@ -540,18 +563,26 @@ def test_rejected_wap_report_waits_for_rejection_projection(tmp_path: Path, monk
             },
         )
     )
-    monkeypatch.setattr(release_golden_path, "fetch_run_report", lambda *_: next(reports))
+    monkeypatch.setattr(release_golden_path, "wap_service_secret", lambda _: "secret")
     monkeypatch.setattr(release_golden_path, "_sleep", lambda _: None)
     monkeypatch.setattr(release_golden_path, "service_url", lambda *_: "http://dagster/graphql")
     monkeypatch.setattr(release_golden_path, "service_token", lambda *_: "service-token")
-    monkeypatch.setattr(release_golden_path, "wap_service_secret", lambda _: "secret")
     monkeypatch.setattr(
         release_golden_path,
         "graphql",
         lambda *_: {"data": {"pipelineRunOrError": {"tags": []}}},
     )
+    fetched: list[int] = []
+
+    def fetch(*_args) -> dict:
+        fetched.append(len(fetched) + 1)
+        return next(reports)
+
+    monkeypatch.setattr(release_golden_path, "fetch_run_report", fetch)
 
     release_golden_path.verify_rejected_wap_report(config, wap_run)
+
+    assert len(fetched) == 2, "the handler must wait for the rejection projection"
 
 
 def test_rejected_wap_report_requires_failed_quality_and_rejection_evidence(
@@ -578,6 +609,28 @@ def test_rejected_wap_report_requires_failed_quality_and_rejection_evidence(
     )
 
     release_golden_path.verify_rejected_wap_report(config, wap_run)
+
+    monkeypatch.setattr(release_golden_path, "_sleep", lambda _: None)
+    monkeypatch.setattr(release_golden_path, "RUN_REPORT_TIMEOUT_SECONDS", 0)
+
+    def report(**overrides) -> dict:
+        payload = {
+            "run_id": "rejected",
+            "quality": [{"blocking": True, "passed": False}],
+            "catalog_changes": [{"merge_outcome": "rejected_quality"}],
+        }
+        payload.update(overrides)
+        return payload
+
+    monkeypatch.setattr(release_golden_path, "fetch_run_report", lambda *_: report(quality=[]))
+    with pytest.raises(RuntimeError, match="blocking failed quality result"):
+        release_golden_path.verify_rejected_wap_report(config, wap_run)
+
+    monkeypatch.setattr(
+        release_golden_path, "fetch_run_report", lambda *_: report(catalog_changes=[])
+    )
+    with pytest.raises(RuntimeError, match="lacks rejection evidence"):
+        release_golden_path.verify_rejected_wap_report(config, wap_run)
 
 
 def test_rejected_wap_report_rejects_any_promotion(tmp_path: Path, monkeypatch) -> None:
@@ -1270,35 +1323,32 @@ def test_candidate_pins_duplicate_and_interpolated_services_after_all_layers(
     assert cmd[-2:] == ["up", "--no-build"]
 
 
-def test_pin_candidate_images_rejects_an_image_outside_the_bom(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("compose_yaml", "expected_error"),
+    [
+        (
+            "services:\n  trino:\n    image: trinodb/trino:latest\n",
+            "not pinned in the candidate BOM",
+        ),
+        (
+            "services:\n  phlo-api:\n    image: ghcr.io/phlohouse/phlo-api:9.9.9\n",
+            "does not match the BOM version",
+        ),
+    ],
+    ids=["unpinned-image", "version-mismatch"],
+)
+def test_pin_candidate_images_rejects_non_candidate_images(
+    tmp_path: Path, monkeypatch, compose_yaml: str, expected_error: str
+) -> None:
     config = _config(tmp_path)
     config.__dict__.update(bom=_candidate_bom())
     config.compose_file.parent.mkdir(parents=True, exist_ok=True)
-    config.compose_file.write_text(
-        "services:\n  trino:\n    image: trinodb/trino:latest\n",
-        encoding="utf-8",
-    )
+    config.compose_file.write_text(compose_yaml, encoding="utf-8")
     monkeypatch.setattr(
         release_golden_path, "compose_config_json", lambda cfg: _compose_services(cfg)
     )
 
-    with pytest.raises(release_golden_path.CandidateError, match="not pinned in the candidate BOM"):
-        release_golden_path.pin_candidate_images(config)
-
-
-def test_pin_candidate_images_rejects_a_version_mismatch(tmp_path: Path, monkeypatch) -> None:
-    config = _config(tmp_path)
-    config.__dict__.update(bom=_candidate_bom())
-    config.compose_file.parent.mkdir(parents=True, exist_ok=True)
-    config.compose_file.write_text(
-        "services:\n  phlo-api:\n    image: ghcr.io/phlohouse/phlo-api:9.9.9\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        release_golden_path, "compose_config_json", lambda cfg: _compose_services(cfg)
-    )
-
-    with pytest.raises(release_golden_path.CandidateError, match="does not match the BOM version"):
+    with pytest.raises(release_golden_path.CandidateError, match=expected_error):
         release_golden_path.pin_candidate_images(config)
 
 
@@ -1425,16 +1475,51 @@ def test_negative_security_requires_an_authorization_denial(tmp_path: Path, monk
     assert result["denial"] == "authorization_denied"
 
 
-def test_quality_gate_fixture_reads_an_owned_directive_file(tmp_path: Path) -> None:
+def test_quality_gate_fixture_reads_an_owned_directive_file(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
     fixture_dir = config.project_dir / "workflows" / "ingestion" / "csv"
     fixture_dir.mkdir(parents=True, exist_ok=True)
+    directive_path = tmp_path / "quality_gate.json"
+    monkeypatch.setattr(
+        release_golden_path, "QUALITY_DIRECTIVE_CONTAINER_PATH", str(directive_path)
+    )
 
     release_golden_path.write_quality_gate_fixture(config)
 
     fixture = (fixture_dir / "release_wap_check.py").read_text(encoding="utf-8")
-    assert release_golden_path.QUALITY_DIRECTIVE_CONTAINER_PATH in fixture
-    assert "reject_next_run" in fixture
+    assert repr(str(directive_path)) in fixture
+
+    fake_dagster = ModuleType("dagster")
+    fake_dagster.asset_check = lambda **_: lambda check: check
+    fake_dagster.AssetCheckResult = lambda **kwargs: kwargs
+    monkeypatch.setitem(sys.modules, "dagster", fake_dagster)
+    namespace: dict[str, object] = {}
+    exec(compile(fixture, str(fixture_dir / "release_wap_check.py"), "exec"), namespace)
+    check = namespace["release_golden_path_wap_check"]
+
+    assert check(SimpleNamespace()) == {"passed": True, "metadata": {"reason": "happy_path"}}
+    directive_path.write_text(json.dumps({"reject_next_run": True}), encoding="utf-8")
+    assert check(SimpleNamespace()) == {
+        "passed": False,
+        "metadata": {"reason": "intentional_quality_rejection"},
+    }
+
+
+def test_quality_gate_fixture_escapes_windows_directive_paths(tmp_path, monkeypatch) -> None:
+    """A Windows directive path must not become a unicode escape in generated code."""
+    config = _config(tmp_path)
+    fixture_dir = config.project_dir / "workflows" / "ingestion" / "csv"
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        release_golden_path,
+        "QUALITY_DIRECTIVE_CONTAINER_PATH",
+        r"C:\Users\runneradmin\AppData\Local\Temp\quality_gate.json",
+    )
+
+    release_golden_path.write_quality_gate_fixture(config)
+
+    fixture = (fixture_dir / "release_wap_check.py").read_text(encoding="utf-8")
+    compile(fixture, "release_wap_check.py", "exec")
 
 
 def test_operations_policy_grants_the_operator_service_account(tmp_path: Path) -> None:
@@ -1447,9 +1532,17 @@ def test_operations_policy_grants_the_operator_service_account(tmp_path: Path) -
     release_golden_path.write_operations_policy(config)
 
     policy = (authorization_dir / "policies.yaml").read_text(encoding="utf-8")
-    assert "release-golden-path-operations" in policy
-    assert "operators" in policy
-    assert "operations.*" in policy
+    roles = (authorization_dir / "roles.yaml").read_text(encoding="utf-8")
+    assert f"{release_golden_path.OPERATOR_SERVICE_ACCOUNT}:\n      - operators" in roles, (
+        "the operator service account must be bound to the operators role"
+    )
+
+    block = policy.split("- policy_id: release-golden-path-operations", 1)[1]
+    assert "    effect: allow" in block
+    assert "      roles:\n        - operators" in block
+    assert "    action: operations.*" in block
+    assert '      type: "*"' in block
+    assert '      id_pattern: "*"' in block
 
 
 def test_ops_environment_resolves_dynamic_ports_and_journal_dir(

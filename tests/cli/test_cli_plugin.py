@@ -24,16 +24,16 @@ from phlo.plugins.base import (
 )
 from phlo.plugins.discovery import get_global_registry
 from phlo.plugins.registry_client import RegistryPlugin
-from tests.helpers import (
+from tests.support import (
     DummyQualityPlugin as DummyQuality,
 )
-from tests.helpers import (
+from tests.support import (
     DummyServicePlugin as DummyService,
 )
-from tests.helpers import (
+from tests.support import (
     DummySourcePlugin as DummySource,
 )
-from tests.helpers import (
+from tests.support import (
     DummyTransformPlugin as DummyTransform,
 )
 
@@ -229,8 +229,8 @@ def test_plugin_check_json_emits_only_json(setup_registry):
 
     assert result.exit_code == 0
     data = json.loads(result.output)["data"]
-    assert "valid" in data
-    assert "invalid" in data
+    assert data["invalid"] == []
+    assert len(data["valid"]) >= 4
 
 
 def test_plugin_check_containers_checks_generated_project(monkeypatch, setup_registry, tmp_path):
@@ -462,6 +462,7 @@ def test_plugin_check_containers_keeps_large_compose_config_parseable(monkeypatc
             }
         },
     }
+    assert len(json.dumps(compose_config)) > check_module.MAX_TOOL_OUTPUT_CHARS
 
     def respond(argv, kwargs):
         if argv[:3] == ["/bin/docker", "compose", "--profile"]:
@@ -481,6 +482,7 @@ def test_plugin_check_containers_keeps_large_compose_config_parseable(monkeypatc
     )
 
     assert result["services"][0]["status"] == "passed"
+    assert result["services"][0]["image"] == "example/one:1"
 
 
 def test_plugin_check_containers_builds_a_shared_exact_image_once(monkeypatch, tmp_path):
@@ -686,8 +688,28 @@ def test_plugin_check_containers_removes_only_images_created_for_the_check(monke
     assert ["/bin/docker", "image", "rm", "example/existing:1"] not in remove_calls
 
 
-def test_plugin_check_containers_restores_preexisting_local_image_tag(monkeypatch, tmp_path):
-    """A validation build cannot replace an image tag that the operator already had."""
+@pytest.mark.parametrize(
+    ("service_name", "service_config", "image_ref", "validation_id"),
+    [
+        (
+            "existing",
+            {"existing": {"image": "example/existing:1", "build": {"context": "."}}},
+            "example/existing:1",
+            "sha256:validation",
+        ),
+        (
+            "remote",
+            {"remote": {"image": "example/remote:latest"}},
+            "example/remote:latest",
+            "sha256:pulled",
+        ),
+    ],
+    ids=["local-build", "pulled-image"],
+)
+def test_plugin_check_containers_restores_preexisting_image_tag(
+    monkeypatch, tmp_path, service_name, service_config, image_ref, validation_id
+):
+    """A validation build or pull cannot replace an image tag that the operator already had."""
     from phlo.cli.commands.plugin import check as check_module
 
     inspect_count = 0
@@ -698,14 +720,10 @@ def test_plugin_check_containers_restores_preexisting_local_image_tag(monkeypatc
             "--format",
             "json",
         ]:
-            return _result(
-                stdout=_compose_config(
-                    {"existing": {"image": "example/existing:1", "build": {"context": "."}}}
-                )
-            )
+            return _result(stdout=_compose_config(service_config))
         if argv[:3] == ["/bin/docker", "image", "inspect"]:
             inspect_count += 1
-            image_id = "sha256:original" if inspect_count == 1 else "sha256:validation"
+            image_id = "sha256:original" if inspect_count == 1 else validation_id
             return _result(stdout=f"{image_id}\n")
         return _result()
 
@@ -715,57 +733,12 @@ def test_plugin_check_containers_restores_preexisting_local_image_tag(monkeypatc
 
     check_module.check_generated_containers(
         project_parent=tmp_path,
-        service_files={"@service:existing": "package-existing"},
+        service_files={f"@service:{service_name}": f"package-{service_name}"},
         command_runner=fake_run,
     )
 
-    assert [
-        "/bin/docker",
-        "image",
-        "tag",
-        "sha256:original",
-        "example/existing:1",
-    ] in calls
-    assert ["/bin/docker", "image", "rm", "sha256:validation"] in calls
-
-
-def test_plugin_check_containers_restores_preexisting_pulled_image_tag(monkeypatch, tmp_path):
-    """A validation pull cannot refresh an image tag that the operator already had."""
-    from phlo.cli.commands.plugin import check as check_module
-
-    inspect_count = 0
-
-    def respond(argv, kwargs):
-        nonlocal inspect_count
-        if argv[:3] == ["/bin/docker", "compose", "--profile"] and argv[-2:] == [
-            "--format",
-            "json",
-        ]:
-            return _result(stdout=_compose_config({"remote": {"image": "example/remote:latest"}}))
-        if argv[:3] == ["/bin/docker", "image", "inspect"]:
-            inspect_count += 1
-            image_id = "sha256:original" if inspect_count == 1 else "sha256:pulled"
-            return _result(stdout=f"{image_id}\n")
-        return _result()
-
-    calls, fake_run = install_fake_run(respond)
-
-    monkeypatch.setattr(check_module.shutil, "which", lambda name: f"/bin/{name}")
-
-    check_module.check_generated_containers(
-        project_parent=tmp_path,
-        service_files={"@service:remote": "package-remote"},
-        command_runner=fake_run,
-    )
-
-    assert [
-        "/bin/docker",
-        "image",
-        "tag",
-        "sha256:original",
-        "example/remote:latest",
-    ] in calls
-    assert ["/bin/docker", "image", "rm", "sha256:pulled"] in calls
+    assert ["/bin/docker", "image", "tag", "sha256:original", image_ref] in calls
+    assert ["/bin/docker", "image", "rm", validation_id] in calls
 
 
 def test_existing_image_lookup_fails_closed_on_inspect_error(tmp_path) -> None:
@@ -1058,6 +1031,14 @@ def test_plugin_check_rejects_ambiguous_vulnerability_waiver() -> None:
     with pytest.raises(click.BadParameter, match="SERVICE=IMAGE=EVIDENCE_SHA256=REASON"):
         check_module._parse_vulnerability_waivers(("one=example/one:1",))
 
+    digest = "a" * 64
+    duplicate = (
+        f"one=example/one:1={digest}=first reason",
+        f"one=example/one:1={digest}=second reason",
+    )
+    with pytest.raises(click.BadParameter, match="duplicate waiver for one"):
+        check_module._parse_vulnerability_waivers(duplicate)
+
 
 def test_plugin_check_containers_is_available_at_public_cli_seam(monkeypatch, setup_registry):
     """The public check command exposes generated-container results as JSON."""
@@ -1339,13 +1320,21 @@ def test_plugin_update(monkeypatch):
     assert calls == [["install", "--upgrade", "phlo-plugin-registry==2.0.0"]]
 
 
-def test_run_pip_prefers_uv_when_available(monkeypatch):
-    """Use `uv pip` when uv is available."""
+@pytest.mark.parametrize(
+    ("uv_path", "expected_command"),
+    [
+        ("/usr/bin/uv", ["uv", "pip", "install", "demo-plugin"]),
+        (None, [sys.executable, "-m", "pip", "install", "demo-plugin"]),
+    ],
+    ids=["uv-available", "uv-missing"],
+)
+def test_run_pip_selects_installer(monkeypatch, uv_path, expected_command):
+    """Prefer `uv pip` when uv is available, otherwise `python -m pip`."""
     from phlo.cli.commands.plugin.utils import run_pip
 
     calls: list[tuple[list[str], bool, float]] = []
 
-    monkeypatch.setattr("phlo.cli.commands.plugin.utils.shutil.which", lambda _: "/usr/bin/uv")
+    monkeypatch.setattr("phlo.cli.commands.plugin.utils.shutil.which", lambda _: uv_path)
     monkeypatch.setattr(
         "phlo.cli.commands.plugin.utils.importlib.util.find_spec", lambda _: object()
     )
@@ -1356,27 +1345,7 @@ def test_run_pip_prefers_uv_when_available(monkeypatch):
 
     run_pip(["install", "demo-plugin"], timeout=12)
 
-    assert calls == [(["uv", "pip", "install", "demo-plugin"], True, 12)]
-
-
-def test_run_pip_uses_python_pip_when_uv_missing(monkeypatch):
-    """Use `python -m pip` when uv is unavailable and pip is importable."""
-    from phlo.cli.commands.plugin.utils import run_pip
-
-    calls: list[tuple[list[str], bool, float]] = []
-
-    monkeypatch.setattr("phlo.cli.commands.plugin.utils.shutil.which", lambda _: None)
-    monkeypatch.setattr(
-        "phlo.cli.commands.plugin.utils.importlib.util.find_spec", lambda _: object()
-    )
-    monkeypatch.setattr(
-        "phlo.cli.commands.plugin.utils.subprocess.run",
-        lambda cmd, check, timeout: calls.append((cmd, check, timeout)),
-    )
-
-    run_pip(["install", "demo-plugin"], timeout=12)
-
-    assert calls == [([sys.executable, "-m", "pip", "install", "demo-plugin"], True, 12)]
+    assert calls == [(expected_command, True, 12)]
 
 
 def test_run_pip_uses_uv_when_pip_module_missing(monkeypatch):

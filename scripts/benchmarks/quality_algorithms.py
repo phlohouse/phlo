@@ -315,3 +315,11 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # Arrow and DuckDB native worker pools can abort during interpreter
+    # finalisation on loaded CI runners after the benchmark has already
+    # reported its result. The process owns no resources that need atexit
+    # cleanup, so skip finalisation instead of turning a valid run into a
+    # fatal signal.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)

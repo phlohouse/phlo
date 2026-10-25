@@ -27,7 +27,7 @@ environments.
 | --- | --- |
 | Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job. Focused mutation checks remain required when selected. |
 | Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks share one Node job, with each consumer selected independently. |
-| Integration and portability | Storage/catalog contracts and three API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks share one native Windows job. |
+| Integration and portability | Storage/catalog contracts and four API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks share one native Windows job. |
 | Artifact and dependency safety | Preparation builds wheels once for provider shards and Windows acceptance. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 
 | Stage | Scope |
@@ -69,7 +69,7 @@ Local image scans use the resulting image IDs. Uploaded build evidence retains
 complete standard output, standard error and elapsed time for each service.
 
 Integration builds the checked-in MinIO image once, then transfers it to the
-storage/catalog job and three API groups. Each consumer verifies the loaded image
+storage/catalog job and four API groups. Each consumer verifies the loaded image
 ID before running tests. BuildKit imports the default-branch publisher's MinIO
 cache and the integration cache. A separate artifact stage caches the finished
 binaries, licences and source bundle for the runtime image to copy. Intermediate
@@ -98,9 +98,10 @@ See [parallel integration contracts](testing-gates.md#parallel-integration-contr
 for individual group commands and timing diagnostics.
 
 Package-specific test environments and their coverage reports remain separate
-from the full-workspace measurement. The four package groups place the API and
+from the full-workspace measurement. The five package groups place the API and
 Dagster tests in different jobs while retaining each package's own dependency
-environment. The workspace shards also include
+environment; the API group uses four work-stealing workers because it contains a
+single large package. The workspace shards also include
 quickstart; its integration-lane execution retains the smoke-test artifacts.
 Each measured source tree has independent line and branch coverage floors.
 

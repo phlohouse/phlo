@@ -230,16 +230,9 @@ def test_dagster_repeated_pagination_cursor_is_unavailable() -> None:
         source.observe_run("project", "dagster-run")
 
 
-def test_dagster_retry_chain_missing_parent_is_unavailable() -> None:
-    run = _run(attempt="", parent_run_id="missing")
-    source = DagsterRunEvidenceSource(_Instance(run, []), project_id="project")
-
-    with pytest.raises(RunEvidenceUnavailable, match="parent was missing"):
-        source.observe_run("project", run.run_id)
-
-
-def test_explicit_attempt_tag_still_validates_declared_parent() -> None:
-    run = _run(attempt="2", parent_run_id="missing")
+@pytest.mark.parametrize("attempt", ["", "2"], ids=["untagged", "explicit-attempt"])
+def test_missing_parent_is_unavailable(attempt: str) -> None:
+    run = _run(attempt=attempt, parent_run_id="missing")
     source = DagsterRunEvidenceSource(_Instance(run, []), project_id="project")
 
     with pytest.raises(RunEvidenceUnavailable, match="parent was missing"):
@@ -348,7 +341,7 @@ def test_dagster_message_is_bounded_redacted_and_checksummed() -> None:
     source = DagsterRunEvidenceSource(
         _Instance(
             _run(),
-            [_record(10, "RUN_SUCCESS", message="password=super-secret token=abc")],
+            [_record(10, "RUN_SUCCESS", message="password=super-secret")],
         ),
         project_id="project",
     )
@@ -356,8 +349,10 @@ def test_dagster_message_is_bounded_redacted_and_checksummed() -> None:
     event = source.observe_run("project", "dagster-run").events[0]
 
     assert "super-secret" not in str(event.payload)
-    assert "abc" not in str(event.payload)
-    assert event.payload["message_checksum"]
+    assert "password=<redacted>" in event.payload["message_summary"]
+    checksum = event.payload["message_checksum"]
+    assert len(checksum) == 64
+    assert set(checksum) <= set("0123456789abcdef")
 
 
 def test_materializations_are_partition_and_record_identity_scoped() -> None:

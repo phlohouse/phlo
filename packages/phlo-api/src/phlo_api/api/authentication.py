@@ -32,21 +32,18 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import HTTPException, Request
-
 from phlo.capabilities import (
-    AuthPrincipal,
-    AuthResult,
     AuthenticatedSession,
     AuthenticationProvider,
+    AuthPrincipal,
+    AuthResult,
     RequestContext,
     list_capabilities,
     resolve_capability,
 )
-from phlo.infrastructure.config import get_configured_authentication_provider_name
 from phlo.config.process import get_process_settings
+from phlo.infrastructure.config import get_configured_authentication_provider_name
 from phlo.logging import get_logger
 from phlo.security.oidc_identity import OIDCVerificationUnavailable
 
@@ -275,38 +272,3 @@ def require_principal(request: Request) -> AuthPrincipal:
 
     request.state[_AUTH_PRINCIPAL_CACHE_KEY] = result.principal
     return result.principal
-
-
-def optional_authenticate(request: Request) -> AuthPrincipal | None:
-    """Attempt to authenticate a request, returning None if not authenticated.
-
-    Unlike require_principal, this does not raise on failure.
-    """
-    provider = get_authentication_provider()
-    if provider is None:
-        return None
-
-    try:
-        result = provider.authenticate(create_request_context(request))
-    except OIDCVerificationUnavailable as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "reason": "oidc_verification_unavailable"},
-        ) from exc
-
-    if result.authenticated and result.principal is not None:
-        return result.principal
-
-    return None
-
-
-def get_capabilities_metadata() -> dict[str, Any]:
-    """Get metadata about available authentication capabilities."""
-    available_providers = list_capabilities("authentication_provider")
-    current_provider = get_process_settings().phlo_authentication_provider
-
-    return {
-        "available_providers": available_providers,
-        "current_provider": current_provider,
-        "environment_variable": _AUTHENTICATION_PROVIDER_ENV,
-    }

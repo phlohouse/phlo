@@ -577,6 +577,7 @@ class TestJWTAuthenticationProvider:
         result = provider.authenticate(request_context)
 
         assert result.authenticated is False
+        assert result.reason_code == "invalid_token"
 
     def test_authenticate_with_mismatched_issuer(self):
         """Test authentication fails with mismatched issuer."""
@@ -604,6 +605,7 @@ class TestJWTAuthenticationProvider:
         result = provider.authenticate(request_context)
 
         assert result.authenticated is False
+        assert result.reason_code == "invalid_token"
 
     def test_authenticate_with_mismatched_audience(self):
         """Test authentication fails with mismatched audience."""
@@ -631,6 +633,7 @@ class TestJWTAuthenticationProvider:
         result = provider.authenticate(request_context)
 
         assert result.authenticated is False
+        assert result.reason_code == "invalid_token"
 
     def test_validate_token_with_future_iat(self):
         """Test validate_token fails with future iat (clock skew)."""
@@ -746,15 +749,21 @@ class TestJWTAuthenticationProvider:
 class TestAuthenticationProviderRegistration:
     """Tests for authentication provider registration."""
 
-    def test_register_default_providers_explicit_env(self):
+    def test_register_default_providers_explicit_env(self, monkeypatch):
         """Test providers are registered when explicitly enabled via env."""
-        with patch.dict(os.environ, {"PHLO_AUTH_STATIC_ENABLED": "true"}):
-            clear_all_capabilities()
-            register_default_capability_providers()
-            registry = get_capability_registry()
-            providers = registry.list("authentication_provider")
-            assert len(providers) == 1
-            assert providers[0].name == "static"
+        for name in (
+            "PHLO_AUTH_PROXY_ENABLED",
+            "PHLO_AUTH_SERVICE_ENABLED",
+            "PHLO_AUTH_DEV_MODE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("PHLO_AUTH_STATIC_ENABLED", "true")
+        clear_all_capabilities()
+        register_default_capability_providers()
+        registry = get_capability_registry()
+        providers = registry.list("authentication_provider")
+        assert len(providers) == 1
+        assert providers[0].name == "static"
 
     def test_no_auto_registration_by_default(self):
         """Test providers are NOT auto-registered without explicit env."""
@@ -875,8 +884,10 @@ authentication:
 class TestProviderSelection:
     """Tests for provider selection logic."""
 
-    def test_multiple_providers_require_explicit_selection(self):
+    def test_multiple_providers_require_explicit_selection(self, monkeypatch):
         """Test that multiple providers require explicit selection."""
+        from phlo_api.api.authentication import get_authentication_provider
+
         with patch.dict(
             os.environ,
             {
@@ -892,3 +903,10 @@ class TestProviderSelection:
             names = {p.name for p in providers}
             assert "static" in names
             assert "proxy" in names
+
+            monkeypatch.delenv("PHLO_AUTHENTICATION_PROVIDER", raising=False)
+            with pytest.raises(RuntimeError, match="Multiple authentication providers"):
+                get_authentication_provider()
+
+            monkeypatch.setenv("PHLO_AUTHENTICATION_PROVIDER", "static")
+            assert isinstance(get_authentication_provider(), StaticAuthenticationProvider)

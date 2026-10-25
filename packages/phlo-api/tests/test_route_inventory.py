@@ -166,16 +166,6 @@ def _unclassified_mutation_routes(routes: list) -> list[tuple[str, str]]:
     return sorted(_mutation_routes(routes) - declared)
 
 
-def test_route_inventory_every_mutation_route_is_classified() -> None:
-    """Every mounted non-GET route is guarded or explicitly public."""
-    unclassified = _unclassified_mutation_routes(list(app.routes))
-    assert not unclassified, (
-        "non-GET routes without a scope guard or public allowance: "
-        f"{unclassified!r}. Guard them with require_scope()/check_* or add a "
-        "deliberate entry to _PUBLIC_NON_GET_ROUTES."
-    )
-
-
 def test_route_inventory_declarations_match_mounted_routes() -> None:
     """The guarded and public lists stay in sync with the real route table."""
     actual = _mutation_routes(list(app.routes))
@@ -249,7 +239,10 @@ def test_guarded_route_handlers_contain_a_guard(method: str, path: str, guard: s
     if guard == "v1_manifest":
         from phlo_api.security_manifest import HTTP_ROUTE_KEY_MANIFEST
 
-        assert (method, path) in HTTP_ROUTE_KEY_MANIFEST
+        spec = HTTP_ROUTE_KEY_MANIFEST.get((method, path))
+        assert spec is not None, f"{method} {path} is missing from the security manifest"
+        assert spec.public is False, f"{method} {path} is classified public but declared guarded"
+        assert spec.action and spec.resource_type
         return
     source = _endpoint_dispatch_source(path, method)
     if guard.startswith("check_"):

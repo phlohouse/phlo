@@ -12,7 +12,7 @@ from phlo.identity.bridge import IdentityBridge, IdentityBridgeConfig, canonical
 
 
 def test_auth_principal_accepts_platform_type():
-    """AuthPrincipal accepts principal_type='platform'."""
+    """AuthPrincipal keeps a platform daemon's identity, groups and source."""
     principal = AuthPrincipal(
         subject="platform:dagster-daemon",
         principal_type="platform",
@@ -21,6 +21,8 @@ def test_auth_principal_accepts_platform_type():
     )
     assert principal.subject == "platform:dagster-daemon"
     assert principal.principal_type == "platform"
+    assert principal.groups == ("dagster-daemon",)
+    assert principal.attributes["authentication_source"] == "daemon"
 
 
 def test_canonicalize_platform_principal():
@@ -34,6 +36,8 @@ def test_canonicalize_platform_principal():
     principal = canonicalize_principal(auth, regulated=True)
     assert principal.subject == "platform:dagster-daemon"
     assert principal.principal_type == "platform"
+    # Canonicalization must not drop the daemon marker downstream policy reads.
+    assert principal.attributes["authentication_source"] == "daemon"
 
 
 def test_regulated_bridge_approves_platform_type():
@@ -54,7 +58,7 @@ def test_enforce_with_platform_principal():
     """enforce() works with a platform principal and emits correct audit actor_type."""
     from phlo.capabilities.interfaces import ResourceRef
     from phlo.security.enforcement import enforce
-    from tests.helpers import stubbed_enforcement_context
+    from tests.support import stubbed_enforcement_context
 
     auth = AuthPrincipal(
         subject="platform:dagster-daemon",

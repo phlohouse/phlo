@@ -162,6 +162,33 @@ def test_request_paths_do_not_touch_overlay_after_apply(
     # path after the explicit migration.
     assert legacy_overlay.read_bytes() == overlay_bytes
 
+    # Point the retained overlay at different state and drop the read-model
+    # cache: a request path that still consulted the overlay would disagree.
+    legacy_overlay.write_text(
+        json.dumps(
+            {
+                "datasets": {
+                    "gold.customer_health": {
+                        "publication_state": "draft",
+                        "approval_state": "pending",
+                        "owner": "legacy-only",
+                    }
+                },
+                "candidates": {},
+                "config": {"default_owner": "ops"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    from phlo_api.observatory_api import observatory
+
+    observatory._clear_read_model_cache()
+    reread = (
+        authenticated_client("admin").get("/api/observatory/datasets/gold.customer_health").json()
+    )
+    assert reread["canonical"]["publication_state"] == "published"
+    assert reread["canonical"]["owner"] == "alice"
+
 
 def test_discard_retains_legacy_file_and_reads_no_overlay(
     tmp_path,

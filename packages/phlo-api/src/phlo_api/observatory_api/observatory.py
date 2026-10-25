@@ -150,19 +150,10 @@ from phlo_api.observatory_api.observatory_operation_journal import (
 )
 from phlo_api.observatory_api.observatory_runs import load_durable_runs, load_runs
 from phlo_api.observatory_api.observatory_saved_queries import (
-    dedupe_saved_queries as _dedupe_saved_queries_impl,
-)
-from phlo_api.observatory_api.observatory_saved_queries import (
     load_saved_queries as _load_saved_queries_impl,
 )
 from phlo_api.observatory_api.observatory_saved_queries import (
     save_query as _save_query_impl,
-)
-from phlo_api.observatory_api.observatory_saved_queries import (
-    validate_saved_query_sql as _validate_saved_query_sql_impl,
-)
-from phlo_api.observatory_api.observatory_saved_queries import (
-    write_saved_queries as _write_saved_queries_impl,
 )
 from phlo_api.observatory_api.observatory_search import search_results as _search_results_impl
 from phlo_api.observatory_api.observatory_services import load_project_docker_containers
@@ -293,7 +284,6 @@ def is_supported_read_query(sql: str) -> bool:
 _TABLE_LIST_METADATA_PREFIX_DENYLIST = ("phlo/compiled_sql",)
 _TABLE_LIST_METADATA_DENYLIST = {"preview_rows"}
 _RUNTIME_READ_MODEL_TTL_SECONDS = 30
-_FAST_READ_MODEL_TTL_SECONDS = 30
 _EXPENSIVE_READ_MODEL_TTL_SECONDS = 120
 _READ_MODEL_CACHE = ReadModelCache(
     project_key=lambda: str(_project_root()),
@@ -3215,20 +3205,8 @@ def _load_saved_queries() -> list[ObservatorySavedQuery]:
     return _load_saved_queries_impl(_project_root())
 
 
-def _dedupe_saved_queries(queries: list[ObservatorySavedQuery]) -> list[ObservatorySavedQuery]:
-    return _dedupe_saved_queries_impl(queries)
-
-
-def _write_saved_queries(queries: list[ObservatorySavedQuery]) -> None:
-    _write_saved_queries_impl(_project_root(), queries)
-
-
 def _save_query(request: ObservatorySavedQueryRequest) -> ObservatorySavedQuery:
     return _save_query_impl(_project_root(), request)
-
-
-def _validate_saved_query_sql(sql: str) -> str | None:
-    return _validate_saved_query_sql_impl(sql)
 
 
 def _load_stage_diff(source_table_id: str, target_table_id: str) -> ObservatoryStageDiff:
@@ -3462,27 +3440,6 @@ def _load_extension_detail(extension_id: str) -> ObservatoryExtensionDetail:
         nav=extension.nav,
         capabilities=capabilities,
     )
-
-
-def _providers_for_path(extensions: Sequence[ObservatoryExtension], path: str) -> list[str]:
-    providers: list[str] = []
-    for extension in extensions:
-        paths = {*extension.nav, *extension.routes}
-        if path in paths or any(item == path or item.startswith(f"{path}/") for item in paths):
-            providers.append(extension.id)
-    return sorted(providers)
-
-
-def _providers_matching(extensions: Sequence[ObservatoryExtension], *needles: str) -> list[str]:
-    matches: list[str] = []
-    lowered_needles = tuple(needle.lower() for needle in needles)
-    for extension in extensions:
-        haystack = " ".join(
-            [extension.id, extension.name, *extension.nav, *extension.routes]
-        ).lower()
-        if any(needle in haystack for needle in lowered_needles):
-            matches.append(extension.id)
-    return sorted(set(matches))
 
 
 def _load_capabilities() -> ObservatoryCapabilities:
@@ -3847,17 +3804,6 @@ def _surface_items_from_inventory(
                 )
             )
     return items
-
-
-def _surface_items_with_provider_fallback(
-    loader: Any,
-    *capability_types: str,
-    kind: str,
-) -> list[ObservatorySurfaceItem]:
-    items = loader()
-    if items:
-        return items
-    return _surface_items_from_inventory(*capability_types, kind=kind)
 
 
 def _load_settings() -> ObservatorySettings:

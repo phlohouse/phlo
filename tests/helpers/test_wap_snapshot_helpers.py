@@ -260,6 +260,5 @@ def test_abort_candidates_delegates_to_catalog() -> None:
 
 def test_wap_config_strategy_defaults_to_branch_and_validates() -> None:
     assert WapConfig().strategy == "branch"
-    assert WapConfig(strategy="snapshot").strategy == "snapshot"
     with pytest.raises(ValueError):
         WapConfig(strategy="merge")

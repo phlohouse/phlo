@@ -66,26 +66,23 @@ def test_find_dagster_container_prefers_configured_name(monkeypatch: pytest.Monk
     assert recorded["resolve_project_name"] == "myproj"
 
 
-def test_find_dagster_container_falls_back_to_new_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_container_runtime(
-        monkeypatch,
-        running_containers=[
-            "myproj-postgres-1",
+@pytest.mark.parametrize(
+    ("running_containers", "expected"),
+    [
+        (
+            ["myproj-postgres-1", "myproj-dagster-1", "myproj-dagster-webserver-1"],
             "myproj-dagster-1",
-            "myproj-dagster-webserver-1",
-        ],
-    )
+        ),
+        (["myproj-postgres-1", "myproj-dagster-webserver-1"], "myproj-dagster-webserver-1"),
+    ],
+    ids=["new-name", "legacy-name"],
+)
+def test_find_dagster_container_falls_back(
+    monkeypatch: pytest.MonkeyPatch, running_containers: list[str], expected: str
+) -> None:
+    _install_container_runtime(monkeypatch, running_containers=running_containers)
 
-    assert find_dagster_container("myproj") == "myproj-dagster-1"
-
-
-def test_find_dagster_container_falls_back_to_legacy_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_container_runtime(
-        monkeypatch,
-        running_containers=["myproj-postgres-1", "myproj-dagster-webserver-1"],
-    )
-
-    assert find_dagster_container("myproj") == "myproj-dagster-webserver-1"
+    assert find_dagster_container("myproj") == expected
 
 
 def test_find_dagster_container_regex_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,25 +147,16 @@ def test_dagster_container_candidates_no_configured() -> None:
     assert candidates.new == "demo-dagster-1"
 
 
-def test_select_first_existing_returns_first_match() -> None:
+@pytest.mark.parametrize(
+    ("ordered", "available", "expected"),
+    [
+        (["a", "b", "c"], ["c", "b"], "b"),
+        (["a", "b"], ["x", "y"], None),
+        (["", "b"], ["b"], "b"),
+    ],
+    ids=["first-match", "no-match", "skips-empty"],
+)
+def test_select_first_existing(ordered, available, expected) -> None:
     from phlo.infrastructure import select_first_existing
 
-    result = select_first_existing(
-        ["a", "b", "c"],
-        ["c", "b"],
-    )
-    assert result == "b"
-
-
-def test_select_first_existing_returns_none_when_no_match() -> None:
-    from phlo.infrastructure import select_first_existing
-
-    result = select_first_existing(["a", "b"], ["x", "y"])
-    assert result is None
-
-
-def test_select_first_existing_skips_empty_candidates() -> None:
-    from phlo.infrastructure import select_first_existing
-
-    result = select_first_existing(["", "b"], ["b"])
-    assert result == "b"
+    assert select_first_existing(ordered, available) == expected

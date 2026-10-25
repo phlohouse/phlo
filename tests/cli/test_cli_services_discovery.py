@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from phlo.plugins.discovery import ServiceDiscovery
-from tests.helpers import _service
+from tests.support import _service
 
 
 def test_resolve_dependencies_reports_cycle_path() -> None:

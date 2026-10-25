@@ -5,6 +5,7 @@ tables, publish edge construction including skip-on-error behavior, impact
 analysis, JSON/DOT/Mermaid export, and FQN normalization.
 """
 
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -146,7 +147,12 @@ class TestLineageExtractor:
         stats = extractor.publish_to_openmetadata(om_client)
 
         assert stats["edges_published"] == 3
-        assert om_client.create_lineage.called
+        assert stats["failed"] == 0
+        assert {call.args for call in om_client.create_lineage.call_args_list} == {
+            ("nightscout.glucose", "stg_glucose"),
+            ("stg_glucose", "fct_glucose"),
+            ("fct_glucose", "mrt_glucose"),
+        }
 
     def test_publish_to_openmetadata_skip_edges(self, sample_manifest):
         """Test publishing without edges."""
@@ -206,9 +212,15 @@ class TestLineageExtractor:
 
         json_output = extractor.export_lineage(format_type="json")
 
-        assert isinstance(json_output, str)
-        assert "stg_glucose" in json_output
-        assert "assets" in json_output
+        payload = json.loads(json_output)
+        assert set(payload["assets"]) == {
+            "stg_glucose",
+            "fct_glucose",
+            "mrt_glucose",
+            "nightscout.glucose",
+        }
+        assert payload["assets"]["fct_glucose"]["type"] == "transform"
+        assert payload["edges"]["stg_glucose"] == ["fct_glucose"]
 
     def test_export_lineage_dot(self, sample_manifest):
         """DOT export must carry every node and each manifest edge exactly once."""

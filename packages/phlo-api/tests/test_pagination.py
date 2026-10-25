@@ -17,6 +17,7 @@ def test_cursor_round_trip_and_page_contract() -> None:
 
     page, next_cursor = paginate_items(["a", "b", "c", "d", "e"], limit=2, cursor=cursor)
 
+    assert cursor != "2"
     assert decode_cursor(cursor) == 2
     assert page == ["c", "d"]
     assert next_cursor is not None

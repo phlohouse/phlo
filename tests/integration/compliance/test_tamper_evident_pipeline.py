@@ -196,6 +196,11 @@ class TestTamperEvidentPipeline:
         assert result["record_count"] == 5
         assert result["verification"].valid is True
 
+        audit_file = output_dir / f"{surface}-audit.jsonl"
+        chain_file = output_dir / f"{surface}-chain-verification.json"
+        assert len(audit_file.read_text(encoding="utf-8").splitlines()) == 5
+        assert chain_file.exists()
+
     def test_regulated_mode_enables_tamper_evident_sink(self) -> None:
         """In regulated mode, tamper-evident sink is used."""
         from phlo.compliance.features import resolve_compliance_features
@@ -205,28 +210,3 @@ class TestTamperEvidentPipeline:
 
         features_no_regulated = resolve_compliance_features(regulated=False)
         assert features_no_regulated.tamper_evident_audit is False
-
-    def test_compliance_features_resolve_correctly(self) -> None:
-        """ComplianceFeatures resolve correctly for regulated vs non-regulated."""
-        from phlo.compliance.features import ComplianceFeatures
-
-        regulated_features = ComplianceFeatures(
-            tamper_evident_audit=True,
-            electronic_signatures=True,
-            system_manifest=True,
-            access_governance=True,
-            evidence_export=True,
-        )
-
-        assert regulated_features.tamper_evident_audit is True
-        assert regulated_features.electronic_signatures is True
-        assert regulated_features.system_manifest is True
-        assert regulated_features.access_governance is True
-        assert regulated_features.evidence_export is True
-
-        open_features = ComplianceFeatures()
-        assert open_features.tamper_evident_audit is False
-        assert open_features.electronic_signatures is False
-        assert open_features.system_manifest is False
-        assert open_features.access_governance is False
-        assert open_features.evidence_export is False

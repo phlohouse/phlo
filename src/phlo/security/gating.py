@@ -181,19 +181,9 @@ def get_blocked_services() -> list[str]:
     return sorted(UNSUPPORTED_SERVICES | PENDING_ADAPTER_SERVICES)
 
 
-def get_ingress_optional_services() -> list[str]:
-    """Return sorted list of ingress-optional service names."""
-    return sorted(INGRESS_OPTIONAL_SERVICES)
-
-
 def get_approved_services() -> list[str]:
     """Return sorted list of approved service names."""
     return sorted(APPROVED_SERVICES)
-
-
-def get_approved_cli_packages() -> list[str]:
-    """Return sorted list of approved CLI plugin packages."""
-    return sorted(APPROVED_CLI_PACKAGES)
 
 
 def get_write_restricted_services() -> list[str]:
@@ -259,15 +249,6 @@ def check_cli_package_allowed(package_name: str, regulated: bool | None = None) 
             reason=f"'{package_name}' is not an approved CLI package. "
             "Use only approved CLI plugin packages in regulated mode.",
         )
-
-
-def is_cli_package_allowed(package_name: str, regulated: bool | None = None) -> bool:
-    """Check if a CLI plugin package is allowed without raising."""
-    try:
-        check_cli_package_allowed(package_name, regulated)
-        return True
-    except UnsupportedSurfaceError:
-        return False
 
 
 def validate_service_selection(

@@ -169,29 +169,6 @@ class TestJSONDetection:
 class TestLogsCLI:
     """Test logs CLI command."""
 
-    def test_help_message(self):
-        """Display help message."""
-        runner = CliRunner()
-        result = runner.invoke(logs, ["--help"])
-        assert result.exit_code == 0
-        assert "Access and filter Dagster run logs" in result.output
-        assert "--asset" in result.output
-        assert "--job" in result.output
-        assert "--level" in result.output
-        assert "--follow" in result.output
-
-    def test_basic_logs(self):
-        """Display basic logs (no services connected = no logs)."""
-        runner = CliRunner()
-        result = runner.invoke(logs)
-        assert result.exit_code == 0
-
-    def test_filter_by_level(self):
-        """Filter logs by level."""
-        runner = CliRunner()
-        result = runner.invoke(logs, ["--level", "ERROR"])
-        assert result.exit_code == 0
-
     def test_json_output(self, monkeypatch):
         """Output logs in JSON format (empty when services disconnected)."""
         from phlo_dagster import cli_logs as logs_module
@@ -210,18 +187,6 @@ class TestLogsCLI:
 
         assert result.exit_code == 1
         assert "--json cannot be combined with --follow yet" in result.output
-
-    def test_limit_parameter(self):
-        """Limit number of logs."""
-        runner = CliRunner()
-        result = runner.invoke(logs, ["--limit", "3"])
-        assert result.exit_code == 0
-
-    def test_invalid_time_filter(self):
-        """Handle invalid time filter gracefully."""
-        runner = CliRunner()
-        result = runner.invoke(logs, ["--since", "invalid_time"])
-        assert result.exit_code == 0
 
 
 def test_get_logs_uses_project_dagster_port_override(monkeypatch) -> None:
@@ -468,13 +433,3 @@ def test_get_logs_from_postgres_expands_level_filter_window(monkeypatch) -> None
     assert captured["params"][-1] == 200
     assert len(result) == 1
     assert result[0]["level"] == "ERROR"
-
-
-def test_log_retrieval_handles_bounded_and_large_limits():
-    """Log retrieval succeeds for bounded and large limits without timing
-    assertions: wall-clock bounds are environment-dependent and flake under
-    instrumentation (coverage runs measured 2x)."""
-    runner = CliRunner()
-    for limit in ("100", "1000"):
-        result = runner.invoke(logs, ["--limit", limit])
-        assert result.exit_code == 0

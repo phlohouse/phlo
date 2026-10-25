@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from phlo.exceptions import PhloConfigError
 from phlo.helpers.testing import FakeRuntimeContext
 from phlo_airbyte.assets import (
     clear_airbyte_assets,
@@ -43,9 +44,9 @@ def _runtime() -> FakeRuntimeContext:
 
 
 def test_connection_asset_requires_tables_and_connection_id() -> None:
-    with pytest.raises(Exception, match="connection_id"):
+    with pytest.raises(PhloConfigError, match="connection_id"):
         phlo_airbyte_connection(connection_id="  ", tables=["t"], group="ingestion")
-    with pytest.raises(Exception, match="output tables"):
+    with pytest.raises(PhloConfigError, match="output tables"):
         phlo_airbyte_connection(connection_id="conn-1", tables=[], group="ingestion")
 
 

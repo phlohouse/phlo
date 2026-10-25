@@ -28,7 +28,6 @@ from dataclasses import dataclass
 
 from phlo.infrastructure import (
     find_service_container,
-    list_running_containers,
     resolve_container_name,
 )
 from phlo.logging import get_logger
@@ -60,11 +59,6 @@ def _resolve_container_name(service_name: str, project_name: str) -> str:
     """Resolve the configured or derived container name for an infrastructure service."""
 
     return resolve_container_name(service_name, project_name)
-
-
-def _list_running_containers(project_name: str) -> list[str]:
-    """Return the names of a project's currently running compose containers."""
-    return list_running_containers(project_name)
 
 
 def find_dagster_container(project_name: str) -> str:

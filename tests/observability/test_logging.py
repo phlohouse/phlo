@@ -28,7 +28,7 @@ from phlo.logging import (
     setup_logging,
     suppress_log_routing,
 )
-from tests.helpers import RecordingBus
+from tests.support import RecordingBus
 
 pytestmark = pytest.mark.core_regression
 

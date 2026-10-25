@@ -14,7 +14,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from opentelemetry.trace import get_current_span
+from opentelemetry.trace import StatusCode, get_current_span
 
 from phlo.hooks.emitters import TelemetryEventContext, TelemetryEventEmitter
 from phlo.hooks.events import (
@@ -79,10 +79,12 @@ class TestOtelHookPlugin:
             "otel_log_record",
         }
 
-    def test_ignores_wrong_event_type(self, plugin: OtelHookPlugin):
-        """Test handlers silently ignore incorrect event types."""
+    @patch("phlo_otel.hooks_plugin.get_tracer")
+    def test_ignores_wrong_event_type(self, mock_tracer_fn, plugin: OtelHookPlugin):
+        """Handlers must not start a span for an event type they do not own."""
         wrong = TransformEvent(event_type="transform.start", tool="dbt")
-        plugin._handle_ingestion(wrong)  # should not raise
+        plugin._handle_ingestion(wrong)
+        mock_tracer_fn.return_value.start_as_current_span.assert_not_called()
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     @patch("phlo_otel.hooks_plugin.get_tracer")
@@ -282,6 +284,7 @@ class TestOtelHookPlugin:
         plugin._handle_quality(event)
 
         mock_span.set_status.assert_called_once()
+        assert mock_span.set_status.call_args.args[0].status_code is StatusCode.ERROR
 
     @patch("phlo_otel.hooks_plugin.get_meter")
     @patch("phlo_otel.hooks_plugin.get_tracer")
@@ -434,6 +437,7 @@ class TestOtelHookPlugin:
         assert call_args.kwargs["attributes"]["phlo.stage"] == "service"
         assert call_args.kwargs["attributes"]["phlo.operation"] == "post_start"
         mock_span.set_status.assert_called_once()
+        assert mock_span.set_status.call_args.args[0].status_code is StatusCode.ERROR
         mock_error_counter.add.assert_called_once_with(
             1,
             {

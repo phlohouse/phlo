@@ -45,40 +45,6 @@ class TestSignatureServiceConfig:
         assert config.critical_actions == custom_actions
 
 
-class TestSignatureRequest:
-    """Tests for SignatureRequest."""
-
-    def test_create_signature_request(self) -> None:
-        """SignatureRequest can be created with required fields."""
-        request = SignatureRequest(
-            signer_subject="alice@example.com",
-            meaning=SignatureMeaning.APPROVED,
-            record_type="dataset",
-            record_id="dataset-123",
-            record_version="abc123",
-            action="dataset.publish",
-        )
-        assert request.signer_subject == "alice@example.com"
-        assert request.meaning == SignatureMeaning.APPROVED
-        assert request.record_type == "dataset"
-        assert request.record_id == "dataset-123"
-        assert request.record_version == "abc123"
-        assert request.justification is None
-
-    def test_create_signature_request_with_justification(self) -> None:
-        """SignatureRequest can include optional justification."""
-        request = SignatureRequest(
-            signer_subject="alice@example.com",
-            meaning=SignatureMeaning.RELEASED,
-            record_type="dataset",
-            record_id="dataset-123",
-            record_version="abc123",
-            action="dataset.publish",
-            justification="Approved for production use",
-        )
-        assert request.justification == "Approved for production use"
-
-
 class TestSignatureRecord:
     """Tests for SignatureRecord."""
 

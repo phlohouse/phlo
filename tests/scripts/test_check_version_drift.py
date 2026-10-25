@@ -61,16 +61,20 @@ def test_version_literal_detection_distinguishes_dynamic_from_literal():
     assert not dynamic.match(literal + "\n")
 
 
-def test_registry_version_column_detection(tmp_path: Path):
-    registry = {"plugins": {"alpha": {"type": "service", "version": "0.1.0"}}}
-    errors = []
-    for name, entry in registry["plugins"].items():
-        if "version" in entry:
-            errors.append(name)
-    assert errors == ["alpha"]
+def test_registry_version_column_detection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    registry = tmp_path / "registry.json"
+    registry.write_text(
+        json.dumps({"plugins": {"alpha": {"type": "service", "version": "0.1.0"}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(check_version_drift, "ROOT", tmp_path)
+    monkeypatch.setattr(check_version_drift, "REGISTRY_PATHS", ("registry.json",))
 
-    clean = {"plugins": {"alpha": {"type": "service"}}}
-    assert [n for n, e in clean["plugins"].items() if "version" in e] == []
+    errors = check_version_drift.registry_version_column_errors()
+
+    assert len(errors) == 1
+    assert "alpha" in errors[0]
+    assert "hand-maintained" in errors[0]
 
 
 def test_support_manifest_release_set_matches_package_metadata():
@@ -83,12 +87,8 @@ def test_support_manifest_release_set_matches_package_metadata():
     assert manifest["current_release"]["version"] == distributions["phlo"]
 
 
-@pytest.mark.parametrize("registry_path", check_version_drift.REGISTRY_PATHS)
-def test_plugin_registries_carry_no_version_column(registry_path: str):
-    registry = json.loads((check_version_drift.ROOT / registry_path).read_text(encoding="utf-8"))
-
-    offending = [name for name, entry in registry["plugins"].items() if "version" in entry]
-    assert offending == []
+def test_plugin_registries_carry_no_version_column():
+    assert check_version_drift.registry_version_column_errors() == []
 
 
 def test_main_returns_zero_on_current_tree(monkeypatch: pytest.MonkeyPatch, capsys):

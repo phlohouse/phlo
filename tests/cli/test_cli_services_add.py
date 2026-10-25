@@ -12,7 +12,7 @@ from click.testing import CliRunner
 
 from phlo.cli.infrastructure.selection import select_services_to_install
 from phlo.plugins.discovery import ServiceDefinition
-from tests.helpers import FakeDiscovery, _service
+from tests.support import FakeDiscovery, _service
 
 
 def test_services_add_clears_disabled_after_remove_and_reenables_install_selection(

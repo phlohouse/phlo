@@ -28,7 +28,7 @@ from phlo.migrations.specs import (
     MigrationSource,
     MigrationSpec,
 )
-from tests.helpers import RecordingBus
+from tests.support import RecordingBus
 
 
 class _FakeAdapter:

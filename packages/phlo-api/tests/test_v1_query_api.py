@@ -286,7 +286,9 @@ def test_catalog_role_probe_timeout_cancels_pending_work_without_hiding_tables(m
     assert len(cancelled) == 1
 
 
-def test_query_result_is_bounded_owner_scoped_exportable_and_audited(query_api, tmp_path):
+def test_query_result_is_bounded_owner_scoped_exportable_and_audited(
+    query_api, tmp_path, monkeypatch
+):
     client, calls = query_api
     response = client.post(
         "/api/v1/queries?env=prod",
@@ -304,6 +306,14 @@ def test_query_result_is_bounded_owner_scoped_exportable_and_audited(query_api, 
     assert csv.text == "id\r\n7\r\n"
     audit_log = tmp_path / ".phlo" / "audit" / "operations.jsonl"
     assert '"operation": "query.attempt"' in audit_log.read_text()
+
+    monkeypatch.setattr(
+        v1_query,
+        "get_request_principal",
+        lambda _request: AuthPrincipal(subject="intruder", principal_type="user", groups=()),
+    )
+    assert client.get(f"/api/v1/queries/{query_id}?env=prod").status_code == 404
+    assert client.get(f"/api/v1/queries/{query_id}/csv?env=prod").status_code == 404
 
 
 def test_catalog_outage_is_not_reported_as_an_empty_catalog(query_api, monkeypatch):

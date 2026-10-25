@@ -87,7 +87,7 @@ def test_render_quotes_catalog_schema_table_identifiers() -> None:
     assert relation.render() == '"iceberg"."sales data"."orders""2026"'
 
 
-def test_top_level_ref_and_source_are_lazy_exports() -> None:
+def test_top_level_ref_and_source_are_public_exports() -> None:
     import phlo
 
     assert "ref" in phlo.__all__

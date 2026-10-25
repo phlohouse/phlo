@@ -34,13 +34,17 @@ class TestSchemaCommands:
         assert "Available Schemas" in result.output
 
     def test_schema_list_domain_filter(self):
-        """Test phlo schema list with domain filter."""
+        """A domain filter must exclude schemas from other domains."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["schema", "list", "--domain", "glucose"], env=SCHEMA_ENV)
+        matching = runner.invoke(cli, ["schema", "list", "--domain", "glucose"], env=SCHEMA_ENV)
+        unknown = runner.invoke(
+            cli, ["schema", "list", "--domain", "does-not-exist"], env=SCHEMA_ENV
+        )
 
-        assert result.exit_code == 0
-        # Should show glucose schemas
-        assert "RawGlucoseEntries" in result.output or "Glucose" in result.output
+        assert matching.exit_code == 0
+        assert "RawGlucoseEntries" in matching.output
+        # If the filter were ignored, the unknown domain would list every schema.
+        assert "RawGlucoseEntries" not in unknown.output
 
     def test_schema_list_json_format(self):
         """Test phlo schema list with JSON output."""

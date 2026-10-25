@@ -21,7 +21,8 @@ def test_api_startup_initializes_incident_and_usage_routes(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     with PostgresContainer("postgres:18-alpine", password="test") as postgres:
-        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", postgres.get_connection_url(driver=None))
+        dsn = postgres.get_connection_url(driver=None)
+        monkeypatch.setenv("PHLO_RUN_EVIDENCE_DB_URL", dsn)
         monkeypatch.setenv("PHLO_ENVIRONMENT", "dev")
         monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
         principal = AuthPrincipal(subject="operator", principal_type="user", groups=("operator",))
@@ -60,6 +61,14 @@ def test_api_startup_initializes_incident_and_usage_routes(
             response = client.get("/api/v1/incidents?env=prod")
             assert response.status_code == 200, response.text
             assert [item["id"] for item in response.json()["items"]] == ["retained"]
+
+        import psycopg2
+
+        with psycopg2.connect(dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT to_regclass('phlo.incident'), to_regclass('phlo.query_usage_event')"
+            )
+            assert cursor.fetchone() == ("phlo.incident", "phlo.query_usage_event")
 
 
 @pytest.mark.integration

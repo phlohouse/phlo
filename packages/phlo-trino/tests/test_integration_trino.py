@@ -117,9 +117,11 @@ class TestApplySchemaTypes:
 
         df = pd.DataFrame({"id": ["1", "2"], "name": [1, 2]})
 
-        # Should not raise, should skip missing columns
+        # Should not raise, should skip missing columns but still coerce present ones.
         result = apply_schema_types(df, TestSchema)
         assert "missing_col" not in result.columns
+        assert result["id"].dtype.name in ("Int64", "int64")
+        assert result["name"].dtype == "string"
 
 
 # =============================================================================
@@ -160,7 +162,7 @@ class TestTrinoResourceUnit:
             mock_config.trino_catalog = "iceberg"
             mock_config.default_catalog_ref = "main"
 
-            resource = TrinoResource(catalog="iceberg")
+            resource = TrinoResource()
             assert resource._resolved_catalog() == "iceberg"
 
     def test_resolved_catalog_with_ref(self):
@@ -454,13 +456,6 @@ class TestCatalogGenerator:
 class TestTrinoServicePlugin:
     """Test Trino service plugin registration."""
 
-    def test_plugin_initializes(self):
-        """Test that TrinoServicePlugin can be instantiated."""
-        from phlo_trino import TrinoServicePlugin
-
-        plugin = TrinoServicePlugin()
-        assert plugin is not None
-
     def test_plugin_metadata(self):
         """Test plugin metadata is correctly defined."""
         from phlo_trino import TrinoServicePlugin
@@ -469,8 +464,8 @@ class TestTrinoServicePlugin:
         metadata = plugin.metadata
 
         assert metadata.name == "trino"
-        assert metadata.version is not None
-        assert "query" in metadata.tags or "sql" in metadata.tags
+        assert metadata.version
+        assert set(metadata.tags) == {"core", "query"}
 
     def test_service_definition_loads(self):
         """Test service definition YAML can be loaded."""
@@ -480,8 +475,8 @@ class TestTrinoServicePlugin:
         service_def = plugin.service_definition
 
         assert isinstance(service_def, dict)
-        # Service definitions have flat structure with 'name' and 'compose' keys
-        assert "name" in service_def or "compose" in service_def
+        assert service_def["name"] == "trino"
+        assert "compose" in service_def
 
     def test_resource_provider_registers_query_engine_capability(self):
         """Trino resource provider should expose query-engine capability metadata."""
@@ -575,8 +570,8 @@ class TestTrinoIntegrationReal:
         assert len(result) == 1
         assert result[0][0] == 30
 
-    def test_context_manager_cleanup(self, trino_service):
-        """Test that cursor context manager properly cleans up."""
+    def test_context_manager_yields_rows(self, trino_service):
+        """Test that the cursor context manager yields queryable rows."""
         from phlo_trino import TrinoResource
 
         host = os.environ.get("TRINO_HOST", "localhost")
@@ -588,7 +583,6 @@ class TestTrinoIntegrationReal:
             result = cursor.fetchall()
 
         assert [list(row) for row in result] == [[1]]
-        # Cursor and connection should be closed after context
 
 
 # =============================================================================
@@ -607,10 +601,3 @@ class TestTrinoExports:
 
         assert hasattr(phlo_trino, "__version__")
         assert phlo_trino.__version__ == version("phlo-trino")
-
-    def test_expected_exports(self):
-        """Test that expected classes are exported."""
-        from phlo_trino import TrinoResource, TrinoServicePlugin
-
-        assert TrinoResource is not None
-        assert TrinoServicePlugin is not None

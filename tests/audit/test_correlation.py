@@ -72,7 +72,7 @@ class TestEnforceCorrelation:
     def test_enforce_passes_correlation_to_audit(self):
         from phlo.capabilities.interfaces import AuthPrincipal, ResourceRef
         from phlo.security.enforcement import enforce
-        from tests.helpers import stubbed_enforcement_context
+        from tests.support import stubbed_enforcement_context
 
         with stubbed_enforcement_context() as stubs:
             enforce(
@@ -94,7 +94,7 @@ class TestEnforceCorrelation:
     def test_enforce_without_correlation_passes_none(self):
         from phlo.capabilities.interfaces import AuthPrincipal, ResourceRef
         from phlo.security.enforcement import enforce
-        from tests.helpers import stubbed_enforcement_context
+        from tests.support import stubbed_enforcement_context
 
         with stubbed_enforcement_context() as stubs:
             enforce(

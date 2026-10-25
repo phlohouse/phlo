@@ -53,12 +53,17 @@ def test_dbt_settings_project_dirs_activate_multiple_projects(monkeypatch, tmp_p
 
 
 def test_dbt_settings_single_project_paths_when_dirs_unset(monkeypatch, tmp_path) -> None:
+    discovered = tmp_path / "workflows" / "sales" / "transforms" / "dbt"
+    discovered.mkdir(parents=True)
+    (discovered / "dbt_project.yml").write_text("name: sales\n", encoding="utf-8")
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.delenv("DBT_PROJECT_DIRS", raising=False)
+    monkeypatch.delenv("DBT_PROJECT_DIR", raising=False)
 
     settings = DbtSettings()
 
-    assert settings.dbt_project_paths == [settings.dbt_project_path]
+    assert settings.dbt_project_path == discovered
+    assert settings.dbt_project_paths == [discovered]
 
 
 def test_dbt_settings_namespaced_keys_flag(monkeypatch) -> None:

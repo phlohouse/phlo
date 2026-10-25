@@ -9,6 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 from phlo.logging import get_logger
 from phlo.capabilities.interfaces import CheckpointRecord, ReleaseRecord, SourceOffsetRange
+from phlo.exceptions import PhloConfigError
 from phlo_kafka.assets import (
     KafkaConsumerConfig,
     clear_kafka_assets,
@@ -44,7 +45,6 @@ def test_legacy_stager_default_keeps_existing_call_signature():
 
 def test_stager_rejects_misadvertised_provider_before_staging():
     from phlo.capabilities.interfaces import TableStoreSupport
-    from phlo.exceptions import PhloConfigError
     from phlo_kafka.assets import _make_stager
 
     provider = SimpleNamespace(
@@ -286,7 +286,7 @@ def test_ingest_batch_empty_records_is_no_data() -> None:
 
 def test_consumer_registration_requires_unique_key() -> None:
     clear_kafka_assets()
-    with pytest.raises(Exception, match="unique key"):
+    with pytest.raises(PhloConfigError, match="unique key"):
         phlo_kafka_consumer(
             name="bad",
             topic_pattern="events",
@@ -297,7 +297,7 @@ def test_consumer_registration_requires_unique_key() -> None:
     clear_kafka_assets()
 
 
-def test_registered_asset_emits_commit_evidence() -> None:
+def test_registered_asset_exposes_provider_neutral_metadata() -> None:
     clear_kafka_assets()
 
     class FakeKafkaClient:
@@ -322,6 +322,12 @@ def test_registered_asset_emits_commit_evidence() -> None:
         client_factory=lambda: FakeKafkaClient(),
     )
     assert spec.key == "ingestion.events"
+    assert {"kafka", "ingestion"} <= set(spec.kinds)
+    assert spec.tags["provider"] == "kafka"
+    assert spec.metadata["provider"] == "kafka"
+    assert spec.metadata["kafka_topic"] == "events"
+    assert spec.metadata["destination_table"] == "bronze.events"
+    assert spec.metadata["unique_key"] == ["event_id"]
     assert spec.metadata["dead_letter_topic"] == "events.dlq"
     assert get_kafka_assets() == [spec]
     clear_kafka_assets()

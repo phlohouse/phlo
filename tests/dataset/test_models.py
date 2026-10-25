@@ -22,10 +22,6 @@ class TestIdentity:
         assert is_candidate_dataset_id("candidate:gold.customer_health")
         assert not is_candidate_dataset_id("gold.customer_health")
 
-    def test_promoted_identity_is_the_table_key(self) -> None:
-        assert not is_candidate_dataset_id("gold.customer_health")
-        assert dataset_table_id("gold.customer_health") == "gold.customer_health"
-
     def test_promotion_preserves_the_table_key(self) -> None:
         table_id = "gold.customer_health"
         assert dataset_table_id(candidate_dataset_id(table_id)) == table_id

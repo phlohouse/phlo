@@ -181,15 +181,19 @@ def mock_dns(monkeypatch):
 
     real_getaddrinfo = socket.getaddrinfo
 
+    def _host_text(host) -> str:
+        if isinstance(host, bytes):
+            return host.decode("ascii", "ignore").lower()
+        return str(host).lower()
+
     def side_effect(host, port, family=0, type=0, proto=0, flags=0):
+        text = _host_text(host)
         # Allow local
-        if host in ["localhost", "127.0.0.1", "::1"]:
+        if text in ("localhost", "127.0.0.1", "::1"):
             return real_getaddrinfo(host, port, family, type, proto, flags)
 
         # Block telemetry domains by routing to localhost (fails fast)
-        if hasattr(host, "lower") and any(
-            x in host.lower() for x in ["scalevector", "dlthub", "dagster", "segment"]
-        ):
+        if any(x in text for x in ("scalevector", "dlthub", "dagster", "segment")):
             return real_getaddrinfo("127.0.0.1", port, family, type, proto, flags)
 
         # Fall back for internal service aliases commonly used in compose configs.
@@ -197,7 +201,7 @@ def mock_dns(monkeypatch):
         try:
             return real_getaddrinfo(host, port, family, type, proto, flags)
         except socket.gaierror:
-            if hasattr(host, "lower") and host.lower() in {"minio", "nessie"}:
+            if text in {"minio", "nessie"}:
                 return real_getaddrinfo("127.0.0.1", port, family, type, proto, flags)
             raise
 

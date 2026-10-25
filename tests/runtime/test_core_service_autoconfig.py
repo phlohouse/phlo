@@ -1,4 +1,4 @@
-"""Integration tests for core service auto-configuration.
+"""Contract tests for core service auto-configuration.
 
 Every core service (postgres, minio, nessie, trino, dagster) must
 declare its dependencies and auto-setup hooks, reference only
@@ -12,14 +12,11 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-import pytest
 from phlo_dagster.plugin import DagsterServicePlugin
 from phlo_minio.plugin import MinioServicePlugin
 from phlo_nessie.plugin import NessieServicePlugin
 from phlo_postgres.plugin import PostgresServicePlugin
 from phlo_trino.plugin import TrinoServicePlugin
-
-pytestmark = pytest.mark.integration
 
 REQUIRED_PLACEHOLDER_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
 

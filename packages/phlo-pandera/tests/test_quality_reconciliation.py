@@ -148,6 +148,10 @@ class TestReconciliationCheck:
 
         assert result.passed is True
 
+        # gte still fails when the target has fewer rows than the source.
+        smaller = pd.DataFrame({"id": range(90), "value": range(90)})
+        assert check.execute(smaller, context).passed is False
+
     def test_rowcount_gte_passes_with_absolute_tolerance(self):
         """Test rowcount_gte check respects absolute tolerance."""
         df = pd.DataFrame({"id": range(96), "value": range(96)})

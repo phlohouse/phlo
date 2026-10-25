@@ -271,9 +271,23 @@ def test_branch_entity_id_forwards_system(monkeypatch: pytest.MonkeyPatch) -> No
     assert calls == [("polaris", "ns-1"), ("nessie", "ns-2")]
 
 
-def test_bind_context_noop() -> None:
+def test_bind_context_delegates_values_to_the_core(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shim forwards ambient values to the SDK rather than swallowing them."""
+    recorded: list[dict[str, object]] = []
+
+    class _Core:
+        @staticmethod
+        def bind_context(**values: object) -> object:
+            recorded.append(values)
+            return contextlib.nullcontext()
+
+    monkeypatch.setattr(phlo_observe, "_observe_core", lambda: _Core())
+    monkeypatch.setattr(phlo_observe, "_ensure_configured", lambda: True)
+
     with phlo_observe.bind_context(run_id="x"):
         pass
+
+    assert recorded == [{"run_id": "x"}]
 
 
 def test_emit_degrades_entities_and_tags_on_pre_v2_sdk(

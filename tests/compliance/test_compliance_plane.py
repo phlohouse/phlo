@@ -1,7 +1,8 @@
-"""Integration tests for the compliance plane.
+"""End-to-end tests for the compliance plane.
 
 Chains audit events, signatures, governance, and evidence packs through full
-workflow scenarios using temporary directories.
+workflow scenarios using temporary directories; no external services are
+required.
 """
 
 from __future__ import annotations

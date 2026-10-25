@@ -149,6 +149,7 @@ def test_jwks_preload_ignores_rsa_encryption_keys(monkeypatch) -> None:
     principal = OIDCIdentityValidator().validate(token(private_key))
 
     assert principal is not None
+    assert principal.subject == "viewer@example.com"
 
 
 def test_expired_cache_refresh_failure_fails_closed_and_backs_off(monkeypatch) -> None:

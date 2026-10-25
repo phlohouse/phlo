@@ -139,6 +139,13 @@ class TestDbtManifestParser:
         assert parser.manifest is None
         assert parser.catalog is None
 
+    def test_parser_initialization_without_catalog(self, manifest_file):
+        """Test a manifest-only parser reports no catalog path."""
+        parser = DbtManifestParser(manifest_file)
+
+        assert parser.manifest_path == Path(manifest_file)
+        assert parser.catalog_path is None
+
     def test_load_manifest(self, manifest_file, sample_manifest):
         """Test loading manifest."""
         parser = DbtManifestParser(manifest_file)
@@ -298,7 +305,9 @@ class TestDbtManifestParser:
         stats = parser.sync_to_openmetadata(om_client, schema_name="bronze")
 
         assert stats["created"] == 2
-        assert om_client.create_or_update_table.called
+        assert stats["failed"] == 0
+        synced = [call.args[1].name for call in om_client.create_or_update_table.call_args_list]
+        assert synced == ["stg_glucose_entries", "fct_glucose_readings"]
 
     @patch("phlo_openmetadata.dbt_sync.DbtManifestParser.load_manifest")
     @patch("phlo_openmetadata.dbt_sync.DbtManifestParser.load_catalog")

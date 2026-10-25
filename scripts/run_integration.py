@@ -15,7 +15,14 @@ from pathlib import Path
 import httpx
 from testcontainers.core.container import DockerContainer
 
-GROUPS = ("all", "storage", "api-contracts", "api-query-journey", "api-branch-journey")
+GROUPS = (
+    "all",
+    "storage",
+    "api-contracts",
+    "api-preview",
+    "api-query-journey",
+    "api-branch-journey",
+)
 
 
 def ready(url: str) -> None:
@@ -61,6 +68,18 @@ def select_suites(group: str) -> dict[str, list[str]]:
         "api-contracts": [
             "packages/phlo-api/tests",
             "--ignore=packages/phlo-api/tests/test_usage_trino_integration.py",
+            "--ignore=packages/phlo-api/tests/test_preview_provision_integration.py",
+            "-m",
+            "integration",
+            # Modules own their containers and ports; loadscope keeps each
+            # module intact while two workers overlap their service startup.
+            "-n",
+            "2",
+            "--dist",
+            "loadscope",
+        ],
+        "api-preview": [
+            "packages/phlo-api/tests/test_preview_provision_integration.py",
             "-m",
             "integration",
         ],

@@ -32,9 +32,9 @@ def test_write_restricted_services_contains_hasura_postgrest():
 
 
 def test_get_write_restricted_services():
-    result = get_write_restricted_services()
-    assert "hasura" in result
-    assert "postgrest" in result
+    # The helper promises a sorted list; membership alone would not catch a
+    # regression in ordering, which callers use for stable output.
+    assert get_write_restricted_services() == ["hasura", "postgrest"]
 
 
 def test_not_restricted_when_not_regulated(monkeypatch):

@@ -712,7 +712,16 @@ def test_regulated_webserver_wires_durable_nonce_store_and_initializes_schema(mo
     assert store.schema_initialized
 
 
-def test_development_webserver_builds_no_durable_nonce_store(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("environment", "expects_store"),
+    [(None, False), ("production", True)],
+    ids=["development", "production"],
+)
+def test_durable_nonce_store_is_wired_only_in_production(
+    monkeypatch, environment: str | None, expects_store: bool
+) -> None:
+    if environment is not None:
+        monkeypatch.setenv("PHLO_ENVIRONMENT", environment)
     monkeypatch.setenv("PHLO_REGULATED", "false")
     store = _DurableNonceStore()
     monkeypatch.setattr("phlo_dagster.webserver.build_durable_nonce_store", lambda: store)
@@ -720,21 +729,8 @@ def test_development_webserver_builds_no_durable_nonce_store(monkeypatch) -> Non
     server = object.__new__(PhloDagsterWebserver)
     middleware = server._get_graphql_authorization_middleware()
 
-    assert middleware._nonce_store is None
-    assert not store.schema_initialized
-
-
-def test_production_webserver_wires_durable_nonce_store_without_regulated_mode(monkeypatch) -> None:
-    monkeypatch.setenv("PHLO_ENVIRONMENT", "production")
-    monkeypatch.setenv("PHLO_REGULATED", "false")
-    store = _DurableNonceStore()
-    monkeypatch.setattr("phlo_dagster.webserver.build_durable_nonce_store", lambda: store)
-
-    server = object.__new__(PhloDagsterWebserver)
-    middleware = server._get_graphql_authorization_middleware()
-
-    assert middleware._nonce_store is store
-    assert store.schema_initialized
+    assert middleware._nonce_store is (store if expects_store else None)
+    assert store.schema_initialized is expects_store
 
 
 def test_build_durable_nonce_store_returns_postgres_nonce_store(monkeypatch) -> None:

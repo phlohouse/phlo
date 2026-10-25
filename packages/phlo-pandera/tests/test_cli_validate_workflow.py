@@ -445,13 +445,6 @@ def workflow2(partition_date: str):
         result = runner.invoke(validate_workflow, [str(tmp_path)])
         assert result.exit_code == 0
 
-    def test_validate_nonexistent_file(self):
-        """Test that nonexistent file is handled gracefully."""
-        runner = CliRunner()
-
-        result = runner.invoke(validate_workflow, ["/nonexistent/file.py"])
-        assert result.exit_code != 0
-
     def test_validate_workflow_with_invalid_table_name(self, tmp_path):
         """Test that invalid table names are caught."""
         runner = CliRunner()
@@ -534,6 +527,7 @@ def test_workflow(partition_date: str):
         result = runner.invoke(validate_workflow, [str(workflow_file)])
         # Missing validation_schema is a warning, not an issue: still valid.
         assert result.exit_code == 0
+        assert "No validation_schema provided" in result.output
 
     def test_validate_workflow_warns_on_missing_freshness(self, tmp_path):
         """Test that missing freshness_hours generates warning."""
@@ -561,6 +555,7 @@ def test_workflow(partition_date: str):
         result = runner.invoke(validate_workflow, [str(workflow_file)])
         # Missing freshness_hours is a warning, not an issue: still valid.
         assert result.exit_code == 0
+        assert "No freshness_hours specified" in result.output
 
 
 class TestValidateWorkflowEdgeCases:
@@ -591,8 +586,7 @@ class TestValidateWorkflowEdgeCases:
     def test_validate_cron_with_spaces(self):
         """Test that cron expressions with extra spaces are handled."""
         errors = _validate_cron_format("0  *  *  *  *")
-        # Should handle gracefully (may have trailing empty parts)
-        assert isinstance(errors, list)
+        assert errors == []
 
     def test_validate_multiple_workflows_in_file(self, tmp_path):
         """Test file with multiple @phlo_ingestion decorated functions."""

@@ -175,26 +175,6 @@ class TestQualityCheckMapper:
         assert om_test["testDefinition"]["name"] == "dbt_not_null"
         assert len(om_test["parameterValues"]) > 0
 
-    def test_get_test_name_from_check(self):
-        """Test getting test name from check."""
-        check = NullCheck(columns=["field"])
-        name = QualityCheckMapper._get_test_name(check)
-        assert name == "null_check_field"
-
-    def test_get_test_description_null_check(self):
-        """Test getting description for NullCheck."""
-        check = NullCheck(columns=["id", "email"])
-        desc = QualityCheckMapper._get_test_description(check)
-        assert "null" in desc.lower()
-
-    def test_get_test_description_range_check(self):
-        """Test getting description for RangeCheck."""
-        check = RangeCheck(column="age", min_value=0, max_value=120)
-        desc = QualityCheckMapper._get_test_description(check)
-        assert "age" in desc.lower()
-        assert "0" in desc
-        assert "120" in desc
-
     def test_get_parameter_definition_null_check(self):
         """Test extracting parameter definitions for NullCheck."""
         check = NullCheck(columns=["id"])
@@ -232,10 +212,6 @@ class TestQualityCheckPublisher:
         """Create publisher with mocked client."""
         om_client = Mock()
         return QualityCheckPublisher(om_client)
-
-    def test_publisher_initialization(self, publisher):
-        """Test publisher initialization."""
-        assert publisher.om_client is not None
 
     def test_publish_test_definitions_success(self, publisher):
         """Test publishing test definitions successfully."""
@@ -346,6 +322,8 @@ class TestQualityCheckPublisher:
         stats = publisher.publish_test_results(results)
 
         assert stats["published"] == 1
+        call = publisher.om_client.publish_test_result.call_args
+        assert call.kwargs["test_execution_date"].timestamp() == timestamp.timestamp()
 
     def test_publish_dbt_tests_success(self, publisher):
         """Test publishing dbt tests successfully."""

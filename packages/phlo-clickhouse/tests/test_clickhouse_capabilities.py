@@ -15,7 +15,7 @@ def test_clickhouse_resource_provider_metadata():
     metadata = provider.metadata
 
     assert metadata.name == "clickhouse"
-    assert metadata.version == "0.1.0"
+    assert metadata.description == "ClickHouse resource for Phlo"
 
 
 def test_clickhouse_resource_provider_get_resources():

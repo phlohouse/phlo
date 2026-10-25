@@ -197,6 +197,11 @@ def test_artifacts_for_validates_archive_metadata_and_packaged_support(tmp_path:
         ("phlo-example", "sdist"),
     }
 
+    tampered = artifacts_dir / "phlo-1.2.3-py3-none-any.whl"
+    _write_wheel(tampered, "phlo", "1.2.3", b'{"tampered": true}')
+    with pytest.raises(ReleaseIdentityError, match="checked support manifest"):
+        release_identity.artifacts_for(tmp_path, [tampered])
+
 
 def test_publish_plan_rejects_conflicting_or_unexpected_remote_artifacts(
     monkeypatch: pytest.MonkeyPatch,

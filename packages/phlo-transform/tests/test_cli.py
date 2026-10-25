@@ -37,10 +37,10 @@ def cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_workspace):
 
 
 def test_check_forwards_json_flag(monkeypatch: pytest.MonkeyPatch, cli_env: Path) -> None:
-    calls: list[tuple[list[str], bool]] = []
+    calls: list[tuple[list[str], list[str] | None]] = []
 
     def fake_run_cli(binary, args, *, settings, root, extra_args=None):
-        calls.append((list(args), bool(extra_args)))
+        calls.append((list(args), extra_args))
         return _invocation('{"ok": true}\n')
 
     monkeypatch.setattr(cli_plugin, "run_cli", fake_run_cli)
@@ -48,7 +48,7 @@ def test_check_forwards_json_flag(monkeypatch: pytest.MonkeyPatch, cli_env: Path
     result = CliRunner().invoke(cli_plugin.transform_group, ["check", "--json"])
 
     assert result.exit_code == 0
-    assert calls == [(["check"], True)]
+    assert calls == [(["check"], ["--json"])]
     assert result.output.strip() == '{"ok": true}'
 
 

@@ -252,7 +252,13 @@ def test_merge_queue_executes_full_selection(tmp_path) -> None:
     subprocess.run(["bash", "-c", step["run"]], cwd=ROOT, env=env, check=True)
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
     selection = json.loads(values["selection"])
-    assert len(selection["groups"]) == 4
+    assert {entry["group"] for entry in selection["groups"]} == {
+        "platform",
+        "data",
+        "api",
+        "runtime",
+        "interfaces",
+    }
     assert all(
         selection[lane]
         for lane in ("python", "frontend", "writer", "integration", "docs", "plugin", "mutation")

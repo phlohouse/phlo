@@ -7,6 +7,7 @@ previews, and the write paths guarded behind project-write scope.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import stat
@@ -52,6 +53,8 @@ def test_workflow_wizard_lists_package_contributions() -> None:
     assert response.status_code == 200
     payload = response.json()
     ids = [item["id"] for item in payload["contributions"]]
+    assert ids, "the wizard must expose at least one installed contribution"
+    assert len(ids) == len(set(ids))
     optional_contributions = (
         ("phlo_dlt.plugin", "dlt.rest-api-source"),
         ("phlo_sling.plugin", "sling.replication-source"),
@@ -840,11 +843,25 @@ def test_workflow_wizard_rejects_absolute_traversal_and_symlink_paths(tmp_path: 
     assert error.value.status_code == 400
 
 
-def test_workflow_wizard_integrity_key_is_stable_across_calls(tmp_path: Path) -> None:
+def test_workflow_wizard_integrity_key_is_stable_across_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("PHLO_WORKFLOW_WIZARD_SECRET", raising=False)
+    key_file = tmp_path / ".phlo" / "workflow-wizard" / "integrity.key"
+    other_project = tmp_path / "other"
+    other_project.mkdir()
+
     first = wizard._workflow_integrity_key(tmp_path)
     second = wizard._workflow_integrity_key(tmp_path)
 
     assert first == second
+    assert key_file.read_bytes() == first
+    assert len(first) == 32
+
+    other_key = wizard._workflow_integrity_key(other_project)
+    assert other_key != first
+    other_key_file = other_project / ".phlo" / "workflow-wizard" / "integrity.key"
+    assert other_key_file.read_bytes() == other_key
 
 
 def test_workflow_wizard_apply_retries_after_completion_record_failure(
@@ -1032,6 +1049,17 @@ def test_workflow_wizard_escapes_caller_values_in_generated_python(tmp_path: Pat
     generated = next(
         item["content"] for item in proposal["files"] if item["path"].endswith("_sling.py")
     )
+    tree = ast.parse(generated)
+    executable_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and (
+            getattr(node.func, "id", None) == "__import__"
+            or getattr(node.func, "attr", None) in {"system", "popen"}
+        )
+    ]
+    assert executable_calls == [], "caller values must be emitted as inert data"
     compile(generated, "generated_sling.py", "exec")
     assert not marker.exists()
 

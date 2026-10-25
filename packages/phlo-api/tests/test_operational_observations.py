@@ -223,10 +223,8 @@ def test_snapshot_freshness_is_separate_from_failed_or_missing_materialization()
         freshness_source="iceberg_snapshot",
     ).model_copy(update={"last_materialization_at": None, "last_run_id": None})
 
-    assert snapshot.last_materialization_at is None
-    assert snapshot.last_run_id is None
-    assert failed_run.last_materialization_at is None
-    assert failed_run.last_run_id is None
+    # Both assets have no materialization evidence; freshness comes only from
+    # the snapshot observation, so a missing/failed run cannot inherit it.
     assert v1_assets._count_freshness([snapshot], {}, None, now).model_dump() == {
         "fresh": 1,
         "stale": 0,

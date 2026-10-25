@@ -68,18 +68,6 @@ class TestPanderaContractEvaluation:
 
         assert result.passed is False
 
-    def test_evaluation_result_structure(self):
-        """Test PanderaContractEvaluation dataclass structure."""
-        from phlo_pandera.pandera_asset_checks import PanderaContractEvaluation
-
-        evaluation = PanderaContractEvaluation(
-            passed=True, failed_count=0, total_count=100, sample=[], error=None
-        )
-
-        assert evaluation.passed is True
-        assert evaluation.failed_count == 0
-        assert evaluation.total_count == 100
-
 
 # =============================================================================
 # Quality Check Contract Tests
@@ -88,24 +76,6 @@ class TestPanderaContractEvaluation:
 
 class TestQualityCheckContract:
     """Test QualityCheckContract functionality."""
-
-    def test_contract_creation(self):
-        """Test creating a QualityCheckContract."""
-        from phlo_pandera.contract import QualityCheckContract
-
-        contract = QualityCheckContract(
-            source="pandera",
-            partition_key="2024-01-01",
-            failed_count=5,
-            total_count=100,
-            query_or_sql="SELECT * FROM table",
-            repro_sql=None,
-            sample=[],
-        )
-
-        assert contract.source == "pandera"
-        assert contract.failed_count == 5
-        assert contract.total_count == 100
 
     def test_contract_to_dagster_metadata(self):
         """Test converting contract to Dagster metadata."""
@@ -123,7 +93,13 @@ class TestQualityCheckContract:
 
         metadata = contract.to_dagster_metadata()
 
-        assert isinstance(metadata, dict)
+        assert metadata == {
+            "source": "pandera",
+            "failed_count": 2,
+            "total_count": 50,
+            "query_or_sql": "SELECT 1",
+            "sample": [{"error": "test"}],
+        }
 
     def test_pandera_contract_check_name(self):
         """The contract check name is a stable orchestration identifier."""

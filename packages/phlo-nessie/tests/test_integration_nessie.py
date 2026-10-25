@@ -5,7 +5,6 @@ Per TEST_STRATEGY.md Level 2 (Functional):
 - Branching: Create branches, commit changes, merge branches via Nessie API
 """
 
-from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -18,13 +17,6 @@ import pytest
 class TestNessieServicePlugin:
     """Test Nessie service plugin."""
 
-    def test_plugin_initializes(self):
-        """Test NessieServicePlugin can be instantiated."""
-        from phlo_nessie.plugin import NessieServicePlugin
-
-        plugin = NessieServicePlugin()
-        assert plugin is not None
-
     def test_plugin_metadata(self):
         """Test plugin metadata is correctly defined."""
         from phlo_nessie.plugin import NessieServicePlugin
@@ -34,15 +26,6 @@ class TestNessieServicePlugin:
 
         assert metadata.name == "nessie"
         assert metadata.version is not None
-
-    def test_service_definition_loads(self):
-        """Test service definition YAML can be loaded."""
-        from phlo_nessie.plugin import NessieServicePlugin
-
-        plugin = NessieServicePlugin()
-        service_def = plugin.service_definition
-
-        assert isinstance(service_def, dict)
 
 
 # =============================================================================
@@ -59,7 +42,8 @@ class TestNessieConfiguration:
 
         settings = get_settings()
 
-        assert hasattr(settings, "nessie_host")
+        assert settings.nessie_host
+        assert settings.nessie_port > 0
 
     def test_nessie_url_format(self):
         """Test Nessie URL has expected format."""
@@ -68,8 +52,12 @@ class TestNessieConfiguration:
         settings = get_settings()
 
         uri = settings.nessie_api_uri()
-        # Should contain api version path or be valid URL
-        assert len(uri) > 0
+
+        assert uri == (
+            f"http://{settings.nessie_host}:{settings.nessie_port}"
+            f"/api/{settings.nessie_api_version}"
+        )
+        assert uri.endswith("/api/v1")
 
 
 # =============================================================================
@@ -223,35 +211,6 @@ class TestBranchManagerResource:
 
         assert result is True
         mock_nessie.delete_branch.assert_called_once_with("stale-branch")
-
-
-# =============================================================================
-# BranchInfo Tests
-# =============================================================================
-
-
-class TestBranchInfo:
-    """Test BranchInfo dataclass."""
-
-    def test_branch_info_creation(self):
-        """Test BranchInfo can be created."""
-        from phlo_nessie.resource import BranchInfo
-
-        branch = BranchInfo(name="feature-branch", hash="abc123", created_at=datetime.now())
-
-        assert branch.name == "feature-branch"
-        assert branch.hash == "abc123"
-        assert branch.created_at is not None
-
-    def test_branch_info_optional_fields(self):
-        """Test BranchInfo with optional fields as None."""
-        from phlo_nessie.resource import BranchInfo
-
-        branch = BranchInfo(name="main", hash=None, created_at=None)
-
-        assert branch.name == "main"
-        assert branch.hash is None
-        assert branch.created_at is None
 
 
 # =============================================================================
@@ -440,29 +399,15 @@ class TestNessieIntegrationReal:
                 timeout=10,
             )
 
-            if response.status_code < 300:
-                # Verify branch exists
-                branches = nessie_client.list_branches()
-                branch_names = [b.name for b in branches]
-                assert branch_name in branch_names
+            assert response.status_code < 300, response.text
+            # Verify branch exists
+            branches = nessie_client.list_branches()
+            branch_names = [b.name for b in branches]
+            assert branch_name in branch_names
         finally:
             # Cleanup
             nessie_client.delete_branch(branch_name)
-
-
-# =============================================================================
-# Catalog Scanner Tests
-# =============================================================================
-
-
-class TestCatalogScanner:
-    """Test catalog scanner functionality."""
-
-    def test_catalog_scanner_importable(self):
-        """Test catalog scanner module is importable."""
-        from phlo_nessie import catalog_scanner
-
-        assert catalog_scanner is not None
+        assert branch_name not in [b.name for b in nessie_client.list_branches()]
 
 
 # =============================================================================
@@ -470,18 +415,13 @@ class TestCatalogScanner:
 # =============================================================================
 
 
-class TestNessieExports:
-    """Test module exports."""
+def test_package_root_reexports_the_defining_objects():
+    """Root exports are the real implementations, not duplicate definitions."""
+    from phlo_nessie import NessieResource, NessieServicePlugin, catalog_scanner
+    from phlo_nessie.catalog_scanner import NessieTableScanner
+    from phlo_nessie.plugin import NessieServicePlugin as PluginDefinition
+    from phlo_nessie.resource import NessieResource as ResourceDefinition
 
-    def test_module_importable(self):
-        """Test phlo_nessie module is importable."""
-        import phlo_nessie
-
-        assert phlo_nessie is not None
-
-    def test_expected_exports(self):
-        """Test expected classes are exported."""
-        from phlo_nessie import NessieResource, NessieServicePlugin
-
-        assert NessieResource is not None
-        assert NessieServicePlugin is not None
+    assert NessieResource is ResourceDefinition
+    assert NessieServicePlugin is PluginDefinition
+    assert NessieTableScanner is catalog_scanner.NessieTableScanner

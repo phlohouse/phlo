@@ -219,21 +219,6 @@ def stale_generated_build_inputs(
     return sorted(stale)
 
 
-def check_docker_available() -> bool:
-    """Check if the Docker CLI is available.
-
-    Docker daemon round-trips like `docker info`/`docker version` can time out under
-    heavy local load even when subsequent compose commands succeed. For services
-    commands, a CLI-availability check avoids false negatives and lets the real
-    compose invocation surface daemon errors directly.
-    """
-    try:
-        return shutil.which("docker") is not None
-    except Exception:
-        logger.debug("docker_check_failed")
-        return False
-
-
 def require_docker():
     """Exit with helpful message if the Docker CLI is unavailable."""
     require_container_backend("docker")

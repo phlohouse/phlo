@@ -10,7 +10,7 @@ from typing import cast
 import pytest
 from phlo_testing.hooks import MockHookBus
 
-from phlo.hooks import HookEvent, QualityResultEvent
+from phlo.hooks import HookEvent, QualityResultEvent, TelemetryEvent
 from phlo.plugins.hooks import AsyncHookHandler, FailurePolicy, HookFilter, HookRegistration
 
 pytestmark = pytest.mark.core_regression
@@ -56,6 +56,21 @@ def test_hook_bus_filters_and_ordering() -> None:
     )
     bus.emit(event)
     assert calls == ["b", "a"]
+
+    # handler_a filters on the asset key; handler_b subscribes to the event type.
+    bus.emit(
+        QualityResultEvent(
+            event_type="quality.result",
+            asset_key="other-asset",
+            check_name="null_check",
+            passed=True,
+        )
+    )
+    assert calls == ["b", "a", "b"]
+
+    # Neither handler subscribes to telemetry events.
+    bus.emit(TelemetryEvent(event_type="telemetry.metric", name="test.metric", value=1))
+    assert calls == ["b", "a", "b"]
 
 
 def test_hook_bus_failure_policy_raise() -> None:

@@ -354,20 +354,32 @@ def test_load_wap_config_uses_generated_stack_selectors_by_default(tmp_path: Pat
     assert config.repository_name == "__repository__"
 
 
-def test_load_wap_config_fails_closed_for_typos_and_insecure_remote_endpoints(
-    tmp_path: Path,
-) -> None:
-    """A typo must not silently disable the WAP policy or downgrade transport security."""
+def test_load_wap_config_fails_closed_for_unknown_keys(tmp_path: Path) -> None:
+    """A typo must not silently disable the WAP policy."""
     (tmp_path / "phlo.yaml").write_text(
         """\
 wap:
   enabledd: true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProjectConfigError, match=r"wap\.enabledd"):
+        load_wap_config(tmp_path)
+
+
+def test_load_wap_config_rejects_plaintext_remote_endpoint(tmp_path: Path) -> None:
+    """A remote WAP endpoint must not downgrade transport security."""
+    (tmp_path / "phlo.yaml").write_text(
+        """\
+wap:
+  enabled: true
   dagster_url: http://dagster.internal/graphql
 """,
         encoding="utf-8",
     )
 
-    with pytest.raises(ProjectConfigError, match="wap"):
+    with pytest.raises(ProjectConfigError, match=r"wap\.dagster_url"):
         load_wap_config(tmp_path)
 
 

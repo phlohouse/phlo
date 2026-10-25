@@ -55,13 +55,14 @@ def test_composition_is_deterministic_regardless_of_registration_order() -> None
     contributions = _six()
     import random
 
+    baseline = compose_evidence_profile("wap", "1", ROOT, contributions).digest
     for _ in range(5):
         random.shuffle(contributions)
         composed = compose_evidence_profile("wap", "1", ROOT, contributions)
         assert composed.available is True
         assert composed.missing_contribution_ids == ()
         assert len(composed.profile.stages) == 6
-        assert composed.digest == compose_evidence_profile("wap", "1", ROOT, contributions).digest
+        assert composed.digest == baseline
 
 
 def test_missing_required_contribution_is_unavailable_never_healthy() -> None:
@@ -144,6 +145,18 @@ def test_digest_changes_when_requirements_change() -> None:
 def test_serialization_is_stable() -> None:
     composed = compose_evidence_profile("wap", "1", ROOT, _six())
     payload = composed.to_dict()
+
+    assert payload == composed.to_dict()
+    assert set(payload) == {
+        "profile_id",
+        "profile_version",
+        "available",
+        "required_contribution_ids",
+        "discovered_contribution_ids",
+        "missing_contribution_ids",
+        "conflicts",
+        "digest",
+    }
     assert payload["profile_id"] == "wap"
     assert payload["profile_version"] == "1"
     assert payload["available"] is True

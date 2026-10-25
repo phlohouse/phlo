@@ -1,9 +1,8 @@
 """Tests for the PostgreSQL CLI authorization surface.
 
-Package-specific adapter metadata and command-table classification; the
-shared adapter contract (read allow-through, unknown deny-closed,
-mutation policy allow/deny) and the CliPrincipalResolver environment
-fallbacks delegate to ``phlo_testing.authorization_surface``.
+Package-specific command classification and mapping; the shared adapter
+contract (read allow-through, unknown deny-closed, mutation policy allow/deny)
+delegates to ``phlo_testing.authorization_surface``.
 """
 
 from __future__ import annotations
@@ -12,55 +11,17 @@ from phlo_testing.authorization_surface import (
     assert_mutation_enforcement_allows_and_denies,
     assert_read_commands_allow_without_enforcement,
     assert_unknown_command_denied,
-    run_cli_principal_resolver_contract,
 )
 from phlo_postgres.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
     MUTATION_COMMANDS,
-    SURFACE_NAME,
-    FRAMEWORK_TYPE,
     PostgresCliSurfaceAdapter,
 )
 
 
-def test_cli_principal_resolver_environment_fallbacks() -> None:
-    """Shared CliPrincipalResolver environment fallback contract."""
-    run_cli_principal_resolver_contract()
-
-
 class TestPostgresCliSurfaceAdapter:
     """Tests for PostgreSQL CLI surface adapter."""
-
-    def test_singleton_instance(self) -> None:
-        """Should return singleton instance."""
-        adapter1 = PostgresCliSurfaceAdapter.get_instance()
-        adapter2 = PostgresCliSurfaceAdapter.get_instance()
-        assert adapter1 is adapter2
-
-    def test_surface_name(self) -> None:
-        """Should return correct surface name."""
-        adapter = PostgresCliSurfaceAdapter()
-        assert adapter.surface_name == SURFACE_NAME
-
-    def test_framework_type(self) -> None:
-        """Should return correct framework type."""
-        adapter = PostgresCliSurfaceAdapter()
-        assert adapter.framework_type == FRAMEWORK_TYPE
-
-    def test_list_operations(self) -> None:
-        """Should declare mutation operations."""
-        adapter = PostgresCliSurfaceAdapter()
-        operations = adapter.list_operations()
-        assert len(operations) == len(MUTATION_COMMANDS)
-        for op in operations:
-            assert op["action"] in COMMAND_ACTION_MAP.values()
-            assert op["resource_type"] in COMMAND_RESOURCE_MAP.values()
-
-    def test_is_active(self) -> None:
-        """Should always return True."""
-        adapter = PostgresCliSurfaceAdapter()
-        assert adapter.is_active(None) is True
 
     def test_read_commands_return_allow(self) -> None:
         """Read commands should return allow without enforcement."""

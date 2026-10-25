@@ -9,7 +9,6 @@ what the driver reported - instead of mirroring SQL text.
 
 from __future__ import annotations
 
-import json
 import socket
 from collections import deque
 from dataclasses import dataclass
@@ -191,11 +190,6 @@ def ready_store(driver) -> LineageStore:
 class TestGenerateRowId:
     """Tests for ULID generation."""
 
-    def test_generates_string(self):
-        """Row ID should be a string."""
-        row_id = generate_row_id()
-        assert isinstance(row_id, str)
-
     def test_generates_26_chars(self):
         """ULID should be 26 characters (Crockford's Base32)."""
         row_id = generate_row_id()
@@ -326,12 +320,18 @@ class TestRecordRow:
         )
         assert driver.connections[0].commits == 1
 
-        bound = driver.statements[0].params
         written_at = datetime(2026, 5, 1, 12, 30, 45)
-        # Serve the database row back in physical column order using exactly
+        # Serve the row back exactly as the database stores it, independent of
         # the values the INSERT bound.
         driver.script_fetchone(
-            (bound[0], bound[1], bound[2], bound[3], written_at, json.loads(bound[4]))
+            (
+                "01KC7SKJE0RT",
+                "silver.stg_orders",
+                "dbt",
+                ["01KC7SKJE0SRC"],
+                written_at,
+                {"run_id": "rt-1"},
+            )
         )
 
         row = ready_store.get_row("01KC7SKJE0RT")

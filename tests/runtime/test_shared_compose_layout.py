@@ -30,7 +30,7 @@ import json, sys, yaml
 from pathlib import Path
 from observe_core import flush_metrics, flush
 from phlo.plugins.compose.generator import ComposeGenerator
-from tests.helpers import FakeDiscovery, _service
+from tests.support import FakeDiscovery, _service
 state = Path(sys.argv[1])
 service = _service('dagster')
 service.phlo_dev = True

@@ -8,10 +8,11 @@ including target-name resolution and environment overrides.
 from __future__ import annotations
 
 import socket
-import yaml
 from types import SimpleNamespace
 
 import phlo_dbt.runtime_config as runtime_config
+import pytest
+import yaml
 from phlo_dbt.runtime_config import (
     DEFAULT_DBT_TARGET,
     DbtRuntimeConfig,
@@ -64,28 +65,24 @@ def test_resolve_dbt_target_name_prefers_explicit_target() -> None:
     assert resolve_dbt_target_name(runtime, target="prod") == "prod"
 
 
-def test_resolve_dbt_target_name_prefers_environment() -> None:
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        ({"environment": "ci", "dbt_target": "legacy"}, "ci"),
+        ({"dbt_target": "qa"}, "qa"),
+    ],
+    ids=["environment", "legacy-tag"],
+)
+def test_resolve_dbt_target_name(tags, expected) -> None:
     runtime = SimpleNamespace(
         run_id="run-1",
         partition_key=None,
-        tags={"environment": "ci", "dbt_target": "legacy"},
+        tags=tags,
         resources={},
         dbt_query_password="",
     )
 
-    assert resolve_dbt_target_name(runtime) == "ci"
-
-
-def test_resolve_dbt_target_name_falls_back_to_legacy_tag() -> None:
-    runtime = SimpleNamespace(
-        run_id="run-1",
-        partition_key=None,
-        tags={"dbt_target": "qa"},
-        resources={},
-        dbt_query_password="",
-    )
-
-    assert resolve_dbt_target_name(runtime) == "qa"
+    assert resolve_dbt_target_name(runtime) == expected
 
 
 def test_resolve_dbt_target_name_defaults_without_tags() -> None:
@@ -115,22 +112,33 @@ def test_resolve_dbt_runtime_config_uses_ref_aware_catalog() -> None:
     assert config.catalog == "iceberg_feature_orders"
 
 
-def test_resolve_dbt_runtime_config_prefers_wap_branch_catalog() -> None:
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        (
+            {
+                "environment": "dev",
+                "phlo/wap_branch": "pipeline-run-run-1",
+                "phlo/ref": "feature_orders",
+            },
+            "iceberg_pipeline-run-run-1",
+        ),
+        ({"phlo/wap_branch": "  ", "phlo/ref": "feature_orders"}, "iceberg_feature_orders"),
+    ],
+    ids=["wap-branch", "blank-branch"],
+)
+def test_resolve_dbt_runtime_config_catalog(tags, expected) -> None:
     runtime = SimpleNamespace(
         run_id="run-1",
         partition_key=None,
-        tags={
-            "environment": "dev",
-            "phlo/wap_branch": "pipeline-run-run-1",
-            "phlo/ref": "feature_orders",
-        },
+        tags=tags,
         resources={},
         dbt_query_password="",
     )
 
     config = resolve_dbt_runtime_config(runtime)
 
-    assert config.catalog == "iceberg_pipeline-run-run-1"
+    assert config.catalog == expected
 
 
 def test_resolve_dbt_runtime_config_provisions_wap_catalog_on_query_engine(
@@ -167,20 +175,6 @@ def test_resolve_dbt_runtime_config_provisions_wap_catalog_on_query_engine(
 
     assert payload["phlo"]["outputs"]["dev"]["catalog"] == "provisioned_pipeline-run-isolated"
     assert query_engine.provisioned_refs == ["pipeline-run-isolated"]
-
-
-def test_resolve_dbt_runtime_config_ignores_blank_wap_branch() -> None:
-    runtime = SimpleNamespace(
-        run_id="run-1",
-        partition_key=None,
-        tags={"phlo/wap_branch": "  ", "phlo/ref": "feature_orders"},
-        resources={},
-        dbt_query_password="",
-    )
-
-    config = resolve_dbt_runtime_config(runtime)
-
-    assert config.catalog == "iceberg_feature_orders"
 
 
 def test_resolve_dbt_runtime_config_defaults_to_main_catalog() -> None:

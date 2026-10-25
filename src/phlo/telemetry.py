@@ -47,6 +47,7 @@ import importlib
 import logging
 import os
 import sys
+import threading
 from collections.abc import Container, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -108,7 +109,7 @@ def enabled() -> bool:
     on this so a disabled or absent SDK costs one cheap check rather than a
     full translation whose emit() drops at the runtime anyway.
     """
-    if _observe_core() is None or not configure():
+    if _observe_core() is None or not _ensure_configured():
         return False
     try:
         runtime_mod = _import_optional("observe_core.runtime")
@@ -177,6 +178,19 @@ def _pretty_drain_available() -> bool:
         return False
     runtime_mod = _import_optional("observe_core.runtime")
     return hasattr(getattr(runtime_mod, "Runtime", None), "add_drain")
+
+
+def _ensure_configured() -> bool:
+    """Configure on first use from the main thread.
+
+    Worker threads must not install a runtime: a late emission racing the
+    process's own configuration would pick up whatever environment that
+    thread sees and win the race. Worker emissions are dropped until the
+    process is configured, matching the fail-open contract.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return False
+    return configure()
 
 
 def configure(**overrides: Any) -> bool:
@@ -266,7 +280,7 @@ def _attach_pretty_drain(runtime: Any) -> None:
 
 
 def reset_for_tests() -> None:
-    """Reset cached SDK/config state. Intended for tests only."""
+    """Reset cached SDK/config state and the process runtime. Intended for tests only."""
     global _configured, _configure_failed, _sdk_checked
     global _pretty_drain_attached, _pretty_attach_attempted
     _configured = False
@@ -277,6 +291,12 @@ def reset_for_tests() -> None:
     _sdk = None
     _logging_context_tokens.set(())
     _unsupported_surface_warned.clear()
+    runtime = _import_optional("observe_core.runtime")
+    if runtime is not None and hasattr(runtime, "_runtime"):
+        # Detach the process singleton instead of shutting it down: shutdown
+        # flushes drains, and a test that deliberately points one at an
+        # unreachable endpoint would block until that drain gives up.
+        runtime._runtime = None
 
 
 class _NullEvent:
@@ -314,7 +334,7 @@ def _null_scope() -> Iterator[_NullEvent]:
 def observe(name: str, **kwargs: Any) -> Any:
     """Return an ``observe()`` operation scope, or a no-op scope when disabled."""
     core = _observe_core()
-    if core is None or not configure():
+    if core is None or not _ensure_configured():
         return _null_scope()
     try:
         return core.observe(name, **kwargs)
@@ -325,7 +345,7 @@ def observe(name: str, **kwargs: Any) -> Any:
 def bind_context(**values: Any) -> Any:
     """Bind ambient correlation values, or a no-op context manager."""
     core = _observe_core()
-    if core is None or not configure():
+    if core is None or not _ensure_configured():
         return contextlib.nullcontext()
     try:
         return core.bind_context(**values)
@@ -852,7 +872,7 @@ def _apply_dagster_console_level(context: Any) -> None:
 
 def dagster_run_scope(context: Any, *, asset_key: str | None = None) -> Any:
     """Bind Dagster run/job/partition correlation for the enclosed block."""
-    sdk_ready = _sdk_module() is not None and configure()
+    sdk_ready = _sdk_module() is not None and _ensure_configured()
     _apply_dagster_console_level(context)
     if not sdk_ready:
         return contextlib.nullcontext()
@@ -867,7 +887,7 @@ def dagster_run_scope(context: Any, *, asset_key: str | None = None) -> Any:
 
 def dagster_step(context: Any, **kwargs: Any) -> Any:
     """Wrap a Dagster step; emits ``pipeline.step`` on exit."""
-    sdk_ready = _sdk_module() is not None and configure()
+    sdk_ready = _sdk_module() is not None and _ensure_configured()
     _apply_dagster_console_level(context)
     if not sdk_ready:
         return _null_scope()
@@ -882,7 +902,7 @@ def dagster_step(context: Any, **kwargs: Any) -> Any:
 
 def emit_materialization(context: Any, **kwargs: Any) -> Any:
     """Wrap an asset materialization; emits ``asset.materialize`` on exit."""
-    if _sdk_module() is None or not configure():
+    if _sdk_module() is None or not _ensure_configured():
         return _null_scope()
     materialize = _import_optional("phlo_observe.integrations.dagster", "emit_materialization")
     if materialize is None:
@@ -911,7 +931,7 @@ def emit_asset_check(context: Any, *, check_name: str, passed: bool, **kwargs: A
 
 def dlt_pipeline_scope(pipeline: Any) -> Any:
     """Bind a dlt pipeline identity for contained events."""
-    if _sdk_module() is None or not configure():
+    if _sdk_module() is None or not _ensure_configured():
         return contextlib.nullcontext()
     scope = _import_optional("phlo_observe.integrations.dlt", "dlt_pipeline_scope")
     if scope is None:
@@ -942,7 +962,7 @@ def dlt_pipeline_run(pipeline: Any, **kwargs: Any) -> Any:
 
 def dlt_load_info_attributes(load_info: Any) -> dict[str, Any]:
     """Extract canonical attributes from a dlt ``LoadInfo``."""
-    if _sdk_module() is None or not configure():
+    if _sdk_module() is None or not _ensure_configured():
         return {}
     extract = _import_optional("phlo_observe.integrations.dlt", "load_info_attributes")
     if extract is None:
@@ -958,7 +978,7 @@ def dlt_load_info_attributes(load_info: Any) -> dict[str, Any]:
 
 def emit_dbt_run_results(path_or_dict: Any) -> int:
     """Emit dbt results, keeping nested invocations in the ambient Phlo run."""
-    if _sdk_module() is None or not configure():
+    if _sdk_module() is None or not _ensure_configured():
         return 0
     emit_results = _import_optional("phlo_observe.integrations.dbt", "emit_run_results")
     if emit_results is None:
@@ -999,7 +1019,7 @@ def emit_dbt_run_results(path_or_dict: Any) -> int:
 
 def wap_branch_create(*, branch: str, base_branch: str | None = None, **kwargs: Any) -> Any:
     """Emit ``wap.branch.create`` around branch creation."""
-    if _sdk_module() is None or not configure():
+    if _sdk_module() is None or not _ensure_configured():
         return _null_scope()
     helper = _import_optional("phlo_observe.integrations.wap", "wap_branch_create")
     if helper is None:
@@ -1015,7 +1035,7 @@ def wap_branch_create(*, branch: str, base_branch: str | None = None, **kwargs: 
 
 def iceberg_commit(*, table: str, **kwargs: Any) -> Any:
     """Emit ``iceberg.commit`` around a table operation."""
-    if _sdk_module() is None or not configure():
+    if _sdk_module() is None or not _ensure_configured():
         return _null_scope()
     helper = _import_optional("phlo_observe.integrations.iceberg", "iceberg_commit")
     if helper is None:
@@ -1031,7 +1051,7 @@ def iceberg_commit(*, table: str, **kwargs: Any) -> Any:
 
 def trino_query(**kwargs: Any) -> Any:
     """Wrap a Trino query; emits ``trino.query`` on exit."""
-    if _sdk_module() is None or not configure():
+    if _sdk_module() is None or not _ensure_configured():
         return _null_scope()
     helper = _import_optional("phlo_observe.integrations.trino", "trino_query")
     if helper is None:

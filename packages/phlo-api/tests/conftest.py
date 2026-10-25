@@ -41,10 +41,18 @@ def fail_on_fork_from_multithreaded_process(monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def use_memory_observatory_settings_store(monkeypatch) -> None:
+def use_memory_observatory_settings_store(monkeypatch, tmp_path) -> None:
     """API unit tests explicitly use the non-durable development backends."""
     monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "memory")
     monkeypatch.setenv("PHLO_DATASET_STATE_STORE", "memory")
+    # The default run-evidence path is repo-relative. Without this, durable rows
+    # written by earlier tests starve manifest rows out of the read-model window.
+    monkeypatch.setenv("PHLO_RUN_EVIDENCE_SQLITE_PATH", str(tmp_path / "run-evidence.sqlite"))
+    from phlo.capabilities.registry import get_capability_registry
+
+    registry = get_capability_registry()
+    registry.clear("dataset_state_store")
+    registry.clear("dataset_evidence")
     from phlo.plugins.observatory_settings import _reset_memory_service
 
     _reset_memory_service()

@@ -91,15 +91,3 @@ def test_delta_resource_merge_parquet_rejects_non_main_override_ref() -> None:
             unique_key="pokemon_id",
             override_ref="dev",
         )
-
-
-def test_delta_ref_validation_error_mentions_support_metadata() -> None:
-    with pytest.raises(PhloConfigError) as exc:
-        DeltaResource().merge_parquet(
-            table_name="raw.events",
-            data_path="/tmp/events.parquet",
-            unique_key="id",
-            override_ref="dev",
-        )
-
-    assert "does not support refs" in str(exc.value)

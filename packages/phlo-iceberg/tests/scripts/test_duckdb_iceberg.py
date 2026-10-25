@@ -64,7 +64,12 @@ def test_duckdb_iceberg_extension_and_s3_session():
     """The Iceberg extension loads and the MinIO session statements are accepted."""
     conn = _connect_duckdb()
     endpoint = _configure_s3_session(conn)
-    assert endpoint
+    expected = os.getenv("MINIO_HOST", "localhost") + ":" + os.getenv("MINIO_API_PORT", "9000")
+
+    assert endpoint == expected
+    assert conn.execute("SELECT current_setting('s3_endpoint')").fetchone()[0] == expected
+    assert conn.execute("SELECT current_setting('s3_url_style')").fetchone()[0] == "path"
+    assert not conn.execute("SELECT current_setting('s3_use_ssl')").fetchone()[0]
 
 
 def test_duckdb_reads_phlo_iceberg_tables():

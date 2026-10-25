@@ -12,21 +12,19 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import HTTPException, Request
-
 from phlo.capabilities import AuthorizationPolicyBackendSpec, clear_all_capabilities
-from phlo.capabilities.interfaces import AuthPrincipal, ResourceRef
 from phlo.capabilities.authorization import DefaultAuthorizationPolicyBackend
-from phlo.capabilities.interfaces import Principal
+from phlo.capabilities.interfaces import AuthPrincipal, Principal, ResourceRef
 from phlo.capabilities.registry import register_capability
 from phlo.infrastructure.config import clear_config_cache
+from phlo.security.adapters import EnforcementResult
+
 from phlo_api.api.authorization import (
     check_admin_read,
-    filter_datasets,
     get_authorization_backend,
     get_authorization_mode,
     resolve_request_principal,
 )
-from phlo.security.adapters import EnforcementResult
 
 
 def teardown_function() -> None:
@@ -152,36 +150,6 @@ def test_get_authorization_mode_defaults_to_required_in_production(monkeypatch) 
     assert get_authorization_mode() == "required"
 
 
-def test_requires_http_authorization_production_spellings(monkeypatch) -> None:
-    from phlo.security.mode import requires_http_authorization
-
-    monkeypatch.delenv("PHLO_REGULATED", raising=False)
-    monkeypatch.delenv("PHLO_REGULATED_MODE", raising=False)
-    for environment in ("prod", "production", "staging", "regulated"):
-        monkeypatch.setenv("PHLO_ENVIRONMENT", environment)
-        assert requires_http_authorization() is True, environment
-
-
-def test_requires_http_authorization_development_and_absent_are_false(monkeypatch) -> None:
-    from phlo.security.mode import requires_http_authorization
-
-    monkeypatch.delenv("PHLO_REGULATED", raising=False)
-    monkeypatch.delenv("PHLO_REGULATED_MODE", raising=False)
-    for environment in ("dev", "development", "test", "", "  "):
-        monkeypatch.setenv("PHLO_ENVIRONMENT", environment)
-        assert requires_http_authorization() is False, repr(environment)
-    monkeypatch.delenv("PHLO_ENVIRONMENT", raising=False)
-    assert requires_http_authorization() is False
-
-
-def test_requires_http_authorization_true_when_regulated(monkeypatch) -> None:
-    from phlo.security.mode import requires_http_authorization
-
-    monkeypatch.delenv("PHLO_ENVIRONMENT", raising=False)
-    monkeypatch.setenv("PHLO_REGULATED", "1")
-    assert requires_http_authorization() is True
-
-
 def test_get_authorization_mode_rejects_unknown_value(monkeypatch) -> None:
     monkeypatch.setenv("PHLO_AUTHORIZATION_MODE", "fail-closed")
 
@@ -214,65 +182,6 @@ def test_route_guard_fails_closed_without_backend_in_required_mode(monkeypatch) 
         }
     else:
         raise AssertionError("Expected route guard to fail closed")
-
-
-def test_filter_datasets_fails_closed_without_backend_in_required_mode(monkeypatch) -> None:
-    monkeypatch.delenv("PHLO_AUTHORIZATION_BACKEND", raising=False)
-    monkeypatch.setenv("PHLO_AUTHORIZATION_MODE", "required")
-
-    try:
-        filter_datasets(_make_request(), ["raw.orders"])
-    except HTTPException as exc:
-        assert exc.status_code == 503
-        assert exc.detail == {
-            "error": "service_unavailable",
-            "reason": "authorization_backend_not_configured",
-        }
-    else:
-        raise AssertionError("Expected dataset filtering to fail closed")
-
-
-def test_filter_datasets_regulated_fails_closed_for_unauthenticated_optional_mode(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr("phlo_api.api.authorization.is_regulated", lambda: True)
-    monkeypatch.setattr("phlo_api.api.authorization.get_request_principal", lambda _request: None)
-
-    assert filter_datasets(_make_request(), ["raw.orders"], require_auth=False) == []
-
-
-def test_check_dataset_read_regulated_uses_anonymous_principal_when_auth_optional(
-    monkeypatch,
-) -> None:
-    captured: dict[str, object] = {}
-    request = SimpleNamespace(
-        headers={"x-request-id": "corr-optional"},
-        state=SimpleNamespace(),
-        client=SimpleNamespace(host="127.0.0.1"),
-        method="GET",
-        url=SimpleNamespace(path="/api/datasets/raw.orders"),
-    )
-
-    monkeypatch.setattr("phlo_api.api.authorization.is_regulated", lambda: True)
-    monkeypatch.setattr("phlo_api.api.authorization.get_request_principal", lambda _request: None)
-
-    def fake_enforce(**kwargs):
-        captured.update(kwargs)
-        return EnforcementResult.allow()
-
-    monkeypatch.setattr("phlo_api.api.authorization.enforce", fake_enforce)
-
-    from phlo_api.api.authorization import check_dataset_read
-
-    check_dataset_read(request, "raw.orders", require_auth=False)
-
-    principal = captured["principal"]
-    assert isinstance(principal, AuthPrincipal)
-    assert principal.subject == "anonymous"
-    assert principal.principal_type == "user"
-    assert principal.groups == ()
-    assert captured["request_id"] == "corr-optional"
-    assert captured["correlation_id"] == "corr-optional"
 
 
 def test_enforce_or_raise_returns_503_for_regulated_enforcement_errors(monkeypatch) -> None:
@@ -309,35 +218,6 @@ def test_enforce_or_raise_returns_503_for_regulated_enforcement_errors(monkeypat
         }
     else:
         raise AssertionError("Expected regulated enforcement error to surface as 503")
-
-
-def test_filter_datasets_regulated_passes_correlation_id_to_enforce(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-    auth_principal = AuthPrincipal(subject="user-1", principal_type="user")
-    request = SimpleNamespace(
-        headers={"x-request-id": "corr-123"},
-        state=SimpleNamespace(),
-        client=SimpleNamespace(host="127.0.0.1"),
-        method="GET",
-        url=SimpleNamespace(path="/api/datasets"),
-    )
-
-    monkeypatch.setattr("phlo_api.api.authorization.is_regulated", lambda: True)
-    monkeypatch.setattr(
-        "phlo_api.api.authorization.get_request_principal", lambda _request: auth_principal
-    )
-
-    def fake_enforce(**kwargs):
-        captured.update(kwargs)
-        return EnforcementResult.allow()
-
-    monkeypatch.setattr("phlo_api.api.authorization.enforce", fake_enforce)
-
-    allowed = filter_datasets(request, ["raw.orders"])
-
-    assert allowed == ["raw.orders"]
-    assert captured["request_id"] == "corr-123"
-    assert captured["correlation_id"] == "corr-123"
 
 
 def test_get_authorization_mode_uses_top_level_phlo_yaml(monkeypatch, tmp_path: Path) -> None:

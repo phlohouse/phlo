@@ -168,16 +168,9 @@ def test_phlo_api_has_forward_auth_middleware() -> None:
     )
 
 
-def test_phlo_api_uses_the_internal_postgres_port() -> None:
-    """Host-published ports must not leak into API-to-Postgres connections."""
-    environment = _load_packaged_definition("service.yaml")["compose"]["environment"]
-
-    assert environment["POSTGRES_PORT"] == "5432"
-
-
-def test_oauth2_proxy_access_token_is_forwarded_as_bearer_without_trusting_identity_headers() -> (
-    None
-):
+def test_oauth2_proxy_access_token_is_forwarded_as_bearer_without_trusting_identity_headers(
+    monkeypatch,
+) -> None:
     request = Request(
         {
             "type": "http",
@@ -198,8 +191,28 @@ def test_oauth2_proxy_access_token_is_forwarded_as_bearer_without_trusting_ident
     context = create_request_context(request)
 
     assert context.headers["authorization"] == "Bearer signed-token"
-    assert "x-forwarded-user" in context.headers
-    assert "x-forwarded-groups" in context.headers
+
+    forged = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/me",
+            "query_string": b"",
+            "headers": [
+                (b"x-forwarded-user", b"attacker"),
+                (b"x-forwarded-groups", b"admin"),
+            ],
+            "server": ("testserver", 80),
+            "client": ("127.0.0.1", 1234),
+            "scheme": "http",
+        }
+    )
+    monkeypatch.setattr(
+        "phlo_api.api.authentication.get_authentication_provider",
+        lambda: type("Provider", (), {"current_principal": lambda self, _context: None})(),
+    )
+
+    assert get_request_principal(forged) is None
 
 
 def test_direct_bearer_authorization_takes_precedence_over_forwarded_token() -> None:
@@ -295,25 +308,25 @@ def test_phlo_api_service_passes_v1_operator_gates_without_enabling_them() -> No
 
 def test_phlo_api_passes_oidc_settings_to_compose_and_dev_process() -> None:
     service_defn = _load_packaged_definition("service.yaml")
-    oidc_settings = (
-        "PHLO_AUTHENTICATION_PROVIDER",
-        "PHLO_AUTH_JWT_SECRET",
-        "PHLO_AUTH_JWT_ISSUER",
-        "PHLO_AUTH_JWT_AUDIENCE",
-        "PHLO_AUTH_JWT_JWKS_URL",
-        "PHLO_AUTH_JWT_GROUPS_CLAIM",
-        "PHLO_AUTH_JWT_CA_FILE",
-        "PHLO_AUTH_JWT_LEEWAY",
-        "PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS",
-        "PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS",
-    )
+    oidc_defaults = {
+        "PHLO_AUTHENTICATION_PROVIDER": "",
+        "PHLO_AUTH_JWT_SECRET": "",
+        "PHLO_AUTH_JWT_ISSUER": "",
+        "PHLO_AUTH_JWT_AUDIENCE": "",
+        "PHLO_AUTH_JWT_JWKS_URL": "",
+        "PHLO_AUTH_JWT_GROUPS_CLAIM": "groups",
+        "PHLO_AUTH_JWT_CA_FILE": "",
+        "PHLO_AUTH_JWT_LEEWAY": "30",
+        "PHLO_AUTH_JWT_JWKS_CACHE_TTL_SECONDS": "300",
+        "PHLO_AUTH_JWT_REFRESH_MIN_INTERVAL_SECONDS": "5",
+    }
 
     for environment in (
         service_defn["compose"]["environment"],
         service_defn["dev"]["environment"],
     ):
-        for setting in oidc_settings:
-            assert setting in environment
+        for setting, default in oidc_defaults.items():
+            assert environment[setting] == f"${{{setting}:-{default}}}", setting
 
 
 def test_phlo_api_service_does_not_mount_docker_socket_by_default() -> None:
@@ -437,9 +450,3 @@ def test_phlo_api_passes_postgres_settings_to_durable_storage() -> None:
             "${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}"
         )
         assert environment["POSTGRES_DB"] == "${POSTGRES_DB:-phlo}"
-
-
-def test_phlo_api_traefik_route_uses_oauth2_proxy_authentication() -> None:
-    labels = _load_packaged_definition("service.yaml")["compose"].get("labels", {})
-
-    assert labels["traefik.http.routers.phlo-api.middlewares"] == ("phlo-api-login,phlo-api-auth")

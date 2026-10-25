@@ -33,7 +33,7 @@ CORE_REGRESSION_MARKER = "core_regression"
 GATE_JOB = "integration"
 OPERATIONS_JOB = "operations"
 GATE_STEP = "Run PostgreSQL concurrency gates"
-API_GROUPS = ("api-contracts", "api-query-journey", "api-branch-journey")
+API_GROUPS = ("api-contracts", "api-preview", "api-query-journey", "api-branch-journey")
 MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.2"
 MINIO_IMAGE_ID = "sha256:" + "a" * 64
 GATE_DSN_ENV_VARS = (
@@ -45,7 +45,7 @@ EXPECTED_GUARD_PASSES = 3
 # compare-and-set store (src/phlo/security/service_identity.py) and the
 # serialized parent-run evidence upsert (src/phlo/run_evidence/store.py).
 GUARD_TEST_MODULES = (
-    "tests/unit/phlo/security/test_service_identity.py",
+    "tests/security/test_service_identity.py",
     "tests/observability/test_run_evidence.py",
 )
 NIGHTLY_CRON = "0 3 * * *"

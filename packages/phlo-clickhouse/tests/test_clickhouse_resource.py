@@ -27,8 +27,26 @@ def test_clickhouse_resource_defaults():
     assert resource.secure is None
 
 
-def test_clickhouse_resource_with_overrides():
-    """Validate ClickHouse resource with override values."""
+def test_clickhouse_resource_with_overrides(monkeypatch):
+    """Validate explicit connection fields win over configured defaults."""
+    captured: dict[str, object] = {}
+
+    def fake_client(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr("phlo_clickhouse.resource.clickhouse_connect.get_client", fake_client)
+    monkeypatch.setattr(
+        "phlo_clickhouse.resource.get_clickhouse_settings",
+        lambda: SimpleNamespace(
+            clickhouse_host="settings-host",
+            clickhouse_http_port=1,
+            clickhouse_user="settings-user",
+            clickhouse_password="settings-password",
+            clickhouse_db="settings-db",
+            clickhouse_secure=False,
+        ),
+    )
 
     resource = ClickHouseResource(
         host="my-clickhouse",
@@ -38,13 +56,16 @@ def test_clickhouse_resource_with_overrides():
         database="mydb",
         secure=True,
     )
+    resource.get_client()
 
-    assert resource.host == "my-clickhouse"
-    assert resource.port == 9000
-    assert resource.user == "admin"
-    assert resource.password == "secret"
-    assert resource.database == "mydb"
-    assert resource.secure is True
+    assert captured == {
+        "host": "my-clickhouse",
+        "port": 9000,
+        "username": "admin",
+        "password": "secret",
+        "database": "mydb",
+        "secure": True,
+    }
 
 
 def test_clickhouse_query_engine_support():

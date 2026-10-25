@@ -93,14 +93,19 @@ def test_sql_helpers_validate_read_only_queries() -> None:
 
 
 def test_read_dataframe_delegates_to_query_engine() -> None:
+    calls: list[dict[str, object]] = []
+
     class FakeQueryEngine:
         def read_dataframe(self, query, *, params=None, schema=None, schema_class=None):
-            return {
-                "query": query,
-                "params": params,
-                "schema": schema,
-                "schema_class": schema_class,
-            }
+            calls.append(
+                {
+                    "query": query,
+                    "params": params,
+                    "schema": schema,
+                    "schema_class": schema_class,
+                }
+            )
+            return "delegated"
 
     class Schema:
         pass
@@ -113,12 +118,15 @@ def test_read_dataframe_delegates_to_query_engine() -> None:
         schema_class=Schema,
     )
 
-    assert result == {
-        "query": "SELECT * FROM raw.events WHERE id > ?",
-        "params": [10],
-        "schema": "raw",
-        "schema_class": Schema,
-    }
+    assert result == "delegated"
+    assert calls == [
+        {
+            "query": "SELECT * FROM raw.events WHERE id > ?",
+            "params": [10],
+            "schema": "raw",
+            "schema_class": Schema,
+        }
+    ]
 
 
 def test_read_dataframe_reports_query_engines_without_dataframe_support() -> None:
@@ -187,10 +195,9 @@ def test_synthetic_key_namespace_prefix_is_optional_and_length_prefixed() -> Non
 
 
 def test_synthetic_key_is_exported_from_top_level_phlo() -> None:
-    assert phlo.synthetic_key(dialect="oracle", fields=["id"]) == synthetic_key(
-        dialect="oracle",
-        fields=["id"],
-    )
+    from phlo.helpers import synthetic_key as defining_synthetic_key
+
+    assert phlo.synthetic_key is defining_synthetic_key
 
 
 def test_synthetic_key_rejects_empty_fields_invalid_dialects_and_unsafe_identifiers() -> None:
@@ -254,8 +261,11 @@ def test_table_helpers_support_catalog_backed_resources() -> None:
 
 
 def test_merge_batch_preserves_updated_rows() -> None:
+    calls: list[dict[str, object]] = []
+
     class FakeTableStore:
         def merge_parquet(self, **kwargs):
+            calls.append(kwargs)
             return {"rows_inserted": 2, "rows_deleted": 1, "rows_updated": 3}
 
     result = merge_batch(
@@ -265,6 +275,10 @@ def test_merge_batch_preserves_updated_rows() -> None:
         table_store=FakeTableStore(),
     )
 
+    assert len(calls) == 1
+    assert calls[0]["table_name"] == "raw.events"
+    assert calls[0]["data_path"] == "/tmp/events.parquet"
+    assert calls[0]["unique_key"] == "id"
     assert result.rows_inserted == 2
     assert result.rows_deleted == 1
     assert result.rows_updated == 3

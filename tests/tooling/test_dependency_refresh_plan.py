@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "dependency_refresh_plan.py"
 SPEC = importlib.util.spec_from_file_location("dependency_refresh_plan", SCRIPT_PATH)
@@ -86,24 +88,25 @@ dev = ["ruff>=0.14.1"]
     assert "risk-managed" not in payload
 
 
-def test_check_validates_full_plan_when_displaying_patch_lane(tmp_path: Path) -> None:
+@pytest.mark.parametrize("lane", ["patch", "risk-managed"])
+def test_check_validates_full_plan_for_any_displayed_lane(tmp_path: Path, lane: str) -> None:
     write_complete_plan_fixture(tmp_path)
 
     exit_code = dependency_refresh_plan.main(
-        ["--repo-root", str(tmp_path), "--lane", "patch", "--check"]
+        ["--repo-root", str(tmp_path), "--lane", lane, "--check"]
     )
 
     assert exit_code == 0
 
-
-def test_check_validates_full_plan_when_displaying_risk_managed_lane(tmp_path: Path) -> None:
-    write_complete_plan_fixture(tmp_path)
-
-    exit_code = dependency_refresh_plan.main(
-        ["--repo-root", str(tmp_path), "--lane", "risk-managed", "--check"]
+    # The displayed lane must not hide an invalid plan: an empty patch lane
+    # fails validation even when only the risk-managed lane is printed.
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\ndependencies = ["rich>=13.0"]\n',
+        encoding="utf-8",
     )
-
-    assert exit_code == 0
+    assert (
+        dependency_refresh_plan.main(["--repo-root", str(tmp_path), "--lane", lane, "--check"]) == 1
+    )
 
 
 def test_validate_fails_when_patch_lane_is_missing() -> None:

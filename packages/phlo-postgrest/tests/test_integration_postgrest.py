@@ -15,8 +15,8 @@ def test_postgrest_plugin_initializes():
     from phlo_postgrest.plugin import PostgrestServicePlugin
 
     plugin = PostgrestServicePlugin()
-    assert plugin is not None
     assert plugin.metadata.name == "postgrest"
+    assert plugin.service_definition["name"] == "postgrest"
 
 
 def test_postgrest_service_definition():
@@ -26,4 +26,6 @@ def test_postgrest_service_definition():
     plugin = PostgrestServicePlugin()
     service_def = plugin.service_definition
 
-    assert isinstance(service_def, dict)
+    assert service_def["category"] == "api"
+    assert service_def["image"].startswith("postgrest/postgrest:")
+    assert service_def["depends_on"] == ["postgres"]

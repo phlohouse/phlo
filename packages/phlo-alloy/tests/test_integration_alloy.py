@@ -19,10 +19,15 @@ def test_alloy_plugin_initializes():
 
 
 def test_alloy_service_definition():
-    """Test that service definition can be loaded."""
+    """Test that the service definition pins the upstream image."""
     from phlo_alloy.plugin import AlloyServicePlugin
 
     plugin = AlloyServicePlugin()
     service_def = plugin.service_definition
 
-    assert isinstance(service_def, dict)
+    assert service_def["name"] == "alloy"
+    assert service_def["image"] == (
+        "grafana/alloy:v1.18.0@"
+        "sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308"
+    )
+    assert "build" not in service_def

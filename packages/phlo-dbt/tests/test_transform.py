@@ -642,7 +642,7 @@ def test_ensure_dbt_manifest_strips_colliding_project_dir_env(tmp_path, monkeypa
     assert "DBT_PROJECT_DIR" not in captured["env"]
 
 
-def test_run_command_strips_colliding_project_dir_env(tmp_path) -> None:
+def test_run_command_strips_colliding_project_dir_env(tmp_path, monkeypatch) -> None:
     """Runtime dbt invocations also drop the phlo-owned DBT_PROJECT_DIR."""
 
     from phlo_dbt.transformer import DbtTransformer
@@ -672,12 +672,8 @@ def test_run_command_strips_colliding_project_dir_env(tmp_path) -> None:
 
     import phlo_dbt.transformer as mod
 
-    original_run = mod.subprocess.run
-    mod.subprocess.run = fake_run
-    try:
-        result = transformer._run_command(["build"], env=monkeypatch_env)
-    finally:
-        mod.subprocess.run = original_run
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    result = transformer._run_command(["build"], env=monkeypatch_env)
 
     assert result.returncode == 0
     assert "DBT_PROJECT_DIR" not in captured["env"]

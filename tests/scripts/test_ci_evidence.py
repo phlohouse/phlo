@@ -20,6 +20,7 @@ INTEGRATION_JOBS = {
     "integration / integration / MinIO source image",
     "integration / integration / storage contracts",
     "integration / integration / api-contracts",
+    "integration / integration / api-preview",
     "integration / integration / api-query-journey",
     "integration / integration / api-branch-journey",
     "integration / integration / operations",

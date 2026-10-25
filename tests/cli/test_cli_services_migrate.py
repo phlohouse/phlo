@@ -7,7 +7,7 @@ import yaml
 from click.testing import CliRunner
 
 from phlo.cli.commands.services.migrate import migrate_cmd
-from tests.helpers import FakeDiscovery, _service
+from tests.support import FakeDiscovery, _service
 
 
 @pytest.fixture

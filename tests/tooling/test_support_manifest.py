@@ -132,48 +132,31 @@ def test_unsupported_package_addition_fails_inventory_validation() -> None:
     assert any("absent from the workspace" in error for error in errors)
 
 
-def test_required_capability_cannot_be_deleted_with_references() -> None:
+@pytest.mark.parametrize(
+    "capability",
+    ["mandatory_authorization", "dlt_ingestion"],
+    ids=["required", "implemented-blessed"],
+)
+def test_capability_cannot_be_deleted_with_references(capability: str) -> None:
     manifest = _manifest()
     manifest["capabilities"] = [
-        item for item in manifest["capabilities"] if item["name"] != "mandatory_authorization"
+        item for item in manifest["capabilities"] if item["name"] != capability
     ]
     for profile in manifest["profiles"].values():
         profile["components"] = [
             component
             for component in profile["components"]
-            if component != "capability:mandatory_authorization"
+            if component != f"capability:{capability}"
         ]
     manifest["gates"]["components"] = [
         item
         for item in manifest["gates"]["components"]
-        if item["name"] != "capability:mandatory_authorization"
+        if item["name"] != f"capability:{capability}"
     ]
 
     errors = validate_manifest(manifest)
 
-    assert any("mandatory_authorization" in error and "absent" in error for error in errors)
-
-
-def test_implemented_blessed_capability_cannot_be_deleted_with_references() -> None:
-    manifest = _manifest()
-    manifest["capabilities"] = [
-        item for item in manifest["capabilities"] if item["name"] != "dlt_ingestion"
-    ]
-    for profile in manifest["profiles"].values():
-        profile["components"] = [
-            component
-            for component in profile["components"]
-            if component != "capability:dlt_ingestion"
-        ]
-    manifest["gates"]["components"] = [
-        item
-        for item in manifest["gates"]["components"]
-        if item["name"] != "capability:dlt_ingestion"
-    ]
-
-    errors = validate_manifest(manifest)
-
-    assert any("dlt_ingestion" in error and "absent" in error for error in errors)
+    assert any(capability in error and "absent" in error for error in errors)
 
 
 def test_unapproved_capability_addition_is_rejected() -> None:
@@ -327,49 +310,41 @@ def test_service_inventory_rejects_registered_custom_primary(tmp_path: Path) -> 
         service_inventory_at(tmp_path)
 
 
-def test_temp_repo_rejects_missing_evidence_path(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("evidence", "expected_error"),
+    [
+        ("docs/does-not-exist.md", "evidence path does not exist"),
+        ("README.md#not-a-heading", "evidence anchor does not exist"),
+    ],
+    ids=["missing-path", "missing-anchor"],
+)
+def test_temp_repo_rejects_invalid_evidence(
+    tmp_path: Path, evidence: str, expected_error: str
+) -> None:
     manifest = _manifest()
-    _package(manifest, "phlo")["evidence"] = ["docs/does-not-exist.md"]
+    _package(manifest, "phlo")["evidence"] = [evidence]
 
     errors = validate_manifest(manifest, repo_root=_linked_repo(tmp_path))
 
-    assert any("evidence path does not exist" in error for error in errors)
+    assert any(expected_error in error for error in errors)
 
 
-def test_temp_repo_rejects_missing_evidence_anchor(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("evidence", "expected_error"),
+    [
+        ("README.md#not-an-existing-heading", "evidence anchor does not exist"),
+        ("#made-up", "evidence path must not be empty"),
+        ("pyproject.toml#made-up", "evidence fragments are unsupported"),
+    ],
+    ids=["bad-anchor", "empty-path", "non-markdown-fragment"],
+)
+def test_manifest_rejects_invalid_evidence_reference(evidence: str, expected_error: str) -> None:
     manifest = _manifest()
-    _package(manifest, "phlo")["evidence"] = ["README.md#not-a-heading"]
-
-    errors = validate_manifest(manifest, repo_root=_linked_repo(tmp_path))
-
-    assert any("evidence anchor does not exist" in error for error in errors)
-
-
-def test_markdown_anchor_requires_exact_heading_slug() -> None:
-    manifest = _manifest()
-    _package(manifest, "phlo")["evidence"] = ["README.md#not-an-existing-heading"]
+    _package(manifest, "phlo")["evidence"] = [evidence]
 
     errors = validate_manifest(manifest)
 
-    assert any("evidence anchor does not exist" in error for error in errors)
-
-
-def test_evidence_path_cannot_be_empty() -> None:
-    manifest = _manifest()
-    _package(manifest, "phlo")["evidence"] = ["#made-up"]
-
-    errors = validate_manifest(manifest)
-
-    assert any("evidence path must not be empty" in error for error in errors)
-
-
-def test_non_markdown_evidence_fragment_is_rejected() -> None:
-    manifest = _manifest()
-    _package(manifest, "phlo")["evidence"] = ["pyproject.toml#made-up"]
-
-    errors = validate_manifest(manifest)
-
-    assert any("evidence fragments are unsupported" in error for error in errors)
+    assert any(expected_error in error for error in errors)
 
 
 def test_temp_repo_rejects_evidence_traversal_to_existing_outside_file(tmp_path: Path) -> None:

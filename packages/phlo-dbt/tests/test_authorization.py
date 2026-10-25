@@ -13,7 +13,6 @@ import pytest
 
 from phlo_testing.authorization_surface import (
     assert_mutation_enforcement_allows_and_denies,
-    assert_read_commands_allow_without_enforcement,
     assert_unknown_command_denied,
     reset_surface_adapter_singleton,
 )
@@ -23,7 +22,6 @@ from phlo_dbt.authorization import (
     DbtSurfaceAdapter,
     MUTATION_COMMANDS,
     READ_COMMANDS,
-    SURFACE_NAME,
 )
 
 pytestmark = pytest.mark.core_regression
@@ -32,10 +30,6 @@ pytestmark = pytest.mark.core_regression
 class TestDbtSurfaceAdapter:
     """Tests for DbtSurfaceAdapter."""
 
-    def test_surface_name(self):
-        adapter = DbtSurfaceAdapter()
-        assert adapter.surface_name == SURFACE_NAME
-
     def test_list_operations(self):
         adapter = DbtSurfaceAdapter()
         operations = adapter.list_operations()
@@ -43,27 +37,6 @@ class TestDbtSurfaceAdapter:
         operation_names = {op["operation_name"] for op in operations}
         for cmd in MUTATION_COMMANDS:
             assert cmd in operation_names
-
-    def test_list_operations_has_required_fields(self):
-        adapter = DbtSurfaceAdapter()
-        for op in adapter.list_operations():
-            assert "operation_name" in op
-            assert "action" in op
-            assert "resource_type" in op
-
-    def test_is_active(self):
-        adapter = DbtSurfaceAdapter()
-        assert adapter.is_active(None) is True
-
-    def test_get_instance_singleton(self):
-        adapter1 = DbtSurfaceAdapter.get_instance()
-        adapter2 = DbtSurfaceAdapter.get_instance()
-        assert adapter1 is adapter2
-
-    def test_read_commands_allow_without_enforcement(self):
-        """Read commands allow without touching the enforcement path."""
-        with reset_surface_adapter_singleton(DbtSurfaceAdapter):
-            assert_read_commands_allow_without_enforcement(DbtSurfaceAdapter())
 
     def test_unknown_command_denied_closed(self):
         with reset_surface_adapter_singleton(DbtSurfaceAdapter):
@@ -115,9 +88,12 @@ class TestEnforcement:
     def test_read_commands_skip_enforcement(self):
         """Read commands do not go through enforcement."""
         adapter = DbtSurfaceAdapter()
-        with patch("phlo.security.enforcement.enforce") as mock_enforce:
+        with patch("phlo.cli.authorization.enforce") as mock_enforce:
             mock_enforce.return_value = MagicMock(variant="deny")
             for cmd in READ_COMMANDS:
                 result = adapter.check_command_authorization(cmd)
                 assert result.allowed
-                mock_enforce.assert_not_called()
+            mock_enforce.assert_not_called()
+            # Control: the same patch intercepts a mutation command.
+            adapter.enforce_mutation("dbt.run")
+            assert mock_enforce.call_count == 1

@@ -224,9 +224,12 @@ def test_freshness_boundary_exactly_seven_days_qualifies() -> None:
     ]
     # Newest run (2026-08-28T00:00:00Z) is exactly 7 days old at the
     # authorization instant (2026-09-04T00:00:00Z): still inside the window.
-    promote_release_candidate.qualify_evidence_set(
+    qualification = promote_release_candidate.qualify_evidence_set(
         bundles, bom, now_utc=datetime(2026, 9, 4, tzinfo=UTC)
     )
+
+    assert len(qualification.qualifying) == 3
+    assert qualification.rejected == []
 
 
 def test_bundle_from_promotion_automation_is_wrong_environment() -> None:
@@ -267,7 +270,7 @@ def test_failed_run_blocks() -> None:
         promote_release_candidate.qualify_evidence_set(
             [failed, *_qualifying_bundles(bom)[1:]], bom, now_utc=_now()
         )
-    assert excinfo.value.reason in ("failed_run", "insufficient_runs")
+    assert excinfo.value.reason == "failed_run"
 
 
 def test_stale_evidence_blocks() -> None:
@@ -326,7 +329,7 @@ def test_wrong_environment_blocks() -> None:
         promote_release_candidate.qualify_evidence_set(
             [_seal(bundle), *_qualifying_bundles(bom)[1:]], bom, now_utc=_now()
         )
-    assert excinfo.value.reason in ("wrong_environment", "insufficient_runs")
+    assert excinfo.value.reason == "wrong_environment"
 
 
 def test_incomplete_bundle_blocks() -> None:
@@ -334,10 +337,8 @@ def test_incomplete_bundle_blocks() -> None:
     bundle = _bundle(bom, host=HOST_A, started="2026-09-01T00:00:00Z")
     bundle["demonstrations"] = bundle["demonstrations"][:-1]
     with pytest.raises(promote_release_candidate.PromotionGateError) as excinfo:
-        promote_release_candidate.qualify_evidence_set(
-            [_seal(bundle), *_qualifying_bundles(bom)[1:]], bom, now_utc=_now()
-        )
-    assert excinfo.value.reason in ("invalid_bundle", "insufficient_runs")
+        promote_release_candidate.qualify_evidence_set([_seal(bundle)], bom, now_utc=_now())
+    assert excinfo.value.reason == "invalid_bundle"
 
 
 def test_insufficient_run_count_blocks() -> None:
@@ -1313,6 +1314,10 @@ def test_exact_local_release_tag_is_reused(tmp_path, annotated):
             "user.name=Test",
             "-c",
             "user.email=test@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "tag.gpgsign=false",
             "commit",
             "--allow-empty",
             "-m",
@@ -1324,7 +1329,16 @@ def test_exact_local_release_tag_is_reused(tmp_path, annotated):
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
     ).stdout.strip()
-    command = ["git", "-c", "user.name=Test", "-c", "user.email=test@example.test", "tag"]
+    command = [
+        "git",
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.test",
+        "-c",
+        "tag.gpgsign=false",
+        "tag",
+    ]
     if annotated:
         command += ["-a", "-m", "candidate"]
     subprocess.run([*command, "v0.15.0", commit], check=True)

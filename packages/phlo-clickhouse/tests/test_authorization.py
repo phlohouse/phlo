@@ -1,57 +1,30 @@
 """Tests for ClickHouse authorization module.
 
-Package-specific command-table coverage plus the shared surface-adapter
-contract from ``phlo_testing.authorization_surface``: reads skip enforcement,
-unknown commands deny closed, mutation commands honor policy allow/deny, and
-the shared ``CliPrincipalResolver`` environment fallbacks hold.
+Package-specific command classification and mapping plus the shared
+surface-adapter contract from ``phlo_testing.authorization_surface``: reads
+skip enforcement, unknown commands deny closed, and mutation commands honor
+policy allow/deny.
 """
 
 from __future__ import annotations
 
-import os
-from unittest.mock import patch
-
 import pytest
 
-from phlo.cli.authorization import CliPrincipalResolver
 from phlo_testing.authorization_surface import (
     assert_mutation_enforcement_allows_and_denies,
     assert_read_commands_allow_without_enforcement,
     assert_unknown_command_denied,
     reset_surface_adapter_singleton,
-    run_cli_principal_resolver_contract,
 )
 from phlo_clickhouse.authorization import (
     COMMAND_ACTION_MAP,
     COMMAND_RESOURCE_MAP,
     MUTATION_COMMANDS,
     READ_COMMANDS,
-    SURFACE_NAME,
     ClickHouseSurfaceAdapter,
 )
 
 pytestmark = pytest.mark.core_regression
-
-
-class TestCliPrincipalResolver:
-    """Extra principal-resolver edge case beyond the shared contract."""
-
-    def test_resolve_human_principal_empty_groups(self):
-        """PHLO_AUTH_SUBJECT with no groups."""
-        env = {
-            "PHLO_AUTH_SUBJECT": "user@example.com",
-            "PHLO_AUTH_TYPE": "user",
-        }
-        with patch.dict(os.environ, env, clear=True):
-            resolver = CliPrincipalResolver()
-            principal = resolver.resolve()
-            assert principal.subject == "user@example.com"
-            assert principal.groups == ()
-
-
-def test_cli_principal_resolver_contract():
-    """The shared CLI principal resolver environment fallbacks hold."""
-    run_cli_principal_resolver_contract()
 
 
 class TestClickHouseSurfaceAdapter:
@@ -61,10 +34,6 @@ class TestClickHouseSurfaceAdapter:
     def reset_singleton(self):
         with reset_surface_adapter_singleton(ClickHouseSurfaceAdapter):
             yield
-
-    def test_surface_name(self):
-        adapter = ClickHouseSurfaceAdapter()
-        assert adapter.surface_name == SURFACE_NAME
 
     def test_framework_type(self):
         adapter = ClickHouseSurfaceAdapter()
@@ -77,22 +46,6 @@ class TestClickHouseSurfaceAdapter:
         operation_names = {op["operation_name"] for op in operations}
         for cmd in MUTATION_COMMANDS:
             assert cmd in operation_names
-
-    def test_list_operations_has_required_fields(self):
-        adapter = ClickHouseSurfaceAdapter()
-        for op in adapter.list_operations():
-            assert "action" in op
-            assert "resource_type" in op
-            assert "operation_name" in op
-
-    def test_is_active(self):
-        adapter = ClickHouseSurfaceAdapter()
-        assert adapter.is_active(None) is True
-
-    def test_get_instance_singleton(self):
-        adapter1 = ClickHouseSurfaceAdapter.get_instance()
-        adapter2 = ClickHouseSurfaceAdapter.get_instance()
-        assert adapter1 is adapter2
 
     def test_command_mapped_correctly(self):
         """All mutation commands have resource and action mappings."""

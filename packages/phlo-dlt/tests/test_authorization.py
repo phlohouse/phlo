@@ -1,9 +1,8 @@
 """Tests for DLT authorization module.
 
-Package-specific surface metadata, operation listing, and command-table
-classification; the shared adapter contract (read allow-through, unknown
-deny-closed, mutation policy allow/deny) delegates to
-``phlo_testing.authorization_surface``.
+Package-specific command classification and mapping; the shared adapter
+contract (read allow-through, unknown deny-closed, mutation policy allow/deny)
+delegates to ``phlo_testing.authorization_surface``.
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ from phlo_dlt.authorization import (
     DltSurfaceAdapter,
     MUTATION_COMMANDS,
     READ_COMMANDS,
-    SURFACE_NAME,
 )
 
 pytestmark = pytest.mark.core_regression
@@ -30,10 +28,6 @@ pytestmark = pytest.mark.core_regression
 
 class TestDltSurfaceAdapter:
     """Tests for DltSurfaceAdapter."""
-
-    def test_surface_name(self):
-        adapter = DltSurfaceAdapter()
-        assert adapter.surface_name == SURFACE_NAME
 
     def test_framework_type(self):
         adapter = DltSurfaceAdapter()
@@ -46,22 +40,6 @@ class TestDltSurfaceAdapter:
         operation_names = {op["operation_name"] for op in operations}
         for cmd in MUTATION_COMMANDS:
             assert cmd in operation_names
-
-    def test_list_operations_has_required_fields(self):
-        adapter = DltSurfaceAdapter()
-        for op in adapter.list_operations():
-            assert "action" in op
-            assert "resource_type" in op
-            assert "operation_name" in op
-
-    def test_is_active(self):
-        adapter = DltSurfaceAdapter()
-        assert adapter.is_active(None) is True
-
-    def test_get_instance_singleton(self):
-        adapter1 = DltSurfaceAdapter.get_instance()
-        adapter2 = DltSurfaceAdapter.get_instance()
-        assert adapter1 is adapter2
 
     def test_read_commands_allowed(self):
         assert_read_commands_allow_without_enforcement(DltSurfaceAdapter())
