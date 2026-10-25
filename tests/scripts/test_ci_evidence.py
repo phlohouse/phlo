@@ -26,7 +26,7 @@ INTEGRATION_JOBS = {
     "integration / integration / operations",
     "integration / integration / required suites",
 }
-PROVIDER_JOBS = {f"ci / python / installed provider artifacts ({index})" for index in range(2)}
+PROVIDER_JOBS = {f"ci / python / installed provider artifacts ({index})" for index in range(4)}
 
 
 def example():

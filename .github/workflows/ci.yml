@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        docker-shard: [0, 1]
+        docker-shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -114,7 +114,7 @@ jobs:
             --include-docker-builds \
             --include-docker-health \
             --docker-shard-index ${{ matrix.docker-shard }} \
-            --docker-shard-count 2 \
+            --docker-shard-count 4 \
             --output provider-artifacts/installed-provider-artifacts.json
 
       - name: Scan locally built first-party images without publishing
