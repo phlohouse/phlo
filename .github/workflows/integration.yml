@@ -111,7 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [api-contracts, api-query-journey, api-branch-journey]
+        group: [api-contracts, api-preview, api-query-journey, api-branch-journey]
     env:
       UV_PYTHON: "3.12"
       MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.2

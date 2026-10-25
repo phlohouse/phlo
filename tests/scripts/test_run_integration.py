@@ -28,6 +28,7 @@ FIXTURE_MODULES = {
     "iceberg": "packages/phlo-iceberg/tests/test_integration_iceberg.py",
     "dagster": "packages/phlo-dagster/tests/test_integration_dagster.py",
     "api": "packages/phlo-api/tests/test_new_contract.py",
+    "preview": "packages/phlo-api/tests/test_preview_provision_integration.py",
     "trino": "packages/phlo-api/tests/test_usage_trino_integration.py",
     "dataset": "tests/integration/test_issue1035_dataset_journey.py",
     "branch": "tests/integration/test_issue1035_signed_branch_journey.py",
@@ -160,6 +161,7 @@ def _reports(workspace) -> dict[str, ET.Element]:
     ("group", "expected"),
     [
         ("api-contracts", {"api"}),
+        ("api-preview", {"preview"}),
         ("api-query-journey", {"trino", "dataset"}),
         ("api-branch-journey", {"branch"}),
     ],
@@ -206,9 +208,9 @@ def test_default_and_storage_keep_complete_contracts_and_owned_service_lifecycle
     assert run_integration.main([] if group == "all" else ["--group", group]) == 0
     expected = set(FIXTURE_MODULES)
     if group == "storage":
-        expected -= {"api", "trino", "dataset", "branch"}
+        expected -= {"api", "preview", "trino", "dataset", "branch"}
     assert _executed(workspace) == expected
-    assert set(_reports(workspace)) == expected - {"trino", "dataset", "branch"}
+    assert set(_reports(workspace)) == expected - {"preview", "trino", "dataset", "branch"}
     assert len(docker_services) == 2
     assert all(service.closed and not service.active for service in docker_services)
 

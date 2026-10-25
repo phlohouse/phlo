@@ -65,15 +65,18 @@ conversion, and ingestion. They do not claim complete external-service coverage.
 
 ### Parallel integration contracts
 
-CI runs the storage contracts and three API groups on separate runners. The API
+CI runs the storage contracts and four API groups on separate runners. The API
 partition keeps module fixtures together and includes newly added API integration
-tests in the `api-contracts` group automatically. All groups retain the required
-plugin, so skips, expected failures and empty selections fail their job.
+tests in the `api-contracts` group automatically. The preview-provision module
+runs separately because its catalog, object-store and TLS setup takes longer than
+the other API contracts combined. All groups retain the required plugin, so skips,
+expected failures and empty selections fail their job.
 
 | Group | Required selection |
 | --- | --- |
 | `storage` | Iceberg, Dagster, MinIO migration, dbt quality, schema generation, schema conversion and ingestion |
-| `api-contracts` | Integration tests under `packages/phlo-api/tests`, except the separately assigned Trino journey module |
+| `api-contracts` | Integration tests under `packages/phlo-api/tests`, except the preview-provision and Trino journey modules |
+| `api-preview` | The preview provision, read, write-denial and evidence-recovery module |
 | `api-query-journey` | The complete dataset journey and Trino integration modules |
 | `api-branch-journey` | The complete signed branch journey module |
 | `all` | The complete original selection; this remains the default local command |
