@@ -122,6 +122,27 @@ def _incoming(
     return rows, groups
 
 
+def _balanced_or(terms: list[Any]) -> Any:
+    """Combine predicates into a balanced tree.
+
+    Keeps the traversal depth logarithmic in the number of terms.
+    """
+    if not terms:
+        return AlwaysFalse()
+    while len(terms) > 1:
+        merged = [Or(terms[index], terms[index + 1]) for index in range(0, len(terms) - 1, 2)]
+        if len(terms) % 2:
+            merged.append(terms[-1])
+        terms = merged
+    return terms[0]
+
+
+# pyiceberg's expression visitor and Arrow's canonicalizer both walk one frame
+# per filter term. A 1000-term OR exceeds Python's recursion limit and then
+# overflows Arrow's stack, so lookup filters stay far below that boundary.
+_LOOKUP_FILTER_BATCH = 100
+
+
 def _lookup(
     table: Table, policy: HistoryPolicy, groups: dict[tuple[Any, Any], list[int]]
 ) -> dict[tuple[Any, Any], list[tuple[Any, ...]]]:
@@ -135,20 +156,20 @@ def _lookup(
     )
     fields = tuple(name for name in fields if name in table.schema().column_names)
     identities = list(groups)
-    for start in range(0, len(identities), 1000):
+    for start in range(0, len(identities), _LOOKUP_FILTER_BATCH):
+        row_filter = _balanced_or(
+            [
+                And(
+                    EqualTo(term=Reference(policy.entity_key), value=entity),
+                    EqualTo(term=Reference(policy.version_key), value=version),
+                )
+                for entity, version in identities[start : start + _LOOKUP_FILTER_BATCH]
+            ]
+        )
         rows = (
             table.scan(
                 snapshot_id=snapshot.snapshot_id,
-                row_filter=Or(
-                    AlwaysFalse(),
-                    *(
-                        And(
-                            EqualTo(term=Reference(policy.entity_key), value=entity),
-                            EqualTo(term=Reference(policy.version_key), value=version),
-                        )
-                        for entity, version in identities[start : start + 1000]
-                    ),
-                ),
+                row_filter=row_filter,
                 selected_fields=fields,
             )
             .to_arrow()

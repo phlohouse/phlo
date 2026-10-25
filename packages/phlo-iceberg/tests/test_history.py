@@ -770,7 +770,8 @@ def test_replay_spanning_multiple_lookup_chunks_preserves_every_version(
 
     monkeypatch.setattr(DataScan, "to_arrow", capture)
     assert _write([path])["rows_skipped"] == 1003
-    assert [len(rows) for _, rows in scans] == [1000, 3]
+    assert len(scans) > 1
+    assert sum(len(rows) for _, rows in scans) == 1003
     assert all(head == snapshot for head, _ in scans)
     assert {row["entity"] for _, rows in scans for row in rows} == {f"E{i}" for i in range(1003)}
     assert _state(catalog) == before
