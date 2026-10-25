@@ -75,7 +75,12 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     real_run = subprocess.run
 
     def run_pytest(command, *, env, check):
-        child_env = dict(env, PYTHONPATH=str(ROOT), PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+        child_env = dict(
+            env,
+            PYTHONPATH=str(ROOT),
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+            PYTEST_PLUGINS="xdist.plugin",
+        )
         result = real_run(
             [sys.executable, *command[4:]],
             env=child_env,

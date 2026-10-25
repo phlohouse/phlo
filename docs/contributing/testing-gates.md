@@ -67,10 +67,11 @@ conversion, and ingestion. They do not claim complete external-service coverage.
 
 CI runs the storage contracts and four API groups on separate runners. The API
 partition keeps module fixtures together and includes newly added API integration
-tests in the `api-contracts` group automatically. The preview-provision module
-runs separately because its catalog, object-store and TLS setup takes longer than
-the other API contracts combined. All groups retain the required plugin, so skips,
-expected failures and empty selections fail their job.
+tests in the `api-contracts` group automatically. That group uses two loadscope
+workers because its modules own independent containers and ports. The
+preview-provision module runs separately because its catalog, object-store and TLS
+setup takes longer than the other API contracts combined. All groups retain the
+required plugin, so skips, expected failures and empty selections fail their job.
 
 | Group | Required selection |
 | --- | --- |
