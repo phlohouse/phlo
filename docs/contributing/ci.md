@@ -60,7 +60,7 @@ dependency wheels.
 
 Installed-provider verification renders the complete service inventory in one
 installed-CLI invocation. Its report records the generated files for that batch
-and the final Compose configuration for each service. Four Docker shards divide
+and the final Compose configuration for each service. Two Docker shards divide
 the image build families into consecutive groups, keeping services with identical
 image and build settings together. A second service using the same image can
 reuse its runner's build cache. This limits concurrent provider runners while
