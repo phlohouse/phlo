@@ -801,11 +801,14 @@ def _verify_compiled_rbac(report: RegulatedValidationReport) -> None:
             if not result.in_sync:
                 missing_names = [a.name for a in result.missing][:5]
                 extra_names = [a.name for a in result.extra][:5]
+                mismatched_names = [a.name for a in result.mismatched][:5]
                 parts = []
                 if missing_names:
                     parts.append(f"{len(result.missing)} missing: {missing_names}")
                 if extra_names:
                     parts.append(f"{len(result.extra)} extra: {extra_names}")
+                if mismatched_names:
+                    parts.append(f"{len(result.mismatched)} mismatched: {mismatched_names}")
                 report.warnings.append(
                     f"compiled_rbac_verify({backend_name}): out of sync — {'; '.join(parts)}"
                 )
@@ -814,6 +817,7 @@ def _verify_compiled_rbac(report: RegulatedValidationReport) -> None:
                     backend=backend_name,
                     missing_count=len(result.missing),
                     extra_count=len(result.extra),
+                    mismatched_count=len(result.mismatched),
                 )
             else:
                 logger.info("compiled_rbac_in_sync", backend=backend_name)
