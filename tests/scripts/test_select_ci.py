@@ -31,6 +31,7 @@ def test_trino_selects_reverse_dependency_groups() -> None:
     selection = select({"packages/phlo-trino/src/phlo_trino/plugin.py"})
     # Nessie depends on Trino; Iceberg and Dagster depend on Nessie.
     assert {entry["group"] for entry in selection["groups"]} == {
+        "api",
         "data",
         "interfaces",
         "platform",
@@ -38,7 +39,7 @@ def test_trino_selects_reverse_dependency_groups() -> None:
     }
     assert selection["python"] is True
     assert selection["integration"] is True
-    assert len(selection["groups"]) == 4
+    assert len(selection["groups"]) == 5
     assert all(entry["python-version"] == "3.12" for entry in selection["groups"])
 
 
@@ -48,6 +49,7 @@ def test_unknown_config_and_empty_diff_run_everything() -> None:
         assert {entry["group"] for entry in selection["groups"]} == {
             "platform",
             "data",
+            "api",
             "runtime",
             "interfaces",
         }
