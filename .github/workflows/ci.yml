@@ -314,7 +314,7 @@ jobs:
             set +e
             COVERAGE_FILE="test-results/.coverage.${package}" \
               uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest --with pytest-xdist --with pytest-timeout --with pytest-cov==7.1.0 \
-              pytest -m "not integration" -n 2 --dist worksteal --timeout=300 --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
+              pytest -m "not integration" -n 4 --dist worksteal --timeout=300 --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
             exit_code=$?
             set -e
             echo "::endgroup::"
