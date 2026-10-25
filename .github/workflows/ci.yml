@@ -297,6 +297,9 @@ jobs:
       - name: Run package test group
         env:
           PACKAGES: ${{ matrix.packages }}
+          # phlo-api is a single large package and fills a four-core runner;
+          # the other groups interleave packages and stay at two workers.
+          PYTEST_WORKERS: ${{ matrix.group == 'api' && '4' || '2' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -314,7 +317,7 @@ jobs:
             set +e
             COVERAGE_FILE="test-results/.coverage.${package}" \
               uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest --with pytest-xdist --with pytest-timeout --with pytest-cov==7.1.0 \
-              pytest -m "not integration" -n 2 --dist worksteal --timeout=300 --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
+              pytest -m "not integration" -n "${PYTEST_WORKERS}" --dist worksteal --timeout=300 --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
             exit_code=$?
             set -e
             echo "::endgroup::"

@@ -98,9 +98,10 @@ See [parallel integration contracts](testing-gates.md#parallel-integration-contr
 for individual group commands and timing diagnostics.
 
 Package-specific test environments and their coverage reports remain separate
-from the full-workspace measurement. The four package groups place the API and
+from the full-workspace measurement. The five package groups place the API and
 Dagster tests in different jobs while retaining each package's own dependency
-environment. The workspace shards also include
+environment; the API group uses four work-stealing workers because it contains a
+single large package. The workspace shards also include
 quickstart; its integration-lane execution retains the smoke-test artifacts.
 Each measured source tree has independent line and branch coverage floors.
 
