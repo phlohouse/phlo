@@ -48,7 +48,7 @@ def test_read_videos_rejects_an_empty_export(tmp_path: Path) -> None:
         read_videos(tmp_path)
     except ValueError as error:
         assert "no videos" in str(error)
-    else:  # pragma: no cover - the explicit failure path is the point
+    else:  # pragma: no cover  # reason: an accepted empty export must fail the test
         raise AssertionError("an empty export was accepted")
 
 
