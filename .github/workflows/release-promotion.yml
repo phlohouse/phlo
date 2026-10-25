@@ -102,6 +102,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          # bsdtar on macOS would otherwise add AppleDouble ._* members.
+          COPYFILE_DISABLE: "1"
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
@@ -120,6 +122,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          # bsdtar on macOS would otherwise add AppleDouble ._* members.
+          COPYFILE_DISABLE: "1"
         run: |
           set -euo pipefail
           jq -e '.status == "promoted" and .success == true' promotion-receipt.json > /dev/null
