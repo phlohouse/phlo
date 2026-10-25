@@ -1487,7 +1487,7 @@ def test_quality_gate_fixture_reads_an_owned_directive_file(tmp_path: Path, monk
     release_golden_path.write_quality_gate_fixture(config)
 
     fixture = (fixture_dir / "release_wap_check.py").read_text(encoding="utf-8")
-    assert str(directive_path) in fixture
+    assert repr(str(directive_path)) in fixture
 
     fake_dagster = ModuleType("dagster")
     fake_dagster.asset_check = lambda **_: lambda check: check
@@ -1503,6 +1503,23 @@ def test_quality_gate_fixture_reads_an_owned_directive_file(tmp_path: Path, monk
         "passed": False,
         "metadata": {"reason": "intentional_quality_rejection"},
     }
+
+
+def test_quality_gate_fixture_escapes_windows_directive_paths(tmp_path, monkeypatch) -> None:
+    """A Windows directive path must not become a unicode escape in generated code."""
+    config = _config(tmp_path)
+    fixture_dir = config.project_dir / "workflows" / "ingestion" / "csv"
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        release_golden_path,
+        "QUALITY_DIRECTIVE_CONTAINER_PATH",
+        r"C:\Users\runneradmin\AppData\Local\Temp\quality_gate.json",
+    )
+
+    release_golden_path.write_quality_gate_fixture(config)
+
+    fixture = (fixture_dir / "release_wap_check.py").read_text(encoding="utf-8")
+    compile(fixture, "release_wap_check.py", "exec")
 
 
 def test_operations_policy_grants_the_operator_service_account(tmp_path: Path) -> None:

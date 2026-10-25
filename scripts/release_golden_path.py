@@ -1299,7 +1299,7 @@ import dagster as dg
 def release_golden_path_wap_check(context) -> dg.AssetCheckResult:
     directive = {{}}
     try:
-        directive = json.loads(Path("{QUALITY_DIRECTIVE_CONTAINER_PATH}").read_text())
+        directive = json.loads(Path({QUALITY_DIRECTIVE_CONTAINER_PATH!r}).read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         pass
     rejected = directive.get("reject_next_run") is True
