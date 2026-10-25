@@ -124,7 +124,7 @@ coverage, row counts and the report's provenance.
 
 ## Adapt it
 
-This preset is a worked example of a generic pattern. The spine — runner, dbt
+This example is a worked example of a generic pattern. The spine — runner, dbt
 invocation, warehouse access, provenance, strict facts, charts, renderer —
 contains no domain vocabulary. Everything specific to air quality is in one
 place per layer, and [DOMAIN.md](DOMAIN.md) is the checklist for replacing it.

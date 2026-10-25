@@ -99,6 +99,7 @@ files = [
     "examples/lakehouses/public-data-research/pyproject.toml",
     "examples/lakehouses/retail-files/pyproject.toml",
     "examples/lakehouses/saas-product-analytics/pyproject.toml",
+    "examples/lakehouses/source-to-report/pyproject.toml",
     "examples/lakehouses/wap-failure-lab/pyproject.toml",
 ]
 packages = ["phlo"]
@@ -121,6 +122,7 @@ files = [
     "examples/lakehouses/public-data-research/pyproject.toml",
     "examples/lakehouses/retail-files/pyproject.toml",
     "examples/lakehouses/saas-product-analytics/pyproject.toml",
+    "examples/lakehouses/source-to-report/pyproject.toml",
     "examples/lakehouses/wap-failure-lab/pyproject.toml",
 ]
 packages = ["phlo-dagster", "phlo-dbt", "phlo-pandera"]
@@ -140,6 +142,7 @@ files = [
     "examples/lakehouses/logistics-control-tower/pyproject.toml",
     "examples/lakehouses/market-data-fx/pyproject.toml",
     "examples/lakehouses/public-data-research/pyproject.toml",
+    "examples/lakehouses/source-to-report/pyproject.toml",
     "examples/lakehouses/wap-failure-lab/pyproject.toml",
 ]
 packages = ["phlo-dlt"]
@@ -157,6 +160,7 @@ files = [
     "examples/lakehouses/logistics-control-tower/pyproject.toml",
     "examples/lakehouses/market-data-fx/pyproject.toml",
     "examples/lakehouses/public-data-research/pyproject.toml",
+    "examples/lakehouses/source-to-report/pyproject.toml",
     "examples/lakehouses/wap-failure-lab/pyproject.toml",
 ]
 packages = ["phlo-iceberg", "phlo-trino"]

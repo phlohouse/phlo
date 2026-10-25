@@ -7,6 +7,7 @@ The repository contains complete, standalone examples under `examples/lakehouses
 | Example | Best for | Main pattern |
 | --- | --- | --- |
 | [Retail Files](../../examples/lakehouses/retail-files/README.md) | First complete example | Packaged blueprint with deterministic file ingestion |
+| [Source to report](../../examples/lakehouses/source-to-report/README.md) | Reference pipeline | One spine, two packs: air quality and YouTube, each with a self-contained report |
 | [E-commerce Replication](../../examples/lakehouses/ecommerce-replication/README.md) | Database ingestion | PostgreSQL replication, checks, and dbt marts |
 | [SaaS Product Analytics](../../examples/lakehouses/saas-product-analytics/README.md) | REST APIs | Paginated API replay, schema evolution, and sessions |
 | [Customer 360](../../examples/lakehouses/customer360/README.md) | Multi-domain modelling | Commerce, support, and marketing identity resolution |
