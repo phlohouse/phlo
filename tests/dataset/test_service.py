@@ -19,7 +19,7 @@ from phlo.dataset import (
     TransitionStatus,
     WorkflowState,
 )
-from tests.unit.phlo.dataset.conftest import (
+from tests.dataset.conftest import (
     CANONICAL_CANDIDATE_ID,
     CANONICAL_DATASET_ID,
     FIXTURE_POLICY_VERSION,

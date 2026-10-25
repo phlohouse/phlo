@@ -45,7 +45,7 @@ EXPECTED_GUARD_PASSES = 3
 # compare-and-set store (src/phlo/security/service_identity.py) and the
 # serialized parent-run evidence upsert (src/phlo/run_evidence/store.py).
 GUARD_TEST_MODULES = (
-    "tests/unit/phlo/security/test_service_identity.py",
+    "tests/security/test_service_identity.py",
     "tests/observability/test_run_evidence.py",
 )
 NIGHTLY_CRON = "0 3 * * *"

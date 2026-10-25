@@ -19,7 +19,7 @@ from phlo.audit.events import (
 from phlo.capabilities.interfaces import AuthPrincipal, ResourceRef
 from phlo.compliance.audit import InMemoryAuditStore, TamperEvidentAuditSink
 from phlo.security.enforcement import enforce
-from tests.helpers import stubbed_enforcement_context
+from tests.support import stubbed_enforcement_context
 
 
 class DurableSink:

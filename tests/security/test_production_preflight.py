@@ -369,10 +369,17 @@ def test_dev_auth_mode_in_production_fails(monkeypatch, tmp_path: Path) -> None:
     assert check.state is ProductionReadinessState.FAILED
 
 
-def test_missing_jwt_provider_fails_authn(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "extra_env",
+    ["", "PHLO_AUTH_JWT_ISSUER=https://issuer.example\n"],
+    ids=["missing", "partial"],
+)
+def test_missing_or_partial_jwt_provider_fails_authn(
+    monkeypatch, tmp_path: Path, extra_env: str
+) -> None:
     _write(
         tmp_path,
-        (".phlo/.env", "PHLO_ENVIRONMENT=production\n"),
+        (".phlo/.env", f"PHLO_ENVIRONMENT=production\n{extra_env}"),
         (".phlo/docker-compose.yml", "# Dev mode: false\nservices: {}\n"),
     )
     report = run_production_readiness(
@@ -384,40 +391,18 @@ def test_missing_jwt_provider_fails_authn(monkeypatch, tmp_path: Path) -> None:
     assert check.state is ProductionReadinessState.FAILED
 
 
-def test_partial_jwt_provider_fails_authn(monkeypatch, tmp_path: Path) -> None:
-    _write(
-        tmp_path,
-        (
-            ".phlo/.env",
-            "PHLO_ENVIRONMENT=production\nPHLO_AUTH_JWT_ISSUER=https://issuer.example\n",
-        ),
-        (".phlo/docker-compose.yml", "# Dev mode: false\nservices: {}\n"),
-    )
-    report = run_production_readiness(
-        plan=_plan(tmp_path, service_names=[]),
-        project_root=tmp_path,
-        environment="production",
-    )
-    check = next(c for c in report.checks if c.id is ProductionReadinessCheckId.AUTHN_PROVIDER)
-    assert check.state is ProductionReadinessState.FAILED
-
-
-def test_env_local_permissive_mode_fails(project: Path, isolated_preflight: Path) -> None:
-    (project / ".phlo" / ".env.local").chmod(0o644)
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [(0o644, ProductionReadinessState.FAILED), (0o600, ProductionReadinessState.PASSED)],
+    ids=["permissive", "owner-only"],
+)
+def test_env_local_permissions(project: Path, isolated_preflight: Path, mode, expected) -> None:
+    (project / ".phlo" / ".env.local").chmod(mode)
     report = _run(project)
     check = next(
         c for c in report.checks if c.id is ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600
     )
-    assert check.state is ProductionReadinessState.FAILED
-
-
-def test_env_local_0600_passes(project: Path, isolated_preflight: Path) -> None:
-    (project / ".phlo" / ".env.local").chmod(0o600)
-    report = _run(project)
-    check = next(
-        c for c in report.checks if c.id is ProductionReadinessCheckId.SECRETS_ENV_LOCAL_0600
-    )
-    assert check.state is ProductionReadinessState.PASSED
+    assert check.state is expected
 
 
 def test_bundled_credentials_fail(project: Path, isolated_preflight: Path) -> None:
@@ -431,26 +416,28 @@ def test_bundled_credentials_fail(project: Path, isolated_preflight: Path) -> No
     assert check.state is ProductionReadinessState.FAILED
 
 
-def test_protected_port_exposure_fails(project: Path, isolated_preflight: Path) -> None:
+@pytest.mark.parametrize(
+    ("services", "expected"),
+    [
+        (
+            "  postgres:\n    image: x\n    ports:\n      - '5432:5432'\n",
+            ProductionReadinessState.FAILED,
+        ),
+        ("  traefik:\n    image: x\n", ProductionReadinessState.NOT_APPLICABLE),
+    ],
+    ids=["protected-port", "no-protected-backend"],
+)
+def test_network_protected_ports(
+    project: Path, isolated_preflight: Path, services, expected
+) -> None:
     (project / ".phlo" / "docker-compose.yml").write_text(
-        "# Dev mode: false\nservices:\n  postgres:\n    image: x\n    ports:\n      - '5432:5432'\n"
+        f"# Dev mode: false\nservices:\n{services}"
     )
     report = _run(project)
     check = next(
         c for c in report.checks if c.id is ProductionReadinessCheckId.NETWORK_PROTECTED_PORTS
     )
-    assert check.state is ProductionReadinessState.FAILED
-
-
-def test_no_protected_backends_is_not_applicable(project: Path, isolated_preflight: Path) -> None:
-    (project / ".phlo" / "docker-compose.yml").write_text(
-        "# Dev mode: false\nservices:\n  traefik:\n    image: x\n"
-    )
-    report = _run(project)
-    check = next(
-        c for c in report.checks if c.id is ProductionReadinessCheckId.NETWORK_PROTECTED_PORTS
-    )
-    assert check.state is ProductionReadinessState.NOT_APPLICABLE
+    assert check.state is expected
 
 
 def test_load_effective_environment_precedence(monkeypatch, tmp_path: Path) -> None:

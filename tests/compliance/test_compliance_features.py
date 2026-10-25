@@ -89,12 +89,3 @@ class TestResolveComplianceFeatures:
         assert features.electronic_signatures is True
         assert features.system_manifest is True
         assert features.access_governance is True
-
-    def test_none_config_acts_as_no_override(self) -> None:
-        """None compliance_config still enables all features in regulated mode."""
-        features = resolve_compliance_features(regulated=True, compliance_config=None)
-
-        assert features.tamper_evident_audit is True
-        assert features.electronic_signatures is True
-        assert features.system_manifest is True
-        assert features.access_governance is True

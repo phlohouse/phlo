@@ -243,7 +243,7 @@ jobs:
           PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN="${PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN}" \
           PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN="${PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN}" \
           uv run --locked pytest --import-mode=importlib \
-            tests/unit/phlo/security/test_service_identity.py::test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers \
+            tests/security/test_service_identity.py::test_postgres_nonce_store_rejects_one_of_two_simultaneous_consumers \
             tests/observability/test_run_evidence.py::test_postgres_concurrent_duplicate_replay_does_not_apply_loser_run_metadata \
             tests/observability/test_run_evidence.py::test_true_v2_to_v3_upgrade_is_idempotent_and_compatible_postgres \
             -q --junitxml=test-results/postgres-concurrency.xml | tee "${results_file}"

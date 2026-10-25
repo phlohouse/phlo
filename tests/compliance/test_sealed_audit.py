@@ -8,6 +8,8 @@ mismatches instead of silently returning tampered records.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 
 import pytest
@@ -19,6 +21,14 @@ from phlo.compliance.audit import (
     SealedAuditRecord,
     TamperEvidentAuditSink,
 )
+
+
+def _expected_hash(
+    event: CanonicalAuditEvent, key: str, *, sequence_number: int, previous_hash: str
+) -> str:
+    """Recompute the sealed digest independently of the implementation."""
+    payload = f"{sequence_number}:{json.dumps(event.to_dict(), sort_keys=True)}:{previous_hash}"
+    return hmac.new(key.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
 class TestSealedAuditRecord:
@@ -58,7 +68,7 @@ class TestSealedAuditRecord:
             SealedAuditRecord.seal(event, sequence_number=1, previous_hash=GENESIS_HASH)
 
     def test_seal_uses_explicit_hmac_key_in_regulated_mode(self, monkeypatch) -> None:
-        """Regulated audit sealing works when real key material is configured."""
+        """Regulated audit sealing keys the digest with the configured secret."""
         monkeypatch.setenv("PHLO_REGULATED", "true")
         monkeypatch.setenv("PHLO_AUDIT_HMAC_KEY", "test-audit-key")
         event = CanonicalAuditEvent(
@@ -71,7 +81,12 @@ class TestSealedAuditRecord:
 
         record = SealedAuditRecord.seal(event, sequence_number=1, previous_hash=GENESIS_HASH)
 
-        assert len(record.record_hash) == 64
+        assert record.record_hash == _expected_hash(
+            event, "test-audit-key", sequence_number=1, previous_hash=GENESIS_HASH
+        )
+        assert record.record_hash != _expected_hash(
+            event, "phlo-dev-audit-key", sequence_number=1, previous_hash=GENESIS_HASH
+        )
 
     def test_seal_different_events_produce_different_hashes(self) -> None:
         """Different events produce different record hashes."""
