@@ -1,0 +1,27 @@
+# One dbt project for the pack. The profile is `phlo`; the orchestrator
+# generates a Trino profile, and `profiles/profiles.yml` supplies the DuckDB
+# profile the local runner uses.
+name: source_to_report
+version: 1.0.0
+config-version: 2
+
+profile: phlo
+model-paths: ["models"]
+test-paths: ["tests"]
+
+models:
+  source_to_report:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+
+vars:
+  period_start: "2025-01-01"
+  period_end: "2025-12-31"
+  expected_hours: 8760
+  claim_tolerance: 0.05
+  pm25_daily_objective: 15.0
+  no2_daily_objective: 200.0
+  station_count: 3
+  pollutant_count: 2

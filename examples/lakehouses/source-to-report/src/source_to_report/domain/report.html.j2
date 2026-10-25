@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ domain.TITLE }} · {{ facts.summary("period_label") }}</title>
+<meta name="description" content="{{ domain.DESCRIPTION }}">
+<style>
+{% include "style.css" %}
+</style>
+</head>
+<body>
+<div class="glow" aria-hidden="true"></div>
+<main class="page">
+
+  <header class="masthead">
+    <div class="topline">
+      <p class="brand">
+        <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="0" y="0" width="4" height="4"/><rect x="8" y="0" width="4" height="4"/>
+          <rect x="4" y="4" width="4" height="4"/><rect x="12" y="4" width="4" height="4"/>
+          <rect x="0" y="8" width="4" height="4"/><rect x="8" y="8" width="4" height="4"/>
+          <rect x="4" y="12" width="4" height="4"/>
+        </svg>
+        {{ domain.SUBTITLE }}
+      </p>
+      <p class="pill"><span class="dot"></span> Fixture data</p>
+    </div>
+    <h1>{{ domain.TITLE }}</h1>
+    <p class="standfirst">{{ domain.DESCRIPTION }}</p>
+    <dl class="meta">
+      <div><dt>Period</dt><dd>{{ facts.summary("period_label") }}</dd></div>
+      <div><dt>Measurements</dt><dd>{{ facts.summary("counts.readings") | n0 }} hourly</dd></div>
+      <div><dt>Stations</dt><dd>{{ facts.summary("counts.stations") }} reference sites</dd></div>
+      <div><dt>Data date</dt><dd>{{ facts.summary("as_of") | date_label }}</dd></div>
+    </dl>
+  </header>
+
+  {% if failed_checks %}
+  <aside class="notice">
+    <strong>{{ failed_checks | length }} check{% if failed_checks | length != 1 %}s{% endif %} did not pass.</strong>
+    <ul>
+      {% for check in failed_checks %}
+      <li><code>{{ check.name }}</code>: {{ check.detail }}</li>
+      {% endfor %}
+    </ul>
+  </aside>
+  {% endif %}
+
+  {% set pm25 = domain.POLLUTANTS_BY_ID["PM2.5"] %}
+  {% set no2 = domain.POLLUTANTS_BY_ID["NO2"] %}
+  {% set worst = facts.extreme("annual_station", "mean_value", mode="max", pollutant="PM2.5") %}
+  {% set best = facts.extreme("annual_station", "mean_value", mode="min", pollutant="PM2.5") %}
+  {% set worst_no2 = facts.extreme("annual_station", "mean_value", mode="max", pollutant="NO2") %}
+  {% set differing = facts.rows("claims_checked") | selectattr("verdict", "equalto", "differs") | list %}
+
+  <section class="cards" aria-label="At a glance">
+    <article class="card">
+      <p class="value">{{ facts.summary("counts.pm25_station_days_over") }}</p>
+      <div>
+        <p class="label">PM2.5 station-days over the <span class="nowrap">24-hour</span> limit</p>
+        <p class="note">daily mean above {{ pm25.short_term_objective | n0 }} µg/m³</p>
+      </div>
+    </article>
+    <article class="card">
+      <p class="value">{{ worst.mean_value | n1 }}</p>
+      <div>
+        <p class="label">Highest annual PM2.5 mean</p>
+        <p class="note">{{ worst.station_name }}, µg/m³</p>
+      </div>
+    </article>
+    <article class="card">
+      <p class="value">{{ worst_no2.mean_value | n1 }}</p>
+      <div>
+        <p class="label">Highest annual NO2 mean</p>
+        <p class="note">{{ worst_no2.station_name }}, µg/m³</p>
+      </div>
+    </article>
+    <article class="card{% if differing %} accent{% endif %}">
+      <p class="value">{{ facts.summary("counts.claims_differ") }}<span class="of">/{{ facts.summary("counts.claims") }}</span></p>
+      <div>
+        <p class="label">Published figures differ</p>
+        <p class="note">by more than {{ domain.CLAIM_TOLERANCE }} µg/m³</p>
+      </div>
+    </article>
+  </section>
+
+  <section id="summary">
+    <p class="kicker">01 — Summary</p>
+    <h2>What the data shows</h2>
+    <div class="prose">
+      <p>
+        The network recorded {{ facts.summary("counts.readings") | n0 }} hourly measurements between
+        {{ facts.summary("period.start") | date_label }} and {{ facts.summary("period.end") | date_label }},
+        with every station and pollutant at {{ facts.summary("headlines.coverage_min") | pct }} coverage or better.
+      </p>
+      <p>
+        {{ worst.station_name }} recorded the highest annual PM2.5 mean,
+        <strong>{{ worst.mean_value | n1 }} µg/m³</strong>,
+        {% if worst.mean_value > pm25.annual_objective %}
+        {{ (worst.mean_value - pm25.annual_objective) | n1 }} µg/m³ above
+        {% else %}
+        {{ (pm25.annual_objective - worst.mean_value) | n1 }} µg/m³ below
+        {% endif %}
+        the {{ pm25.annual_objective | n0 }} µg/m³ objective. {{ best.station_name }} was lowest at
+        {{ best.mean_value | n1 }} µg/m³. PM2.5 crossed the {{ pm25.short_term_objective | n0 }} µg/m³
+        {{ pm25.short_term_period }} on <strong>{{ facts.summary("counts.pm25_station_days_over") }}</strong>
+        station-days, concentrated in the winter months.
+      </p>
+      <p>
+        NO2 peaked at {{ worst_no2.mean_value | n1 }} µg/m³ at {{ worst_no2.station_name }},
+        below its {{ no2.annual_objective | n0 }} µg/m³ annual objective.
+        {% if facts.summary("counts.no2_station_days_over") %}
+        It exceeded the {{ no2.short_term_objective | n0 }} µg/m³ {{ no2.short_term_period }} on
+        {{ facts.summary("counts.no2_station_days_over") }} station-days.
+        {% else %}
+        It did not breach the {{ no2.short_term_objective | n0 }} µg/m³ {{ no2.short_term_period }} at any station.
+        {% endif %}
+      </p>
+      <p>
+        {% if differing %}
+        Of the {{ facts.summary("counts.claims") }} monthly means the network published,
+        <strong>{{ differing | length }} differ</strong> from the measurements by more than
+        {{ domain.CLAIM_TOLERANCE }} µg/m³. Each is listed below with the line it came from.
+        {% else %}
+        Every one of the {{ facts.summary("counts.claims") }} monthly means the network published
+        matches the measurements within {{ domain.CLAIM_TOLERANCE }} µg/m³.
+        {% endif %}
+      </p>
+    </div>
+  </section>
+
+  <section id="figures">
+    <p class="kicker">02 — Figures</p>
+    <h2>Four views of the year</h2>
+    <div class="panel">
+      <figure>
+        {{ charts.pm25_monthly | safe }}
+        <figcaption><strong>Figure 1.</strong> Monthly mean PM2.5 at each station. Winter episodes lift all three stations together; the coastal station is consistently lowest.</figcaption>
+      </figure>
+    </div>
+    <div class="panel">
+      <figure>
+        {{ charts.pm25_annual | safe }}
+        <figcaption><strong>Figure 2.</strong> Annual mean PM2.5 against the {{ pm25.annual_objective | n0 }} µg/m³ objective. The dashed line is the objective, not a measurement.</figcaption>
+      </figure>
+    </div>
+    <div class="panel">
+      <figure>
+        {{ charts.no2_annual | safe }}
+        <figcaption><strong>Figure 3.</strong> Annual mean NO2 against the {{ no2.annual_objective | n0 }} µg/m³ objective. NO2 is usually the harder limit to meet; this network stays below it.</figcaption>
+      </figure>
+    </div>
+    <div class="panel">
+      <figure>
+        {{ charts.pm25_days | safe }}
+        <figcaption><strong>Figure 4.</strong> Station-days above the {{ pm25.short_term_objective | n0 }} µg/m³ 24-hour objective, summed across the three stations. A station-day counts each station once per day.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="reconciliation">
+    <p class="kicker">03 — Reconciliation</p>
+    <h2>Published figures, checked</h2>
+    <p class="lede">
+      Each note states a monthly mean for every station and pollutant. The lakehouse extracts
+      those figures with their line, joins them to the measured monthly mean, and reports the
+      difference. A figure with no measurement is a failure, not a match.
+    </p>
+    {% if differing %}
+    <p class="statline"><strong>{{ differing | length }}</strong> of {{ facts.summary("counts.claims") }} published figures differ</p>
+    {% endif %}
+    <div class="panel">
+        {% if differing %}
+        <div class="table-wrap">
+        <table>
+          <caption class="visually-hidden">Published figures that differ from the measurements</caption>
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Station</th>
+              <th>Pollutant</th>
+              <th class="num">Published</th>
+              <th class="num">Measured</th>
+              <th class="num">Difference</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for claim in differing %}
+            <tr>
+              <td data-label="Month">{{ claim.month | month_label }}</td>
+              <td data-label="Station">{{ claim.station_id | capitalize }}</td>
+              <td data-label="Pollutant">{{ claim.pollutant }}</td>
+              <td class="num" data-label="Published">{{ claim.published_value | n1 }}</td>
+              <td class="num" data-label="Measured">{{ claim.measured_value | n2 }}</td>
+              <td class="num" data-label="Difference">{{ "%+.2f" | format(claim.difference) }}</td>
+              <td data-label="Source"><code>{{ claim.source_path }}:{{ claim.line }}</code></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% endif %}
+
+        <details>
+          <summary>Show all {{ facts.summary("counts.claims") }} checked figures</summary>
+          <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Station</th>
+                <th>Pollutant</th>
+                <th class="num">Published</th>
+                <th class="num">Measured</th>
+                <th class="num">Difference</th>
+                <th>Verdict</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for claim in facts.rows("claims_checked") %}
+              <tr>
+                <td data-label="Month">{{ claim.month | month_label }}</td>
+                <td data-label="Station">{{ claim.station_id | capitalize }}</td>
+                <td data-label="Pollutant">{{ claim.pollutant }}</td>
+                <td class="num" data-label="Published">{{ claim.published_value | n1 }}</td>
+                <td class="num" data-label="Measured">{% if claim.measured_value is not none %}{{ claim.measured_value | n2 }}{% else %}—{% endif %}</td>
+                <td class="num" data-label="Difference">{% if claim.difference is not none %}{{ "%+.2f" | format(claim.difference) }}{% else %}—{% endif %}</td>
+                <td data-label="Verdict"><span class="badge {{ claim.verdict }}">{{ claim.verdict }}</span></td>
+                <td data-label="Source"><code>{{ claim.source_path }}:{{ claim.line }}</code></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          </div>
+        </details>
+    </div>
+  </section>
+
+  <section id="method">
+    <p class="kicker">04 — Method</p>
+    <h2>How this was built</h2>
+    <ol class="stages">
+      <li>
+        <span class="n">01</span>
+        <h3>Source</h3>
+        <p>{{ facts.summary("counts.readings") | n0 }} hourly readings and {{ facts.summary("counts.months") }} published notes, from one deterministic pull.</p>
+      </li>
+      <li>
+        <span class="n">02</span>
+        <h3>Evidence</h3>
+        <p>Every reading validated against its contract, then daily and monthly means in dbt: {{ provenance.tables.monthly_station }} monthly rows, {{ provenance.tables.station_coverage }} coverage rows.</p>
+      </li>
+      <li>
+        <span class="n">03</span>
+        <h3>Insight</h3>
+        <p>{{ provenance.tables.claims_checked }} published figures extracted with their note and line, then joined to the measurement they describe.</p>
+      </li>
+      <li>
+        <span class="n">04</span>
+        <h3>Analysis</h3>
+        <p>Five tables, four charts, and {{ facts.checks() | length }} checks. The report's numbers are lookups from those tables, never re-typed prose.</p>
+      </li>
+      <li>
+        <span class="n">05</span>
+        <h3>Report</h3>
+        <p>This page. It is self-contained, opens offline, and is rebuilt byte-for-byte from the same pull.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section id="provenance">
+    <p class="kicker">05 — Provenance</p>
+    <h2>What this was built from</h2>
+    <p class="lede">Every input is pinned by hash. These are the exact bytes this report was built from.</p>
+    <div class="panel">
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Input</th><th class="num">Bytes</th><th>SHA-256</th></tr>
+        </thead>
+        <tbody>
+          {% for item in provenance.inputs %}
+          <tr>
+            <td data-label="Input">{{ item.label }}<br><span class="path">{{ item.path }}</span></td>
+            <td class="num" data-label="Bytes">{{ item.bytes | n0 }}</td>
+            <td data-label="SHA-256"><span class="hash">{{ item.sha256[:16] }}…</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <p class="versions">
+        Data date {{ facts.summary("as_of") | date_label }}. Built from
+        {% if provenance.git.commit %}{{ provenance.git.branch }} at {{ provenance.git.commit[:12] }}{% if provenance.git.dirty %} with uncommitted changes{% endif %}{% else %}a checkout with no git metadata{% endif %}.
+        Python {{ provenance.python }}.
+      </p>
+      <p class="versions">
+        {% for name, version in provenance.packages.items() %}{{ name }} {{ version or "not installed" }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <p class="ghost" aria-hidden="true">source → report</p>
+    <div class="colophon">
+      <p><strong>Fixture data.</strong> The measurements and notes on this page are synthetic and deterministic; they are not a real monitoring network.</p>
+      <p>Reference example for Phlo. To adapt it, replace the domain pack: <code>src/source_to_report/domain</code>, <code>workflows</code> and <code>data</code>.</p>
+    </div>
+  </footer>
+
+</main>
+</body>
+</html>

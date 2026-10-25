@@ -1,0 +1,25 @@
+# Raw tables the ingestion assets write. `phlo_asset_key` binds each dbt
+# source to the Phlo asset that produces it, so `+air_quality_report` pulls
+# the ingestion into the run instead of treating the table as external.
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: air_readings
+        description: Hourly concentration measurements, one row per station and pollutant.
+        meta:
+          phlo_asset_key: dlt_air_readings
+      - name: monitoring_notes
+        description: Published monthly notes, one row per note, kept whole.
+        meta:
+          phlo_asset_key: dlt_monitoring_notes
+      - name: note_claims
+        description: Figures published in the notes, each with its note and line.
+        meta:
+          phlo_asset_key: dlt_note_claims
+      - name: youtube_videos
+        description: One row per video in the channel export.
+        meta:
+          phlo_asset_key: dlt_youtube_videos

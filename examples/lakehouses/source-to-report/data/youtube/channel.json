@@ -1,0 +1,249 @@
+{
+  "channel": {
+    "id": "UC-fixture-fieldnotes",
+    "title": "Field Notes",
+    "pulled_at": "2026-01-05"
+  },
+  "videos": [
+    {
+      "video_id": "vid-001",
+      "published_at": "2025-01-05",
+      "title": "Build incremental models in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 717,
+      "views": 15629,
+      "likes": 779,
+      "comments": 73
+    },
+    {
+      "video_id": "vid-002",
+      "published_at": "2025-01-20",
+      "title": "Inside the team behind partitioned assets",
+      "format": "interview",
+      "duration_seconds": 1975,
+      "views": 7709,
+      "likes": 335,
+      "comments": 33
+    },
+    {
+      "video_id": "vid-003",
+      "published_at": "2025-02-05",
+      "title": "data contracts in five minutes",
+      "format": "demo",
+      "duration_seconds": 388,
+      "views": 9299,
+      "likes": 411,
+      "comments": 29
+    },
+    {
+      "video_id": "vid-004",
+      "published_at": "2025-02-20",
+      "title": "Build lineage in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 568,
+      "views": 20132,
+      "likes": 750,
+      "comments": 63
+    },
+    {
+      "video_id": "vid-005",
+      "published_at": "2025-03-05",
+      "title": "Inside the team behind backfills",
+      "format": "interview",
+      "duration_seconds": 1887,
+      "views": 9131,
+      "likes": 333,
+      "comments": 56
+    },
+    {
+      "video_id": "vid-006",
+      "published_at": "2025-03-20",
+      "title": "quality rules in five minutes",
+      "format": "demo",
+      "duration_seconds": 607,
+      "views": 9900,
+      "likes": 398,
+      "comments": 56
+    },
+    {
+      "video_id": "vid-007",
+      "published_at": "2025-04-05",
+      "title": "Build warehouse costs in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 571,
+      "views": 17970,
+      "likes": 819,
+      "comments": 86
+    },
+    {
+      "video_id": "vid-008",
+      "published_at": "2025-04-20",
+      "title": "Inside the team behind schema evolution",
+      "format": "interview",
+      "duration_seconds": 1998,
+      "views": 9894,
+      "likes": 470,
+      "comments": 36
+    },
+    {
+      "video_id": "vid-009",
+      "published_at": "2025-05-05",
+      "title": "branching in five minutes",
+      "format": "demo",
+      "duration_seconds": 468,
+      "views": 14781,
+      "likes": 556,
+      "comments": 51
+    },
+    {
+      "video_id": "vid-010",
+      "published_at": "2025-05-20",
+      "title": "Build observability in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 993,
+      "views": 15560,
+      "likes": 754,
+      "comments": 88
+    },
+    {
+      "video_id": "vid-011",
+      "published_at": "2025-06-05",
+      "title": "Inside the team behind fixtures",
+      "format": "interview",
+      "duration_seconds": 2163,
+      "views": 10676,
+      "likes": 515,
+      "comments": 62
+    },
+    {
+      "video_id": "vid-012",
+      "published_at": "2025-06-20",
+      "title": "dbt tests in five minutes",
+      "format": "demo",
+      "duration_seconds": 484,
+      "views": 13568,
+      "likes": 640,
+      "comments": 78
+    },
+    {
+      "video_id": "vid-013",
+      "published_at": "2025-07-05",
+      "title": "Build incremental models in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 1141,
+      "views": 19038,
+      "likes": 997,
+      "comments": 94
+    },
+    {
+      "video_id": "vid-014",
+      "published_at": "2025-07-20",
+      "title": "Inside the team behind partitioned assets",
+      "format": "interview",
+      "duration_seconds": 2001,
+      "views": 6719,
+      "likes": 286,
+      "comments": 34
+    },
+    {
+      "video_id": "vid-015",
+      "published_at": "2025-08-05",
+      "title": "data contracts in five minutes",
+      "format": "demo",
+      "duration_seconds": 362,
+      "views": 12872,
+      "likes": 611,
+      "comments": 65
+    },
+    {
+      "video_id": "vid-016",
+      "published_at": "2025-08-20",
+      "title": "Build lineage in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 617,
+      "views": 22595,
+      "likes": 1310,
+      "comments": 91
+    },
+    {
+      "video_id": "vid-017",
+      "published_at": "2025-09-05",
+      "title": "Inside the team behind backfills",
+      "format": "interview",
+      "duration_seconds": 2062,
+      "views": 10673,
+      "likes": 537,
+      "comments": 42
+    },
+    {
+      "video_id": "vid-018",
+      "published_at": "2025-09-20",
+      "title": "quality rules in five minutes",
+      "format": "demo",
+      "duration_seconds": 599,
+      "views": 15462,
+      "likes": 859,
+      "comments": 46
+    },
+    {
+      "video_id": "vid-019",
+      "published_at": "2025-10-05",
+      "title": "Build warehouse costs in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 697,
+      "views": 22385,
+      "likes": 1086,
+      "comments": 110
+    },
+    {
+      "video_id": "vid-020",
+      "published_at": "2025-10-20",
+      "title": "Inside the team behind schema evolution",
+      "format": "interview",
+      "duration_seconds": 2004,
+      "views": 10950,
+      "likes": 479,
+      "comments": 46
+    },
+    {
+      "video_id": "vid-021",
+      "published_at": "2025-11-05",
+      "title": "branching in five minutes",
+      "format": "demo",
+      "duration_seconds": 488,
+      "views": 13348,
+      "likes": 474,
+      "comments": 82
+    },
+    {
+      "video_id": "vid-022",
+      "published_at": "2025-11-20",
+      "title": "Build observability in Phlo",
+      "format": "tutorial",
+      "duration_seconds": 686,
+      "views": 22249,
+      "likes": 883,
+      "comments": 82
+    },
+    {
+      "video_id": "vid-023",
+      "published_at": "2025-12-05",
+      "title": "Inside the team behind fixtures",
+      "format": "interview",
+      "duration_seconds": 1809,
+      "views": 9371,
+      "likes": 512,
+      "comments": 59
+    },
+    {
+      "video_id": "vid-024",
+      "published_at": "2025-12-20",
+      "title": "dbt tests in five minutes",
+      "format": "demo",
+      "duration_seconds": 380,
+      "views": 11228,
+      "likes": 395,
+      "comments": 56
+    }
+  ]
+}
