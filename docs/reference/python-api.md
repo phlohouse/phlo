@@ -249,6 +249,8 @@ def event_rules() -> object:
 | --- | --- | --- | --- |
 | `column` | `str` | required | Timestamp column. |
 | `hours` | `float` keyword-only | required | Maximum age in hours. |
+| `reference_time` | `datetime \| None` keyword-only | `None` | Evaluation reference, otherwise the current clock. |
+| `require_timestamps` | `bool` keyword-only | `False` | Fail when no usable timestamp exists. |
 
 ### `range_between`
 
@@ -465,10 +467,17 @@ consumer = phlo.Consumer(name="analytics", contact="analytics@example.com")
 | `quality_threshold` | `float` | `1.0` | Required quality ratio. |
 | `max_failures` | `int \| None` | `None` | Allowed failures. |
 | `notify` | `list[str] \| None` | `None` | Notification recipients. |
+| `freshness_column` | `str \| None` keyword-only | `None` | Data timestamp column for an explicit freshness promise. Requires `freshness_hours`. |
+| `freshness_reference_time` | `datetime \| None` keyword-only | `None` | Timezone-aware historical evaluation reference. Requires a column and threshold. |
 
 ```python
 sla = phlo.SLA(freshness_hours=24, quality_threshold=0.99)
 ```
+
+Explicit SLA freshness executes when attached to `phlo.quality.pandera`.
+Governance declarations alone remain metadata-only. See
+[SLA data freshness](quality-checks.md#sla-data-freshness) for timezone, missing-data,
+serialisation, and compatibility semantics.
 
 ## Helpers and relation references
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -218,8 +219,10 @@ def test_quality_rules_decorator_translates_rules_with_selected_provider(
     assert users_quality._quality_kwargs["checks"] == ["native:not_null"]
 
 
+@pytest.mark.parametrize("kind", ["not_null", "freshness"])
 def test_quality_rules_fails_when_provider_cannot_translate_rules(
     monkeypatch: pytest.MonkeyPatch,
+    kind: str,
 ) -> None:
     """Providers without neutral rule support should fail with a clear message."""
     import phlo
@@ -240,8 +243,18 @@ def test_quality_rules_fails_when_provider_cannot_translate_rules(
 
     quality = importlib.import_module("phlo.quality")
 
+    rule = (
+        phlo.not_null("id")
+        if kind == "not_null"
+        else phlo.freshness(
+            "event_time",
+            hours=2,
+            reference_time=datetime(2025, 1, 15, tzinfo=UTC),
+            require_timestamps=True,
+        )
+    )
     with pytest.raises(ValueError) as exc_info:
-        quality.rules(table="bronze.users", rules=[phlo.not_null("id")], provider_name="basic")
+        quality.rules(table="bronze.users", rules=[rule], provider_name="basic")
 
     assert "Quality provider 'basic' cannot translate neutral quality rules" in str(exc_info.value)
 

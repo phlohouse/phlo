@@ -19,7 +19,7 @@ from phlo.capabilities import (
 from phlo.capabilities.runtime import RuntimeContext
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_sla
 
-from phlo_pandera.checks import QualityCheck, QualityCheckResult
+from phlo_pandera.checks import FreshnessCheck, QualityCheck, QualityCheckResult
 from phlo_pandera.checks_extra import SchemaCheck
 from phlo_pandera.contract import PANDERA_CONTRACT_CHECK_NAME, QualityCheckContract
 from phlo_pandera.decorator_helpers import (
@@ -33,6 +33,7 @@ from phlo_pandera.decorator_helpers import (
     _repro_sql,
 )
 from phlo_pandera.partitioning import PartitionScope, apply_partition_scope, get_partition_key
+from phlo_pandera.helpers import freshness_check_from_sla
 from phlo_pandera.severity import severity_for_pandera_contract, severity_for_quality_check
 
 
@@ -63,7 +64,18 @@ def phlo_pandera(
     consumers, SLA). The query defaults to ``SELECT * FROM {table}`` on the
     given backend ("trino" or "duckdb").
 
+    An SLA with ``freshness_column`` adds an executable freshness check.
+    Legacy SLAs without a column remain metadata-only.
+
     """
+    if sla is not None and sla.freshness_column is not None:
+        freshness = freshness_check_from_sla(sla)
+        assert freshness is not None
+        matching = [check for check in checks if check.name == freshness.name]
+        if matching and matching != [freshness]:
+            raise ValueError("Freshness check conflicts with explicit SLA")
+        if not matching:
+            checks = [*checks, freshness]
     normalized_consumers = normalize_consumers(consumers)
     serialized_sla = serialize_sla(sla)
     contract_tags: dict[str, str] = {}
@@ -216,9 +228,14 @@ def _register_quality_checks(
                     },
                 )
 
-            # No rows means nothing to violate: report a pass so an empty
-            # partition does not block downstream assets.
-            if df.empty:
+            # Preserve the empty-partition skip for legacy checks. An explicit
+            # freshness promise cannot pass without a usable timestamp.
+            checks_to_run = [
+                check
+                for check in non_schema_checks
+                if not df.empty or (isinstance(check, FreshnessCheck) and check.require_timestamps)
+            ]
+            if not checks_to_run:
                 runtime.logger.warning("No rows returned; marking check as skipped.")
                 emitter.emit_result(
                     check_name=getattr(func, "__name__", "quality_check"),
@@ -248,14 +265,14 @@ def _register_quality_checks(
 
             runtime.logger.info(
                 "executing_quality_checks",
-                check_count=len(non_schema_checks),
+                check_count=len(checks_to_run),
                 row_count=len(df),
             )
 
             check_results: List[QualityCheckResult] = []
             all_passed = True
 
-            for check in non_schema_checks:
+            for check in checks_to_run:
                 try:
                     result = df.execute(check, runtime)
                     check_results.append(result)

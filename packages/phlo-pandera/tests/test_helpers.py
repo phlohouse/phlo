@@ -1,7 +1,7 @@
 """Verify conversion of data contracts into Pandera checks: null checks from
 non-nullable fields, uniqueness, freshness, accepted values, and custom SQL."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from pandera.pandas import Field
@@ -57,6 +57,15 @@ def test_freshness_check_from_sla_uses_freshness_hours() -> None:
     assert check.max_age_hours == 6.0
     assert check.reference_time == reference_time
     assert freshness_check_from_sla(SLA(), "updated_at") is None
+
+
+def test_explicit_sla_cannot_be_silently_overridden() -> None:
+    reference = datetime(2025, 1, 15, 12, tzinfo=timezone.utc)
+    sla = SLA(2, freshness_column="event_time", freshness_reference_time=reference)
+    with pytest.raises(ValueError, match="timestamp_column conflicts"):
+        freshness_check_from_sla(sla, "_phlo_ingested_at")
+    with pytest.raises(ValueError, match="reference_time conflicts"):
+        freshness_check_from_sla(sla, reference_time=datetime.now(timezone.utc))
 
 
 def test_accepted_values_check_builds_custom_sql_check() -> None:

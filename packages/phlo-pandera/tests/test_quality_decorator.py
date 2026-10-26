@@ -10,7 +10,7 @@ Tests cover:
 """
 
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -633,6 +633,128 @@ def test_registered_checks_execute_against_duckdb(schema: bool, outcome: str) ->
             assert result.metadata["summary"] == (
                 "1/2 quality checks passed" if outcome == "fail" else "2/2 quality checks passed"
             )
+
+
+@pytest.mark.parametrize("entrypoint", ["sla", "neutral"])
+@pytest.mark.parametrize(
+    "timestamps, passed, age, reason",
+    [
+        (["2025-01-14T06:00:00Z"], False, 30.0, None),
+        (["2025-01-15T11:00:00Z"], True, 1.0, None),
+        (["2025-01-15 10:00:00"], True, 2.0, None),
+        (["2025-01-15T10:59:59+01:00"], False, 2 + 1 / 3600, None),
+        (["2025-01-15T11:00:00+01:00", "2025-01-15T11:30:00Z"], True, 0.5, None),
+        (["invalid", "2025-01-15T11:00:00Z"], True, 1.0, None),
+        ([None], False, None, "no_usable_timestamps"),
+        (["invalid"], False, None, "no_usable_timestamps"),
+        ([], False, None, "no_usable_timestamps"),
+        (None, False, None, "missing_timestamp_column"),
+    ],
+)
+def test_explicit_freshness_public_declarations_execute_against_duckdb(
+    entrypoint,
+    timestamps,
+    passed,
+    age,
+    reason,
+) -> None:
+    import phlo
+
+    reference = datetime(2025, 1, 15, 17, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    promise = SLA(2, freshness_column="event_time", freshness_reference_time=reference)
+    options = {"table": "readings", "backend": "duckdb", "full_table": True}
+    if entrypoint == "sla":
+        decorator = phlo.quality.pandera(
+            checks=[
+                FreshnessCheck(timestamp_column="_phlo_ingested_at", max_age_hours=2),
+                RangeCheck(column="id", min_value=0),
+            ],
+            sla=promise,
+            **options,
+        )
+    else:
+        decorator = phlo.quality.rules(
+            rules=[
+                phlo.freshness(
+                    "event_time", hours=2, reference_time=reference, require_timestamps=True
+                )
+            ],
+            **options,
+        )
+
+    @decorator
+    def telemetry_freshness():
+        pass
+
+    with duckdb.connect() as connection:
+        connection.execute(
+            "CREATE TABLE readings (event_time VARCHAR, _phlo_ingested_at TIMESTAMPTZ, id BIGINT)"
+        )
+        if timestamps is None:
+            connection.execute("ALTER TABLE readings DROP event_time")
+            connection.execute("INSERT INTO readings VALUES (now(), 1)")
+        elif timestamps:
+            connection.executemany(
+                "INSERT INTO readings VALUES (?, now(), 1)", [(t,) for t in timestamps]
+            )
+        runtime = SimpleNamespace(
+            run_id="historical-freshness",
+            partition_key=None,
+            resources={"duckdb": connection},
+            logger=get_logger("test.freshness"),
+        )
+        [spec] = get_quality_checks()
+        result = spec.fn(runtime)
+    assert result.passed is passed
+    assert result.metadata["checks_executed"] == (
+        3 if entrypoint == "sla" and timestamps != [] else 1
+    )
+    if timestamps == []:
+        assert result.metadata["checks_failed"] == 1
+        assert "range_check_value" not in result.metadata
+    prefix = "freshness_check_event_time"
+    assert result.metadata[f"{prefix}_timestamp_column"] == "event_time"
+    assert result.metadata[f"{prefix}_reference_mode"] == "explicit"
+    assert datetime.fromisoformat(result.metadata[f"{prefix}_reference_time"]) == reference
+    if age is not None:
+        assert result.metadata[f"{prefix}_age_hours"] == pytest.approx(age)
+    if reason is not None:
+        assert result.metadata[f"{prefix}_reason"] == reason
+
+
+def test_explicit_sla_without_reference_uses_wall_clock() -> None:
+    import phlo
+
+    @phlo.quality.pandera(
+        table="readings",
+        checks=[],
+        backend="duckdb",
+        full_table=True,
+        sla=SLA(2, freshness_column="event_time"),
+    )
+    def live_freshness():
+        pass
+
+    with duckdb.connect() as connection:
+        connection.execute(
+            "CREATE TABLE readings AS SELECT now() - INTERVAL '1 hour' AS event_time"
+        )
+        runtime = SimpleNamespace(
+            run_id="live-freshness",
+            partition_key=None,
+            resources={"duckdb": connection},
+            logger=get_logger("test.freshness"),
+        )
+        [spec] = get_quality_checks()
+        before = datetime.now(timezone.utc)
+        result = spec.fn(runtime)
+        after = datetime.now(timezone.utc)
+    assert result.passed
+    assert result.metadata["freshness_check_event_time_reference_mode"] == "wall_clock"
+    evaluated_at = datetime.fromisoformat(
+        result.metadata["freshness_check_event_time_reference_time"]
+    )
+    assert before <= evaluated_at <= after
 
 
 def test_registered_quality_check_execution_error_is_a_failed_result() -> None:

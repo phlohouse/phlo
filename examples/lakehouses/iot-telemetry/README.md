@@ -89,6 +89,76 @@ uv run phlo materialize site_daily_report --partition 2026-08-20
 Every ingestion asset requires an explicit partition key (`YYYY-MM-DD`);
 the day's hourly files are appended inside one WAP-isolated run.
 
+## Check event-time freshness locally
+
+Run the standalone freshness demonstration from the repository root. It needs
+the repository's locked Python environment, not running platform services:
+
+```bash
+uv sync --locked
+uv run --locked python examples/lakehouses/iot-telemetry/scripts/freshness_demo.py --output /tmp/iot-freshness
+cat /tmp/iot-freshness/decisions.json
+```
+
+The demonstration writes real Parquet files, queries them with DuckDB, executes
+the checks registered by `phlo.quality.pandera`, and reopens the normal core
+SQLite run-evidence store. It does not run DLT, Iceberg, Trino, or WAP promotion.
+Use a new output directory for each run to keep evidence identities independent.
+
+Expect `old_events` to print `legacy_passed: true` and `explicit_passed: false`.
+Its events are 30 hours old at the historical reference, despite fresh ingestion.
+`fresh_events` and the exact two-hour boundary pass. The one-second-over-boundary,
+missing-column, invalid-timestamp, null-timestamp, and empty cases fail.
+Each explicit case has one stored quality result. The JSON includes the
+governance SLA, actual reference time, timestamp column, threshold, and age.
+
+Reuse the same promise for governance and execution in a workflow module:
+
+```python
+from datetime import datetime, timezone
+
+import phlo
+
+promise = phlo.SLA(
+	freshness_hours=2,
+	freshness_column="event_time",
+	freshness_reference_time=datetime(2026, 8, 20, 6, tzinfo=timezone.utc),
+)
+
+
+@phlo.contract(table="raw.telemetry_readings", owner="fleet-operations", sla=promise)
+@phlo.quality.pandera(
+	table="raw.telemetry_readings",
+	asset_key="dlt_telemetry_readings",
+	checks=[],
+	sla=promise,
+	backend="trino",
+	full_table=True,
+)
+def telemetry_event_freshness():
+	"""Require a recent event before consumers use fleet health."""
+```
+
+The explicit SLA creates a blocking freshness check without duplicating its
+threshold, column, or reference in a native provider check. The `schema.table`
+relation lets the Trino runtime select its catalog and candidate ref. An explicit
+catalog prefix can pin the query to that catalog instead.
+For live runs, omit
+`freshness_reference_time` to use the current clock. For historical runs, supply
+the intended evaluation instant. No partition-to-reference inference occurs.
+Choose the query or partition scope separately. A full-table maximum does not
+prove that every historical partition or device is fresh.
+
+`contract` alone records metadata and does not execute the promise. Attach the
+SLA to the quality decorator to enforce it. A timestamp without an offset means
+UTC in explicit SLA checks. The reference itself must have a timezone.
+Add separate completeness, null, and future-timestamp checks where required.
+Ingestion `freshness_hours=(2, 4)` remains a materialisation-age policy.
+
+For the complete contract, see the [freshness reference](../../../docs/reference/quality-checks.md#sla-data-freshness).
+
+## Inspect the platform results
+
 Inspect results:
 
 ```bash
