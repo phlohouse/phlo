@@ -1,5 +1,6 @@
 """Real bounded DLT extraction and Iceberg upserts with persistent cursor controls."""
 
+from contextlib import closing
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -12,7 +13,9 @@ from pyiceberg.schema import Schema
 from pyiceberg.types import LongType, NestedField, TimestamptzType
 
 from phlo.capabilities import DataInterval, RuntimeRouting
+from phlo.hooks import get_hook_bus
 from phlo.logging import get_logger
+from phlo.run_evidence import CoreRunEvidenceHookProvider, SQLiteRunEvidenceStore
 from phlo_dlt.decorator import phlo_ingestion
 from phlo_dlt.executor import DltIngester
 from phlo_dlt.registry import TableConfig
@@ -73,7 +76,7 @@ def test_intervals_preserve_cursor_across_replay_and_uncertain_writes(tmp_path, 
 
     store = IcebergResource(ref="main")
 
-    def run(begin, end, mode="scheduled"):
+    def run(begin, end, mode="scheduled", parameters=None):
         context = SimpleNamespace(
             routing=RuntimeRouting(data_interval=DataInterval(begin, end), interval_mode=mode)
         )
@@ -87,7 +90,7 @@ def test_intervals_preserve_cursor_across_replay_and_uncertain_writes(tmp_path, 
             add_metadata_columns=False,
             interval_column="updated_at",
             interval_lookback=timedelta(hours=2),
-        ).run_ingestion("2026-03-29")
+        ).run_ingestion("2026-03-29", parameters=parameters)
 
     def ids():
         return sorted(
@@ -136,7 +139,33 @@ def test_intervals_preserve_cursor_across_replay_and_uncertain_writes(tmp_path, 
         assert run(start + timedelta(hours=47), start + timedelta(hours=71)).status == "success"
         assert ids() == [1, 2, 3, 4]
         assert pipeline.state["sources"] == cursor_before
-        assert run(start + timedelta(days=10), start + timedelta(days=11)).status == "no_data"
+        evidence_path = tmp_path / "empty-window.sqlite"
+        with closing(SQLiteRunEvidenceStore(evidence_path)) as evidence:
+            bus = get_hook_bus()
+            bus.clear()
+            bus.register_provider(CoreRunEvidenceHookProvider(evidence), plugin_name="test")
+            try:
+                assert (
+                    run(
+                        start + timedelta(days=10),
+                        start + timedelta(days=11),
+                        parameters={
+                            "project_id": "interval-proof",
+                            "run_id": "empty-window",
+                            "attempt": 2,
+                        },
+                    ).status
+                    == "no_data"
+                )
+            finally:
+                bus.clear()
+        with closing(SQLiteRunEvidenceStore(evidence_path)) as reopened:
+            run_evidence = reopened.get_run("interval-proof", "empty-window")
+            assert run_evidence["status"] == "no_data"
+            resources = reopened.list_resources("interval-proof", "empty-window", attempt=2)
+            assert len(resources) == 1
+            assert resources[0]["role"] == "input"
+            assert resources[0]["metadata"]["records_read"] == {"status": "observed", "value": 0}
         assert ids() == [1, 2, 3, 4]
         assert pipeline.state["sources"] == cursor_before
         pipeline = dlt.attach(pipeline.pipeline_name, pipelines_dir=pipeline.pipelines_dir)

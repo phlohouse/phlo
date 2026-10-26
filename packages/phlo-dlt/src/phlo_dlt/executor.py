@@ -315,11 +315,53 @@ class DltIngester(BaseIngester):
         return apply_validation_schema_hints(source, self.validation_schema)
 
     def _no_data_result(
-        self, emitter: IngestionEventEmitter, attempt: int | None
+        self,
+        emitter: IngestionEventEmitter,
+        attempt: int | None,
+        context: IngestionEventContext,
+        source_identity: str | None,
+        correlation_error: str | None,
     ) -> IngestionResult:
-        """Finish both absent sources and empty bounded extracts without a table write."""
+        """Record empty-source evidence before returning without a write."""
+        log_event(self.logger, "info", "ingestion_no_data", partition_key=context.partition_key)
         if attempt is not None:
             emit_lifecycle_safely(emitter, "emit_end", status="no_data", metrics={"rows_loaded": 0})
+        if context.run_id and context.run_id != "unknown":
+            emit_observation(
+                project_id=context.project_id,
+                run_id=context.run_id,
+                attempt=attempt,
+                correlation_error=correlation_error,
+                observation_type="ingest",
+                status="no_data",
+                producer="phlo-dlt",
+                resources=[
+                    {
+                        "resource_kind": "external_source",
+                        "role": "input",
+                        "normalized_identity": source_identity,
+                        "resource_identity": _resource_identity(
+                            project_id=context.project_id,
+                            resource_type=(
+                                "external_source" if source_identity else "ingestion_asset"
+                            ),
+                            resource_id=source_identity or context.table_name,
+                            attributes={
+                                "table_name": context.table_name,
+                                "partition_key": context.partition_key or "unpartitioned",
+                            },
+                        ),
+                        "ref_name": context.branch_name,
+                        "metadata": {
+                            "partition": {"status": "observed", "value": context.partition_key},
+                            "watermark": {"status": "unavailable"},
+                            "records_read": {"status": "observed", "value": 0},
+                        },
+                    }
+                ],
+                metrics={"records_read": 0},
+                identity_parts=(context.table_name, context.partition_key, "no_data"),
+            )
         return IngestionResult(
             status="no_data", rows_inserted=0, rows_deleted=0, metadata={"status": "no_data"}
         )
@@ -467,27 +509,26 @@ class DltIngester(BaseIngester):
         group_name = self.table_config.group_name
 
         # Emission Setup
-        emitter = IngestionEventEmitter(
-            IngestionEventContext(
-                asset_key=self.table_config.ingestion_asset_key,
-                table_name=self.table_config.full_table_name,
-                group_name=group_name,
-                partition_key=partition_key,
-                project_id=project_id,
+        event_context = IngestionEventContext(
+            asset_key=self.table_config.ingestion_asset_key,
+            table_name=self.table_config.full_table_name,
+            group_name=group_name,
+            partition_key=partition_key,
+            project_id=project_id,
+            run_id=run_id,
+            branch_name=branch_name,
+            catalog_system=parameters.get("catalog_system"),
+            tags={"group": group_name, "source": "dlt"},
+            correlation=HookCorrelation(
                 run_id=run_id,
-                branch_name=branch_name,
-                catalog_system=parameters.get("catalog_system"),
-                tags={"group": group_name, "source": "dlt"},
-                correlation=HookCorrelation(
-                    run_id=run_id,
-                    project_id=project_id,
-                    attempt=correlation_attempt,
-                    asset_key=self.table_config.ingestion_asset_key,
-                    partition_key=partition_key,
-                    job_name=getattr(self.context, "job_name", None),
-                ),
-            )
+                project_id=project_id,
+                attempt=correlation_attempt,
+                asset_key=self.table_config.ingestion_asset_key,
+                partition_key=partition_key,
+                job_name=getattr(self.context, "job_name", None),
+            ),
         )
+        emitter = IngestionEventEmitter(event_context)
         telemetry = TelemetryEventEmitter(
             TelemetryEventContext(
                 tags={
@@ -520,50 +561,9 @@ class DltIngester(BaseIngester):
             )
 
             if dlt_source is None:
-                log_event(self.logger, "info", "ingestion_no_data", partition_key=partition_key)
-                result = self._no_data_result(emitter, attempt)
-                if run_id != "unknown":
-                    emit_observation(
-                        project_id=project_id,
-                        run_id=run_id,
-                        attempt=attempt,
-                        correlation_error=project_error,
-                        observation_type="ingest",
-                        status="no_data",
-                        producer="phlo-dlt",
-                        resources=[
-                            {
-                                "resource_kind": "external_source",
-                                "role": "input",
-                                "normalized_identity": source_identity,
-                                "resource_identity": _resource_identity(
-                                    project_id=project_id,
-                                    resource_type=(
-                                        "external_source" if source_identity else "ingestion_asset"
-                                    ),
-                                    resource_id=source_identity
-                                    or self.table_config.full_table_name,
-                                    attributes={
-                                        "table_name": self.table_config.full_table_name,
-                                        "partition_key": partition_date,
-                                    },
-                                ),
-                                "ref_name": branch_name,
-                                "metadata": {
-                                    "partition": {"status": "observed", "value": partition_key},
-                                    "watermark": {"status": "unavailable"},
-                                    "records_read": {"status": "observed", "value": 0},
-                                },
-                            }
-                        ],
-                        metrics={"records_read": 0},
-                        identity_parts=(
-                            self.table_config.full_table_name,
-                            partition_key,
-                            "no_data",
-                        ),
-                    )
-                return result
+                return self._no_data_result(
+                    emitter, attempt, event_context, source_identity, project_error
+                )
 
             pipeline, local_staging_root = setup_dlt_pipeline(
                 pipeline_name=pipeline_name,
@@ -594,7 +594,9 @@ class DltIngester(BaseIngester):
             )
 
             if not parquet_paths:
-                return self._no_data_result(emitter, attempt)
+                return self._no_data_result(
+                    emitter, attempt, event_context, source_identity, project_error
+                )
 
             if self.add_metadata_columns:
                 for parquet_path in parquet_paths:
