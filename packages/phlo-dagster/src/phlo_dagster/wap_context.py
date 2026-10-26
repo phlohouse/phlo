@@ -82,9 +82,14 @@ class WapContext:
     location: str
     backend_id: str
     strategy: str = "branch"
+    require_candidate_bound_checks: bool = False
 
-    def to_dict(self) -> dict[str, str]:
-        return asdict(self)
+    def to_dict(self) -> dict[str, Any]:
+        context = asdict(self)
+        # Preserve existing launch bindings when the opt-in policy is disabled.
+        if not self.require_candidate_bound_checks:
+            context.pop("require_candidate_bound_checks")
+        return context
 
 
 def select_wap_target(environment: str | None = None) -> tuple[str, EnvironmentTarget]:
@@ -118,6 +123,7 @@ def resolve_wap_context(
         target.dagster_location,
         _backend_identity(resolution),
         load_wap_config().strategy,
+        load_wap_config().require_candidate_bound_checks,
     )
 
 

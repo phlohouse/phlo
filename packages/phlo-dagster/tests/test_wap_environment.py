@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 import dagster as dg
 import pytest
 from phlo.capabilities.resolver import ResolutionResult
-from phlo.capabilities.specs import AssetSpec, RunSpec
+from phlo.capabilities.specs import AssetCheckSpec, AssetSpec, CheckResult, RunSpec
 from phlo.capabilities.support import CapabilitySupport
-from phlo.config.project import load_project_model
+from phlo.config.project import load_project_model, load_wap_config
 
 from phlo_dagster import adapter, wap_context, wap_launch, wap_sensors
 
@@ -190,9 +190,15 @@ def test_lost_launch_response_blocks_execution_then_explicit_registration_recove
 
 
 @pytest.mark.parametrize(
-    "mutation", ["environment", "ref", "backend", "location", "tag", "override", "manifest"]
+    "mutation",
+    ["environment", "ref", "backend", "location", "tag", "override", "manifest", "audit_policy"],
 )
 def test_drift_and_tampering_block_execution_promotion_and_retention(environment, mutation):
+    if mutation == "audit_policy":
+        environment.config.write_text(
+            environment.config.read_text() + "  require_candidate_bound_checks: true\n"
+        )
+        load_project_model.cache_clear()
     launch = wap_launch.prepare_wap_launch(logical_run_id="bound-run")
     run = run_for(launch)
     launch.record_launch_result(status="launched", dagster_run_id=run.run_id)
@@ -217,6 +223,14 @@ def test_drift_and_tampering_block_execution_promotion_and_retention(environment
         run.tags["phlo/ref"] = "main"
     elif mutation == "override":
         run.tags["phlo/capability/catalog"] = "other-provider"
+    elif mutation == "audit_policy":
+        environment.config.write_text(
+            environment.config.read_text().replace(
+                "require_candidate_bound_checks: true", "require_candidate_bound_checks: false"
+            )
+        )
+        load_project_model.cache_clear()
+        load_wap_config.cache_clear()
     else:
         wap_launch.write_wap_report(
             "bound-run", context={**launch.context.to_dict(), "target_ref": "main"}
@@ -478,3 +492,104 @@ def test_changed_source_is_not_deleted_after_pinned_publication(environment, mon
         launch.branch: "unreviewed-new-head",
     }
     assert environment.catalog.deletes == []
+
+
+@pytest.mark.parametrize(
+    "scenario,reason",
+    [
+        ("unchanged", None),
+        ("changed_before_promotion", "audit_candidate_changed"),
+        ("changed_during_check", "dagster_run_failed"),
+        ("missing_binding", "audit_candidate_binding_missing"),
+        ("wrong_ref", "audit_candidate_changed"),
+        ("mixed_checks", "audit_candidate_changed"),
+        ("no_checks", "audit_candidate_binding_missing"),
+        ("warning", None),
+        ("empty_result", None),
+        ("legacy", None),
+    ],
+)
+def test_candidate_bound_checks_gate_publication(environment, monkeypatch, scenario, reason):
+    """Real check events cannot approve a different candidate in strict mode."""
+    if scenario != "legacy":
+        environment.config.write_text(
+            environment.config.read_text() + "  require_candidate_bound_checks: true\n"
+        )
+        load_project_model.cache_clear()
+    launch = wap_launch.prepare_wap_launch(logical_run_id="bound-check")
+    monkeypatch.setattr(wap_context, "run_location", lambda run: "warehouse-code")
+
+    @dg.asset
+    def revenue(context):
+        launch.record_launch_result(status="launched", dagster_run_id=context.run.run_id)
+        environment.catalog.refs[launch.branch] = "audited-41"
+
+    def check(runtime):
+        if scenario == "changed_during_check":
+            environment.catalog.refs[launch.branch] = "unreviewed-52"
+        if scenario == "empty_result":
+            return None
+        return CheckResult(
+            passed=scenario != "warning",
+            severity="warn" if scenario == "warning" else "error",
+            check_name="conserved",
+            asset_key="revenue",
+        )
+
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=[],
+        checks=[AssetCheckSpec(name="conserved", asset_key="revenue", fn=check)],
+        resources=[],
+    )
+    if scenario in {"missing_binding", "wrong_ref", "mixed_checks"}:
+
+        @dg.asset_check(asset=revenue)
+        def custom():
+            metadata = (
+                {"phlo/wap_candidate": {"ref": "another-branch", "hash": "audited-41"}}
+                if scenario in {"wrong_ref", "mixed_checks"}
+                else {}
+            )
+            return dg.AssetCheckResult(passed=True, metadata=metadata)
+
+        definitions = (
+            dg.Definitions.merge(definitions, dg.Definitions(asset_checks=[custom]))
+            if scenario == "mixed_checks"
+            else dg.Definitions(asset_checks=[custom])
+        )
+    elif scenario == "no_checks":
+        definitions = dg.Definitions()
+    job = dg.Definitions.merge(
+        dg.Definitions(assets=[revenue]), definitions
+    ).resolve_implicit_global_asset_job_def()
+    with dg.DagsterInstance.ephemeral() as instance:
+        result = job.execute_in_process(instance=instance, tags=launch.tags, raise_on_error=False)
+        assert result.success is (scenario != "changed_during_check")
+        if scenario in {"changed_before_promotion", "legacy"}:
+            environment.catalog.refs[launch.branch] = "unreviewed-52"
+        with dg.build_sensor_context(instance=instance) as context:
+            wap_sensors.wap_auto_promotion_sensor.evaluate_tick(context)
+    report = wap_launch.read_wap_report(launch.logical_run_id)
+    if reason:
+        assert report["failure_reason"] == reason
+        assert environment.catalog.refs["qa"] == "qa-0"
+        assert launch.branch in environment.catalog.refs
+        assert environment.catalog.merges == environment.catalog.deletes == []
+        assert report.get("merge_state") is None
+    else:
+        assert report["status"] == "promoted"
+        assert environment.catalog.refs["qa"] == (
+            "unreviewed-52" if scenario == "legacy" else "audited-41"
+        )
+        assert launch.branch not in environment.catalog.refs
+
+
+def test_candidate_bound_policy_rejects_snapshot_launch_before_creating_branch(environment):
+    environment.config.write_text(
+        environment.config.read_text()
+        + "  require_candidate_bound_checks: true\n  strategy: snapshot\n"
+    )
+    load_project_model.cache_clear()
+    with pytest.raises(ValueError, match="Invalid phlo.yaml fields: wap"):
+        wap_launch.prepare_wap_launch(logical_run_id="snapshot-bound-check")
+    assert environment.catalog.refs == {"main": "production-0", "qa": "qa-0"}

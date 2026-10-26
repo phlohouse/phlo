@@ -72,6 +72,7 @@ from phlo.capabilities.specs import (
 from phlo.logging import get_logger, setup_logging
 from phlo.plugins.base import OrchestratorAdapterPlugin, PluginMetadata
 from phlo_dagster.asset_diagnostics import raise_duplicate_asset_specs_if_present
+from phlo_dagster.wap_launch import bind_wap_audit
 
 logger = get_logger(__name__)
 
@@ -421,7 +422,8 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             # observer run correlation via the hook-plugin translation.
             with phlo_observe.dagster_run_scope(context, asset_key=spec.asset_key):
                 with phlo_observe.dagster_step(context):
-                    result = spec.fn(runtime) if spec.fn else None
+                    with bind_wap_audit(context.run) as candidate_metadata:
+                        result = spec.fn(runtime) if spec.fn else None
                     result_severity = (
                         _severity_from_string(result.severity) if result is not None else None
                     )
@@ -443,8 +445,13 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
                         asset_key=spec.asset_key,
                     )
             if result is None:
-                return dg.AssetCheckResult(passed=True, check_name=spec.name, asset_key=asset_key)
-            metadata = _convert_metadata(result.metadata)
+                return dg.AssetCheckResult(
+                    passed=True,
+                    check_name=spec.name,
+                    asset_key=asset_key,
+                    metadata=_convert_metadata(candidate_metadata),
+                )
+            metadata = _convert_metadata({**result.metadata, **candidate_metadata})
             return dg.AssetCheckResult(
                 passed=result.passed,
                 check_name=result.check_name,

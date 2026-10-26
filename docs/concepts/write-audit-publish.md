@@ -107,9 +107,31 @@ All three processes must share trusted, durable `.phlo/wap-reports` storage unde
 
 Before running an asset function, the worker validates the launch binding and the run's actual remote origin. It waits up to 30 seconds for the trusted launcher to register the physical run ID returned by Dagster. Copied tags cannot register another run. A missing or lost launch response blocks execution and retains the branch; there is no first-claim-wins recovery. Authenticated remote submission requirements still apply.
 
-Publication proves that the pinned audit hash contains the captured target ancestor, then fast-forwards the target with Nessie's conditional reference assignment. The PUT body contains the exact audited source hash and `expectedHash` contains the launch target hash. Ordinary Nessie merge permits conflict-free rebasing even with a target hash in its URL, so it is not a strict publication precondition. Missing or incomplete ancestry proof blocks publication. The report records `publication_method: ref_fast_forward`, not a newly created merge commit.
+Publication pins the source hash when promotion begins, proves that it contains the captured target ancestor, then fast-forwards the target with Nessie's conditional reference assignment. The PUT body contains that pinned source hash and `expectedHash` contains the launch target hash. Ordinary Nessie merge permits conflict-free rebasing even with a target hash in its URL, so it is not a strict publication precondition. Missing or incomplete ancestry proof blocks publication. The report records `publication_method: ref_fast_forward`, not a newly created merge commit.
+
+By default, promotion does not bind check results to the hash they inspected. Keep the run-specific audit branch under one writer's control and do not change it after checks finish. Otherwise, a change before promotion pins its source hash can publish using earlier passing checks. Enable candidate-bound checks below to reject that stale evidence.
 
 Target movement blocks publication instead of rebasing the audit onto new data. A temporary catalog read failure is recorded as `catalog_hash_unavailable`; target movement is recorded separately as `target_hash_drift`. Foreign-location runs cannot trigger publication or retention deletion. Acknowledged publication recovery replays evidence and cleanup without publishing again or replacing the recorded publication hash with a later target head. Cleanup is also conditional on the audited source hash, so a changed or recreated source branch is retained for review.
+
+### Require candidate-bound checks
+
+For branch WAP, opt in through `phlo.yaml`:
+
+```yaml
+wap:
+  enabled: true
+  require_candidate_bound_checks: true
+```
+
+Phlo's standalone callable checks capture the candidate branch and hash before execution and verify that the hash is unchanged afterwards. Their Dagster results include `phlo/wap_candidate` metadata. Promotion requires every executed check to identify the same candidate hash it will publish. Advisory checks retain their warning semantics, but must still identify their candidate. Runs without checks cannot publish in this mode.
+
+Custom Dagster checks and in-band checks returned by asset functions must attach their own binding. Import `bind_wap_audit` from `phlo_dagster.wap_launch`, enter `with bind_wap_audit(context.run) as metadata` around the read-only check, and include that metadata in its result. Query the run's `phlo/ref` inside the scope. In-band checks are not automatically bound around the asset function because that function also writes data. Do not manufacture a binding after evaluating a check.
+
+The helper checks branch stability; it does not freeze the branch, inspect arbitrary SQL, or prove the identity of comparison data outside the candidate. Checks must use the candidate ref, and the branch must remain under trusted writer control without concurrent resets. This mode conservatively rejects even unrelated candidate-branch commits after an audit.
+
+A missing binding blocks publication with `audit_candidate_binding_missing`. A different branch or hash blocks it with `audit_candidate_changed`. Both retain the branch and leave the publication target unchanged, without recording promotion intent. A change during the helper's scope fails the check execution. Re-audit through a new WAP run after a candidate changes; do not edit old check events or reports.
+
+The policy is part of the immutable launch context. Changing it blocks existing runs through configuration-drift validation; it cannot downgrade a run already launched in strict mode. Deploy launchers, workers and sensors together before enabling it. Snapshot WAP rejects this option because this binding covers Nessie branch identity, not Iceberg snapshot-promotion identity. Leaving the option disabled preserves existing custom-check and no-check behaviour.
 
 ### Review blocked or legacy runs
 
