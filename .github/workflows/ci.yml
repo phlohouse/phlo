@@ -454,7 +454,7 @@ jobs:
   frontend:
     name: behaviour / JavaScript
     needs: ci-config
-    if: needs.ci-config.outputs.frontend == 'true' || needs.ci-config.outputs.writer == 'true' || needs.ci-config.outputs.plugin == 'true'
+    if: needs.ci-config.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -470,17 +470,13 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: |
-            packages/phlo-observatory/src/phlo_observatory/package-lock.json
-            apps/phlo-github-writer/package-lock.json
+          cache-dependency-path: packages/phlo-observatory/src/phlo_observatory/package-lock.json
 
       - name: Install dependencies
-        if: needs.ci-config.outputs.frontend == 'true'
         id: observatory_install
         run: npm ci
 
       - name: Install authoritative API for the method/schema drift gate
-        if: needs.ci-config.outputs.frontend == 'true'
         uses: ./.github/actions/python-workspace
 
       - name: Check formatting with Prettier
@@ -512,49 +508,82 @@ jobs:
         if: ${{ !cancelled() && steps.observatory_install.outcome == 'success' }}
         run: npm test
 
-      - name: Install pinned browser driver and Chromium
+      - name: Install pinned browser driver with runner Chrome
         if: ${{ !cancelled() && steps.observatory_build.outcome == 'success' }}
         # Disposable CI-only driver, kept out of the product dependency graph.
         run: | # zizmor: ignore[adhoc-packages]
+          set -euo pipefail
+          chrome="$(command -v google-chrome || true)"
+          if [ -z "$chrome" ] || [ ! -x "$chrome" ]; then
+            echo '::error::Runner Google Chrome is unavailable; browser smoke requires preinstalled Chrome.'
+            exit 1
+          fi
+          "$chrome" --version
+          echo "AGENT_BROWSER_EXECUTABLE_PATH=$chrome" >> "$GITHUB_ENV"
           npm install --global agent-browser@0.38.1
-          agent-browser install --with-deps
       - name: Smoke the built Node app against the controlled authenticated API
         if: ${{ !cancelled() && steps.observatory_build.outcome == 'success' }}
         env:
           SMOKE_ARTIFACT_DIR: ${{ github.workspace }}/test-results/browser
         run: node scripts/browser-smoke.mjs
       - name: Upload built browser smoke evidence
-        if: always() && needs.ci-config.outputs.frontend == 'true'
+        if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: built-observatory-browser-smoke
           path: test-results/browser/
           if-no-files-found: error
 
-      - name: Install writer dependencies
-        if: ${{ !cancelled() && needs.ci-config.outputs.writer == 'true' }}
-        id: writer_install
+  writer:
+    name: behaviour / GitHub writer
+    needs: ci-config
+    if: needs.ci-config.outputs.writer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
         working-directory: apps/phlo-github-writer
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: apps/phlo-github-writer/package-lock.json
+      - name: Install writer dependencies
+        id: writer_install
         run: npm ci
 
       - name: Type check writer
         if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
-        working-directory: apps/phlo-github-writer
         run: npm run typecheck
 
       - name: Run writer tests
         if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
-        working-directory: apps/phlo-github-writer
         run: npm test
 
       - name: Build writer
         if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
-        working-directory: apps/phlo-github-writer
         run: npm run build
 
+  plugin:
+    name: behaviour / GitHub plugin
+    needs: ci-config
+    if: needs.ci-config.outputs.plugin == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+        with:
+          node-version: "24"
       - name: Run plugin behavior tests
-        if: ${{ !cancelled() && needs.ci-config.outputs.plugin == 'true' }}
-        working-directory: .
         run: |
           mkdir -p test-results
           node --experimental-strip-types --test --test-reporter=spec --test-reporter-destination=stdout \
@@ -568,7 +597,7 @@ jobs:
           assert not report.findall(".//skipped"), "Required plugin tests must not skip"
           PY
       - name: Upload plugin results
-        if: always() && needs.ci-config.outputs.plugin == 'true'
+        if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: plugin-results
@@ -589,6 +618,8 @@ jobs:
       - python-coverage
       - windows-portability
       - frontend
+      - writer
+      - plugin
     steps:
       - name: Summarize CI lane results
         shell: bash
@@ -601,6 +632,8 @@ jobs:
           PYTHON_COVERAGE: ${{ needs.python-coverage.result }}
           WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
           FRONTEND: ${{ needs.frontend.result }}
+          WRITER: ${{ needs.writer.result }}
+          PLUGIN: ${{ needs.plugin.result }}
           SELECT_PYTHON: ${{ needs.ci-config.outputs.python }}
           SELECT_GROUPS: ${{ needs.ci-config.outputs.groups }}
           SELECT_FRONTEND: ${{ needs.ci-config.outputs.frontend }}
@@ -622,18 +655,26 @@ jobs:
             echo "| python / package tests | ${PYTHON_PACKAGE_TESTS} |"
             echo "| python / line and branch floors | ${PYTHON_COVERAGE} |"
             echo "| behaviour / JavaScript | ${FRONTEND} |"
+            echo "| behaviour / GitHub writer | ${WRITER} |"
+            echo "| behaviour / GitHub plugin | ${PLUGIN} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           test "$CI_CONFIG" = success
           test "$PYTHON_QUALITY" = success
           expected_python=skipped
           expected_groups=skipped
-          expected_node=skipped
+          expected_frontend=skipped
+          expected_writer=skipped
+          expected_plugin=skipped
           if [ "$SELECT_PYTHON" = true ]; then expected_python=success; fi
           if [ "$SELECT_GROUPS" != '[]' ]; then expected_groups=success; fi
-          if [ "$SELECT_FRONTEND" = true ] || [ "$SELECT_WRITER" = true ] || [ "$SELECT_PLUGIN" = true ]; then expected_node=success; fi
+          if [ "$SELECT_FRONTEND" = true ]; then expected_frontend=success; fi
+          if [ "$SELECT_WRITER" = true ]; then expected_writer=success; fi
+          if [ "$SELECT_PLUGIN" = true ]; then expected_plugin=success; fi
           for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_CORE_TESTS" "$PYTHON_COVERAGE" "$WINDOWS_PORTABILITY"; do
             test "$result" = "$expected_python"
           done
           test "$PYTHON_PACKAGE_TESTS" = "$expected_groups"
-          test "$FRONTEND" = "$expected_node"
+          test "$FRONTEND" = "$expected_frontend"
+          test "$WRITER" = "$expected_writer"
+          test "$PLUGIN" = "$expected_plugin"

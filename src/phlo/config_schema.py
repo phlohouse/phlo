@@ -119,6 +119,10 @@ class WapConfig(BaseModel):
         default=False,
         description="Launch materialize and backfill runs through the WAP GraphQL lifecycle.",
     )
+    require_candidate_bound_checks: bool = Field(
+        default=False,
+        description="Require checks bound to the unchanged candidate hash before branch publication.",
+    )
     strategy: Literal["branch", "snapshot"] = Field(
         default="branch",
         description=(
@@ -143,6 +147,13 @@ class WapConfig(BaseModel):
         default=None,
         description="Optional remote Dagster GraphQL endpoint used for WAP launches.",
     )
+
+    @model_validator(mode="after")
+    def validate_candidate_bound_checks(self) -> WapConfig:
+        """Do not apply branch-hash evidence to snapshot-promotion catalogs."""
+        if self.require_candidate_bound_checks and self.strategy != "branch":
+            raise ValueError("Candidate-bound checks require branch WAP, not snapshot WAP")
+        return self
 
     @field_validator("job_name", "repository_location_name", "repository_name")
     @classmethod

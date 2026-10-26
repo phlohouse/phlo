@@ -27,6 +27,11 @@ INTEGRATION_JOBS = {
     "integration / integration / required suites",
 }
 PROVIDER_JOBS = {f"ci / python / installed provider artifacts ({index})" for index in range(2)}
+NODE_JOBS = {
+    "ci / behaviour / JavaScript",
+    "ci / behaviour / GitHub writer",
+    "ci / behaviour / GitHub plugin",
+}
 
 
 def example():
@@ -155,9 +160,9 @@ def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     assert {f"ci / python / core tests (3.12, shard {i})" for i in range(3)} <= jobs
     assert {name for name in jobs if "installed provider artifacts" in name} == PROVIDER_JOBS
     assert {f"ci / python / workspace coverage (shard {i})" for i in range(4)} <= jobs
+    assert jobs >= NODE_JOBS
     assert {
         "docs / docs / build",
-        "ci / behaviour / JavaScript",
         "ci / quality / source and file contracts",
         "containers / safety / container contracts",
         "ci / python / PostgreSQL coverage",
@@ -167,13 +172,13 @@ def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     assert not any("${{" in name for name in jobs)
 
 
-@pytest.mark.parametrize("job_name", sorted(INTEGRATION_JOBS | PROVIDER_JOBS))
+@pytest.mark.parametrize("job_name", sorted(INTEGRATION_JOBS | PROVIDER_JOBS | NODE_JOBS))
 @pytest.mark.parametrize("result", ["missing", "failure", "skipped", "cancelled"])
-def test_queue_evidence_requires_each_parallel_integration_and_provider_job(job_name, result):
-    """A green aggregate cannot replace any integration producer or provider shard."""
+def test_queue_evidence_requires_each_parallel_integration_provider_and_node_job(job_name, result):
+    """A green aggregate cannot replace an independently required producer."""
     run, _, _, manifest = example()
     expected = evidence.expected_jobs()
-    assert expected >= INTEGRATION_JOBS | PROVIDER_JOBS
+    assert expected >= INTEGRATION_JOBS | PROVIDER_JOBS | NODE_JOBS
     jobs = [
         {"name": name, "status": "completed", "conclusion": "success", "head_sha": SHA}
         for name in sorted(expected)

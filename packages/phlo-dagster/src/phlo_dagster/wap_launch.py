@@ -18,6 +18,7 @@ import os
 import re
 import tempfile
 import time
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -491,6 +492,37 @@ def prepare_wap_launch(*, logical_run_id: str, environment: str | None = None) -
             ],
         )
     return launch
+
+
+@contextlib.contextmanager
+def bind_wap_audit(run: Any) -> Iterator[dict[str, Any]]:
+    """Bind a read-only check to a stable WAP branch, or do nothing in legacy mode.
+
+    Query the run's candidate ref inside this scope and attach the returned
+    metadata to the check result. A branch change during the check raises rather
+    than emitting an approval for a state the check may not have read.
+    """
+    from phlo.infrastructure import load_wap_config
+
+    require_binding = load_wap_config().require_candidate_bound_checks
+    # Validate launch policy before allowing a tagged run to use legacy mode.
+    # Live configuration cannot downgrade an already strict launch.
+    if require_binding or (run.tags or {}).get(WAP_BRANCH_TAG):
+        verify_wap_execution(run)
+    if not require_binding:
+        yield {}
+        return
+    resolution = resolve_capability("catalog")
+    if resolution is None:
+        raise ValueError("WAP audit catalog unavailable")
+    catalog = resolution.provider
+    branch = run.tags[WAP_BRANCH_TAG]
+    source_hash = catalog.get_branch_hash(branch)
+    if not isinstance(source_hash, str) or not source_hash:
+        raise ValueError("WAP audit candidate hash unavailable")
+    yield {"phlo/wap_candidate": {"ref": branch, "hash": source_hash}}
+    if catalog.get_branch_hash(branch) != source_hash:
+        raise ValueError("WAP audit candidate changed during check; re-audit the candidate")
 
 
 def verify_wap_execution(run: Any, *, capability_overrides: dict[str, str] | None = None) -> None:

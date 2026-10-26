@@ -364,6 +364,10 @@ def _quality_check_records(instance: Any, run_id: str) -> list[dict[str, Any]] |
                 "blocking": bool(getattr(evaluation, "blocking", True)),
             }
         )
+        metadata = getattr(evaluation, "metadata", None)
+        candidate = metadata.get("phlo/wap_candidate") if isinstance(metadata, dict) else None
+        if isinstance(candidate, dg.JsonMetadataValue) and isinstance(candidate.value, dict):
+            checks[-1]["candidate"] = candidate.value
     return checks
 
 
@@ -1959,6 +1963,28 @@ def _promote_branch(
                 logical_run_id, status="promotion_blocked", failure_reason="target_hash_drift"
             )
             return (promoted, blocked + 1)
+        if (prior_report or {}).get("context", {}).get("require_candidate_bound_checks"):
+            checks = _quality_check_records(instance, run.run_id)
+            reason = None
+            if not checks or any(
+                not check.get("candidate", {}).get("hash")
+                or not check.get("candidate", {}).get("ref")
+                for check in checks
+            ):
+                reason = "audit_candidate_binding_missing"
+            elif any(
+                check["candidate"] != {"ref": branch_name, "hash": source_hash} for check in checks
+            ):
+                reason = "audit_candidate_changed"
+            if reason:
+                write_wap_report(
+                    logical_run_id,
+                    status="promotion_blocked",
+                    branch=branch_name,
+                    source_hash=source_hash,
+                    failure_reason=reason,
+                )
+                return (promoted, blocked + 1)
         # Persist intent before crossing the catalog boundary.  This is a
         # retry record, not a terminal promotion marker.
         if not write_wap_report(
