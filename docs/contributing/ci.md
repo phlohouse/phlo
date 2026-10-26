@@ -26,7 +26,7 @@ environments.
 | Bucket | Execution layout |
 | --- | --- |
 | Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job. Focused mutation checks remain required when selected. |
-| Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks share one Node job, with each consumer selected independently. |
+| Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks run in independent Node jobs, each required only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
 | Integration and portability | Storage/catalog contracts and four API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks share one native Windows job. |
 | Artifact and dependency safety | Preparation builds wheels once for provider shards and Windows acceptance. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 

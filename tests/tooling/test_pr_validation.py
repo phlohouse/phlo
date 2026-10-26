@@ -1,6 +1,7 @@
 """Pre-merge gates must cover every lane and cannot accept skipped work."""
 
 import importlib.util
+import itertools
 import json
 import os
 import subprocess
@@ -381,38 +382,52 @@ def test_docs_reusable_without_duplicate_pr_trigger_or_queue_deployment() -> Non
     assert build["permissions"] == {"contents": "read"}
 
 
-@pytest.mark.parametrize("selected", ["frontend", "writer", "plugin", "none"])
-@pytest.mark.parametrize("result", ["success", "failure", "skipped", "cancelled"])
-def test_combined_node_gate_requires_any_selected_consumer(tmp_path, selected, result):
-    step = workflow("ci.yml")["jobs"]["ci-status"]["steps"][0]
+@pytest.mark.parametrize("selected", list(itertools.product([False, True], repeat=3)))
+@pytest.mark.parametrize("lane", ["frontend", "writer", "plugin"])
+@pytest.mark.parametrize("result", ["success", "failure", "skipped", "cancelled", ""])
+def test_node_gate_requires_exactly_selected_consumers(tmp_path, selected, lane, result):
+    jobs = workflow("ci.yml")["jobs"]
+    aggregate = jobs["ci-status"]
+    assert aggregate["if"] == "always()"
+    step = aggregate["steps"][0]
     env = dict(os.environ, **dict.fromkeys(step["env"], "skipped"))
     env.update(
         CI_CONFIG="success",
         PYTHON_QUALITY="success",
         SELECT_PYTHON="false",
         SELECT_GROUPS="[]",
-        SELECT_FRONTEND=str(selected == "frontend").lower(),
-        SELECT_WRITER=str(selected == "writer").lower(),
-        SELECT_PLUGIN=str(selected == "plugin").lower(),
-        FRONTEND=result,
         GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
     )
+    selection = dict(zip(("frontend", "writer", "plugin"), selected, strict=True))
+    for name, enabled in selection.items():
+        assert jobs[name]["if"] == f"needs.ci-config.outputs.{name} == 'true'"
+        assert name in aggregate["needs"]
+        assert step["env"][name.upper()] == f"${{{{ needs.{name}.result }}}}"
+        env[f"SELECT_{name.upper()}"] = str(enabled).lower()
+        env[name.upper()] = "success" if enabled else "skipped"
+    env[lane.upper()] = result
     actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
-    assert (actual.returncode == 0) == (result == ("skipped" if selected == "none" else "success"))
+    assert (actual.returncode == 0) == (result == ("success" if selection[lane] else "skipped"))
 
 
-def test_consolidated_jobs_preserve_named_checks_and_single_setup():
+def test_independent_jobs_preserve_named_checks_and_single_setup():
     jobs = workflow("ci.yml")["jobs"]
     quality = jobs["python-quality"]
-    node = jobs["frontend"]
-    for job in (quality, node):
+    for job in (quality, jobs["frontend"], jobs["writer"], jobs["plugin"]):
         assert sum("actions/checkout@" in step.get("uses", "") for step in job["steps"]) == 1
         assert not any(step.get("continue-on-error") for step in job["steps"])
-    assert {"frontend", "writer", "plugin"} <= {
-        key for key in ("frontend", "writer", "plugin") if f"outputs.{key}" in node["if"]
-    }
-    names = {step.get("name") for step in node["steps"]}
-    assert {"Run tests", "Run writer tests", "Run plugin behavior tests", "Build writer"} <= names
+    for name, checks in {
+        "frontend": {
+            "Run tests",
+            "Smoke the built Node app against the controlled authenticated API",
+        },
+        "writer": {"Type check writer", "Run writer tests", "Build writer"},
+        "plugin": {"Run plugin behavior tests", "Upload plugin results"},
+    }.items():
+        assert checks <= {step.get("name") for step in jobs[name]["steps"]}
+        assert jobs[name]["needs"] == "ci-config"
+        assert jobs[name]["timeout-minutes"] == 25
+    assert jobs["frontend"]["name"] == "behaviour / JavaScript"
     quality_names = {step.get("name") for step in quality["steps"]}
     assert {
         "Check private-key hook with a non-allow-listed fixture",
@@ -423,6 +438,45 @@ def test_consolidated_jobs_preserve_named_checks_and_single_setup():
     } <= quality_names
     assert "pre-commit" not in jobs and "phlo-github-writer" not in jobs
     assert "plugin" not in workflow("pr.yml")["jobs"]
+
+
+@pytest.mark.parametrize("chrome_available", [False, True])
+def test_browser_setup_uses_runner_chrome_without_installing_browser_or_os(
+    tmp_path, chrome_available
+):
+    step = next(
+        step
+        for step in workflow("ci.yml")["jobs"]["frontend"]["steps"]
+        if step.get("name") == "Install pinned browser driver with runner Chrome"
+    )
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    calls = tmp_path / "calls"
+    # Only these executables exist on PATH. An apt or browser install would fail.
+    npm = binary / "npm"
+    npm.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\n')
+    npm.chmod(0o755)
+    chrome = binary / "google-chrome"
+    if chrome_available:
+        chrome.write_text('#!/bin/sh\ntest "$1" = --version\n')
+        chrome.chmod(0o755)
+    output = tmp_path / "env"
+    actual = subprocess.run(
+        ["/bin/bash", "-c", step["run"]],
+        env=dict(os.environ, PATH=str(binary), GITHUB_ENV=str(output)),
+        capture_output=True,
+        text=True,
+    )
+    assert (actual.returncode == 0) == chrome_available
+    if chrome_available:
+        assert calls.read_text().splitlines() == ["install --global agent-browser@0.38.1"]
+        assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
+            "AGENT_BROWSER_EXECUTABLE_PATH": str(chrome)
+        }
+    else:
+        assert "::error::Runner Google Chrome is unavailable" in actual.stdout
+        assert not calls.exists()
+        assert not output.exists()
 
 
 def test_required_result_collects_coverage_after_service_and_python_contracts():
@@ -462,6 +516,8 @@ def test_ci_status_rejects_missing_required_python_lanes(tmp_path, lane, result)
         SELECT_PLUGIN="false",
         PYTHON_PACKAGE_TESTS="skipped",
         FRONTEND="skipped",
+        WRITER="skipped",
+        PLUGIN="skipped",
         GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
     )
     env[lane] = result
