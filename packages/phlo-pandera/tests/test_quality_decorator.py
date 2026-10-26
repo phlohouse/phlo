@@ -665,7 +665,10 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
     options = {"table": "readings", "backend": "duckdb", "full_table": True}
     if entrypoint == "sla":
         decorator = phlo.quality.pandera(
-            checks=[FreshnessCheck(timestamp_column="_phlo_ingested_at", max_age_hours=2)],
+            checks=[
+                FreshnessCheck(timestamp_column="_phlo_ingested_at", max_age_hours=2),
+                RangeCheck(column="id", min_value=0),
+            ],
             sla=promise,
             **options,
         )
@@ -685,14 +688,14 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
 
     with duckdb.connect() as connection:
         connection.execute(
-            "CREATE TABLE readings (event_time VARCHAR, _phlo_ingested_at TIMESTAMPTZ)"
+            "CREATE TABLE readings (event_time VARCHAR, _phlo_ingested_at TIMESTAMPTZ, id BIGINT)"
         )
         if timestamps is None:
             connection.execute("ALTER TABLE readings DROP event_time")
-            connection.execute("INSERT INTO readings VALUES (now())")
+            connection.execute("INSERT INTO readings VALUES (now(), 1)")
         elif timestamps:
             connection.executemany(
-                "INSERT INTO readings VALUES (?, now())", [(t,) for t in timestamps]
+                "INSERT INTO readings VALUES (?, now(), 1)", [(t,) for t in timestamps]
             )
         runtime = SimpleNamespace(
             run_id="historical-freshness",
@@ -703,7 +706,12 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
         [spec] = get_quality_checks()
         result = spec.fn(runtime)
     assert result.passed is passed
-    assert result.metadata["checks_executed"] == (2 if entrypoint == "sla" else 1)
+    assert result.metadata["checks_executed"] == (
+        3 if entrypoint == "sla" and timestamps != [] else 1
+    )
+    if timestamps == []:
+        assert result.metadata["checks_failed"] == 1
+        assert "range_check_value" not in result.metadata
     prefix = "freshness_check_event_time"
     assert result.metadata[f"{prefix}_timestamp_column"] == "event_time"
     assert result.metadata[f"{prefix}_reference_mode"] == "explicit"

@@ -230,10 +230,12 @@ def _register_quality_checks(
 
             # Preserve the empty-partition skip for legacy checks. An explicit
             # freshness promise cannot pass without a usable timestamp.
-            if df.empty and not any(
-                isinstance(check, FreshnessCheck) and check.require_timestamps
+            checks_to_run = [
+                check
                 for check in non_schema_checks
-            ):
+                if not df.empty or (isinstance(check, FreshnessCheck) and check.require_timestamps)
+            ]
+            if not checks_to_run:
                 runtime.logger.warning("No rows returned; marking check as skipped.")
                 emitter.emit_result(
                     check_name=getattr(func, "__name__", "quality_check"),
@@ -263,14 +265,14 @@ def _register_quality_checks(
 
             runtime.logger.info(
                 "executing_quality_checks",
-                check_count=len(non_schema_checks),
+                check_count=len(checks_to_run),
                 row_count=len(df),
             )
 
             check_results: List[QualityCheckResult] = []
             all_passed = True
 
-            for check in non_schema_checks:
+            for check in checks_to_run:
                 try:
                     result = df.execute(check, runtime)
                     check_results.append(result)
