@@ -3,6 +3,7 @@
   "pages": [
     "connect-your-first-api",
     "ingest-data",
+    "data-intervals",
     "add-quality-checks",
     "transform-with-dbt",
     "transform-with-phlo-transform",
