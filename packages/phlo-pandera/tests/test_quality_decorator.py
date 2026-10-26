@@ -19,6 +19,7 @@ import pandas as pd
 import pandera.pandas as pa
 import pytest
 from phlo.contracts import SLA
+from phlo.capabilities import RuntimeRouting
 from phlo.logging import get_logger
 
 from phlo_pandera import (
@@ -635,6 +636,53 @@ def test_registered_checks_execute_against_duckdb(schema: bool, outcome: str) ->
             )
 
 
+@pytest.mark.parametrize("candidate_passes", [False, True])
+def test_schema_and_data_checks_validate_the_same_runtime_ref(candidate_passes):
+    class PositiveIds(pa.DataFrameModel):
+        id: int = pa.Field(gt=0)
+
+    class RefResource:
+        """Use real SQL with different contents for each catalog ref."""
+
+        def __init__(self, connections, ref="main"):
+            self.connections = connections
+            self.ref = ref
+
+        def for_ref(self, ref):
+            return RefResource(self.connections, ref)
+
+        def cursor(self):
+            return self.connections[self.ref].cursor()
+
+    with duckdb.connect() as main, duckdb.connect() as candidate:
+        main.execute(
+            "CREATE TABLE readings AS SELECT ?::BIGINT AS id", [-1 if candidate_passes else 1]
+        )
+        candidate.execute(
+            "CREATE TABLE readings AS SELECT ?::BIGINT AS id", [1 if candidate_passes else -1]
+        )
+        runtime = SimpleNamespace(
+            run_id="candidate-quality",
+            partition_key=None,
+            routing=RuntimeRouting(ref="candidate"),
+            resources={"trino": RefResource({"main": main, "candidate": candidate})},
+            logger=get_logger("test.candidate_quality"),
+        )
+
+        @phlo_pandera(
+            table="readings",
+            checks=[SchemaCheck(schema=PositiveIds), RangeCheck(column="id", min_value=1)],
+            backend="trino",
+            full_table=True,
+        )
+        def quality():
+            pass
+
+        results = [spec.fn(runtime) for spec in get_quality_checks()]
+        assert len(results) == 2
+        assert [result.passed for result in results] == [candidate_passes, candidate_passes]
+
+
 @pytest.mark.parametrize("entrypoint", ["sla", "neutral"])
 @pytest.mark.parametrize(
     "timestamps, passed, age, reason",
@@ -665,7 +713,10 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
     options = {"table": "readings", "backend": "duckdb", "full_table": True}
     if entrypoint == "sla":
         decorator = phlo.quality.pandera(
-            checks=[FreshnessCheck(timestamp_column="_phlo_ingested_at", max_age_hours=2)],
+            checks=[
+                FreshnessCheck(timestamp_column="_phlo_ingested_at", max_age_hours=2),
+                RangeCheck(column="id", min_value=0),
+            ],
             sla=promise,
             **options,
         )
@@ -685,14 +736,14 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
 
     with duckdb.connect() as connection:
         connection.execute(
-            "CREATE TABLE readings (event_time VARCHAR, _phlo_ingested_at TIMESTAMPTZ)"
+            "CREATE TABLE readings (event_time VARCHAR, _phlo_ingested_at TIMESTAMPTZ, id BIGINT)"
         )
         if timestamps is None:
             connection.execute("ALTER TABLE readings DROP event_time")
-            connection.execute("INSERT INTO readings VALUES (now())")
+            connection.execute("INSERT INTO readings VALUES (now(), 1)")
         elif timestamps:
             connection.executemany(
-                "INSERT INTO readings VALUES (?, now())", [(t,) for t in timestamps]
+                "INSERT INTO readings VALUES (?, now(), 1)", [(t,) for t in timestamps]
             )
         runtime = SimpleNamespace(
             run_id="historical-freshness",
@@ -703,7 +754,12 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
         [spec] = get_quality_checks()
         result = spec.fn(runtime)
     assert result.passed is passed
-    assert result.metadata["checks_executed"] == (2 if entrypoint == "sla" else 1)
+    assert result.metadata["checks_executed"] == (
+        3 if entrypoint == "sla" and timestamps != [] else 1
+    )
+    if timestamps == []:
+        assert result.metadata["checks_failed"] == 1
+        assert "range_check_value" not in result.metadata
     prefix = "freshness_check_event_time"
     assert result.metadata[f"{prefix}_timestamp_column"] == "event_time"
     assert result.metadata[f"{prefix}_reference_mode"] == "explicit"

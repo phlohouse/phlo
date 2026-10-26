@@ -414,7 +414,9 @@ from phlo_pandera.schemas import PhloSchema
                 FreshnessCheck: "freshness_check",
             }
             names = [
-                check.name
+                check.name_
+                if isinstance(check, CustomSQLCheck)
+                else check.name
                 if getattr(check, "require_timestamps", False)
                 else metric_names.get(type(check), check.name)
                 for check in checks

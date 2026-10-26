@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import duckdb
 import pytest
 
-from phlo import SLA, grain, range_between, reconcile_aggregate
+from phlo import SLA, accepted_values, grain, range_between, reconcile_aggregate
 from phlo.capabilities import AssetSpec
 from phlo.capabilities.registry import CapabilityRegistry
 from phlo.logging import get_logger
@@ -211,14 +211,31 @@ def test_unresolved_and_catalog_pinned_relations_fail_at_declaration():
                 ),
             ],
         )
+    with pytest.raises(ValueError, match="distinct evidence names"):
+        rules(
+            table="target",
+            rules=[
+                accepted_values("status", ["settled"]),
+                reconcile_aggregate(
+                    name="status_accepted_values",
+                    source="source",
+                    source_column="amount",
+                    target_column="revenue",
+                ),
+            ],
+        )
 
 
 @pytest.mark.parametrize("columns,passed", [(["id"], True), (["missing"], False)])
 def test_grain_empty_or_missing_columns(columns, passed):
     with closing(duckdb.connect()) as connection:
         connection.execute("CREATE TABLE target(id INTEGER)")
-        result = run(connection, [grain(*columns)], full_table=True)
+        result = run(
+            connection, [range_between("id", min_value=0), grain(*columns)], full_table=True
+        )
         assert result.passed is passed
+        assert result.metadata["checks_executed"] == 1
+        assert "range_check_value" not in result.metadata
 
 
 @pytest.mark.parametrize(
