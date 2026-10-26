@@ -11,11 +11,34 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from datetime import UTC, datetime
+from typing import Any, Literal, Protocol
 
 from phlo._attempt import attempt_from_tags
 from phlo._correlation import resolve_project_identity
 from phlo.capabilities.support import CapabilitySupport
+
+
+@dataclass(frozen=True, slots=True)
+class DataInterval:
+    """A half-open extraction window [start, end), stored as UTC instants.
+
+    This is an orchestration window, not a physical table partition transform.
+    Aware endpoints are required; local calendar windows belong to the adapter.
+    """
+
+    start: datetime
+    end: datetime
+
+    def __post_init__(self) -> None:
+        if self.start.utcoffset() is None or self.end.utcoffset() is None:
+            raise ValueError("Data interval endpoints must be timezone-aware")
+        start = self.start.astimezone(UTC)
+        end = self.end.astimezone(UTC)
+        if start >= end:
+            raise ValueError("Data interval start must precede end")
+        object.__setattr__(self, "start", start)
+        object.__setattr__(self, "end", end)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +56,12 @@ class RuntimeRouting:
     resources: dict[str, Any] = field(default_factory=dict)
     feature_flags: dict[str, str] = field(default_factory=dict)
     capability_overrides: dict[str, str] = field(default_factory=dict)
+    data_interval: DataInterval | None = None
+    interval_mode: Literal["scheduled", "replay"] = "scheduled"
+
+    def __post_init__(self) -> None:
+        if self.interval_mode not in ("scheduled", "replay"):
+            raise ValueError("Interval mode must be 'scheduled' or 'replay'")
 
 
 def capability_overrides_from_tags(tags: Mapping[str, str]) -> dict[str, str]:
@@ -135,6 +164,8 @@ def routing_from_context(context: RuntimeContext) -> RuntimeRouting:
         resources=resources,
         feature_flags=feature_flags,
         capability_overrides=capability_overrides,
+        data_interval=getattr(context, "data_interval", None),
+        interval_mode=getattr(context, "interval_mode", "scheduled"),
     )
 
 

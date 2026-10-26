@@ -3,12 +3,16 @@ routing, and missing-required-capability detection."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from phlo.capabilities import (
     ApiBackendSpec,
     CapabilitySupport,
     CatalogSpec,
+    DataInterval,
     LineageSinkSpec,
     MaintenanceExecutor,
     MaintenanceOperationResult,
@@ -37,6 +41,20 @@ from phlo.plugins.base import PluginMetadata
 from tests.support import reset_capability_test_state
 
 pytestmark = pytest.mark.core_regression
+
+
+def test_data_intervals_compare_instants_not_wall_clocks() -> None:
+    london = ZoneInfo("Europe/London")
+    interval = DataInterval(
+        datetime(2026, 10, 25, 1, 30, tzinfo=london, fold=0),
+        datetime(2026, 10, 25, 1, 30, tzinfo=london, fold=1),
+    )
+    assert interval.start == datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+    assert interval.end - interval.start == timedelta(hours=1)
+    with pytest.raises(ValueError, match="precede"):
+        DataInterval(interval.end, interval.start)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        DataInterval(interval.start.replace(tzinfo=None), interval.end.replace(tzinfo=None))
 
 
 def setup_function() -> None:

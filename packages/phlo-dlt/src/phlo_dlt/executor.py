@@ -59,6 +59,7 @@ from __future__ import annotations
 import time
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
 
@@ -81,14 +82,16 @@ from phlo.run_evidence import emit_lifecycle_safely, emit_observation
 from phlo.run_evidence.redaction import safe_error_summary
 from phlo.capabilities.history import HistoryWriteError
 from phlo.capabilities.interfaces import TableStore
-from phlo.capabilities.runtime import routing_from_context
+from phlo.capabilities.runtime import DataInterval, RuntimeRouting, routing_from_context
 
 from phlo_dlt.dlt_helpers import (
+    apply_data_interval,
     apply_validation_schema_hints,
     inject_metadata_columns,
     merge_to_table_store,
     setup_dlt_pipeline,
     stage_to_parquet,
+    validate_interval_options,
 )
 from phlo_dlt.evidence import (
     dlt_execution_identity,
@@ -272,8 +275,13 @@ class DltIngester(BaseIngester):
         validation_mode: ValidationMode = "materialized",
         validation_batch_size: int = 65_536,
         validation_sample_size: int = 1_000,
+        interval_column: str | None = None,
+        interval_lookback: timedelta = timedelta(0),
     ):
         """Store the ingester's collaborators and validation/merge options."""
+        validate_interval_options(
+            interval_column, interval_lookback, merge_strategy, table_config.unique_key
+        )
         super().__init__(context, logger)
         self.table_config = table_config
         self.table_store = table_store_resource
@@ -288,6 +296,75 @@ class DltIngester(BaseIngester):
         self.validation_mode = validation_mode
         self.validation_batch_size = validation_batch_size
         self.validation_sample_size = validation_sample_size
+        self.interval_column = interval_column
+        self.interval_lookback = interval_lookback
+
+    def _create_source(self, partition_key: str | None, routing: RuntimeRouting) -> Any:
+        """Prepare legacy or stateless bounded extraction before any records are read."""
+        if self.interval_column is None:
+            source = self.dlt_source_func(partition_date=partition_key)
+        else:
+            interval = routing.data_interval
+            if interval is None:
+                raise ValueError("Interval ingestion requires a runtime data interval")
+            if routing.interval_mode == "scheduled":
+                interval = DataInterval(interval.start - self.interval_lookback, interval.end)
+            source = apply_data_interval(
+                self.dlt_source_func(data_interval=interval), self.interval_column, interval
+            )
+        return apply_validation_schema_hints(source, self.validation_schema)
+
+    def _no_data_result(
+        self,
+        emitter: IngestionEventEmitter,
+        attempt: int | None,
+        context: IngestionEventContext,
+        source_identity: str | None,
+        correlation_error: str | None,
+    ) -> IngestionResult:
+        """Record empty-source evidence before returning without a write."""
+        log_event(self.logger, "info", "ingestion_no_data", partition_key=context.partition_key)
+        if attempt is not None:
+            emit_lifecycle_safely(emitter, "emit_end", status="no_data", metrics={"rows_loaded": 0})
+        if context.run_id and context.run_id != "unknown":
+            emit_observation(
+                project_id=context.project_id,
+                run_id=context.run_id,
+                attempt=attempt,
+                correlation_error=correlation_error,
+                observation_type="ingest",
+                status="no_data",
+                producer="phlo-dlt",
+                resources=[
+                    {
+                        "resource_kind": "external_source",
+                        "role": "input",
+                        "normalized_identity": source_identity,
+                        "resource_identity": _resource_identity(
+                            project_id=context.project_id,
+                            resource_type=(
+                                "external_source" if source_identity else "ingestion_asset"
+                            ),
+                            resource_id=source_identity or context.table_name,
+                            attributes={
+                                "table_name": context.table_name,
+                                "partition_key": context.partition_key or "unpartitioned",
+                            },
+                        ),
+                        "ref_name": context.branch_name,
+                        "metadata": {
+                            "partition": {"status": "observed", "value": context.partition_key},
+                            "watermark": {"status": "unavailable"},
+                            "records_read": {"status": "observed", "value": 0},
+                        },
+                    }
+                ],
+                metrics={"records_read": 0},
+                identity_parts=(context.table_name, context.partition_key, "no_data"),
+            )
+        return IngestionResult(
+            status="no_data", rows_inserted=0, rows_deleted=0, metadata={"status": "no_data"}
+        )
 
     def _validate_staged_contract(
         self, parquet_paths: list[Path]
@@ -432,27 +509,26 @@ class DltIngester(BaseIngester):
         group_name = self.table_config.group_name
 
         # Emission Setup
-        emitter = IngestionEventEmitter(
-            IngestionEventContext(
-                asset_key=self.table_config.ingestion_asset_key,
-                table_name=self.table_config.full_table_name,
-                group_name=group_name,
-                partition_key=partition_key,
-                project_id=project_id,
+        event_context = IngestionEventContext(
+            asset_key=self.table_config.ingestion_asset_key,
+            table_name=self.table_config.full_table_name,
+            group_name=group_name,
+            partition_key=partition_key,
+            project_id=project_id,
+            run_id=run_id,
+            branch_name=branch_name,
+            catalog_system=parameters.get("catalog_system"),
+            tags={"group": group_name, "source": "dlt"},
+            correlation=HookCorrelation(
                 run_id=run_id,
-                branch_name=branch_name,
-                catalog_system=parameters.get("catalog_system"),
-                tags={"group": group_name, "source": "dlt"},
-                correlation=HookCorrelation(
-                    run_id=run_id,
-                    project_id=project_id,
-                    attempt=correlation_attempt,
-                    asset_key=self.table_config.ingestion_asset_key,
-                    partition_key=partition_key,
-                    job_name=getattr(self.context, "job_name", None),
-                ),
-            )
+                project_id=project_id,
+                attempt=correlation_attempt,
+                asset_key=self.table_config.ingestion_asset_key,
+                partition_key=partition_key,
+                job_name=getattr(self.context, "job_name", None),
+            ),
         )
+        emitter = IngestionEventEmitter(event_context)
         telemetry = TelemetryEventEmitter(
             TelemetryEventContext(
                 tags={
@@ -479,64 +555,14 @@ class DltIngester(BaseIngester):
             emit_lifecycle_safely(emitter, "emit_start")
 
         try:
-            dlt_source = self.dlt_source_func(partition_date=partition_key)
-            dlt_source = apply_validation_schema_hints(dlt_source, self.validation_schema)
+            dlt_source = self._create_source(partition_key, routing)
             source_identity = normalize_source_identity(
                 dlt_source, parameters.get("source_identity")
             )
 
             if dlt_source is None:
-                log_event(self.logger, "info", "ingestion_no_data", partition_key=partition_key)
-                if attempt is not None:
-                    emit_lifecycle_safely(
-                        emitter, "emit_end", status="no_data", metrics={"rows_loaded": 0}
-                    )
-                if run_id != "unknown":
-                    emit_observation(
-                        project_id=project_id,
-                        run_id=run_id,
-                        attempt=attempt,
-                        correlation_error=project_error,
-                        observation_type="ingest",
-                        status="no_data",
-                        producer="phlo-dlt",
-                        resources=[
-                            {
-                                "resource_kind": "external_source",
-                                "role": "input",
-                                "normalized_identity": source_identity,
-                                "resource_identity": _resource_identity(
-                                    project_id=project_id,
-                                    resource_type=(
-                                        "external_source" if source_identity else "ingestion_asset"
-                                    ),
-                                    resource_id=source_identity
-                                    or self.table_config.full_table_name,
-                                    attributes={
-                                        "table_name": self.table_config.full_table_name,
-                                        "partition_key": partition_date,
-                                    },
-                                ),
-                                "ref_name": branch_name,
-                                "metadata": {
-                                    "partition": {"status": "observed", "value": partition_key},
-                                    "watermark": {"status": "unavailable"},
-                                    "records_read": {"status": "observed", "value": 0},
-                                },
-                            }
-                        ],
-                        metrics={"records_read": 0},
-                        identity_parts=(
-                            self.table_config.full_table_name,
-                            partition_key,
-                            "no_data",
-                        ),
-                    )
-                return IngestionResult(
-                    status="no_data",
-                    rows_inserted=0,
-                    rows_deleted=0,
-                    metadata={"status": "no_data"},
+                return self._no_data_result(
+                    emitter, attempt, event_context, source_identity, project_error
                 )
 
             pipeline, local_staging_root = setup_dlt_pipeline(
@@ -564,7 +590,13 @@ class DltIngester(BaseIngester):
                 pipeline=pipeline,
                 dlt_source=dlt_source,
                 local_staging_root=local_staging_root,
+                **({"allow_empty": True} if self.interval_column is not None else {}),
             )
+
+            if not parquet_paths:
+                return self._no_data_result(
+                    emitter, attempt, event_context, source_identity, project_error
+                )
 
             if self.add_metadata_columns:
                 for parquet_path in parquet_paths:

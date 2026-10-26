@@ -53,6 +53,7 @@ import dagster as dg
 import phlo.telemetry as phlo_observe
 from phlo._correlation import resolve_project_identity
 from phlo.capabilities.runtime import (
+    DataInterval,
     RuntimeContext,
     RuntimeRouting,
     attempt_from_tags,
@@ -169,6 +170,17 @@ class DagsterRuntime(RuntimeContext):
         return self.context.partition_key if self.context.has_partition_key else None
 
     @property
+    def data_interval(self) -> DataInterval | None:
+        """Translate Dagster's calendar window, including timezone/DST rules."""
+        if not self.context.has_partition_key:
+            return None
+        partitions = getattr(getattr(self.context, "assets_def", None), "partitions_def", None)
+        if not isinstance(partitions, dg.TimeWindowPartitionsDefinition):
+            return None
+        window = self.context.partition_time_window
+        return DataInterval(start=window.start, end=window.end)
+
+    @property
     def asset_key(self) -> str:
         """Return the active asset's user-facing key."""
         return self.context.asset_key.to_user_string()
@@ -238,6 +250,9 @@ class DagsterRuntime(RuntimeContext):
         project = resolve_project_identity(tags, get_settings().phlo_project)
         for capability_type, provider_name in self.asset_capability_overrides.items():
             capability_overrides.setdefault(capability_type, provider_name)
+        mode = tags.get("phlo/interval_mode", "scheduled")
+        if mode not in ("scheduled", "replay"):
+            raise ValueError("Interval mode must be 'scheduled' or 'replay'")
         return RuntimeRouting(
             environment=tags.get("environment") or tags.get("env"),
             ref=runtime_ref_from_tags(tags),
@@ -254,6 +269,10 @@ class DagsterRuntime(RuntimeContext):
             resources=self.resources,
             feature_flags=feature_flags,
             capability_overrides=capability_overrides,
+            data_interval=self.data_interval,
+            interval_mode="replay"
+            if "dagster/backfill" in tags or mode == "replay"
+            else "scheduled",
         )
 
     def get_resource(self, name: str) -> Any:
@@ -443,7 +462,18 @@ def _asset_policies(spec: AssetSpec) -> dict[str, Any]:
     if spec.partitions and spec.partitions.kind == "daily":
         from phlo_dagster.partitions import daily_partition
 
-        partitions_def = daily_partition
+        partitions_def = (
+            dg.DailyPartitionsDefinition(
+                start_date=(
+                    spec.partitions.start_date.isoformat()
+                    if spec.partitions.start_date
+                    else "2025-01-01"
+                ),
+                timezone=spec.partitions.timezone or daily_partition.timezone,
+            )
+            if spec.partitions.start_date or spec.partitions.timezone
+            else daily_partition
+        )
 
     op_tags: dict[str, str] = {}
     if spec.run and spec.run.max_runtime_seconds:
