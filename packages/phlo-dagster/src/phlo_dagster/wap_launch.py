@@ -504,10 +504,14 @@ def bind_wap_audit(run: Any) -> Iterator[dict[str, Any]]:
     """
     from phlo.infrastructure import load_wap_config
 
-    if not load_wap_config().require_candidate_bound_checks:
+    require_binding = load_wap_config().require_candidate_bound_checks
+    # Validate launch policy before allowing a tagged run to use legacy mode.
+    # Live configuration cannot downgrade an already strict launch.
+    if require_binding or (run.tags or {}).get(WAP_BRANCH_TAG):
+        verify_wap_execution(run)
+    if not require_binding:
         yield {}
         return
-    verify_wap_execution(run)
     resolution = resolve_capability("catalog")
     if resolution is None:
         raise ValueError("WAP audit catalog unavailable")

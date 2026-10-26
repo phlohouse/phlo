@@ -500,6 +500,7 @@ def test_changed_source_is_not_deleted_after_pinned_publication(environment, mon
         ("unchanged", None),
         ("changed_before_promotion", "audit_candidate_changed"),
         ("changed_during_check", "dagster_run_failed"),
+        ("policy_disabled_after_launch", "wap_launch_context_invalid"),
         ("missing_binding", "audit_candidate_binding_missing"),
         ("wrong_ref", "audit_candidate_changed"),
         ("mixed_checks", "audit_candidate_changed"),
@@ -523,8 +524,19 @@ def test_candidate_bound_checks_gate_publication(environment, monkeypatch, scena
     def revenue(context):
         launch.record_launch_result(status="launched", dagster_run_id=context.run.run_id)
         environment.catalog.refs[launch.branch] = "audited-41"
+        if scenario == "policy_disabled_after_launch":
+            environment.config.write_text(
+                environment.config.read_text().replace(
+                    "require_candidate_bound_checks: true", "require_candidate_bound_checks: false"
+                )
+            )
+            load_project_model.cache_clear()
+            load_wap_config.cache_clear()
+
+    checked = []
 
     def check(runtime):
+        checked.append(True)
         if scenario == "changed_during_check":
             environment.catalog.refs[launch.branch] = "unreviewed-52"
         if scenario == "empty_result":
@@ -564,7 +576,11 @@ def test_candidate_bound_checks_gate_publication(environment, monkeypatch, scena
     ).resolve_implicit_global_asset_job_def()
     with dg.DagsterInstance.ephemeral() as instance:
         result = job.execute_in_process(instance=instance, tags=launch.tags, raise_on_error=False)
-        assert result.success is (scenario != "changed_during_check")
+        assert result.success is (
+            scenario not in {"changed_during_check", "policy_disabled_after_launch"}
+        )
+        if scenario == "policy_disabled_after_launch":
+            assert checked == []
         if scenario in {"changed_before_promotion", "legacy"}:
             environment.catalog.refs[launch.branch] = "unreviewed-52"
         with dg.build_sensor_context(instance=instance) as context:
