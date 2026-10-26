@@ -59,3 +59,21 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "SIM", "RET", "C4", "PIE", "B", "DTZ", "PTH"]
 ignore = ["E501"]
+
+# Resolve Phlo providers from this checkout, including unpublished versions.
+[tool.uv.sources]
+phlo = { path = "../../..", editable = true }
+phlo-api = { path = "../../../packages/phlo-api", editable = true }
+phlo-core-plugins = { path = "../../../packages/phlo-core-plugins", editable = true }
+phlo-dagster = { path = "../../../packages/phlo-dagster", editable = true }
+phlo-dbt = { path = "../../../packages/phlo-dbt", editable = true }
+phlo-dlt = { path = "../../../packages/phlo-dlt", editable = true }
+phlo-iceberg = { path = "../../../packages/phlo-iceberg", editable = true }
+phlo-minio = { path = "../../../packages/phlo-minio", editable = true }
+phlo-nessie = { path = "../../../packages/phlo-nessie", editable = true }
+phlo-observatory = { path = "../../../packages/phlo-observatory", editable = true }
+phlo-observe-plugin = { path = "../../../packages/phlo-observe-plugin", editable = true }
+phlo-pandera = { path = "../../../packages/phlo-pandera", editable = true }
+phlo-postgres = { path = "../../../packages/phlo-postgres", editable = true }
+phlo-sling = { path = "../../../packages/phlo-sling", editable = true }
+phlo-trino = { path = "../../../packages/phlo-trino", editable = true }

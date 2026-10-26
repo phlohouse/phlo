@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import ulid
 
 from phlo_lineage import store as store_module
 from phlo_lineage.store import (
@@ -200,12 +201,19 @@ class TestGenerateRowId:
         ids = [generate_row_id() for _ in range(1000)]
         assert len(set(ids)) == 1000
 
-    def test_ids_are_sortable(self):
-        """IDs generated in sequence should be lexicographically sortable."""
-        id1 = generate_row_id()
-        id2 = generate_row_id()
+    @pytest.mark.parametrize("ticks", [(0, 0, 0, 0), (0, 0, 0, 1), (0, 0, 1, 1)])
+    def test_ids_are_sortable(self, ticks):
+        """A rollover between the library's clock reads must not reverse IDs."""
+        tick = 2_000_000_000_000_000_000
+        with (
+            patch.object(store_module, "_last_row_id", 0),
+            patch.object(ulid.ULID, "provider", ulid.ValueProvider()),
+            patch("ulid.time.time_ns", side_effect=[tick + offset * 1_000_000 for offset in ticks]),
+            patch("ulid.os.urandom", side_effect=[b"\x7f" * 10, b"\x00" * 10]),
+        ):
+            id1 = generate_row_id()
+            id2 = generate_row_id()
 
-        # Later ID should be lexicographically greater
         assert id2 > id1
 
 

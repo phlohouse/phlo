@@ -26,6 +26,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -37,6 +38,8 @@ from phlo.config.process import get_process_settings
 from phlo.logging import get_logger
 
 logger = get_logger(__name__)
+_row_id_lock = Lock()
+_last_row_id = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,8 +142,8 @@ def generate_row_id() -> str:
     ULIDs (Universally Unique Lexicographically Sortable Identifiers) provide
     lexicographic sortability by timestamp (48-bit timestamp prefix), global
     uniqueness (128-bit total entropy), URL safety (Crockford's Base32 encoding),
-    and monotonic sort order within the same millisecond. Returns the string
-    representation of the new ULID.
+    and monotonic sort order within this process, including within the same
+    millisecond. Returns the string representation of the new ULID.
 
     Example:
         >>> row_id = generate_row_id()
@@ -156,7 +159,11 @@ def generate_row_id() -> str:
 
     See https://github.com/ulid/spec for ULID specification details.
     """
-    return str(ulid.ULID())
+    global _last_row_id
+    with _row_id_lock:
+        # The library samples time separately for the timestamp and randomness.
+        _last_row_id = max(int(ulid.ULID()), _last_row_id + 1)
+        return str(ulid.ULID.from_int(_last_row_id))
 
 
 class LineageStore:
