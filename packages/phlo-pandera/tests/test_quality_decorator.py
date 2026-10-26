@@ -19,6 +19,7 @@ import pandas as pd
 import pandera.pandas as pa
 import pytest
 from phlo.contracts import SLA
+from phlo.capabilities import RuntimeRouting
 from phlo.logging import get_logger
 
 from phlo_pandera import (
@@ -633,6 +634,53 @@ def test_registered_checks_execute_against_duckdb(schema: bool, outcome: str) ->
             assert result.metadata["summary"] == (
                 "1/2 quality checks passed" if outcome == "fail" else "2/2 quality checks passed"
             )
+
+
+@pytest.mark.parametrize("candidate_passes", [False, True])
+def test_schema_and_data_checks_validate_the_same_runtime_ref(candidate_passes):
+    class PositiveIds(pa.DataFrameModel):
+        id: int = pa.Field(gt=0)
+
+    class RefResource:
+        """Use real SQL with different contents for each catalog ref."""
+
+        def __init__(self, connections, ref="main"):
+            self.connections = connections
+            self.ref = ref
+
+        def for_ref(self, ref):
+            return RefResource(self.connections, ref)
+
+        def cursor(self):
+            return self.connections[self.ref].cursor()
+
+    with duckdb.connect() as main, duckdb.connect() as candidate:
+        main.execute(
+            "CREATE TABLE readings AS SELECT ?::BIGINT AS id", [-1 if candidate_passes else 1]
+        )
+        candidate.execute(
+            "CREATE TABLE readings AS SELECT ?::BIGINT AS id", [1 if candidate_passes else -1]
+        )
+        runtime = SimpleNamespace(
+            run_id="candidate-quality",
+            partition_key=None,
+            routing=RuntimeRouting(ref="candidate"),
+            resources={"trino": RefResource({"main": main, "candidate": candidate})},
+            logger=get_logger("test.candidate_quality"),
+        )
+
+        @phlo_pandera(
+            table="readings",
+            checks=[SchemaCheck(schema=PositiveIds), RangeCheck(column="id", min_value=1)],
+            backend="trino",
+            full_table=True,
+        )
+        def quality():
+            pass
+
+        results = [spec.fn(runtime) for spec in get_quality_checks()]
+        assert len(results) == 2
+        assert [result.passed for result in results] == [candidate_passes, candidate_passes]
 
 
 @pytest.mark.parametrize("entrypoint", ["sla", "neutral"])

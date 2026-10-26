@@ -216,3 +216,86 @@ remain non-blocking evidence while the WAP branch still isolates publication.
 Reference inspection uses `NessieResource` because the Iceberg REST catalog
 interface does not enumerate branches. CLI launches submit work to the Dagster
 service, so fixtures and retry markers must be visible to that worker.
+
+## Dataset constraint demonstration
+
+Run the separate [constraint demonstration](scripts/constraints_demo.py) from
+the **Phlo repository root**, not this example directory. It uses the root
+development environment and starts disposable Trino 477, Nessie 0.108.3,
+MinIO, and PostgreSQL containers. Docker must be running. It does not contact
+this example's existing services or require its generated fixtures.
+
+```bash
+make setup
+uv run --locked python examples/lakehouses/wap-failure-lab/scripts/constraints_demo.py \
+  --output .amp/in/artifacts/constraints-after.json
+jq '{feature_available, publication_blocker, publication_warning, main_total, candidate_total_after_recovery}' \
+  .amp/in/artifacts/constraints-after.json
+```
+
+The script defines `raw.orders`, `raw.customers`, and `gold.summary` as real
+Iceberg tables on Nessie `main`, then forks `candidate`. A duplicated customer
+dimension row multiplies one order's revenue after a join. The summary's
+composite keys remain unique, and every revenue value remains non-negative.
+Those checks alone permit the incorrect total of 52.00 instead of 41.00.
+
+A lakehouse author can declare the additional checks without provider-specific
+SQL or dataframe code:
+
+```python
+from phlo import grain, range_between, reconcile_aggregate
+from phlo.quality import rules
+
+@rules(
+    table="gold.summary",
+    asset_key="revenue",
+    rules=[
+        range_between("revenue", min_value=0),
+        grain("tenant", "customer"),
+        reconcile_aggregate(
+            name="revenue_conserved",
+            source="raw.orders",
+            source_column="amount",
+            target_column="revenue",
+            source_filters={"status": "settled"},
+            target_filters={"status": "settled"},
+            source_partition_column="sold_on",
+        ),
+    ],
+    backend="trino",
+    partition_column="day",
+    rolling_window_days=None,
+)
+def revenue_quality():
+    pass
+```
+
+The runnable script also resolves logical asset references with `phlo.ref`,
+records quality evidence in SQLite, and binds the exact project, run, attempt,
+and check identities to Dataset policy. It rereads publication state and audit
+records through a new PostgreSQL store instance. Expected observations are:
+
+- Correct main data passes. The multiplied candidate fails reconciliation
+  with source 41.00, target 52.00, and delta 11.00.
+- Blocker policy leaves `gold.summary` in durable `draft` state with a blocked
+  publication audit event. Warning policy records a committed publication.
+- The advisory quality run remains failed with `warn` severity and a
+  non-blocking asset-check declaration. A warning does not turn a failure into
+  a pass.
+- Repeated composite identities fail grain. After repair and a candidate-only
+  order worth 13.00, candidate revenue 54.00 passes while main remains 41.00.
+  Both source and target must resolve to the candidate for that check to pass.
+
+The script detects whether the new factories exist, so the identical procedure
+can run against the pre-feature checkout with its existing range, unique, and
+null checks. That baseline permits the multiplied total and publishes it.
+Each JSON output includes source revision, implementation-module hashes, and
+the procedure hash for comparison. Every container is removed on exit.
+
+This demonstrates **Dataset policy publication**, not a physical Nessie merge
+or a `phlo materialize` WAP launch. The script deliberately permits workflow
+promotion before it tests the separate publication policy. Main is never merged
+or overwritten. It invokes the registered public quality checks directly with
+a runtime context; it does not exercise Dagster scheduling. The
+[constraint reference](../../../docs/reference/quality-checks.md#dataset-grain)
+defines empty, null, partition, provider, and discovery semantics.

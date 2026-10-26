@@ -112,8 +112,10 @@ _QUALITY_EXPORTS = {
 _QUALITY_RULE_EXPORTS = {
     "accepted_values",
     "freshness",
+    "grain",
     "not_null",
     "range_between",
+    "reconcile_aggregate",
     "unique",
 }
 _FLOW_EXPORTS = {
@@ -199,14 +201,24 @@ def __getattr__(name: str) -> Any:
         )
         return globals()[name]
     if name in _QUALITY_RULE_EXPORTS:
-        from phlo.quality_rules import accepted_values, freshness, not_null, range_between, unique
+        from phlo.quality_rules import (
+            accepted_values,
+            freshness,
+            grain,
+            not_null,
+            range_between,
+            reconcile_aggregate,
+            unique,
+        )
 
         globals().update(
             {
                 "accepted_values": accepted_values,
                 "freshness": freshness,
+                "grain": grain,
                 "not_null": not_null,
                 "range_between": range_between,
+                "reconcile_aggregate": reconcile_aggregate,
                 "unique": unique,
             }
         )

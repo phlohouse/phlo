@@ -160,6 +160,72 @@ These factories return provider-neutral `QualityRule` values.
 | `freshness` | `freshness(column, *, hours, reference_time=None, require_timestamps=False)` | Timestamp column, maximum age, optional evaluation reference, and missing-timestamp policy. |
 | `range_between` | `range_between(column, *, min_value=None, max_value=None)` | At least one bound. |
 | `accepted_values` | `accepted_values(column, values)` | Non-empty allowed values. |
+| `grain` | `grain(*columns)` | Non-empty, distinct composite business-key columns. |
+| `reconcile_aggregate` | `reconcile_aggregate(*, name, source, source_column, target_column, ...)` | Named numeric aggregate reconciliation. |
+
+### Dataset grain
+
+`phlo.grain("tenant_id", "order_id")` requires each composite identity to occur
+once, with no SQL NULL component. Individual columns may repeat. An empty
+relation passes; a missing key column fails. Floating-point NaN is not SQL NULL.
+This is stronger than `unique`, which permits a single null identity.
+
+### Aggregate reconciliation
+
+`phlo.reconcile_aggregate` compares one numeric aggregate across a named source
+relation and the quality decorator's target relation. Pandera executes both
+aggregates in SQL through the same runtime-selected connection. Only scalar
+results enter Python. Decimal comparisons preserve numeric precision, and
+evidence stores scalar values as decimal strings.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` | required | Distinct durable evidence identity. |
+| `source` | required | `schema.table`, `table`, or resolved `phlo.ref(...)`. |
+| `source_column` | required | Numeric source column. |
+| `target_column` | required | Numeric target column. |
+| `aggregate` | `"sum"` | `sum`, `avg`, `min`, `max`, or `count`. `count` counts non-null column values, not rows. |
+| `source_filters` | `None` | Source-only equality predicates as a column-to-value mapping. `None` values mean `IS NULL`. |
+| `target_filters` | `None` | Independent target-only equality predicates. |
+| `source_partition_column` | `None` | Source override for the decorator's partition column. |
+| `absolute_tolerance` | `0.0` | Finite, non-negative, inclusive absolute difference. |
+
+The decorator's exact partition key, rolling window, or explicit `full_table`
+scope applies to both relations, before their independent filters. Source and
+target columns must represent the same daily partition identity when partition
+scoping is enabled. With no key, the existing default is a seven-day window.
+`sum`, `avg`, `min`, and `max` ignore individual null values, following SQL
+semantics. An empty or all-null scope has an undefined aggregate and fails,
+even when both sides are empty. Zero equals zero. Empty `count` scopes produce
+zero and can pass. Missing relations, missing columns, non-numeric aggregates,
+and non-finite aggregate values fail rather than skip.
+
+Constraint relations remain within the selected runtime catalog. A resolved
+logical reference contributes its schema and table, not its physical catalog.
+Trino uses the canonical runtime ref, including `phlo/wap_branch` precedence
+over `phlo/ref`. DuckDB uses the supplied connection and does not implement
+Nessie refs. Explicit catalog-qualified relation strings and custom `query`
+overrides are rejected for these constraints. Define a named view for a custom
+target query instead. Relation strings use simple SQL identifier segments;
+column names and filter values use Phlo's identifier and literal helpers.
+
+Declaration validates rule shape, supported aggregate functions, resolved
+logical references, and evidence-name uniqueness. It does not validate physical
+tables or columns against a live catalog at discovery, infer source asset
+dependencies, or provide a cross-table snapshot lock. Authors must order source
+materialisation before the quality check. SQL execution detects missing physical
+references. Unresolved logical references fail at declaration rather than
+silently falling back to an asset name. Other quality providers must explicitly
+translate these rule kinds; unsupported translation raises an error.
+
+These constraints emit the existing quality-result evidence. Orchestrator
+`blocking` and `warn_threshold` settings do not replace Dataset publication
+policy. `RunReportQualityEvidenceSource` binds the expected checks to an exact
+project, run, and attempt. A blocker policy rejects failed evidence; a warning
+policy reports the finding without refusing publication. Neither declaration
+automatically promotes a physical Nessie ref. The
+[lakehouse demonstration](../../examples/lakehouses/wap-failure-lab/README.md#dataset-constraint-demonstration)
+contains complete declarations and a runnable before-and-after procedure.
 
 ## Severity and provider mapping
 
