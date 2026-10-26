@@ -41,15 +41,29 @@ def unique_key_rule(unique_key: str | list[str]) -> QualityRule:
 def freshness_rule_from_sla(
     sla: SLA,
     *,
-    timestamp_column: str = "_phlo_ingested_at",
+    timestamp_column: str | None = None,
 ) -> QualityRule | None:
-    """Generate a freshness rule from an SLA when freshness is configured."""
+    """Generate a freshness rule, preserving ingestion-time defaults for legacy SLAs.
+
+    Explicit SLA columns require usable timestamps. A helper override must not
+    silently change the meaning of an explicit consumer promise.
+    """
     if sla.freshness_hours is None:
         return None
+    if sla.freshness_column and timestamp_column not in (None, sla.freshness_column):
+        raise ValueError("timestamp_column conflicts with SLA freshness_column")
+    parameters: dict[str, Any] = {"max_age_hours": sla.freshness_hours}
+    if sla.freshness_column is not None:
+        parameters["require_timestamps"] = True
+    if sla.freshness_reference_time is not None:
+        parameters["reference_time"] = sla.freshness_reference_time
     return QualityRule(
         "freshness",
-        [timestamp_column],
-        {"max_age_hours": sla.freshness_hours},
+        [
+            sla.freshness_column
+            or (timestamp_column if timestamp_column is not None else "_phlo_ingested_at")
+        ],
+        parameters,
     )
 
 

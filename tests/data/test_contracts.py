@@ -7,6 +7,11 @@ JSON-ready dicts or None when metadata is absent.
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta, timezone
+
+import pytest
+
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 
 
@@ -43,3 +48,42 @@ def test_serialize_sla_emits_plain_dict_or_none() -> None:
         "max_failures": 2,
         "notify": ["#alerts"],
     }
+
+
+def test_explicit_sla_reference_is_json_safe_and_preserves_instant() -> None:
+    reference = datetime(2025, 1, 15, 17, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    sla = SLA(2, freshness_column="event_time", freshness_reference_time=reference)
+    payload = json.loads(json.dumps(serialize_sla(sla)))
+    assert payload["freshness_column"] == "event_time"
+    assert payload["freshness_reference_time"] == "2025-01-15T17:30:00+05:30"
+    payload["freshness_reference_time"] = datetime.fromisoformat(
+        payload["freshness_reference_time"]
+    )
+    assert SLA(**payload) == sla
+    assert payload["freshness_reference_time"].astimezone(UTC).hour == 12
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"freshness_column": "event_time"}, "freshness_hours"),
+        ({"freshness_hours": -1, "freshness_column": "event_time"}, "freshness_hours"),
+        ({"freshness_hours": 2, "freshness_column": " "}, "freshness_column"),
+        ({"freshness_reference_time": datetime.now(UTC)}, "freshness_column"),
+        (
+            {"freshness_hours": 2, "freshness_reference_time": datetime.now(UTC)},
+            "freshness_column",
+        ),
+        (
+            {
+                "freshness_hours": 2,
+                "freshness_column": "event_time",
+                "freshness_reference_time": datetime(2025, 1, 15, tzinfo=UTC).replace(tzinfo=None),
+            },
+            "timezone-aware",
+        ),
+    ],
+)
+def test_explicit_sla_rejects_incomplete_or_ambiguous_freshness(kwargs: dict, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        SLA(**kwargs)

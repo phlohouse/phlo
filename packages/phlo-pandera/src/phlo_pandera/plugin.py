@@ -377,6 +377,8 @@ from phlo_pandera.schemas import PhloSchema
                     FreshnessCheck(
                         timestamp_column=rule.columns[0],
                         max_age_hours=rule.parameters["max_age_hours"],
+                        reference_time=rule.parameters.get("reference_time"),
+                        require_timestamps=rule.parameters.get("require_timestamps", False),
                     )
                 )
             elif rule.kind == "range":

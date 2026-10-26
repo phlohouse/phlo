@@ -12,6 +12,7 @@ from typing import Any, Iterable
 from pandera.pandas import DataFrameModel
 
 from phlo.contracts import SLA
+from phlo.helpers.quality import freshness_rule_from_sla
 from phlo_pandera.checks import FreshnessCheck, NullCheck, QualityCheck, UniqueCheck
 from phlo_pandera.checks_extra import CustomSQLCheck
 from phlo_pandera.schema_extractor import PanderaSchemaExtractor
@@ -48,17 +49,27 @@ def unique_key_check(
 
 def freshness_check_from_sla(
     sla: SLA | None,
-    timestamp_column: str,
+    timestamp_column: str | None = None,
     *,
     reference_time: Any = None,
 ) -> FreshnessCheck | None:
     """Create a freshness check from SLA freshness metadata."""
-    if sla is None or sla.freshness_hours is None:
+    if sla is None:
         return None
+    rule = freshness_rule_from_sla(sla, timestamp_column=timestamp_column)
+    if rule is None:
+        return None
+    if (
+        sla.freshness_reference_time is not None
+        and reference_time is not None
+        and reference_time != sla.freshness_reference_time
+    ):
+        raise ValueError("reference_time conflicts with SLA freshness_reference_time")
     return FreshnessCheck(
-        timestamp_column=timestamp_column,
-        max_age_hours=float(sla.freshness_hours),
-        reference_time=reference_time,
+        timestamp_column=rule.columns[0],
+        max_age_hours=float(rule.parameters["max_age_hours"]),
+        reference_time=reference_time or rule.parameters.get("reference_time"),
+        require_timestamps=rule.parameters.get("require_timestamps", False),
     )
 
 
@@ -104,7 +115,7 @@ def checks_from_contract(
     if unique is not None:
         checks.append(unique)
 
-    if freshness_column is not None:
+    if freshness_column is not None or (sla is not None and sla.freshness_column is not None):
         freshness = freshness_check_from_sla(sla, freshness_column)
         if freshness is not None:
             checks.append(freshness)

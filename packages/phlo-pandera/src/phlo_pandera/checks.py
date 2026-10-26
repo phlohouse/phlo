@@ -482,32 +482,69 @@ class FreshnessCheck(QualityCheck):
     reference_time: datetime | None = None
     """Reference time to compare against (defaults to now)."""
 
+    require_timestamps: bool = False
+    """Fail without usable timestamps; interpret naive timestamps as UTC."""
+
+    def __post_init__(self) -> None:
+        """Reject ambiguous reference clocks for explicit timestamp checks."""
+        if (
+            self.require_timestamps
+            and self.reference_time is not None
+            and self.reference_time.utcoffset() is None
+        ):
+            raise ValueError("reference_time must be timezone-aware when require_timestamps=True")
+
     def execute(self, df: pd.DataFrame, context: RuntimeContext | None) -> QualityCheckResult:
         """Execute freshness check on DataFrame.
 
         Converts the timestamp column to datetime, finds the most recent
         value, and computes its age against the reference time. A column
-        with no parseable timestamps passes vacuously.
+        with no parseable timestamps passes vacuously unless explicitly required.
 
         """
+        # Explicit promises can coexist with legacy ingestion-time checks.
+        # Give them separate result identities in metadata and durable evidence.
+        metric_name = self.name if self.require_timestamps else "freshness_check"
+        metadata = {
+            "timestamp_column": self.timestamp_column,
+            "reference_mode": "explicit" if self.reference_time is not None else "wall_clock",
+            "reference_time": self.reference_time.isoformat() if self.reference_time else None,
+            "threshold_hours": self.max_age_hours,
+            "require_timestamps": self.require_timestamps,
+        }
         if self.timestamp_column not in df.columns:
             return QualityCheckResult(
                 passed=False,
-                metric_name="freshness_check",
+                metric_name=metric_name,
                 metric_value=None,
+                metadata={**metadata, "reason": "missing_timestamp_column"},
                 failure_message=f"Column '{self.timestamp_column}' not found in DataFrame",
             )
 
         # Coerce unparsable values to NaT; they drop out of the max() below
         # instead of aborting the whole check.
-        timestamp_data = pd.Series(pd.to_datetime(df[self.timestamp_column], errors="coerce"))
+        timestamp_data = pd.Series(
+            pd.to_datetime(
+                df[self.timestamp_column],
+                errors="coerce",
+                utc=self.require_timestamps,
+                format="mixed" if self.require_timestamps else None,
+            )
+        )
 
         if len(timestamp_data.dropna()) == 0:
             return QualityCheckResult(
-                passed=True,
-                metric_name="freshness_check",
+                passed=not self.require_timestamps,
+                metric_name=metric_name,
                 metric_value={"max_age_hours": None},
-                metadata={"note": "No non-null timestamps to check"},
+                metadata={
+                    **metadata,
+                    "note": "No non-null timestamps to check",
+                    "reason": "no_usable_timestamps",
+                },
+                failure_message="No usable timestamps to evaluate freshness"
+                if self.require_timestamps
+                else None,
             )
 
         # Get most recent timestamp
@@ -530,9 +567,10 @@ class FreshnessCheck(QualityCheck):
 
         return QualityCheckResult(
             passed=passed,
-            metric_name="freshness_check",
+            metric_name=metric_name,
             metric_value={"max_age_hours": float(age_hours)},
             metadata={
+                **metadata,
                 "max_timestamp": str(max_timestamp),
                 "reference_time": str(reference),
                 "age_hours": float(age_hours),

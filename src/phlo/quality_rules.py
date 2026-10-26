@@ -8,6 +8,7 @@ a rule can reach a pipeline.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from phlo.helpers.quality import QualityRule
@@ -23,9 +24,20 @@ def unique(*columns: str) -> QualityRule:
     return QualityRule(kind="unique", columns=list(columns), parameters={})
 
 
-def freshness(column: str, *, hours: float) -> QualityRule:
+def freshness(
+    column: str,
+    *,
+    hours: float,
+    reference_time: datetime | None = None,
+    require_timestamps: bool = False,
+) -> QualityRule:
     """Create a freshness quality rule for a timestamp column."""
-    return QualityRule(kind="freshness", columns=[column], parameters={"max_age_hours": hours})
+    parameters: dict[str, Any] = {"max_age_hours": hours}
+    if reference_time is not None:
+        parameters["reference_time"] = reference_time
+    if require_timestamps:
+        parameters["require_timestamps"] = True
+    return QualityRule(kind="freshness", columns=[column], parameters=parameters)
 
 
 def range_between(
