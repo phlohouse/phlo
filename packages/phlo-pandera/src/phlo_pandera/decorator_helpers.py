@@ -67,9 +67,6 @@ class QueryCheckRunner:
         self.fetch: Callable[[str], pd.DataFrame]
         if backend == "trino":
             resource = _resolve_trino_resource(runtime)
-            ref = routing_from_context(runtime).ref
-            if ref and hasattr(resource, "for_ref"):
-                resource = resource.for_ref(ref)
             self.fetch = lambda sql: _load_data_trino(runtime, sql, resource)
         elif backend == "duckdb":
             resource = _resolve_duckdb_connection(runtime)
@@ -272,6 +269,9 @@ def _resolve_trino_resource(context: RuntimeContext) -> Any:
                 "Trino resource not found in context; install 'phlo-pandera[trino]'"
             ) from exc
         trino = TrinoResource()
+    ref = routing_from_context(context).ref
+    if ref and hasattr(trino, "for_ref"):
+        trino = trino.for_ref(ref)
     return trino
 
 
