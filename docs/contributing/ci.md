@@ -3,6 +3,10 @@
 Phlo separates **safe to merge**, **source health**, **artifact readiness** and
 **maintenance health**. A passing source check is not release acceptance.
 
+The optional [Dagger core pilot](dagger-core-pilot.md) compares the existing
+core-test shards with containerised execution. Its results are not required
+merge checks or release evidence.
+
 ## Merge safety
 
 `pr / required` remains the single required merge result. Pull requests select

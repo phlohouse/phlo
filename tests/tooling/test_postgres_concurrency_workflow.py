@@ -92,7 +92,13 @@ def test_core_regression_lane_selects_tests_through_the_marker_filter() -> None:
         f"{CORE_REGRESSION_TARGET} must select tests via -m {CORE_REGRESSION_MARKER}"
     )
 
-    general_run = _step_named(job, "Run core tests").get("run") or ""
+    general_run = subprocess.run(
+        ["make", "--just-print", "test-core-shard"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
     marker_expression = re.search(r"""-m\s+(?P<quote>['"])(?P<expr>.*?)(?P=quote)""", general_run)
     assert marker_expression, "general core lane must filter with a quoted -m expression"
     expression_tokens = marker_expression.group("expr").split()

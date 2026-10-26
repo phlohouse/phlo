@@ -25,6 +25,7 @@ CHECK_CMD := scripts/run-parallel \
 	"ts unused" "$(NPM_OBSERVATORY) run knip"
 CORE_REGRESSION_TEST_PATHS ?= tests
 CORE_REGRESSION_PYTEST_ARGS ?= --tb=short
+CORE_TEST_SHARD_INDEX ?= 0
 QUICKSTART_SMOKE_PYTEST_ARGS ?= --tb=short
 LANE ?= all
 BASE ?= origin/main
@@ -118,6 +119,15 @@ test-coverage-combine:
 
 test-core-regression:
 	uv run --locked pytest $(CORE_REGRESSION_TEST_PATHS) -m core_regression $(CORE_REGRESSION_PYTEST_ARGS)
+
+.PHONY: test-core-shard
+test-core-shard:
+	uv run --locked python -m pytest tests -m "not integration and not core_regression" \
+		-p scripts.ci_shard --ci-shard-index=$(CORE_TEST_SHARD_INDEX) --ci-shard-count=3 \
+		-n 2 --dist worksteal --timeout=300 \
+		-o faulthandler_timeout=60 -o faulthandler_exit_on_timeout=true \
+		--tb=short --durations=25 --junitxml=test-results/core.xml \
+		--cov=phlo --cov=scripts --cov-append --cov-report=xml:test-results/coverage.xml
 
 test-quickstart-smoke:
 	uv run --locked pytest tests/cli/test_quickstart_smoke.py $(QUICKSTART_SMOKE_PYTEST_ARGS)

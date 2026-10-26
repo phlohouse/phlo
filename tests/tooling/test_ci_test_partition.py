@@ -7,9 +7,12 @@ their own steps.
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -42,15 +45,35 @@ def _collect_node_ids(marker: str) -> set[str]:
 
 
 def test_ci_keeps_core_regression_attributable_and_disjoint() -> None:
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-
-    assert "id: core_regression" in workflow
-    assert "make test-core-regression" in workflow
-    assert "id: core_tests" in workflow
-    assert (
-        'uv run --locked python -m pytest tests -m "not integration and not core_regression"'
-        in workflow
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    steps = {
+        step["id"]: step for step in workflow["jobs"]["python-core-tests"]["steps"] if "id" in step
+    }
+    assert shlex.split(steps["core_regression"]["run"]) == ["make", "test-core-regression"]
+    assert shlex.split(steps["core_tests"]["run"].replace("${{ matrix.shard }}", "1")) == [
+        "make",
+        "test-core-shard",
+        "CORE_TEST_SHARD_INDEX=1",
+    ]
+    dry_run = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--just-print",
+            "test-core-shard",
+            "CORE_TEST_SHARD_INDEX=1",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
     )
+    command = shlex.split(dry_run.stdout.replace("\\\n", ""))
+    assert command[:7] == ["uv", "run", "--locked", "python", "-m", "pytest", "tests"]
+    assert command[7:9] == ["-m", "not integration and not core_regression"]
+    assert "--ci-shard-index=1" in command
+    assert "--ci-shard-count=3" in command
+    assert command[command.index("-n") + 1] == "2"
 
     core_regression = _collect_node_ids("core_regression")
     remaining = _collect_node_ids("not integration and not core_regression")

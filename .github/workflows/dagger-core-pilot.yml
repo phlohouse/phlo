@@ -1,0 +1,115 @@
+name: Dagger core pilot
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/dagger-core-pilot.yml
+      - scripts/dagger_core.py
+      - Makefile
+      - pyproject.toml
+      - uv.lock
+      - conftest.py
+      - src/**
+      - tests/**
+      - packages/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dagger-core-pilot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Experimental core shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Deliberately excluded from pr / required and release evidence.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/python-workspace
+      - name: Measure the existing native shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          mkdir -p test-results/native
+          status=0
+          /usr/bin/time -f 'native elapsed=%e seconds peak_rss=%M KiB' \
+            -o test-results/native/timing.txt \
+            make test-core-shard CORE_TEST_SHARD_INDEX="$SHARD" || status=$?
+          echo "$status" > test-results/native/exit-code.txt
+          for report in core.xml coverage.xml; do
+            if [ -f "test-results/$report" ]; then
+              mv "test-results/$report" test-results/native/
+            fi
+          done
+      - name: Install checksum-verified Dagger beta
+        env:
+          DAGGER_VERSION: 1.0.0-beta.21
+        run: |
+          archive="$RUNNER_TEMP/dagger.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://dl.dagger.io/dagger/releases/$DAGGER_VERSION/dagger_v${DAGGER_VERSION}_linux_amd64.tar.gz" \
+            --output "$archive"
+          echo "c5ac777a5c99089869660943381136e22177b59a46412e310c2fef594760a041  $archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/dagger-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/dagger-bin" dagger
+          echo "$RUNNER_TEMP/dagger-bin" >> "$GITHUB_PATH"
+      - name: Measure Dagger cold and cached runs
+        env:
+          SHARD: ${{ matrix.shard }}
+          DAGGER_NO_NAG: "1"
+        run: |
+          for sample in cold warm; do
+            mkdir -p "test-results/dagger-$sample"
+            status=0
+            /usr/bin/time -f "$sample elapsed=%e seconds client_peak_rss=%M KiB" \
+              -o "test-results/dagger-$sample/timing.txt" \
+              python3 scripts/dagger_core.py --shard "$SHARD" \
+              --output "test-results/dagger-$sample" \
+              > "test-results/dagger-$sample/trace.log" 2>&1 || status=$?
+            echo "$status" > "test-results/dagger-$sample/exit-code.txt"
+          done
+      - name: Require identical test identities and outcomes
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          def outcomes(path):
+              cases = list(ET.parse(path).iter("testcase"))
+              assert cases, f"No tests in {path}"
+              return sorted((case.get("classname"), case.get("name"),
+                             tuple(child.tag for child in case
+                                   if child.tag in {"failure", "error", "skipped"}))
+                            for case in cases)
+
+          native = outcomes("test-results/native/core.xml")
+          for sample in ("cold", "warm"):
+              path = Path(f"test-results/dagger-{sample}/shard-{os.environ['SHARD']}/core.xml")
+              assert outcomes(path) == native, f"Dagger {sample} changed test outcomes"
+          print(f"Matched {len(native)} test outcomes in native, cold and cached runs")
+          for sample in ("native", "dagger-cold", "dagger-warm"):
+              status = Path(f"test-results/{sample}/exit-code.txt").read_text().strip()
+              assert status == "0", f"{sample} failed with exit code {status}"
+          PY
+      - name: Retain pilot measurements and test reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: dagger-core-pilot-${{ matrix.shard }}
+          path: test-results/
+          include-hidden-files: true
+          if-no-files-found: error
