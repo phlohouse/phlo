@@ -22,6 +22,7 @@ from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_sla
 from phlo_pandera.checks import FreshnessCheck, QualityCheck, QualityCheckResult
 from phlo_pandera.checks_extra import SchemaCheck
 from phlo_pandera.contract import PANDERA_CONTRACT_CHECK_NAME, QualityCheckContract
+from phlo_pandera.dataset_constraints import DatasetConstraintCheck
 from phlo_pandera.decorator_helpers import (
     QueryCheckRunner,
     _build_metadata,
@@ -189,7 +190,7 @@ def _register_quality_checks(
                 runtime.logger.info("validating_partition", partition_key=partition_key)
 
             try:
-                df = QueryCheckRunner(runtime, final_query, backend)
+                df = QueryCheckRunner(runtime, final_query, backend, scope=scope)
             except Exception as exc:
                 runtime.logger.error(
                     "quality_data_load_failed",
@@ -229,9 +230,10 @@ def _register_quality_checks(
                 )
 
             # Preserve the empty-partition skip for legacy checks. An explicit
-            # freshness promise cannot pass without a usable timestamp.
+            # freshness promise or dataset constraint must evaluate empty data.
             if df.empty and not any(
-                isinstance(check, FreshnessCheck) and check.require_timestamps
+                isinstance(check, DatasetConstraintCheck)
+                or (isinstance(check, FreshnessCheck) and check.require_timestamps)
                 for check in non_schema_checks
             ):
                 runtime.logger.warning("No rows returned; marking check as skipped.")

@@ -365,10 +365,13 @@ from phlo_pandera.schemas import PhloSchema
         from phlo.helpers.sql import literal, quote_identifier
         from phlo_pandera.checks import FreshnessCheck, NullCheck, RangeCheck, UniqueCheck
         from phlo_pandera.checks_extra import CustomSQLCheck
+        from phlo_pandera.dataset_constraints import DatasetConstraintCheck
 
         checks: list[Any] = []
         for rule in rules:
-            if rule.kind == "not_null":
+            if rule.kind in {"grain", "reconcile_aggregate"}:
+                checks.append(DatasetConstraintCheck(rule))
+            elif rule.kind == "not_null":
                 checks.append(NullCheck(columns=rule.columns))
             elif rule.kind == "unique":
                 checks.append(UniqueCheck(columns=rule.columns))
@@ -402,6 +405,22 @@ from phlo_pandera.schemas import PhloSchema
                 )
             else:
                 raise ValueError(f"Unsupported neutral quality rule: {rule.kind}")
+        if any(isinstance(check, DatasetConstraintCheck) for check in checks):
+            # Legacy built-ins emit metric names that differ from check.name.
+            metric_names = {
+                NullCheck: "null_check",
+                UniqueCheck: "unique_check",
+                RangeCheck: "range_check",
+                FreshnessCheck: "freshness_check",
+            }
+            names = [
+                check.name
+                if getattr(check, "require_timestamps", False)
+                else metric_names.get(type(check), check.name)
+                for check in checks
+            ]
+            if len(set(names)) != len(names):
+                raise ValueError("Dataset constraint checks require distinct evidence names")
         return checks
 
 

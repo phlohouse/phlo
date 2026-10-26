@@ -33,6 +33,7 @@ from typing import Any, List
 import pandas as pd
 
 from phlo.capabilities.runtime import RuntimeContext
+from phlo.capabilities.runtime import routing_from_context
 from phlo.hooks.emitters import (
     QualityResultEventContext,
     QualityResultEventEmitter,
@@ -44,19 +45,31 @@ from phlo.hooks.events import HookCorrelation
 from phlo_pandera.checks import QualityCheck, QualityCheckResult
 from phlo_pandera.contract import QualityCheckContract
 from phlo_pandera.aggregate_checks import execute_aggregate_check, supports_aggregation
+from phlo_pandera.dataset_constraints import DatasetConstraintCheck
+from phlo_pandera.partitioning import PartitionScope
 
 
 class QueryCheckRunner:
     """Keep result reporting independent of whole-query dataframe loading."""
 
-    def __init__(self, runtime: RuntimeContext, query: str, backend: str) -> None:
+    def __init__(
+        self,
+        runtime: RuntimeContext,
+        query: str,
+        backend: str,
+        scope: PartitionScope | None = None,
+    ) -> None:
         """Resolve one connection and obtain only the schema and row count."""
         self.query = query.rstrip().rstrip(";")
         self.backend = backend
+        self.scope = scope or PartitionScope(None, "_phlo_partition_date", None, True)
         self._frame: pd.DataFrame | None = None
         self.fetch: Callable[[str], pd.DataFrame]
         if backend == "trino":
             resource = _resolve_trino_resource(runtime)
+            ref = routing_from_context(runtime).ref
+            if ref and hasattr(resource, "for_ref"):
+                resource = resource.for_ref(ref)
             self.fetch = lambda sql: _load_data_trino(runtime, sql, resource)
         elif backend == "duckdb":
             resource = _resolve_duckdb_connection(runtime)
@@ -81,6 +94,8 @@ class QueryCheckRunner:
 
     def execute(self, check: QualityCheck, runtime: RuntimeContext) -> QualityCheckResult:
         """Push built-ins down, sharing one frame only for unsupported checks."""
+        if isinstance(check, DatasetConstraintCheck):
+            return check.execute_query(query=self.query, scope=self.scope, fetch=self.fetch)
         if supports_aggregation(check):
             return execute_aggregate_check(
                 check,

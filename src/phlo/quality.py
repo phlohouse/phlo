@@ -77,6 +77,7 @@ from typing import Any, cast
 
 from phlo.logging import get_logger
 from phlo.plugins.base.quality_provider import QualityProviderPlugin
+from phlo.references import LogicalRelation
 
 logger = get_logger(__name__)
 
@@ -315,12 +316,24 @@ def pandera(*args: Any, **kwargs: Any) -> Any:
 
 def rules(
     *,
-    table: str,
+    table: str | LogicalRelation,
     rules: list[Any],
     provider_name: str = "pandera",
     **kwargs: Any,
 ) -> Callable:
     """Build a quality decorator from provider-neutral rules."""
+    if any(rule.kind in {"grain", "reconcile_aggregate"} for rule in rules):
+        from phlo.quality_rules import _constraint_relation_sql
+
+        if kwargs.get("query") is not None:
+            raise ValueError("Dataset constraints target named relations, not query overrides")
+        kwargs.setdefault(
+            "asset_key",
+            table.asset_key if isinstance(table, LogicalRelation) else table.split(".")[-1],
+        )
+        kwargs["query"] = f"SELECT * FROM {_constraint_relation_sql(table)}"
+        if isinstance(table, LogicalRelation):
+            table = table.relation or ".".join(part for part in (table.schema, table.table) if part)
     provider_plugin = _quality_provider_or_raise(provider_name)
     native_checks = provider_plugin.build_checks_from_rules(rules)
     if native_checks is None:

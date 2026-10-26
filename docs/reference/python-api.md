@@ -277,6 +277,14 @@ rules = [
 ]
 ```
 
+### `grain` and `reconcile_aggregate`
+
+`phlo.grain(*columns)` requires non-null, jointly unique business identities.
+`phlo.reconcile_aggregate(*, name, source, source_column, target_column, ...)`
+compares a numeric aggregate across source and target relations through
+`phlo.quality.rules`. See [dataset constraints](quality-checks.md#dataset-grain)
+for parameters, scope, logical references, and publication-policy semantics.
+
 ## phlo.flow decorators
 
 Each decorator receives a function and registers a provider-neutral declaration.
