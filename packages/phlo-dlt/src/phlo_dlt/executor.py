@@ -59,6 +59,7 @@ from __future__ import annotations
 import time
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
 
@@ -81,14 +82,16 @@ from phlo.run_evidence import emit_lifecycle_safely, emit_observation
 from phlo.run_evidence.redaction import safe_error_summary
 from phlo.capabilities.history import HistoryWriteError
 from phlo.capabilities.interfaces import TableStore
-from phlo.capabilities.runtime import routing_from_context
+from phlo.capabilities.runtime import DataInterval, RuntimeRouting, routing_from_context
 
 from phlo_dlt.dlt_helpers import (
+    apply_data_interval,
     apply_validation_schema_hints,
     inject_metadata_columns,
     merge_to_table_store,
     setup_dlt_pipeline,
     stage_to_parquet,
+    validate_interval_options,
 )
 from phlo_dlt.evidence import (
     dlt_execution_identity,
@@ -272,8 +275,13 @@ class DltIngester(BaseIngester):
         validation_mode: ValidationMode = "materialized",
         validation_batch_size: int = 65_536,
         validation_sample_size: int = 1_000,
+        interval_column: str | None = None,
+        interval_lookback: timedelta = timedelta(0),
     ):
         """Store the ingester's collaborators and validation/merge options."""
+        validate_interval_options(
+            interval_column, interval_lookback, merge_strategy, table_config.unique_key
+        )
         super().__init__(context, logger)
         self.table_config = table_config
         self.table_store = table_store_resource
@@ -288,6 +296,33 @@ class DltIngester(BaseIngester):
         self.validation_mode = validation_mode
         self.validation_batch_size = validation_batch_size
         self.validation_sample_size = validation_sample_size
+        self.interval_column = interval_column
+        self.interval_lookback = interval_lookback
+
+    def _create_source(self, partition_key: str | None, routing: RuntimeRouting) -> Any:
+        """Prepare legacy or stateless bounded extraction before any records are read."""
+        if self.interval_column is None:
+            source = self.dlt_source_func(partition_date=partition_key)
+        else:
+            interval = routing.data_interval
+            if interval is None:
+                raise ValueError("Interval ingestion requires a runtime data interval")
+            if routing.interval_mode == "scheduled":
+                interval = DataInterval(interval.start - self.interval_lookback, interval.end)
+            source = apply_data_interval(
+                self.dlt_source_func(data_interval=interval), self.interval_column, interval
+            )
+        return apply_validation_schema_hints(source, self.validation_schema)
+
+    def _no_data_result(
+        self, emitter: IngestionEventEmitter, attempt: int | None
+    ) -> IngestionResult:
+        """Finish both absent sources and empty bounded extracts without a table write."""
+        if attempt is not None:
+            emit_lifecycle_safely(emitter, "emit_end", status="no_data", metrics={"rows_loaded": 0})
+        return IngestionResult(
+            status="no_data", rows_inserted=0, rows_deleted=0, metadata={"status": "no_data"}
+        )
 
     def _validate_staged_contract(
         self, parquet_paths: list[Path]
@@ -479,18 +514,14 @@ class DltIngester(BaseIngester):
             emit_lifecycle_safely(emitter, "emit_start")
 
         try:
-            dlt_source = self.dlt_source_func(partition_date=partition_key)
-            dlt_source = apply_validation_schema_hints(dlt_source, self.validation_schema)
+            dlt_source = self._create_source(partition_key, routing)
             source_identity = normalize_source_identity(
                 dlt_source, parameters.get("source_identity")
             )
 
             if dlt_source is None:
                 log_event(self.logger, "info", "ingestion_no_data", partition_key=partition_key)
-                if attempt is not None:
-                    emit_lifecycle_safely(
-                        emitter, "emit_end", status="no_data", metrics={"rows_loaded": 0}
-                    )
+                result = self._no_data_result(emitter, attempt)
                 if run_id != "unknown":
                     emit_observation(
                         project_id=project_id,
@@ -532,12 +563,7 @@ class DltIngester(BaseIngester):
                             "no_data",
                         ),
                     )
-                return IngestionResult(
-                    status="no_data",
-                    rows_inserted=0,
-                    rows_deleted=0,
-                    metadata={"status": "no_data"},
-                )
+                return result
 
             pipeline, local_staging_root = setup_dlt_pipeline(
                 pipeline_name=pipeline_name,
@@ -564,7 +590,11 @@ class DltIngester(BaseIngester):
                 pipeline=pipeline,
                 dlt_source=dlt_source,
                 local_staging_root=local_staging_root,
+                **({"allow_empty": True} if self.interval_column is not None else {}),
             )
+
+            if not parquet_paths:
+                return self._no_data_result(emitter, attempt)
 
             if self.add_metadata_columns:
                 for parquet_path in parquet_paths:

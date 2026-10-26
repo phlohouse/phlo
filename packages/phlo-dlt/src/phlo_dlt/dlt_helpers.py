@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +49,7 @@ import phlo.telemetry as phlo_observe
 from phlo.capabilities import CapabilitySupport, resolve_runtime_ref
 from phlo.capabilities.history import HistoryPolicy
 from phlo.capabilities.interfaces import HistoryTableStore, TableStore
+from phlo.capabilities.runtime import DataInterval
 from phlo.capabilities.table_store import schema_policy_kwargs
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
@@ -59,6 +60,42 @@ logger = get_logger(__name__)
 DLT_TABLE_STORE_SUPPORT = CapabilitySupport(supports_refs=True)
 WAP_TAG_KEY = "phlo/wap_branch"
 CATALOG_SYSTEM_TAG_KEY = "phlo/catalog_system"
+
+
+def validate_interval_options(
+    column: str | None, lookback: timedelta, strategy: str, unique_key: str
+) -> None:
+    """Reject unsafe interval configurations before extraction or table writes."""
+    if lookback < timedelta(0) or (column is None and lookback):
+        raise ValueError("Interval lookback requires an interval column and must be nonnegative")
+    if column is not None and (not column.strip() or not unique_key.strip() or strategy != "merge"):
+        raise ValueError(
+            "Interval ingestion requires a nonempty column, unique key, and merge writes"
+        )
+
+
+def apply_data_interval(source: Any, column: str, interval: DataInterval) -> Any:
+    """Bound one DLT resource before extraction without reading/writing its cursor.
+
+    DLT's end_value makes incremental filtering stateless. Sources can push the
+    same bounds into API/SQL requests; DLT also filters yielded records before
+    staging. Multi-resource sources must be bounded explicitly by their author.
+    """
+    from dlt.extract.resource import DltResource
+
+    if not isinstance(source, DltResource):
+        raise PhloConfigError(message="Interval ingestion requires one DLT resource")
+    source.apply_hints(
+        incremental=dlt.sources.incremental(
+            column,
+            initial_value=interval.start,
+            end_value=interval.end,
+            range_start="closed",
+            range_end="open",
+            allow_external_schedulers=False,
+        )
+    )
+    return source
 
 
 def generate_row_id() -> str:
@@ -352,6 +389,8 @@ def stage_to_parquet(
     pipeline: Any,
     dlt_source: Any,
     local_staging_root: Path,
+    *,
+    allow_empty: bool = False,
 ) -> tuple[list[Path], float]:
     """Run DLT extraction and return the staged parquet paths and elapsed time.
 
@@ -359,6 +398,8 @@ def stage_to_parquet(
     when DLT returns no load info, reports failed loader jobs, or produces
     no parquet files. Relative output paths are resolved against
     local_staging_root. The Dagster context is used for progress logging.
+    Bounded interval callers set ``allow_empty`` because an empty window is
+    valid; failed loader jobs still raise in that mode.
 
     Example:
         ```python
@@ -415,7 +456,7 @@ def stage_to_parquet(
 
             # Load-outcome validation lives inside the scope so the stage event
             # records the failure it causes.
-            if not load_info.load_packages:
+            if not load_info.load_packages and not allow_empty:
                 logger.error(
                     "dlt_stage_to_parquet_missing_load_packages",
                     pipeline_name=getattr(pipeline, "pipeline_name", ""),
@@ -443,7 +484,7 @@ def stage_to_parquet(
             if not parquet_path.is_absolute():
                 parquet_path = (local_staging_root / parquet_path).resolve()
             parquet_paths.append(parquet_path)
-    if not parquet_paths:
+    if not parquet_paths and not allow_empty:
         logger.error(
             "dlt_stage_to_parquet_missing_parquet_output",
             pipeline_name=getattr(pipeline, "pipeline_name", ""),

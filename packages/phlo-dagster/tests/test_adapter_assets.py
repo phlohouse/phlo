@@ -248,6 +248,39 @@ def test_isolated_candidate_rejects_identity_or_promotion_tag_changes(
     assert writes == []
 
 
+@pytest.mark.parametrize(
+    "day,hours,tags",
+    [
+        ("2026-03-29", 23, {"phlo/interval_mode": "replay"}),
+        ("2026-10-25", 25, {"dagster/backfill": "historical-orders"}),
+    ],
+)
+def test_calendar_intervals_cross_london_dst(day, hours, tags):
+    """The actual Dagster runtime supplies instants, not a guessed 24-hour day."""
+    from datetime import date
+
+    spec = AssetSpec(
+        key="interval_orders",
+        group=None,
+        description=None,
+        partitions=PartitionSpec(
+            kind="daily", start_date=date(2026, 1, 1), timezone="Europe/London"
+        ),
+    )
+    partitions = adapter._asset_policies(spec)["partitions_def"]
+    observed = []
+
+    @dg.asset(partitions_def=partitions)
+    def interval_orders(context):
+        routing = adapter.DagsterRuntime(context).routing
+        observed.append(routing)
+
+    result = dg.materialize([interval_orders], partition_key=day, tags=tags)
+    assert result.success
+    assert observed[0].data_interval.end - observed[0].data_interval.start == timedelta(hours=hours)
+    assert observed[0].interval_mode == "replay"
+
+
 def test_caller_tags_cannot_exempt_ordinary_asset_from_wap(execution, monkeypatch):
     monkeypatch.setattr(
         "phlo.infrastructure.load_wap_config", lambda: SimpleNamespace(enabled=True)

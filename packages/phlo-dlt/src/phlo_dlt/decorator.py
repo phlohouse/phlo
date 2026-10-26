@@ -49,6 +49,7 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterator, Sequence
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -78,6 +79,7 @@ from phlo_dlt.dlt_helpers import (
     get_branch_from_context,
     get_catalog_system_from_context,
     get_write_branch_from_context,
+    validate_interval_options,
 )
 from phlo_dlt.executor import DomainQualityValidationError, StagedFrameLoader
 from phlo_dlt.pandera_checks import (
@@ -559,6 +561,8 @@ def phlo_ingestion(
     required_actor: str | None = None,
     namespace: str | None = None,
     asset_key: str | None = None,
+    interval_column: str | None = None,
+    interval_lookback: timedelta = timedelta(0),
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register a function as a DLT-backed ingestion asset.
 
@@ -568,6 +572,13 @@ def phlo_ingestion(
     integration. The default asset key is ``dlt_{table_name}`` (a table named
     "users" becomes asset key "dlt_users"). An explicit ``asset_key`` changes
     asset, check and staging identities without changing the destination table.
+
+    With ``interval_column``, the source instead accepts ``data_interval`` and
+    returns one DLT resource. Extraction uses [start, end) with no durable cursor
+    updates. Scheduled runs extend start by ``interval_lookback``; replay runs
+    use the exact window. Only merge writes are supported, so retries and
+    overlapping windows upsert by ``unique_key``. Sources may push bounds into
+    their API/SQL requests; otherwise DLT filters records before staging.
 
     Execution Flow:
         1. Call the decorated function to get DLT source/data
@@ -704,6 +715,7 @@ def phlo_ingestion(
         :mod:`phlo.contracts`: Consumer and SLA classes
 
     """
+    validate_interval_options(interval_column, interval_lookback, merge_strategy, unique_key)
     _validate_unique_key_in_schema(unique_key, validation_schema)
     _validate_merge_config(merge_strategy, unique_key, merge_config)
     _validate_ingestion_options(
@@ -867,6 +879,8 @@ def phlo_ingestion(
                     validation_mode=validation_mode,
                     validation_batch_size=validation_batch_size,
                     validation_sample_size=validation_sample_size,
+                    interval_column=interval_column,
+                    interval_lookback=interval_lookback,
                 )
                 log_event(
                     logger, "info", "target_table_store_selected", table_store=table_store_name

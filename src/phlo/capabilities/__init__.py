@@ -175,6 +175,7 @@ from phlo.capabilities.resolver import (
     resolve_capability,
 )
 from phlo.capabilities.runtime import (
+    DataInterval,
     RuntimeContext,
     RuntimeRouting,
     resolve_runtime_ref,
@@ -367,6 +368,7 @@ __all__ = [
     "ResourceSpec",
     "RunResult",
     "RunSpec",
+    "DataInterval",
     "RuntimeContext",
     "RuntimeRouting",
     "WorkflowApplyAction",
