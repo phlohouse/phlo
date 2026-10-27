@@ -271,16 +271,19 @@ def test_completed_dependency_job_must_match_exact_attempt(context, monkeypatch,
     write.assert_not_called()
 
 
-def test_producer_appearing_after_first_poll_is_accepted(context, monkeypatch):
+@pytest.mark.parametrize("lag", ["absent", "in_progress"])
+def test_producer_appearing_after_first_poll_is_accepted(context, monkeypatch, lag):
     _, _, download, _, _, store, jobs = context
     producer = jobs.pop()
+    if lag == "in_progress":
+        jobs.append({**producer, "status": "in_progress", "conclusion": None})
     clock = [0.0]
     waited = []
 
     def reveal(seconds):
         waited.append(seconds)
         clock[0] += seconds
-        jobs.append(producer)
+        jobs[:] = [producer]
 
     monkeypatch.setattr(risk, "PRODUCER_WAIT_SECONDS", 60)
     monkeypatch.setattr(risk, "monotonic", lambda: clock[0])
