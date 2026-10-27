@@ -45,6 +45,12 @@ def test_handoff_grants_permissions_for_issue_and_advisory_pr_comments():
     }
 
 
+def test_producer_name_matches_the_security_workflow():
+    root = Path(__file__).resolve().parents[2]
+    security = yaml.safe_load((root / ".github/workflows/security.yml").read_text())
+    assert security["jobs"]["dependencies"]["name"] == risk.PRODUCER
+
+
 class GitHubStore:
     """Apply CLI writes to in-memory issues, PRs and comments."""
 
@@ -147,6 +153,8 @@ def context(monkeypatch, tmp_path):
     monkeypatch.setattr(risk.github, "pages", pages)
     monkeypatch.setattr(risk.github, "download_artifact", download)
     monkeypatch.setattr(risk.subprocess, "run", write)
+    # Waiting for the producer has dedicated tests; refusal cases must not spend a budget.
+    monkeypatch.setattr(risk, "PRODUCER_WAIT_SECONDS", 0)
     return run, report, download, write, tmp_path, store, jobs
 
 
@@ -233,14 +241,71 @@ def test_in_progress_run_requires_one_completed_dependency_producer(context, pro
     write.assert_not_called()
 
 
+def test_refusal_names_each_failed_predicate(context):
+    run, _, download, write, _, _, _ = context
+    run.update(event="workflow_dispatch", head_branch="feature")
+    with pytest.raises(ValueError, match="completed dependency producer") as failure:
+        risk.handoff(10, 2, SHA)
+    message = str(failure.value)
+    assert "event='workflow_dispatch' (expected 'schedule')" in message
+    assert "head_branch='feature' (expected 'main')" in message
+    download.assert_not_called()
+    write.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "field, value", [("run_id", 11), ("run_attempt", 1), ("head_sha", "b" * 40)]
 )
-def test_completed_dependency_job_must_match_exact_attempt(context, field, value):
+def test_completed_dependency_job_must_match_exact_attempt(context, monkeypatch, field, value):
     _, _, download, write, _, _, jobs = context
     jobs[0][field] = value
-    with pytest.raises(ValueError, match="completed dependency producer"):
+    monkeypatch.setattr(risk, "PRODUCER_WAIT_SECONDS", 60)
+    waited = Mock()
+    monkeypatch.setattr(risk, "sleep", waited)
+    with pytest.raises(ValueError, match="completed dependency producer") as failure:
         risk.handoff(10, 2, SHA)
+    # A completed job's identity is final, so a mismatch is refused, never waited out.
+    waited.assert_not_called()
+    assert f"{field}={value!r}" in str(failure.value)
+    download.assert_not_called()
+    write.assert_not_called()
+
+
+def test_producer_appearing_after_first_poll_is_accepted(context, monkeypatch):
+    _, _, download, _, _, store, jobs = context
+    producer = jobs.pop()
+    clock = [0.0]
+    waited = []
+
+    def reveal(seconds):
+        waited.append(seconds)
+        clock[0] += seconds
+        jobs.append(producer)
+
+    monkeypatch.setattr(risk, "PRODUCER_WAIT_SECONDS", 60)
+    monkeypatch.setattr(risk, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(risk, "sleep", reveal)
+    risk.handoff(10, 2, SHA)
+    assert waited == [risk.PRODUCER_POLL_SECONDS]
+    download.assert_called_once()
+    assert len(store.issues) == 1
+
+
+def test_missing_producer_rejected_at_deadline(context, monkeypatch):
+    _, _, download, write, _, _, jobs = context
+    jobs.clear()
+    clock = [0.0]
+
+    def advance(seconds):
+        clock[0] += seconds
+
+    monkeypatch.setattr(risk, "PRODUCER_WAIT_SECONDS", 12)
+    monkeypatch.setattr(risk, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(risk, "sleep", advance)
+    with pytest.raises(ValueError, match="completed dependency producer") as failure:
+        risk.handoff(10, 2, SHA)
+    assert 12 <= clock[0] < 12 + risk.PRODUCER_POLL_SECONDS
+    assert "no job named 'security / dependency assessment'" in str(failure.value)
     download.assert_not_called()
     write.assert_not_called()
 

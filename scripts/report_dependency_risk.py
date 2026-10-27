@@ -9,8 +9,15 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from time import monotonic, sleep
 
 import release_provenance as github
+
+PRODUCER = "security / dependency assessment"
+SECURITY_WORKFLOW = ".github/workflows/security.yml"
+# GitHub can list a run before it lists the job that run just finished, so poll.
+PRODUCER_WAIT_SECONDS = 120
+PRODUCER_POLL_SECONDS = 5
 
 
 def requests(report: dict, run_url: str) -> dict[str, str]:
@@ -141,39 +148,10 @@ def handoff(run_id: int, attempt: int, sha: str) -> None:
     run = github.api(f"repos/{github.REPOSITORY}/actions/runs/{run_id}/attempts/{attempt}")
     workflow = github.api(f"repos/{github.REPOSITORY}/actions/workflows/security.yml")
     repository = github.api(f"repos/{github.REPOSITORY}")
-    producer_jobs = github.pages(
-        f"repos/{github.REPOSITORY}/actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs"
-    )
-    completed_producers = [
-        job
-        for job in producer_jobs
-        if job.get("name") == "security / dependency assessment"
-        and job.get("status") == "completed"
-        and job.get("run_id") == run_id
-        and job.get("run_attempt") == attempt
-        and job.get("head_sha") == sha
-    ]
-    if (
-        run.get("event") != "schedule"
-        or run.get("head_branch") != "main"
-        or repository.get("default_branch") != "main"
-        or run.get("id") != run_id
-        or run.get("run_attempt") != attempt
-        or attempt < 1
-        or not re.fullmatch(r"[0-9a-f]{40}", sha)
-        or run.get("head_sha") != sha
-        or run.get("repository", {}).get("full_name") != github.REPOSITORY
-        or run.get("head_repository", {}).get("full_name") != github.REPOSITORY
-        or run.get("workflow_id") != workflow["id"]
-        or workflow.get("path") != ".github/workflows/security.yml"
-        or run.get("path", "").split("@")[0] != workflow["path"]
-        or run.get("status") not in {"in_progress", "completed"}
-        or len(completed_producers) != 1
-    ):
-        raise ValueError(
-            "Only an allowlisted daily scan with one completed dependency producer may "
-            "open remediation issues"
-        )
+    rejected = _allowlist_failures(run, workflow, repository, run_id, attempt, sha)
+    if rejected:
+        raise _refusal("; ".join(rejected))
+    _await_producer(run_id, attempt, sha)
     with tempfile.TemporaryDirectory() as directory:
         try:
             artifact = github.download_artifact(
@@ -187,6 +165,89 @@ def handoff(run_id: int, attempt: int, sha: str) -> None:
     if not valid_report(report, sha):
         report = {"assessment": "unavailable"}
     publish(report, run)
+
+
+def _refusal(reason: str) -> ValueError:
+    """Refuse intake, naming the predicate and the values it observed."""
+    return ValueError(
+        "Only an allowlisted daily scan with one completed dependency producer may "
+        f"open remediation issues: {reason}"
+    )
+
+
+def _allowlist_failures(
+    run: dict, workflow: dict, repository: dict, run_id: int, attempt: int, sha: str
+) -> list[str]:
+    """Name every allowlist predicate that failed and the value that failed it."""
+    facts = [
+        ("event", run.get("event"), "schedule"),
+        ("head_branch", run.get("head_branch"), "main"),
+        ("default_branch", repository.get("default_branch"), "main"),
+        ("run_id", run.get("id"), run_id),
+        ("run_attempt", run.get("run_attempt"), attempt),
+        ("head_sha", run.get("head_sha"), sha),
+        ("repository.full_name", run.get("repository", {}).get("full_name"), github.REPOSITORY),
+        (
+            "head_repository.full_name",
+            run.get("head_repository", {}).get("full_name"),
+            github.REPOSITORY,
+        ),
+        ("workflow_id", run.get("workflow_id"), workflow.get("id")),
+        ("workflow.path", workflow.get("path"), SECURITY_WORKFLOW),
+        ("run.path", run.get("path", "").split("@")[0], SECURITY_WORKFLOW),
+    ]
+    failures = [
+        f"{name}={observed!r} (expected {expected!r})"
+        for name, observed, expected in facts
+        if observed != expected
+    ]
+    if attempt < 1:
+        failures.append(f"run_attempt={attempt!r} (expected at least 1)")
+    if run.get("status") not in {"in_progress", "completed"}:
+        failures.append(f"status={run.get('status')!r} (expected 'in_progress' or 'completed')")
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        failures.append(f"head_sha={sha!r} (expected a full lowercase commit SHA)")
+    return failures
+
+
+def _await_producer(run_id: int, attempt: int, sha: str) -> None:
+    """Wait out list lag, but judge a completed job's immutable identity immediately."""
+    deadline = monotonic() + PRODUCER_WAIT_SECONDS
+    while True:
+        jobs = github.pages(
+            f"repos/{github.REPOSITORY}/actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs"
+        )
+        producers = [job for job in jobs if job.get("name") == PRODUCER]
+        completed = [job for job in producers if job.get("status") == "completed"]
+        if completed:
+            if len(completed) > 1:
+                raise _refusal(
+                    f"{len(completed)} completed producers: {_producer_states(completed)}"
+                )
+            producer = completed[0]
+            if (
+                producer.get("run_id") != run_id
+                or producer.get("run_attempt") != attempt
+                or producer.get("head_sha") != sha
+            ):
+                raise _refusal(_producer_states(completed))
+            return
+        if monotonic() >= deadline:
+            raise _refusal(
+                f"no producer completed within {PRODUCER_WAIT_SECONDS}s: {_producer_states(producers)}"
+            )
+        sleep(PRODUCER_POLL_SECONDS)
+
+
+def _producer_states(producers: list[dict]) -> str:
+    """Report the producer states observed, so a refusal is diagnosable."""
+    if not producers:
+        return f"no job named {PRODUCER!r}"
+    return ", ".join(
+        f"status={job.get('status')!r} run_id={job.get('run_id')!r} "
+        f"run_attempt={job.get('run_attempt')!r} head_sha={job.get('head_sha')!r}"
+        for job in producers
+    )
 
 
 def valid_report(report: object, sha: str) -> bool:
