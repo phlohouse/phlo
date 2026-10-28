@@ -166,15 +166,23 @@ deduplicated security issue per advisory/package/version, or comments on an open
 PR explicitly addressing that advisory and package. Ordinary version updates
 do not suppress intake. It preserves all affected consumer paths without
 repeating unchanged comments. Missing or unavailable assessments create a
-maintainer-owned escalation. Phlo agent owns triage and coordination with
-Renovate; neither owns the scanner verdict or approves its own risk exception.
+maintainer-owned escalation. Every scheduled Phlo maintenance pass reconciles
+these findings and outstanding issues with current main before routine work.
+For mechanical fixes, the agent resolves and verifies every affected consumer
+and opens or updates one draft PR. Existing advisory issues do not suppress
+fixes. Existing remediation PRs are reused rather than duplicated. Unavailable
+fixes, compatibility decisions, and failed checks remain issue-only escalations.
+Neither Phlo agent nor Renovate owns the scanner verdict or approves its own
+risk exception.
 
 Existing signed webhook intake ignores bot senders. Configure a human-owned,
 least-privilege `PHLO_DEPENDENCY_TRIAGE_TOKEN` with repository Issues write,
-Pull requests write, Actions read and Contents read to enable that intake. Without
-it, the workflow uses `github.token` to record issues, but maintainers must triage them. Verify a
-real signed webhook delivery before claiming automatic agent handoff. No token,
-webhook or agent schedule is provisioned by this change.
+Pull requests write, Actions read and Contents read to enable immediate webhook
+triage. Without it, the workflow uses `github.token` to record issues. Scheduled
+maintenance reads bot-authored issues directly, so remediation does not depend
+on webhook acceptance. Maintainers own escalation if the agent is unavailable.
+Verify a real signed delivery before claiming webhook triage. The existing agent
+schedule must be active; the workflow does not provision one.
 
 ## Artifact readiness and publication
 

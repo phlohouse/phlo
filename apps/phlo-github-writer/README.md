@@ -24,7 +24,9 @@ The server exposes these routes:
   `main` SHA and opens a draft pull request. Send `pullNumber` instead of
   `baseSha` to append a commit to the existing open phlo-agent draft request and
   refresh its title and body. It refuses changes under `.github/`, `.agents/`,
-  `.amp/`, and `.git/`.
+  `.amp/`, and `.git/`. Its JSON request budget is 20,000,000 characters to fit
+  root and example locks in one PR. Other routes retain the 2,500,000-character
+  budget. The 50-file and 60,000-character PR-body limits still apply.
 
 All write routes require `Authorization: Bearer <PHLO_GITHUB_PUBLISH_TOKEN>`.
 The GitHub App key never leaves the server.
@@ -86,17 +88,28 @@ GitHub writes still go through the writer tools. When publishing, omit a file's
 `content` so the plugin reads the current workspace file instead of resending
 large locks through the model.
 
+Every maintenance wake-up starts with the advisory remediation pass in
+`phlo-github:upstream-sync`, before following the rest of its saved prompt. It
+reads outstanding scanner issues directly, including bot-authored issues that
+the review webhook ignores. A matching issue is a work item, not a reason to
+skip a fix. The agent resolves all affected consumers, verifies the candidate
+locks and focused checks, then opens or updates a draft through the writer.
+Existing remediation PRs take precedence. Blocked fixes stay in their existing
+issues, with the blocker reported in the maintenance result. The one-artifact
+limit applies to the entire wake-up, including both security and routine work.
+
 ### Daily dependency security
 
 Run at `0 2 * * *` UTC:
 
 > Run Phlo's focused dependency-security pass against current `origin/main`.
-> Load `phlo-github:upstream-sync`. Inspect the latest public main-branch
-> security CI result and authoritative upstream advisories. If they are clean,
-> stop and create nothing. For findings, search existing issues and pull
-> requests, then follow the skill. Create or update at most one issue or bounded
-> draft pull request through the Phlo maintenance publishing tools. Never merge,
-> waive a finding, publish, or release.
+> Load `phlo-github:upstream-sync` and complete its advisory remediation pass.
+> Reconcile the latest main-branch assessment and outstanding scanner issues,
+> including bot-authored issues, with current main. Prefer a verified mechanical
+> draft PR over another advisory issue. Reuse existing remediation PRs and retain
+> existing issues for blocked fixes. Stop after this security-only pass. Create
+> or update at most one artifact through the Phlo maintenance publishing tools.
+> Never merge, waive a finding, publish, or release.
 
 ### Repository maintenance
 
@@ -124,6 +137,16 @@ current `main`. Copy the exact saved prompts, recurrence rules, timezones, and
 run modes from the old maintenance schedules. Verify that the replacements can
 retrieve their saved prompts without running an audit, then pause the old
 schedules to prevent duplicate runs.
+
+For changes limited to maintenance behaviour, replace only the maintenance
+threads. The host and webhook registration do not need to change. Use the
+security prompt above when the old prompt stops on a clean scan without checking
+outstanding issues. Preserve the existing recurrence, timezone, and run mode.
+Get operator approval before changing live schedules. Reloading a plugin in a
+development orb does not activate these changes in existing scheduled threads.
+Deploy writer changes separately with operator approval before relying on a
+larger multi-lock request budget. A repository merge alone does not update the
+Cloudflare Worker.
 
 Set `phloGitHubAutomationHost` to the replacement host's thread ID. Verify that
 the host can reload plugins and send a status message. Check webhook ownership
