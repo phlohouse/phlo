@@ -46,10 +46,19 @@ in SECURITY.md, high findings same-day assignment, and other findings assignment
 before the next daily scan. Deduplicate remediation by advisory, package and
 version, retaining all affected lockfiles and named owners in the existing issue.
 
-Phlo's existing `phlo-maintenance` mode coordinates triage; Renovate remains the
-preferred resolver for routine updates and protected CI verifies every update.
-The agent runs resolvers and focused checks in its orb checkout, searches
-issues/PRs before publishing, and permits one bounded issue or draft PR via
+Phlo's existing `phlo-maintenance` mode attempts advisory remediation before
+routine work on every scheduled wake-up. It reconciles the independent assessment
+and outstanding advisory issues, including bot-authored issues, with current
+main. An existing issue does not suppress a verified mechanical fix. Renovate
+remains the preferred updater for routine work, and existing remediation PRs take
+precedence over new PRs. Protected CI verifies every update.
+The agent runs resolvers for every affected consumer and focused checks in its
+orb checkout. It verifies candidate locks against the advisory and checks for
+new vulnerable versions before opening or updating a draft PR. Findings without
+a fix, compatibility decisions, and failed checks remain issue-only escalations.
+Existing issues are retained rather than duplicated, with blockers reported in
+the maintenance result. The agent searches issues/PRs before publishing and
+permits one bounded issue or draft PR per wake-up via
 `publish_phlo_maintenance_issue` / `publish_phlo_maintenance_pull_request`.
 The writer remains the only GitHub write path: the agent never pushes with Git.
 It cannot run release scanners, approve risks, change workflows or change live
@@ -61,13 +70,15 @@ complete, verifies the matching JSON artifact, and reuses matching
 advisory/package PRs before creating or updating deduplicated security issues.
 PR comments preserve all consumer paths; ordinary version bumps do not count as
 advisory remediation. Unavailable scans create maintainer-owned escalation
-issues. Configure `PHLO_DEPENDENCY_TRIAGE_TOKEN`
+issues. Scheduled maintenance reads this backlog directly and does not depend on
+issue webhook delivery or a human sender. Configure `PHLO_DEPENDENCY_TRIAGE_TOKEN`
 with Issues write, Pull requests write, Actions read and Contents read and a human
 sender to reach existing signed issue webhook intake; its bot filter
 rejects the fallback `github.token` sender. Without this credential, issues are
-recorded but maintainers own triage. Verify live webhook delivery before claiming
-automatic handoff. No competing updater or shared setting is introduced;
-Renovate remains the preferred resolver, and the agent may produce a bounded
+still eligible for the next scheduled maintenance pass. Maintainers own
+escalation if that agent is unavailable. Verify live webhook delivery before
+claiming immediate webhook triage. No competing updater or shared setting is
+introduced. Renovate remains the preferred updater, and the agent may produce a bounded
 remediation PR only from resolver output it has verified.
 
 ## Caller contract

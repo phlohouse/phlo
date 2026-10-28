@@ -4,6 +4,8 @@ import { githubRequest, installationToken, repository, type Fetcher } from './gi
 import { issueTriageLabelsAllowed, validBranch, validChangedPath } from './validation.js'
 
 export const maxRequestLength = 2_500_000
+// Complete root and example lock updates exceed the ordinary request budget.
+const MAX_DRAFT_REQUEST_LENGTH = 20_000_000
 const MAX_BODY_LENGTH = 60_000
 const DELIVERY_PATTERN = /^[A-Za-z0-9:_-]{1,200}$/
 const SHA_PATTERN = /^[0-9a-f]{40}$/i
@@ -58,13 +60,13 @@ function authorized(request: Request, expected: string | undefined): boolean {
   return match?.[1] !== undefined && safeEqual(match[1], expected)
 }
 
-async function input(request: Request): Promise<unknown> {
+async function input(request: Request, limit: number): Promise<unknown> {
   const contentLength = Number(request.headers.get('content-length'))
-  if (Number.isFinite(contentLength) && contentLength > maxRequestLength) {
+  if (Number.isFinite(contentLength) && contentLength > limit) {
     throw new RangeError('Request body is too large.')
   }
   const raw = await request.text()
-  if (raw.length > maxRequestLength) throw new RangeError('Request body is too large.')
+  if (raw.length > limit) throw new RangeError('Request body is too large.')
   return JSON.parse(raw) as unknown
 }
 
@@ -393,7 +395,9 @@ export async function handleRequest(request: Request, dependencies: Dependencies
 
   let value: unknown
   try {
-    value = await input(request)
+    value = await input(request, url.pathname === '/v1/draft-pull-requests'
+      ? MAX_DRAFT_REQUEST_LENGTH
+      : maxRequestLength)
   } catch (error) {
     if (error instanceof RangeError) {
       return Response.json({ error: error.message }, { status: 413 })

@@ -19,7 +19,7 @@ WORKDIR /src/minio
 # go get ./... resolves local packages against that module graph, not @latest.
 # hadolint ignore=DL3062
 RUN go get github.com/apache/thrift@v0.24.0 github.com/buger/jsonparser@v1.1.2 \
-        github.com/go-jose/go-jose/v4@v4.1.4 github.com/klauspost/compress@v1.18.7 \
+        github.com/go-jose/go-jose/v4@v4.1.6 github.com/klauspost/compress@v1.18.7 \
         github.com/prometheus/prometheus@v0.311.3 \
         github.com/rabbitmq/amqp091-go@v1.13.0 go.opentelemetry.io/otel/sdk@v1.44.0 \
         golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 \
@@ -52,7 +52,7 @@ RUN if [ -f /context/Dockerfile ]; then \
         cp /context/src/phlo_minio/Dockerfile /sources/Dockerfile; \
     fi \
     && printf '%s\n' \
-        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-10-21.' \
+        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-10-28.' \
         'These are Phlo builds, not official MinIO binaries. See Dockerfile for the dependency changes.' \
         > /sources/PHLO-NOTICE
 

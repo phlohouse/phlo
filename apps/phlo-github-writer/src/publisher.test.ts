@@ -1,6 +1,6 @@
 /** Contract tests for the writer's bounded GitHub App writes. */
 import assert from 'node:assert/strict'
-import { generateKeyPairSync } from 'node:crypto'
+import { createHash, generateKeyPairSync } from 'node:crypto'
 import test from 'node:test'
 import { handleRequest } from './publisher.js'
 
@@ -120,9 +120,15 @@ test('resolves a pull request head for an authorized mention', async () => {
   assert.deepEqual(await response.json(), { headSha })
 })
 
-test('creates a draft pull request from bounded file content', async () => {
+test('creates one draft pull request containing every consumer lock', async () => {
   const baseSha = 'a'.repeat(40)
   const baseTreeSha = 'e'.repeat(40)
+  // A root lock and twelve example locks exceed the former 2.5 MB request limit.
+  const files = Array.from({ length: 13 }, (_, index) => ({
+    path: index === 0 ? 'uv.lock' : `examples/project-${index}/uv.lock`,
+    content: `# consumer ${index}\n${'package = []\n'.repeat(70_000)}`,
+  }))
+  const blobs = new Map<string, string>()
   const calls: Array<{ body: unknown; method: string; url: string }> = []
   const fetcher: typeof fetch = async (input, init) => {
     const url = String(input)
@@ -135,7 +141,13 @@ test('creates a draft pull request from bounded file content', async () => {
     })
     if (url.endsWith('/git/ref/heads/main')) return Response.json({ object: { sha: baseSha } })
     if (url.endsWith(`/git/commits/${baseSha}`)) return Response.json({ tree: { sha: baseTreeSha } })
-    if (url.endsWith('/git/blobs')) return Response.json({ sha: 'b'.repeat(40) })
+    if (url.endsWith('/git/blobs')) {
+      const body = JSON.parse(String(init?.body))
+      const content = Buffer.from(body.content, 'base64').toString()
+      const sha = createHash('sha1').update(content).digest('hex')
+      blobs.set(sha, content)
+      return Response.json({ sha })
+    }
     if (url.endsWith('/git/trees')) return Response.json({ sha: 'c'.repeat(40) })
     if (url.endsWith('/git/commits')) return Response.json({ sha: 'd'.repeat(40) })
     if (url.endsWith('/pulls')) return Response.json({ html_url: 'https://github.com/phlohouse/phlo/pull/99' })
@@ -143,17 +155,44 @@ test('creates a draft pull request from bounded file content', async () => {
   }
   const response = await handleRequest(request('/v1/draft-pull-requests', {
     baseSha,
-    body: 'Verified maintenance fix.',
-    branch: 'agent/fix-docs-2026-09-21',
-    files: [{ path: 'docs/example.md', content: 'fixed\n' }],
-    title: 'fix(docs): correct example',
+    body: 'Verified advisory remediation across all consumers.',
+    branch: 'agent/security-dependency-remediation',
+    files,
+    title: 'fix(deps): remediate advisory in every consumer',
   }), { ...credentials, fetch: fetcher })
 
   assert.equal(response.status, 201)
-  assert.deepEqual(calls.map((call) => call.method), ['GET', 'GET', 'POST', 'POST', 'POST', 'POST', 'POST'])
+  assert.equal((await response.json()).htmlUrl, 'https://github.com/phlohouse/phlo/pull/99')
   const treeRequest = calls.find((call) => call.url.endsWith('/git/trees'))
-  assert.equal((treeRequest?.body as { base_tree?: unknown }).base_tree, baseTreeSha)
+  assert.deepEqual([...blobs.values()], files.map((file) => file.content))
+  assert.deepEqual(treeRequest?.body, {
+    base_tree: baseTreeSha,
+    tree: files.map((file) => ({
+      path: file.path,
+      mode: '100644',
+      type: 'blob',
+      sha: createHash('sha1').update(file.content).digest('hex'),
+    })),
+  })
   assert.equal((calls.at(-1)?.body as { draft?: unknown }).draft, true)
+})
+
+test('bounds large draft payloads without raising limits on other routes', async () => {
+  const oversized = JSON.stringify({ content: 'x'.repeat(20_000_000) })
+  for (const declared of [false, true]) {
+    const draft = new Request('https://writer.example/v1/draft-pull-requests', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${publishToken}`,
+        ...(declared ? { 'content-length': String(oversized.length) } : {}),
+      },
+      body: oversized,
+    })
+    assert.equal((await handleRequest(draft, credentials)).status, 413)
+  }
+  assert.equal((await handleRequest(request('/v1/issues', {
+    content: 'x'.repeat(2_500_000),
+  }), credentials)).status, 413)
 })
 
 test('updates an existing agent draft pull request with one new commit', async () => {
