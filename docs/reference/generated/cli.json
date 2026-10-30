@@ -10,6 +10,7 @@
       "command": "phlo",
       "description": "Phlo - Modern Data Lakehouse Framework",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -102,6 +103,7 @@
       "command": "phlo airbyte",
       "description": "Interact with the Airbyte control plane (status, connections, sync).",
       "kind": "command",
+      "package": "phlo-airbyte",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -124,6 +126,7 @@
       "command": "phlo alerts",
       "description": "Alert management and configuration.",
       "kind": "group",
+      "package": "phlo-alerting",
       "parameters": []
     },
     {
@@ -135,6 +138,7 @@
       "command": "phlo alerts list",
       "description": "List configured alert destinations.",
       "kind": "command",
+      "package": "phlo-alerting",
       "parameters": []
     },
     {
@@ -146,6 +150,7 @@
       "command": "phlo alerts status",
       "description": "Check alert system status.",
       "kind": "command",
+      "package": "phlo-alerting",
       "parameters": []
     },
     {
@@ -157,6 +162,7 @@
       "command": "phlo alerts test",
       "description": "Send a test alert to configured destinations.",
       "kind": "command",
+      "package": "phlo-alerting",
       "parameters": [
         {
           "choices": [
@@ -207,6 +213,7 @@
       "command": "phlo audit",
       "description": "Inspect local Phlo audit records.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -218,6 +225,7 @@
       "command": "phlo audit query",
       "description": "Query audit records.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -278,6 +286,7 @@
       "command": "phlo audit tail",
       "description": "Tail recent audit records.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": 20,
@@ -338,6 +347,7 @@
       "command": "phlo authz",
       "description": "Manage RBAC authorization policies and backend synchronization.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -349,6 +359,7 @@
       "command": "phlo authz identity",
       "description": "Inspect roles and assign members using an existing administrator session.",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -393,6 +404,7 @@
       "command": "phlo authz identity assign",
       "description": "Review and sign a member's complete role set, preserving identity metadata.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -495,6 +507,7 @@
       "command": "phlo authz identity members",
       "description": "List installation-wide managed assignments and current versions.",
       "kind": "command",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -506,6 +519,7 @@
       "command": "phlo authz identity permissions",
       "description": "Evaluate your session for a resource identity with no resource attributes.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -564,6 +578,7 @@
       "command": "phlo authz identity roles",
       "description": "List supported assignments and candidate policy rules, not guaranteed grants.",
       "kind": "command",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -575,6 +590,7 @@
       "command": "phlo authz plan",
       "description": "Create a sync plan without applying changes.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": null,
@@ -635,6 +651,7 @@
       "command": "phlo authz revert",
       "description": "Revert previously applied policy changes.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -705,6 +722,7 @@
       "command": "phlo authz sync",
       "description": "Synchronize RBAC policies to backend-native enforcement.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": null,
@@ -781,6 +799,7 @@
       "command": "phlo authz validate",
       "description": "Validate RBAC configuration files.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": null,
@@ -809,6 +828,7 @@
       "command": "phlo authz verify",
       "description": "Verify backend state matches desired RBAC state.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": null,
@@ -869,6 +889,7 @@
       "command": "phlo backfill",
       "description": "Run asset materialization across a date range with parallel execution.",
       "kind": "command",
+      "package": "phlo-dagster",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1035,6 +1056,7 @@
       "command": "phlo branch",
       "description": "Manage Nessie branches for data versioning.",
       "kind": "group",
+      "package": "phlo-nessie",
       "parameters": []
     },
     {
@@ -1046,6 +1068,7 @@
       "command": "phlo branch create",
       "description": "Create a new branch.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1084,6 +1107,7 @@
       "command": "phlo branch delete",
       "description": "Delete a branch.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1122,6 +1146,7 @@
       "command": "phlo branch diff",
       "description": "Show differences between branches.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1174,6 +1199,7 @@
       "command": "phlo branch list",
       "description": "List all branches.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": false,
@@ -1222,6 +1248,7 @@
       "command": "phlo branch merge",
       "description": "Merge source branch into target branch.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1286,6 +1313,7 @@
       "command": "phlo catalog",
       "description": "Manage the lakehouse catalog (Nessie-backed).",
       "kind": "group",
+      "package": "phlo-nessie",
       "parameters": []
     },
     {
@@ -1297,6 +1325,7 @@
       "command": "phlo catalog describe",
       "description": "Show detailed table metadata.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1335,6 +1364,7 @@
       "command": "phlo catalog history",
       "description": "Show table snapshot history.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1409,6 +1439,7 @@
       "command": "phlo catalog tables",
       "description": "List all Iceberg tables in the catalog.",
       "kind": "command",
+      "package": "phlo-nessie",
       "parameters": [
         {
           "default": null,
@@ -1473,6 +1504,7 @@
       "command": "phlo clickhouse",
       "description": "Query and inspect the ClickHouse data plane service.",
       "kind": "group",
+      "package": "phlo-clickhouse",
       "parameters": []
     },
     {
@@ -1484,6 +1516,7 @@
       "command": "phlo clickhouse query",
       "description": "Execute a SQL query against the running ClickHouse service via clickhouse-client inside the container backend, printing results to stdout.",
       "kind": "command",
+      "package": "phlo-clickhouse",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1554,6 +1587,7 @@
       "command": "phlo clickhouse status",
       "description": "Show ClickHouse service status: version, uptime, and current database.",
       "kind": "command",
+      "package": "phlo-clickhouse",
       "parameters": []
     },
     {
@@ -1565,6 +1599,7 @@
       "command": "phlo clickstack",
       "description": "Query and inspect the ClickStack service.",
       "kind": "group",
+      "package": "phlo-clickstack",
       "parameters": []
     },
     {
@@ -1576,6 +1611,7 @@
       "command": "phlo clickstack query",
       "description": "Execute a ClickHouse query against the running ClickStack service.",
       "kind": "command",
+      "package": "phlo-clickstack",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1646,6 +1682,7 @@
       "command": "phlo commands",
       "description": "List installed commands and their output, preview, and confirmation options.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1684,6 +1721,7 @@
       "command": "phlo compliance",
       "description": "Manage compliance features and evidence.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -1695,6 +1733,7 @@
       "command": "phlo compliance export-evidence",
       "description": "Export a compliance evidence pack.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1821,6 +1860,7 @@
       "command": "phlo compliance verify-evidence",
       "description": "Verify the integrity of an evidence pack.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -1843,6 +1883,7 @@
       "command": "phlo config",
       "description": "Manage infrastructure configuration.",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -1887,6 +1928,7 @@
       "command": "phlo config show",
       "description": "Show the effective infrastructure configuration.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -1935,6 +1977,7 @@
       "command": "phlo config upgrade",
       "description": "Upgrade phlo.yaml through ordered detect -> plan -> apply -> validate steps.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -1979,6 +2022,7 @@
       "command": "phlo config validate",
       "description": "Validate infrastructure configuration in phlo.yaml.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -2007,6 +2051,7 @@
       "command": "phlo contracts",
       "description": "Schema registry and data contract management.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -2018,6 +2063,7 @@
       "command": "phlo contracts check",
       "description": "Check schema compatibility for a table against its previous snapshot.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2066,6 +2112,7 @@
       "command": "phlo contracts snapshot",
       "description": "Snapshot a schema from a JSON file into the registry.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2142,6 +2189,7 @@
       "command": "phlo dataset",
       "description": "Dataset workflow commands.",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -2186,6 +2234,7 @@
       "command": "phlo dataset list",
       "description": "List canonical projections for every governed table.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "choices": [
@@ -2234,6 +2283,7 @@
       "command": "phlo dataset migrate-overlay",
       "description": "Plan, apply, or discard the legacy Observatory dataset workflow overlay.",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -2278,6 +2328,7 @@
       "command": "phlo dataset migrate-overlay apply",
       "description": "Import the planned overlay once, digest-confirmed and idempotent.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2374,6 +2425,7 @@
       "command": "phlo dataset migrate-overlay discard",
       "description": "Explicitly discard the planned overlay import (audited; legacy file retained).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2470,6 +2522,7 @@
       "command": "phlo dataset migrate-overlay plan",
       "description": "Plan the overlay import without touching any store (read-only).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2530,6 +2583,7 @@
       "command": "phlo dataset show",
       "description": "Show the canonical Dataset projection for one Dataset ID.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2604,6 +2658,7 @@
       "command": "phlo dataset transition",
       "description": "Apply one authorized Dataset transition through the core service.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2728,6 +2783,7 @@
       "command": "phlo dbt",
       "description": "Dbt commands (compile, run, test, publishing).",
       "kind": "group",
+      "package": "phlo-dbt",
       "parameters": []
     },
     {
@@ -2739,6 +2795,7 @@
       "command": "phlo dbt compile",
       "description": "Compile dbt models in the local project.",
       "kind": "command",
+      "package": "phlo-dbt",
       "parameters": [
         {
           "default": "dev",
@@ -2783,6 +2840,7 @@
       "command": "phlo dbt publishing",
       "description": "Manage publishing configuration.",
       "kind": "group",
+      "package": "phlo-dbt",
       "parameters": []
     },
     {
@@ -2794,6 +2852,7 @@
       "command": "phlo dbt publishing scaffold",
       "description": "Scaffold `publishing.yaml` from a dbt manifest.",
       "kind": "command",
+      "package": "phlo-dbt",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -2970,6 +3029,7 @@
       "command": "phlo dbt run",
       "description": "Run dbt models in the local project.",
       "kind": "command",
+      "package": "phlo-dbt",
       "parameters": [
         {
           "default": "dev",
@@ -3030,6 +3090,7 @@
       "command": "phlo dbt test",
       "description": "Run dbt tests in the local project.",
       "kind": "command",
+      "package": "phlo-dbt",
       "parameters": [
         {
           "default": "dev",
@@ -3090,6 +3151,7 @@
       "command": "phlo dev",
       "description": "Start the Dagster development server for your workflows.",
       "kind": "command",
+      "package": "phlo-dagster",
       "parameters": [
         {
           "default": "127.0.0.1",
@@ -3150,6 +3212,7 @@
       "command": "phlo doctor",
       "description": "Diagnose local Phlo setup and service health.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -3194,6 +3257,7 @@
       "command": "phlo env",
       "description": "Manage environment configuration.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -3205,6 +3269,7 @@
       "command": "phlo env export",
       "description": "Export the generated environment configuration.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -3268,6 +3333,7 @@
       "command": "phlo governance",
       "description": "Check and export governance readiness from Phlo declarations.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -3279,6 +3345,7 @@
       "command": "phlo governance check",
       "description": "Validate governed tables for publish and production readiness.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -3323,6 +3390,7 @@
       "command": "phlo governance export",
       "description": "Export the browser-safe governance read model.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -3367,6 +3435,7 @@
       "command": "phlo hasura",
       "description": "Hasura GraphQL metadata management CLI.",
       "kind": "group",
+      "package": "phlo-hasura",
       "parameters": []
     },
     {
@@ -3378,6 +3447,7 @@
       "command": "phlo hasura apply",
       "description": "Apply Hasura metadata from a previously exported JSON file, replacing the current metadata.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3406,6 +3476,7 @@
       "command": "phlo hasura auto-setup",
       "description": "Run track, relationships, and permissions in sequence — one-command setup for a new schema.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": [
         {
           "default": "api",
@@ -3451,6 +3522,7 @@
       "command": "phlo hasura export",
       "description": "Export the complete Hasura metadata (tracked tables, relationships, permissions) to a JSON file.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3479,6 +3551,7 @@
       "command": "phlo hasura permissions",
       "description": "Create default SELECT permissions for standard roles (anon, analyst, admin) on all tracked tables in the schema.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": [
         {
           "default": "api",
@@ -3524,6 +3597,7 @@
       "command": "phlo hasura relationships",
       "description": "Analyze foreign key constraints in the schema and create object relationships (many-to-one) in Hasura metadata.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": [
         {
           "default": "api",
@@ -3569,6 +3643,7 @@
       "command": "phlo hasura status",
       "description": "Show a summary of all tracked tables organized by schema, reflecting the current Hasura metadata.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": []
     },
     {
@@ -3580,6 +3655,7 @@
       "command": "phlo hasura sync-permissions",
       "description": "Apply permission configurations from a YAML or JSON config file that defines tables, roles, and their SELECT/INSERT/UPDATE/DELETE grants.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3608,6 +3684,7 @@
       "command": "phlo hasura track",
       "description": "Auto-discover and track tables in Hasura, optionally excluding specific tables, and print a summary of tracked tables.",
       "kind": "command",
+      "package": "phlo-hasura",
       "parameters": [
         {
           "default": "api",
@@ -3669,6 +3746,7 @@
       "command": "phlo init",
       "description": "Initialize a new Phlo project.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3755,6 +3833,7 @@
       "command": "phlo kafka",
       "description": "Interact with the Kafka broker (status, topics).",
       "kind": "command",
+      "package": "phlo-kafka",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3777,6 +3856,7 @@
       "command": "phlo lineage",
       "description": "Asset dependency and lineage visualization commands.",
       "kind": "group",
+      "package": "phlo-lineage",
       "parameters": []
     },
     {
@@ -3788,6 +3868,7 @@
       "command": "phlo lineage column",
       "description": "Column-level lineage commands.",
       "kind": "group",
+      "package": "phlo-lineage",
       "parameters": []
     },
     {
@@ -3799,6 +3880,7 @@
       "command": "phlo lineage column downstream",
       "description": "Show downstream column lineage for an asset.",
       "kind": "command",
+      "package": "phlo-lineage",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3837,6 +3919,7 @@
       "command": "phlo lineage column import-dbt",
       "description": "Import column lineage from a dbt manifest.json file.",
       "kind": "command",
+      "package": "phlo-lineage",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3865,6 +3948,7 @@
       "command": "phlo lineage column upstream",
       "description": "Show upstream column lineage for an asset.",
       "kind": "command",
+      "package": "phlo-lineage",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3903,6 +3987,7 @@
       "command": "phlo lineage export",
       "description": "Export lineage to external visualization formats.",
       "kind": "command",
+      "package": "phlo-lineage",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3962,6 +4047,7 @@
       "command": "phlo lineage impact",
       "description": "Analyze downstream impact of an asset.",
       "kind": "command",
+      "package": "phlo-lineage",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -3984,6 +4070,7 @@
       "command": "phlo lineage show",
       "description": "Display asset dependencies in ASCII tree format.",
       "kind": "command",
+      "package": "phlo-lineage",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -4043,6 +4130,7 @@
       "command": "phlo lineage status",
       "description": "Show lineage graph status and statistics.",
       "kind": "command",
+      "package": "phlo-lineage",
       "parameters": []
     },
     {
@@ -4054,6 +4142,7 @@
       "command": "phlo logs",
       "description": "View logs from Phlo infrastructure services.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -4214,6 +4303,7 @@
       "command": "phlo materialize",
       "description": "Materialize Dagster assets via the configured container backend.",
       "kind": "command",
+      "package": "phlo-dagster",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -4349,6 +4439,7 @@
       "command": "phlo mcp",
       "description": "Run and inspect the Phlo MCP server.",
       "kind": "group",
+      "package": "phlo-mcp",
       "parameters": []
     },
     {
@@ -4360,6 +4451,7 @@
       "command": "phlo mcp config",
       "description": "Print resolved MCP configuration with secrets redacted.",
       "kind": "command",
+      "package": "phlo-mcp",
       "parameters": [
         {
           "default": false,
@@ -4388,6 +4480,7 @@
       "command": "phlo mcp install",
       "description": "Print or write an MCP client configuration snippet.",
       "kind": "command",
+      "package": "phlo-mcp",
       "parameters": [
         {
           "choices": [
@@ -4448,6 +4541,7 @@
       "command": "phlo mcp prompts",
       "description": "List prompts registered by the local MCP server.",
       "kind": "command",
+      "package": "phlo-mcp",
       "parameters": [
         {
           "default": false,
@@ -4476,6 +4570,7 @@
       "command": "phlo mcp serve",
       "description": "Serve the Phlo MCP server.",
       "kind": "command",
+      "package": "phlo-mcp",
       "parameters": [
         {
           "choices": [
@@ -4604,6 +4699,7 @@
       "command": "phlo mcp tools",
       "description": "List tools registered by the local MCP server.",
       "kind": "command",
+      "package": "phlo-mcp",
       "parameters": [
         {
           "default": false,
@@ -4632,6 +4728,7 @@
       "command": "phlo metrics",
       "description": "Pipeline and data metrics exposure.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -4643,6 +4740,7 @@
       "command": "phlo metrics asset",
       "description": "Show per-asset metrics.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -4697,6 +4795,7 @@
       "command": "phlo metrics export",
       "description": "Export metrics to JSON, CSV, or Prometheus text.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "choices": [
@@ -4778,6 +4877,7 @@
       "command": "phlo metrics summary",
       "description": "Show key metrics overview.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "24h",
@@ -4822,6 +4922,7 @@
       "command": "phlo migrate",
       "description": "Data migration commands.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -4833,6 +4934,7 @@
       "command": "phlo migrate decorators-2026-05",
       "description": "Migrate May 2026 decorator APIs.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -4903,6 +5005,7 @@
       "command": "phlo migrate list",
       "description": "List available migration spec files.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": null,
@@ -4931,6 +5034,7 @@
       "command": "phlo migrate run",
       "description": "Execute a migration spec.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -4989,6 +5093,7 @@
       "command": "phlo migrate status",
       "description": "Show recent migration history.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": 10,
@@ -5037,6 +5142,7 @@
       "command": "phlo migrate validate",
       "description": "Validate a migration spec without executing.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5059,6 +5165,7 @@
       "command": "phlo minio",
       "description": "Run MinIO client (mc) commands inside the project service container.",
       "kind": "command",
+      "package": "phlo-minio",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5081,6 +5188,7 @@
       "command": "phlo openmetadata",
       "description": "Manage OpenMetadata integration (optional): check health and sync catalog tables and dbt documentation.",
       "kind": "group",
+      "package": "phlo-openmetadata",
       "parameters": []
     },
     {
@@ -5092,6 +5200,7 @@
       "command": "phlo openmetadata health",
       "description": "Check OpenMetadata connectivity using configured credentials; exits 1 when the server is unreachable.",
       "kind": "command",
+      "package": "phlo-openmetadata",
       "parameters": []
     },
     {
@@ -5103,6 +5212,7 @@
       "command": "phlo openmetadata sync",
       "description": "Sync Nessie catalog tables (and optionally dbt docs) into OpenMetadata; exits 1 when sync fails or OpenMetadata is unreachable.",
       "kind": "command",
+      "package": "phlo-openmetadata",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5181,6 +5291,7 @@
       "command": "phlo operations",
       "description": "Guarded plan-first operations (maintenance, backup, restore, upgrade).",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -5225,6 +5336,7 @@
       "command": "phlo operations backup",
       "description": "Create and verify immutable v1 backup sets (ADR 0049 §3).",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -5269,6 +5381,7 @@
       "command": "phlo operations backup create",
       "description": "Create one verified backup set for all v1-owned state (authorized).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5333,6 +5446,7 @@
       "command": "phlo operations backup verify",
       "description": "Independently verify a backup set (read-only, no service mutation).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5413,6 +5527,7 @@
       "command": "phlo operations maintenance",
       "description": "Plan and apply v1 table maintenance (compaction, snapshot expiry).",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -5457,6 +5572,7 @@
       "command": "phlo operations maintenance apply",
       "description": "Apply an exact, still-current maintenance plan (authorized, fail-before-mutation).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5537,6 +5653,7 @@
       "command": "phlo operations maintenance inventory",
       "description": "List v1 tables with their provider and maintenance state (read-only).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -5585,6 +5702,7 @@
       "command": "phlo operations maintenance plan",
       "description": "Create a deterministic maintenance plan (read-only, no mutation).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "choices": [
@@ -5733,6 +5851,7 @@
       "command": "phlo operations restore",
       "description": "Plan and apply an explicit-target restore (ADR 0049 §4).",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -5777,6 +5896,7 @@
       "command": "phlo operations restore apply",
       "description": "Apply a plan only to its bound target (authorized, fail-before-mutation).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5873,6 +5993,7 @@
       "command": "phlo operations restore plan",
       "description": "Create a mutation-free restore plan bound to set digest + target.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -5953,6 +6074,7 @@
       "command": "phlo operations upgrade",
       "description": "Prove the supported deployment upgrade pair (ADR 0049 §5).",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -5997,6 +6119,7 @@
       "command": "phlo operations upgrade apply",
       "description": "Apply the bound upgrade (authorized, requires verified backup).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6093,6 +6216,7 @@
       "command": "phlo operations upgrade plan",
       "description": "Create a mutation-free upgrade plan after a verified backup.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6205,6 +6329,7 @@
       "command": "phlo plugin",
       "description": "Manage Phlo plugins.",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -6249,6 +6374,7 @@
       "command": "phlo plugin check",
       "description": "Validate installed plugins.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -6325,6 +6451,7 @@
       "command": "phlo plugin create",
       "description": "Create scaffolding for a new plugin.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6408,6 +6535,7 @@
       "command": "phlo plugin info",
       "description": "Show detailed plugin information.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6491,6 +6619,7 @@
       "command": "phlo plugin install",
       "description": "Install a plugin from the registry (wraps pip).",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6529,6 +6658,7 @@
       "command": "phlo plugin list",
       "description": "List all discovered plugins.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "choices": [
@@ -6619,6 +6749,7 @@
       "command": "phlo plugin search",
       "description": "Search plugin registry.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6718,6 +6849,7 @@
       "command": "phlo plugin update",
       "description": "Update installed plugins based on registry versions.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -6762,6 +6894,7 @@
       "command": "phlo polaris",
       "description": "Manage the Polaris catalog service (status, bootstrap, migration).",
       "kind": "command",
+      "package": "phlo-polaris",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6784,6 +6917,7 @@
       "command": "phlo postgres",
       "description": "Run psql or PostgreSQL helper commands against the project database.",
       "kind": "command",
+      "package": "phlo-postgres",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6806,6 +6940,7 @@
       "command": "phlo postgrest",
       "description": "PostgREST API management commands.",
       "kind": "group",
+      "package": "phlo-postgrest",
       "parameters": []
     },
     {
@@ -6817,6 +6952,7 @@
       "command": "phlo postgrest generate-views",
       "description": "Generate PostgREST API views from dbt models.",
       "kind": "command",
+      "package": "phlo-postgrest",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -6909,6 +7045,7 @@
       "command": "phlo postgrest reload-schema",
       "description": "Reload PostgREST's schema cache after migrations or table creation.",
       "kind": "command",
+      "package": "phlo-postgrest",
       "parameters": []
     },
     {
@@ -6920,6 +7057,7 @@
       "command": "phlo postgrest setup-auth",
       "description": "Set up PostgREST authentication infrastructure.",
       "kind": "command",
+      "package": "phlo-postgrest",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7045,6 +7183,7 @@
       "command": "phlo schema",
       "description": "Manage Pandera schemas and schema validation.",
       "kind": "group",
+      "package": "phlo-pandera",
       "parameters": []
     },
     {
@@ -7056,6 +7195,7 @@
       "command": "phlo schema diff",
       "description": "Compare a schema version against an older one.",
       "kind": "command",
+      "package": "phlo-pandera",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7114,6 +7254,7 @@
       "command": "phlo schema generate",
       "description": "Generate Pandera schemas from a bounded DLT inference sample.",
       "kind": "command",
+      "package": "phlo-pandera",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7286,6 +7427,7 @@
       "command": "phlo schema list",
       "description": "List all available Pandera schemas with name, field count, and file path.",
       "kind": "command",
+      "package": "phlo-pandera",
       "parameters": [
         {
           "default": null,
@@ -7334,6 +7476,7 @@
       "command": "phlo schema show",
       "description": "Show a schema's fields, types, constraints, and descriptions.",
       "kind": "command",
+      "package": "phlo-pandera",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7372,6 +7515,7 @@
       "command": "phlo schema validate",
       "description": "Validate a schema file's syntax and common integration issues.",
       "kind": "command",
+      "package": "phlo-pandera",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7394,6 +7538,7 @@
       "command": "phlo schema-migrate",
       "description": "Schema migration between quality schemas and storage tables.",
       "kind": "group",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -7438,6 +7583,7 @@
       "command": "phlo schema-migrate apply",
       "description": "Apply schema migration to a storage table.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7572,6 +7718,7 @@
       "command": "phlo schema-migrate diff",
       "description": "Show pending schema changes between quality schema and storage table.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7662,6 +7809,7 @@
       "command": "phlo schema-migrate export-contract",
       "description": "Export a Phlo contract snapshot for a table.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7732,6 +7880,7 @@
       "command": "phlo schema-migrate history",
       "description": "Show schema version history for a table.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7790,6 +7939,7 @@
       "command": "phlo schema-migrate plan",
       "description": "Generate a migration plan for a table.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7880,6 +8030,7 @@
       "command": "phlo schema-migrate scaffold-yaml",
       "description": "Generate migration scaffold YAML from a Phlo contract.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -7950,6 +8101,7 @@
       "command": "phlo schema-migrate scaffold-yaml-recent",
       "description": "Generate migration scaffold YAML files for recent .phlo/contracts additions.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": 24,
@@ -8010,6 +8162,7 @@
       "command": "phlo services",
       "description": "Manage Phlo infrastructure services (Docker).",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -8021,6 +8174,7 @@
       "command": "phlo services add",
       "description": "Add optional services or profiles to the rendered project stack.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -8091,6 +8245,7 @@
       "command": "phlo services exec",
       "description": "Run a command inside a running Phlo service container.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -8162,6 +8317,7 @@
       "command": "phlo services init",
       "description": "Initialize Phlo infrastructure in .phlo/ directory.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -8350,6 +8506,7 @@
       "command": "phlo services list",
       "description": "List available services with status and configuration.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -8415,6 +8572,7 @@
       "command": "phlo services logs",
       "description": "View logs from Phlo infrastructure services.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -8575,6 +8733,7 @@
       "command": "phlo services migrate",
       "description": "Move personal files aside and make existing .phlo configuration shareable.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -8619,6 +8778,7 @@
       "command": "phlo services ports",
       "description": "Show port mappings for all services.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -8684,6 +8844,7 @@
       "command": "phlo services preflight",
       "description": "Evaluate production readiness for the generated stack.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -8760,6 +8921,7 @@
       "command": "phlo services remove",
       "description": "Remove a service from the project.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -8798,6 +8960,7 @@
       "command": "phlo services reset",
       "description": "Reset Phlo infrastructure by stopping services and deleting volumes.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -8912,6 +9075,7 @@
       "command": "phlo services restart",
       "description": "Restart Phlo infrastructure services.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -9009,6 +9173,7 @@
       "command": "phlo services start",
       "description": "Start Phlo infrastructure services.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": true,
@@ -9141,6 +9306,7 @@
       "command": "phlo services status",
       "description": "Show status of Phlo infrastructure services.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "choices": [
@@ -9206,6 +9372,7 @@
       "command": "phlo services stop",
       "description": "Stop Phlo infrastructure services.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -9304,6 +9471,7 @@
       "command": "phlo services upgrade",
       "description": "Reconcile installed templates, preserving secrets, volumes and personal overrides.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -9460,6 +9628,7 @@
       "command": "phlo sling",
       "description": "Sling replication commands.",
       "kind": "group",
+      "package": "phlo-sling",
       "parameters": []
     },
     {
@@ -9471,6 +9640,7 @@
       "command": "phlo sling conns",
       "description": "List available Sling connections.",
       "kind": "command",
+      "package": "phlo-sling",
       "parameters": [
         {
           "default": true,
@@ -9501,6 +9671,7 @@
       "command": "phlo sling discover",
       "description": "Discover available streams from a Sling connection.",
       "kind": "command",
+      "package": "phlo-sling",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -9559,6 +9730,7 @@
       "command": "phlo sling run",
       "description": "Run a Sling replication.",
       "kind": "command",
+      "package": "phlo-sling",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -9670,6 +9842,7 @@
       "command": "phlo status",
       "description": "Show current state of assets, jobs, and services: asset materialization status and freshness, service health (Dagster, Trino, MinIO, Nessie), with color-coded indicators.",
       "kind": "command",
+      "package": "phlo-dagster",
       "parameters": [
         {
           "default": false,
@@ -9762,6 +9935,7 @@
       "command": "phlo support",
       "description": "Inspect the bundled, offline support contract.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -9773,6 +9947,7 @@
       "command": "phlo support status",
       "description": "Compare installed Phlo artifacts with the bundled release set.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": false,
@@ -9801,6 +9976,7 @@
       "command": "phlo test",
       "description": "Run tests for Phlo workflows.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -9889,6 +10065,7 @@
       "command": "phlo transform",
       "description": "Phlo Transform workspace commands (check, plan, run, test, lineage).",
       "kind": "group",
+      "package": "phlo-transform",
       "parameters": []
     },
     {
@@ -9900,6 +10077,7 @@
       "command": "phlo transform check",
       "description": "Compile the workspace and print diagnostics.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": false,
@@ -9928,6 +10106,7 @@
       "command": "phlo transform doctor",
       "description": "Diagnose workspace, adapter, and state health.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": false,
@@ -9956,6 +10135,7 @@
       "command": "phlo transform explain",
       "description": "Explain one model: SQL, columns, lineage, and state.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -9994,6 +10174,7 @@
       "command": "phlo transform install",
       "description": "Download the pinned portable engine binary into .phlo/bin.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": null,
@@ -10038,6 +10219,7 @@
       "command": "phlo transform lineage",
       "description": "Export the workspace lineage graph.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "choices": [
@@ -10086,6 +10268,7 @@
       "command": "phlo transform list",
       "description": "List compiled models, dependencies, and tests.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": false,
@@ -10114,6 +10297,7 @@
       "command": "phlo transform plan",
       "description": "Explain what would change and why.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10254,6 +10438,7 @@
       "command": "phlo transform run",
       "description": "Plan, apply, and test the selected models.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10394,6 +10579,7 @@
       "command": "phlo transform status",
       "description": "Show the active provider, workspace, binary, and compiled counts.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": false,
@@ -10422,6 +10608,7 @@
       "command": "phlo transform test",
       "description": "Run workspace tests against the selected models.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10498,6 +10685,7 @@
       "command": "phlo transform translate",
       "description": "Translate a dbt project into a native transform workspace.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": "dbt",
@@ -10622,6 +10810,7 @@
       "command": "phlo transform use",
       "description": "Select the transformation provider that owns the asset graph.",
       "kind": "command",
+      "package": "phlo-transform",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10660,6 +10849,7 @@
       "command": "phlo trino",
       "description": "Run the Trino shell or a Trino-specific helper command.",
       "kind": "command",
+      "package": "phlo-trino",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10682,6 +10872,7 @@
       "command": "phlo validate-schema",
       "description": "Validate a Pandera schema file for valid DataFrameModel syntax, field descriptions, constraints, and type annotations; exits 0 when valid and 1 when issues are found.",
       "kind": "command",
+      "package": "phlo-pandera",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10736,6 +10927,7 @@
       "command": "phlo validate-workflow",
       "description": "Validate a workflow asset file for decorator usage, unique_key presence, cron validity, function signature, and return types before deployment; exits 0 when valid and 1 when issues are found.",
       "kind": "command",
+      "package": "phlo-pandera",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10774,6 +10966,7 @@
       "command": "phlo workflow",
       "description": "Manage workflows.",
       "kind": "group",
+      "package": "phlo",
       "parameters": []
     },
     {
@@ -10785,6 +10978,7 @@
       "command": "phlo workflow check",
       "description": "Validate a workflow and its inferred schema before materialization.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "default": "Sentinel.UNSET",
@@ -10823,6 +11017,7 @@
       "command": "phlo workflow create",
       "description": "Create a workflow scaffold.",
       "kind": "command",
+      "package": "phlo",
       "parameters": [
         {
           "choices": [
