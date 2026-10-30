@@ -39,7 +39,7 @@ jobs:
         id: build
         uses: ./.github/actions/build-minio-image
         with:
-          image: ghcr.io/phlohouse/phlo-minio:0.17.2
+          image: ghcr.io/phlohouse/phlo-minio:0.17.3
 
   upstream-compatibility:
     name: nightly / fresh provider dependencies

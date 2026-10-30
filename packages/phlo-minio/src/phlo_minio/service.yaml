@@ -6,7 +6,7 @@ default: true
 depends_on:
   - minio-volume-setup
 
-image: ghcr.io/phlohouse/phlo-minio:0.17.2
+image: ghcr.io/phlohouse/phlo-minio:0.17.3
 build:
   context: ./minio
   dockerfile: Dockerfile

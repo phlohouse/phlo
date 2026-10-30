@@ -73,7 +73,7 @@ def lakehouse(stack: ExitStack, directory: Path) -> tuple[TrinoResource, str]:
     nessie_url = f"http://localhost:{nessie.get_exposed_port(19120)}"
     ready(nessie_url + "/api/v2/config")
     minio = stack.enter_context(
-        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.2")
+        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.3")
         .with_network(network)
         .with_network_aliases("minio")
         .with_env("MINIO_ROOT_USER", "localtest")

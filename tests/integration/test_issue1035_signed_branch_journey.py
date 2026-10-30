@@ -61,7 +61,7 @@ def real_branch_services(monkeypatch, tmp_path):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     with (
-        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.2")
+        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.3")
         .with_env("MINIO_ROOT_USER", "localtest")
         .with_env("MINIO_ROOT_PASSWORD", "localpass123")
         .with_command("server /bitnami/minio/data")

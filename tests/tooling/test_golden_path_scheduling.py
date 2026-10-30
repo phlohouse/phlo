@@ -144,7 +144,7 @@ def test_nightly_minio_cache_uses_the_shared_build_only_on_trusted_main() -> Non
     assert checkout["uses"] == ("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
     assert checkout["with"] == {"persist-credentials": False}
     assert build["uses"] == "./.github/actions/build-minio-image"
-    assert build["with"] == {"image": "ghcr.io/phlohouse/phlo-minio:0.17.2"}
+    assert build["with"] == {"image": "ghcr.io/phlohouse/phlo-minio:0.17.3"}
     assert job["outputs"]["result"] == "${{ steps.build.outcome }}"
     assert build["id"] == "build"
     summary = nightly["jobs"]["nightly-status"]
