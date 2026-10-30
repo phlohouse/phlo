@@ -119,6 +119,17 @@ class InMemoryOperationJournalStore:
         return self.entries.get(operation_id)
 
 
+def maintenance_operation_id(operation: str, table: str, ref: str, plan_token: str) -> str:
+    """Canonical, durable journal id for one exact maintenance plan.
+
+    Binding the id to the plan token lets a fresh plan for the same table and
+    ref be applied again, while a second apply of the same plan replays or
+    conflicts. Public so the CLI and HTTP surfaces resolve the same
+    verification handle.
+    """
+    return f"{operation}:{table}:{ref}:{plan_token}"
+
+
 def claim_operation(
     store: OperationJournalStore,
     *,

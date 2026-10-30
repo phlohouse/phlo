@@ -575,11 +575,13 @@ def maintenance_apply(
     """Apply an exact, still-current maintenance plan (authorized, fail-before-mutation)."""
     from pathlib import Path
 
+    from phlo.cli.authorization import CliPrincipalResolver
     from phlo.operations.journal import (
         OperationJournalError,
         OperationJournalState,
         claim_operation,
         complete_operation,
+        maintenance_operation_id,
         mark_submitted,
     )
 
@@ -634,12 +636,14 @@ def maintenance_apply(
         execute_kwargs["executor"] = executor
 
     journal = _durable_journal()
-    operation_id = f"{operation}:{table}:{ref}"
+    # One id per exact plan: a fresh plan for the same table and ref is a new
+    # operation, while re-applying the same plan conflicts with its entry.
+    operation_id = maintenance_operation_id(operation, table, ref, plan_token)
     try:
         claim_operation(
             journal,
             operation_id=operation_id,
-            subject="operator",
+            subject=CliPrincipalResolver.resolve().subject,
             action=operation,
             target=table,
             plan_token=plan_token,

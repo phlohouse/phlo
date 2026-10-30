@@ -42,6 +42,7 @@ from phlo.operations.journal import (
     OperationJournalStore,
     claim_operation,
     complete_operation,
+    maintenance_operation_id,
     mark_submitted,
     mark_unknown,
 )
@@ -343,7 +344,9 @@ def _plan_operation(request: ContinuityPlanRequest) -> dict[str, Any]:
             "operation": operation,
             "plan": plan,
             "plan_token": plan.get("plan_token", ""),
-            "operation_id": f"{maintenance_operation}:{request.table}:{request.ref}",
+            "operation_id": maintenance_operation_id(
+                maintenance_operation, request.table, request.ref, plan.get("plan_token", "")
+            ),
         }
 
     raise _reject_unsupported(operation)
@@ -431,7 +434,7 @@ def _maintenance_execution(
     ref = request.ref or str(plan.get("ref", "main"))
     plan_token = str(plan.get("plan_token", ""))
     _require_confirmation(request.confirmation_token, plan_token)
-    plan_id = f"{maintenance_operation}:{table}:{ref}"
+    plan_id = maintenance_operation_id(maintenance_operation, table, ref, plan_token)
 
     def execute() -> dict[str, Any]:
         provider = _maintenance_executor(maintenance_operation)
