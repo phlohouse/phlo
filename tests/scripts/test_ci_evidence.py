@@ -198,6 +198,43 @@ def test_queue_evidence_requires_each_parallel_integration_provider_and_node_job
         evidence.validate_manifest(manifest, run, jobs, expected, "digest", now=NOW)
 
 
+def test_emit_waits_for_the_lagging_job_list_to_settle_before_judging(monkeypatch):
+    # The run job list reported `ci / ci / status` as in_progress 38 s after the
+    # job had completed, so the aggregate rejected a fully green queue run.
+    run, expected, jobs, _ = example()
+    lagging = [dict(job, status="in_progress", conclusion=None) for job in jobs]
+    reads = iter([lagging, lagging, jobs])
+    sleeps: list[float] = []
+    monkeypatch.setattr(evidence, "run_jobs", lambda run: next(reads))
+
+    settled = evidence.settled_jobs(
+        run, expected - {evidence.AGGREGATE}, reads=5, delay=7.0, sleep=sleeps.append
+    )
+
+    assert settled == jobs
+    assert sleeps == [7.0, 7.0]
+    assert evidence.successful_jobs(settled, expected - {evidence.AGGREGATE}, SHA)
+
+
+def test_emit_stops_waiting_after_the_bounded_reads_and_still_rejects(monkeypatch):
+    run, expected, jobs, _ = example()
+    lagging = [dict(job, status="in_progress", conclusion=None) for job in jobs]
+    calls = 0
+
+    def never_settles(run):
+        nonlocal calls
+        calls += 1
+        return lagging
+
+    monkeypatch.setattr(evidence, "run_jobs", never_settles)
+
+    observed = evidence.settled_jobs(run, expected, reads=3, delay=0.0, sleep=lambda _: None)
+
+    assert calls == 3
+    with pytest.raises(ValueError, match="Required job did not complete"):
+        evidence.successful_jobs(observed, expected, SHA)
+
+
 def test_emitted_queue_manifest_round_trips_through_the_consumer(tmp_path, monkeypatch):
     run, expected, jobs, _ = example()
     run.update(created_at=run["run_started_at"], run_started_at=datetime.now(UTC).isoformat())
