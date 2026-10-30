@@ -241,3 +241,44 @@ def test_apply_snapshot_expiry_replays_plan_parameters(provider, tmp_path) -> No
     assert captured["expected_snapshot_id"] == 42
     assert captured["retention_hours"] == 720
     assert captured["retain_last"] == 3
+
+
+def test_apply_journals_each_exact_plan_for_the_authorized_principal(provider, tmp_path) -> None:
+    """A fresh plan for the same table applies again; the same plan twice is refused."""
+    journal_dir = tmp_path / "journal"
+    env = {"PHLO_OPERATIONS_JOURNAL_DIR": str(journal_dir), "PHLO_AUTH_SUBJECT": "ops@example.com"}
+    plans = {}
+    for token in ("plan-tok-1", "plan-tok-2"):
+        plans[token] = tmp_path / f"{token}.json"
+        plans[token].write_text(_plan_json(token=token))
+
+    def apply(token: str) -> Any:
+        return CliRunner().invoke(
+            maintenance_group,
+            [
+                "apply",
+                "--plan",
+                str(plans[token]),
+                "--confirmation-token",
+                token,
+                "--format",
+                "json",
+            ],
+            env=env,
+        )
+
+    first = apply("plan-tok-1")
+    assert first.exit_code == 0, first.output
+    second = apply("plan-tok-2")
+    assert second.exit_code == 0, second.output
+    entries = [json.loads(path.read_text()) for path in sorted(journal_dir.glob("*.json"))]
+    assert [entry["operation_id"] for entry in entries] == [
+        "compact:lake.orders:main:plan-tok-1",
+        "compact:lake.orders:main:plan-tok-2",
+    ]
+    assert {entry["subject"] for entry in entries} == {"ops@example.com"}
+    assert {entry["state"] for entry in entries} == {"succeeded"}
+
+    repeat = apply("plan-tok-2")
+    assert repeat.exit_code != 0
+    assert "conflicting_claim" in repeat.output

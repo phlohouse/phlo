@@ -511,7 +511,17 @@ def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
         )
         assert applied.status_code == 200, applied.text
         assert applied.json()["status"] == "completed"
+        assert applied.json()["operation_id"] == planned.json()["operation_id"]
         assert executed == ["silver.orders:main:maintenance-token-1"]
+
+        # The same table and ref can be maintained again under a fresh plan;
+        # the journal id binds to the exact plan, not to the table alone.
+        fresh = client.post(
+            "/api/continuity/apply", json=apply_body("mt-1b", "silver.orders", "token-2")
+        )
+        assert fresh.status_code == 200, fresh.text
+        assert executed[-1] == "silver.orders:main:token-2"
+        assert fresh.json()["operation_id"] != applied.json()["operation_id"]
 
         # A provider crash after submission records UNKNOWN; the verification
         # handle shows it and no new key can replay the operation.
@@ -521,7 +531,7 @@ def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
         assert crashing.status_code == 502
         assert crashing.json()["detail"]["error"] == "apply_outcome_unknown"
 
-        operation_id = "compact:silver.customers:main"
+        operation_id = "compact:silver.customers:main:explode"
         verification = client.get(f"/api/continuity/verifications/{operation_id}")
         assert verification.status_code == 200
         assert verification.json()["state"] == "unknown"
