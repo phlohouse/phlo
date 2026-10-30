@@ -1060,7 +1060,7 @@ def test_observatory_dataset_profile_returns_privacy_shaped_usage(
     assert usage["consumer_adoption"][0]["consumer"] == "finance"
 
 
-def test_observatory_pipelines_endpoint_returns_flow_and_action_availability(
+def test_observatory_dataset_production_endpoint_returns_flow_and_action_availability(
     monkeypatch: pytest.MonkeyPatch,
     observatory_loaders,
 ) -> None:
@@ -1084,80 +1084,51 @@ def test_observatory_pipelines_endpoint_returns_flow_and_action_availability(
         ],
     )
 
-    response = authenticated_client("admin").get("/api/observatory/pipelines")
+    response = authenticated_client("admin").get("/api/observatory/dataset-production")
 
     assert response.status_code == 200
-    canonical = authenticated_client("admin").get("/api/observatory/dataset-production")
-    assert canonical.status_code == 200
-    assert canonical.json() == response.json()
-    pipeline = response.json()["items"][0]
-    assert pipeline["dataset"]["id"] == "gold.orders"
-    assert pipeline["last_run"]["id"] == "run-1"
-    assert pipeline["last_operation"] == {
+    production = response.json()["items"][0]
+    assert production["dataset"]["id"] == "gold.orders"
+    assert production["last_operation"] == {
         "kind": "operation",
         "id": "run-1",
         "label": "orders refresh",
     }
-    assert pipeline["last_run"] == pipeline["last_operation"]
-    assert [stage["id"] for stage in pipeline["stages"]] == [
+    assert "last_run" not in production
+    assert [stage["id"] for stage in production["stages"]] == [
         "ingest",
         "transform",
         "checks",
         "publish",
     ]
-    retry = next(action for action in pipeline["actions"] if action["id"] == "retry")
-    cancel = next(action for action in pipeline["actions"] if action["id"] == "cancel")
+    retry = next(action for action in production["actions"] if action["id"] == "retry")
+    cancel = next(action for action in production["actions"] if action["id"] == "cancel")
     assert retry["enabled"] is True
     assert cancel["enabled"] is False
 
 
-def test_dataset_production_public_name_compatibility_and_schema() -> None:
+def test_dataset_production_legacy_names_are_removed() -> None:
     from phlo_api.observatory_api import observatory_models as models
 
-    for old, new in (
-        ("ObservatoryDatasetPipeline", models.ObservatoryDatasetProduction),
-        ("ObservatoryPipelineStage", models.ObservatoryProductionStage),
-        ("ObservatoryPipelineList", models.ObservatoryDatasetProductionList),
+    for old in (
+        "ObservatoryDatasetPipeline",
+        "ObservatoryPipelineStage",
+        "ObservatoryPipelineList",
     ):
-        with pytest.warns(DeprecationWarning, match=f"removed in 0.19.0; use {new.__name__}"):
-            assert getattr(models, old) is new
-    with pytest.warns(DeprecationWarning, match="last_run.*0.19.0.*last_operation"):
-        legacy = models.ObservatoryDatasetProduction.model_validate(
-            {"last_run": {"kind": "operation", "id": "old-operation", "label": "Old"}}
-        )
-    assert legacy.last_operation.id == "old-operation"
-    with pytest.warns(DeprecationWarning, match="pipeline.*0.19.0.*production"):
-        profile = models.ObservatoryDatasetProfile.model_validate(
-            {"dataset": {"id": "orders", "name": "orders"}, "pipeline": legacy}
-        )
-    assert profile.production is profile.pipeline
-    assert profile.model_dump()["production"] == profile.model_dump()["pipeline"]
-    # A response round-trip must not let stale compatibility fields override canonical names.
-    canonical = models.ObservatoryDatasetProduction.model_validate(
+        assert not hasattr(models, old)
+    profile = models.ObservatoryDatasetProfile.model_validate(
         {
-            "last_operation": {"kind": "operation", "id": "new-operation", "label": "New"},
-            "last_run": {"kind": "operation", "id": "old-operation", "label": "Old"},
+            "dataset": {"id": "orders", "name": "orders"},
+            "pipeline": {"last_run": {"kind": "operation", "id": "old-operation", "label": "Old"}},
         }
     )
-    assert canonical.last_operation.id == "new-operation"
-    with pytest.warns(DeprecationWarning, match="pipeline.*0.19.0.*production"):
-        profile.pipeline = canonical
-    assert profile.production is canonical
-    with pytest.warns(DeprecationWarning, match="last_run.*0.19.0.*last_operation"):
-        canonical.last_run = None
-    assert profile.model_dump()["production"]["last_operation"] is None
-    assert profile.model_dump()["pipeline"]["last_run"] is None
-    serialized_schema = models.ObservatoryDatasetProfile.model_json_schema(mode="serialization")
-    assert serialized_schema["properties"]["pipeline"]["deprecated"] is True
-    assert "0.19.0" in serialized_schema["properties"]["pipeline"]["description"]
-    production_schema = models.ObservatoryDatasetProduction.model_json_schema(mode="serialization")
-    assert production_schema["properties"]["last_run"]["deprecated"] is True
+    assert profile.production.last_operation is None
+    assert "pipeline" not in profile.model_dump()
+    assert "last_run" not in profile.model_dump()["production"]
     schema = app.openapi()
-    assert schema["paths"]["/api/observatory/pipelines"]["get"]["deprecated"] is True
-    assert "0.19.0" in schema["paths"]["/api/observatory/pipelines"]["get"]["description"]
-    assert not schema["paths"]["/api/observatory/dataset-production"]["get"].get(
-        "deprecated", False
-    )
+    assert "/api/observatory/pipelines" not in schema["paths"]
+    assert "/api/observatory/dataset-production" in schema["paths"]
+    assert authenticated_client("admin").get("/api/observatory/pipelines").status_code == 404
 
 
 def test_observatory_dataset_profile_collects_related_context(
@@ -1225,7 +1196,8 @@ def test_observatory_dataset_profile_collects_related_context(
     assert payload["sections"]["governance"] is True
     assert payload["sections"]["usage"] is True
     assert payload["sections"]["production"] is True
-    assert payload["production"] == payload["pipeline"]
+    assert "pipelines" not in payload["sections"]
+    assert "pipeline" not in payload
     assert [stage["id"] for stage in payload["production"]["stages"]] == [
         "ingest",
         "transform",
@@ -2651,8 +2623,9 @@ def test_observatory_capabilities_endpoint_returns_provider_neutral_payload() ->
         "datasets",
         "dataset-profile",
     ]
+    assert pages["pipelines"]["metadata"]["profile_sections"] == ["production"]
     assert pages["pipelines"]["metadata"]["read_models"] == [
-        "pipelines",
+        "dataset-production",
         "dataset-profile",
     ]
     assert pages["apis"]["nav"] is False

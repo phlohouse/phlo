@@ -102,7 +102,7 @@ for two unrelated concepts:
   `/pipelines/$jobName` URLs remain stable compatibility contracts.
 - `ObservatoryDatasetProduction` describes a Dataset's production stages
   and latest operation. `ObservatoryDatasetPipeline`, the profile `pipeline`
-  field, and the production `last_run` field are deprecated until 0.19.0.
+  field, and the production `last_run` field were removed in 0.19.0.
 
 New code should say job, run, or Dataset production stages. Do not add new
 Phlo domain types, fields, or routes named "pipeline". Native provider concepts
