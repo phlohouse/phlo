@@ -483,7 +483,7 @@ def test_workflow_check_rejects_files_without_ingestion_workflow(tmp_path, monke
     result = CliRunner().invoke(cli, ["workflow", "check", str(workflow_file)])
 
     assert result.exit_code != 0
-    assert "No @phlo.ingestion decorated workflow found" in result.output
+    assert "No @phlo.ingest.dlt decorated workflow found" in result.output
     assert "phlo materialize" not in result.output
 
 
@@ -495,9 +495,9 @@ def test_workflow_check_rejects_commented_ingestion_decorator(tmp_path, monkeypa
     schema_file.parent.mkdir(parents=True)
     workflow_file.write_text(
         """
-DECORATOR_TEXT = "@phlo.ingestion(table_name='notes')"
+DECORATOR_TEXT = "@phlo.ingest.dlt(table_name='notes')"
 
-# @phlo.ingestion(
+# @phlo.ingest.dlt(
 #     table_name="notes",
 #     unique_key="id",
 #     validation_schema=None,
@@ -517,7 +517,7 @@ def helper(partition_date: str) -> None:
     result = CliRunner().invoke(cli, ["workflow", "check", str(workflow_file)])
 
     assert result.exit_code != 0
-    assert "No @phlo.ingestion decorated workflow found" in result.output
+    assert "No @phlo.ingest.dlt decorated workflow found" in result.output
     assert "phlo materialize" not in result.output
 
 

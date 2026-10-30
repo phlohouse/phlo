@@ -33,9 +33,6 @@ from tests.support import (
 from tests.support import (
     DummySourcePlugin as DummySource,
 )
-from tests.support import (
-    DummyTransformPlugin as DummyTransform,
-)
 
 
 class DummyIngestionProvider(IngestionProviderPlugin):
@@ -95,7 +92,6 @@ def setup_registry():
     registry.clear()
     registry.register("source_connector", DummySource(), replace=True)
     registry.register("quality_check", DummyQuality(), replace=True)
-    registry.register("transformation", DummyTransform(), replace=True)
     registry.register("service", DummyService(), replace=True)
     yield registry
     registry.clear()
@@ -166,11 +162,10 @@ def test_plugin_list_json_installed(setup_registry):
     data = json.loads(result.output)["data"]
     types = {plugin["type"] for plugin in data["installed"]}
     assert result.exit_code == 0
-    assert types >= {"source", "quality", "transform", "service"}
+    assert types >= {"source", "quality", "service"}
     assert {plugin["name"] for plugin in data["installed"]} >= {
         "dummy_source",
         "dummy_quality",
-        "dummy_transform",
         "dummy_service",
     }
 
@@ -1251,7 +1246,6 @@ def test_plugin_search_includes_installed_plugins(monkeypatch, setup_registry):
     assert {item["name"] for item in data} >= {
         "dummy_source",
         "dummy_quality",
-        "dummy_transform",
         "dummy_service",
     }
 

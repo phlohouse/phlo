@@ -1,7 +1,7 @@
 """Tests for terse flow authoring decorators.
 
-Supported decorators register provider-neutral declarations. Dormant
-backfill/schedule declarations and SQL without a provider fail immediately.
+Supported decorators register provider-neutral declarations. SQL without a
+provider fails immediately.
 """
 
 from __future__ import annotations
@@ -294,17 +294,6 @@ def test_observe_registers_operational_check_surface() -> None:
     ]
 
 
-def test_backfill_fails_without_registering_a_dormant_job() -> None:
-    """The CLI is working; the similarly named decorator is not."""
-    import phlo
-
-    phlo.clear_backfill_assets()
-
-    with pytest.raises(NotImplementedError, match=r"0\.19\.0.*phlo backfill CLI"):
-        phlo.backfill(target="silver.orders", partitions={"start": "2026-01-01"})
-    assert phlo.get_backfill_assets() == []
-
-
 def test_contract_registers_governance_contract() -> None:
     """Contract should declare ownership and lifecycle metadata once."""
     import phlo
@@ -369,17 +358,6 @@ def test_access_registers_access_policy() -> None:
     assert policies[0].policy == "read"
 
 
-def test_schedule_fails_without_registering_a_dormant_schedule() -> None:
-    """Point users to the provider cron or native scheduler instead."""
-    import phlo
-
-    phlo.clear_schedules()
-
-    with pytest.raises(NotImplementedError, match=r"0\.19\.0.*native Dagster schedules"):
-        phlo.schedule(name="daily", cron="0 6 * * *", targets=["orders"])
-    assert phlo.get_schedules() == []
-
-
 def test_top_level_exports_lazy_load_new_authoring_surfaces() -> None:
     """Top-level phlo exports should expose the new decorators lazily."""
     import phlo
@@ -388,16 +366,13 @@ def test_top_level_exports_lazy_load_new_authoring_surfaces() -> None:
         "phlo.transform",
         "phlo.publish",
         "phlo.observe",
-        "phlo.backfill",
     ]:
         sys.modules.pop(name, None)
 
     assert callable(phlo.publish)
     assert callable(phlo.observe)
-    assert callable(phlo.backfill)
     assert callable(phlo.contract)
     assert callable(phlo.access)
-    assert callable(phlo.schedule)
     assert callable(phlo.transform.sql)
 
 

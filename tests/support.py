@@ -16,7 +16,6 @@ from phlo.plugins import (
     QualityCheckPlugin,
     ServicePlugin,
     SourceConnectorPlugin,
-    TransformationPlugin,
 )
 from phlo.plugins.discovery import ServiceDefinition
 
@@ -135,24 +134,6 @@ class DummyQualityPlugin(QualityCheckPlugin):
 
     def create_check(self, **kwargs):
         return None
-
-
-class DummyTransformPlugin(TransformationPlugin):
-    """Minimal transformation plugin for registry and CLI tests."""
-
-    def __init__(
-        self, name: str = "dummy_transform", description: str = "", author: str = ""
-    ) -> None:
-        self._metadata = PluginMetadata(
-            name=name, version="1.0.0", description=description, author=author
-        )
-
-    @property
-    def metadata(self) -> PluginMetadata:
-        return self._metadata
-
-    def transform(self, df, config):
-        return df
 
 
 class DummyServicePlugin(ServicePlugin):

@@ -259,62 +259,15 @@ def test_quality_rules_fails_when_provider_cannot_translate_rules(
     assert "Quality provider 'basic' cannot translate neutral quality rules" in str(exc_info.value)
 
 
-def test_phlo_quality_alias_is_the_blessed_pandera_decorator() -> None:
-    """The deprecated alias wraps the Pandera decorator without changing it.
-
-    The alias emits a warning while ``__wrapped__`` retains the provider's
-    decorator for introspection and compatibility.
-    """
+def test_pandera_provider_resolves_the_blessed_pandera_decorator() -> None:
+    """The quality provider API returns the Pandera decorator unchanged."""
     from phlo_pandera import phlo_pandera
     from phlo_pandera.plugin import PanderaQualityProvider
 
-    from phlo.quality import phlo_quality, provider
+    from phlo.quality import provider
 
-    assert phlo_quality.__wrapped__ is phlo_pandera
     assert provider("pandera") is phlo_pandera
     assert PanderaQualityProvider().get_decorator() is phlo_pandera
-
-
-def test_phlo_quality_alias_warns_deprecation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The deprecated alias warns and delegates to the provider unchanged."""
-    from phlo.plugins.discovery import _plugin_loading as discovery
-    from phlo.plugins.discovery import registry
-
-    sentinel_kwargs: dict[str, Any] = {}
-
-    def _recording_decorator() -> Any:
-        def _factory(**kwargs: Any) -> Any:
-            sentinel_kwargs.update(kwargs)
-
-            def _wrap(fn: Any) -> Any:
-                fn._quality_provider_name = "pandera"
-                return fn
-
-            return _wrap
-
-        return _factory
-
-    provider = _DecoratorOnlyQualityProvider("pandera")
-    monkeypatch.setattr(provider, "get_decorator", _recording_decorator)
-    monkeypatch.setattr(discovery, "discover_plugins", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        registry,
-        "get_global_registry",
-        lambda: _FakeQualityRegistry({"pandera": provider}),
-    )
-    monkeypatch.delitem(sys.modules, "phlo.quality", raising=False)
-
-    quality = importlib.import_module("phlo.quality")
-
-    with pytest.warns(DeprecationWarning, match="phlo migrate decorators-2026-05"):
-        decorator = quality.phlo_quality(table="bronze.users")
-
-    assert sentinel_kwargs == {"table": "bronze.users"}
-
-    def users_quality() -> None:
-        return None
-
-    assert decorator(users_quality)._quality_provider_name == "pandera"
 
 
 def test_quality_forwarders_route_through_pandera_provider_registry() -> None:

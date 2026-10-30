@@ -21,7 +21,6 @@ from phlo.plugins.base.quality import QualityCheckPlugin
 from phlo.plugins.base.quality_provider import QualityProviderPlugin
 from phlo.plugins.base.service import ServicePlugin
 from phlo.plugins.base.source import SourceConnectorPlugin
-from phlo.plugins.base.transform import TransformationPlugin
 from phlo.plugins.base.transformation_provider import (
     TransformationProviderPlugin,
 )
@@ -32,7 +31,6 @@ _REQUIRED_METHODS: tuple[tuple[type[Plugin], str], ...] = (
     (QualityCheckPlugin, "create_check"),
     (QualityProviderPlugin, "get_decorator"),
     (IngestionProviderPlugin, "get_decorator"),
-    (TransformationPlugin, "transform"),
     (TransformationProviderPlugin, "get_asset_retriever"),
 )
 _OTHER_REQUIRED_METHODS: tuple[tuple[type[Plugin], str], ...] = (

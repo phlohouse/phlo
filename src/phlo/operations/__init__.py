@@ -1,17 +1,10 @@
 """Ingestion, transformation, and continuity operations for Phlo.
 
-Exposes sync and async ingester/transformer base classes plus adapters that
-bridge sync implementations into async pipelines and vice versa, the durable
+Exposes sync and async ingester/transformer base classes, the durable
 operation journal (ADR 0049 §1), and the backup create/verify coordination
 (ADR 0049 §3).
 """
 
-from phlo.operations.adapters import (
-    AsyncToSyncIngesterAdapter,
-    AsyncToSyncTransformerAdapter,
-    SyncToAsyncIngesterAdapter,
-    SyncToAsyncTransformerAdapter,
-)
 from phlo.operations.backup import (
     BackupCreateResult,
     BackupVerifyResult,
@@ -62,8 +55,6 @@ from phlo.operations.upgrade import (
 
 __all__ = [
     "AsyncIngester",
-    "AsyncToSyncIngesterAdapter",
-    "AsyncToSyncTransformerAdapter",
     "AsyncTransformer",
     "BackupCreateResult",
     "BackupVerifyResult",
@@ -76,8 +67,6 @@ __all__ = [
     "OperationJournalError",
     "OperationJournalState",
     "OperationJournalStore",
-    "SyncToAsyncIngesterAdapter",
-    "SyncToAsyncTransformerAdapter",
     "TransformationResult",
     "SUPPORTED_FROM_VERSION",
     "SUPPORTED_TO_VERSION",

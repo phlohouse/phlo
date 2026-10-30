@@ -5,10 +5,8 @@ registries; get_* accessors return copies and clear_* resets them.
 Declaration order at import time is the only ordering guarantee.
 
 The governance-metadata plane is supported: publish/observe/contract/access
-specs are drained into the governance surface. backfill() and schedule() fail
-because no adapter executes their declarations and will be removed in 0.19.0.
-Use provider assets and native orchestrator scheduling instead. SQL transforms
-require an installed provider that bridges their declarations to asset discovery.
+specs are drained into the governance surface. SQL transforms require an
+installed provider that bridges their declarations to asset discovery.
 """
 
 from __future__ import annotations
@@ -181,29 +179,6 @@ def observe(
     return _decorator
 
 
-def backfill(
-    *,
-    target: str,
-    partitions: dict[str, Any],
-    mode: str = "replace-partitions",
-    depends_on: list[AssetDependency] | None = None,
-    group: str = "backfill",
-    owner: str | None = None,
-    description: str | None = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Reject dormant backfill declarations.
-
-    Deprecated: nothing executes registered backfills. Removed in 0.19.0;
-    use explicit asset/provider definitions for
-    orchestration instead.
-    """
-    raise NotImplementedError(
-        "phlo.backfill is deprecated and will be removed in 0.19.0: "
-        "nothing executes these declarations. Define partitioned assets through "
-        "provider plugins and launch them with the phlo backfill CLI instead."
-    )
-
-
 def contract(
     *,
     table: str,
@@ -264,27 +239,6 @@ def access(
         return fn
 
     return _decorator
-
-
-def schedule(
-    *,
-    name: str,
-    cron: str,
-    targets: list[str],
-    timezone: str = "UTC",
-    metadata: dict[str, Any] | None = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Reject dormant schedule declarations.
-
-    Deprecated: no schedule is ever created from the declaration. The
-    decorator will be removed in 0.19.0; use the orchestrator's
-    native scheduling instead.
-    """
-    raise NotImplementedError(
-        "phlo.schedule is deprecated and will be removed in 0.19.0: "
-        "no schedule is created from these declarations. Use the provider's cron "
-        "argument (for example phlo.ingest.dlt(cron=...)) or native Dagster schedules."
-    )
 
 
 def get_publish_assets() -> list[AssetSpec]:
@@ -362,7 +316,6 @@ __all__ = [
     "ContractSpec",
     "ScheduleSpec",
     "access",
-    "backfill",
     "clear_access_policies",
     "clear_backfill_assets",
     "clear_contract_specs",
@@ -379,5 +332,4 @@ __all__ = [
     "get_schedules",
     "observe",
     "publish",
-    "schedule",
 ]

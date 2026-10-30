@@ -6,7 +6,6 @@ definitions, resources, and custom functionality to the orchestration layer.
 
 Plugin Architecture:
     - DagsterExtensionPlugin: Base class for all Dagster extensions
-    - IngestionEnginePlugin: Deprecated base for ingestion plugins
 
     Plugins are discovered via entry_points (group: phlo.plugins.dagster) and
     automatically merged into global definitions.
@@ -46,9 +45,8 @@ Example:
 
 from __future__ import annotations
 
-import warnings
-from abc import ABC, abstractmethod
-from typing import Any, Callable, Iterable
+from abc import ABC
+from typing import Any
 
 from phlo.logging import get_logger
 from phlo.plugins.base.plugin import Plugin
@@ -81,7 +79,7 @@ class DagsterExtensionPlugin(Plugin, ABC):
         """
         Return exported symbols to attach to the `phlo` public API.
 
-        Example: {"ingestion": phlo_ingestion}
+        Example: {"my_helper": my_helper}
         """
         return {}
 
@@ -89,31 +87,4 @@ class DagsterExtensionPlugin(Plugin, ABC):
         """
         Clear any global registries used by this plugin (primarily for module reload and tests).
         """
-        ...
-
-
-class IngestionEnginePlugin(DagsterExtensionPlugin, ABC):
-    """Base class for ingestion engine capability plugins.
-
-    Deprecated in favor of capability specs + orchestrator adapters.
-    """
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        """Warn on subclassing to signal deprecation."""
-        super().__init_subclass__(**kwargs)
-        warnings.warn(
-            "IngestionEnginePlugin is deprecated and will be removed in 0.19.0; "
-            "use capability specs instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-    @abstractmethod
-    def get_ingestion_assets(self) -> Iterable[Any]:
-        """Return Dagster assets created by the ingestion engine."""
-        ...
-
-    @abstractmethod
-    def get_ingestion_decorator(self) -> Callable[..., Any]:
-        """Return the decorator used to define ingestion assets."""
         ...

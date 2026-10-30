@@ -12,7 +12,6 @@ from __future__ import annotations
 TYPE_CONFIG = {
     "source_connectors": ("_sources", "source", "Source connector"),
     "quality_checks": ("_quality_checks", "quality", "Quality check"),
-    "transformations": ("_transformations", "transformation", "Transformation"),
     "services": ("_services", "service", "Service"),
     "cli_commands": ("_cli_commands", "cli", "CLI command"),
     "hooks": ("_hooks", "hooks", "Hook"),

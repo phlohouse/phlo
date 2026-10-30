@@ -49,7 +49,7 @@ Capability providers are auto-loaded:
 
 - Asset specs from `phlo.plugins.assets`
 - Resource specs from `phlo.plugins.resources`
-- Check specs from `@phlo_quality`
+- Check specs from `@phlo.quality.pandera`
 
 ## Usage
 

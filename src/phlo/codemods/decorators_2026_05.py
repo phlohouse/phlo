@@ -1,9 +1,12 @@
 """May 2026 codemod for migrating legacy Phlo decorators.
 
-Rewrites imports of ``phlo_ingestion`` (from ``phlo_dlt``/``phlo_dlt.decorator``)
-and ``phlo_quality`` (from ``phlo.quality``), plus their decorator usages, into
-attribute references on the top-level ``phlo`` package (``phlo.ingest.dlt`` and
-``phlo.quality.pandera``), inserting ``import phlo`` when the module lacks one.
+Rewrites imports of ``phlo_ingestion`` (from ``phlo_dlt``, ``phlo_dlt.decorator``,
+``phlo`` or the removed ``phlo.ingestion`` module), ``get_ingestion_assets`` (from
+``phlo`` or ``phlo.ingestion``) and ``phlo_quality`` (from ``phlo`` or
+``phlo.quality``), plus their usages, into attribute references on the top-level
+``phlo`` package (``phlo.ingest.dlt``, ``phlo.ingest.assets("dlt")`` and
+``phlo.quality.pandera``). ``import phlo.ingestion`` becomes ``import phlo``, and
+``import phlo`` is inserted when the module lacks one.
 
 The rewrite runs on libcst so untouched code keeps its exact formatting.
 Retain this migration through at least 0.20.0, one release after the aliases
@@ -61,6 +64,7 @@ def _decorators_202605_transformer(cst: Any) -> Any:  # noqa: C901
             self.has_import_phlo = False
             self.needs_import_phlo = False
             self.ingestion_names: set[str] = {"phlo_ingestion"}
+            self.assets_names: set[str] = set()
             self.quality_names: set[str] = {"phlo_quality"}
 
         def visit_Import(self, node: Any) -> bool:
@@ -70,6 +74,21 @@ def _decorators_202605_transformer(cst: Any) -> Any:  # noqa: C901
                     self.has_import_phlo = True
             return True
 
+        def leave_Import(self, original_node: Any, updated_node: Any) -> Any:
+            """Rewrite ``import phlo.ingestion`` to the ``import phlo`` binding it provided."""
+            if not any(_is_bare_import(alias, "phlo.ingestion") for alias in updated_node.names):
+                return updated_node
+            self.has_import_phlo = True
+            aliases: list[Any] = []
+            for alias in updated_node.names:
+                if _is_bare_import(alias, "phlo") or _is_bare_import(alias, "phlo.ingestion"):
+                    if any(_is_bare_import(kept, "phlo") for kept in aliases):
+                        continue
+                    alias = alias.with_changes(name=cst.Name("phlo"))
+                aliases.append(alias)
+            aliases[-1] = aliases[-1].with_changes(comma=cst.MaybeSentinel.DEFAULT)
+            return updated_node.with_changes(names=aliases)
+
         def visit_ImportFrom(self, node: Any) -> bool:
             """Record import bindings for phlo, phlo_ingestion, and phlo_quality."""
             module_name = _module_name(node.module)
@@ -78,17 +97,11 @@ def _decorators_202605_transformer(cst: Any) -> Any:  # noqa: C901
                     if _local_name(alias) == "phlo":
                         self.has_import_phlo = True
 
-            if module_name in {"phlo_dlt", "phlo_dlt.decorator"}:
-                for alias in _aliases(node.names):
-                    if _name_value(alias.name) == "phlo_ingestion":
-                        self.ingestion_names.add(_local_name(alias))
-                        self.needs_import_phlo = True
-
-            if module_name == "phlo.quality":
-                for alias in _aliases(node.names):
-                    if _name_value(alias.name) == "phlo_quality":
-                        self.quality_names.add(_local_name(alias))
-                        self.needs_import_phlo = True
+            for alias in _aliases(node.names):
+                removed = _REMOVED_IMPORTS.get(module_name or "", {}).get(_name_value(alias.name))
+                if removed is not None:
+                    getattr(self, removed).add(_local_name(alias))
+                    self.needs_import_phlo = True
 
             return True
 
@@ -99,15 +112,24 @@ def _decorators_202605_transformer(cst: Any) -> Any:  # noqa: C901
             if not isinstance(names, tuple):
                 return updated_node
 
-            if module_name in {"phlo_dlt", "phlo_dlt.decorator"}:
-                filtered = [alias for alias in names if _name_value(alias.name) != "phlo_ingestion"]
-                return _replace_import_aliases(updated_node, filtered)
+            removed = _REMOVED_IMPORTS.get(module_name or "")
+            if removed is None:
+                return updated_node
+            filtered = [alias for alias in names if _name_value(alias.name) not in removed]
+            if len(filtered) == len(names):
+                return updated_node
+            return _replace_import_aliases(updated_node, filtered)
 
-            if module_name == "phlo.quality":
-                filtered = [alias for alias in names if _name_value(alias.name) != "phlo_quality"]
-                return _replace_import_aliases(updated_node, filtered)
-
-            return updated_node
+        def leave_Call(self, original_node: Any, updated_node: Any) -> Any:
+            """Rewrite ``get_ingestion_assets()`` calls to ``phlo.ingest.assets("dlt")``."""
+            func = updated_node.func
+            is_assets = (isinstance(func, cst.Name) and func.value in self.assets_names) or (
+                _module_name(func) in _REMOVED_ASSETS_PATHS
+            )
+            if not is_assets or updated_node.args:
+                return updated_node
+            self.needs_import_phlo = True
+            return cst.parse_expression('phlo.ingest.assets("dlt")')
 
         def leave_Decorator(self, original_node: Any, updated_node: Any) -> Any:
             """Rewrite decorator expressions that target migrated entry points."""
@@ -148,13 +170,39 @@ def _decorators_202605_transformer(cst: Any) -> Any:  # noqa: C901
                     self.needs_import_phlo = True
                     return cst.parse_expression("phlo.quality.pandera")
 
-            if _matches_dotted_name(expression, ("phlo", "ingestion")):
+            replacement = _REMOVED_DECORATOR_PATHS.get(_module_name(expression) or "")
+            if replacement is not None:
                 self.needs_import_phlo = True
-                return cst.parse_expression("phlo.ingest.dlt")
+                return cst.parse_expression(replacement)
 
             return expression
 
     return Decorators202605Transformer()
+
+
+# Module -> imported name -> transformer binding set that records its local name.
+_REMOVED_IMPORTS = {
+    "phlo_dlt": {"phlo_ingestion": "ingestion_names"},
+    "phlo_dlt.decorator": {"phlo_ingestion": "ingestion_names"},
+    "phlo.ingestion": {
+        "phlo_ingestion": "ingestion_names",
+        "get_ingestion_assets": "assets_names",
+    },
+    "phlo": {
+        "phlo_ingestion": "ingestion_names",
+        "get_ingestion_assets": "assets_names",
+        "phlo_quality": "quality_names",
+    },
+    "phlo.quality": {"phlo_quality": "quality_names"},
+}
+_REMOVED_DECORATOR_PATHS = {
+    "phlo.ingestion": "phlo.ingest.dlt",
+    "phlo.ingestion.phlo_ingestion": "phlo.ingest.dlt",
+    "phlo.phlo_ingestion": "phlo.ingest.dlt",
+    "phlo.phlo_quality": "phlo.quality.pandera",
+    "phlo.quality.phlo_quality": "phlo.quality.pandera",
+}
+_REMOVED_ASSETS_PATHS = {"phlo.get_ingestion_assets", "phlo.ingestion.get_ingestion_assets"}
 
 
 def _aliases(names: Any) -> tuple[Any, ...]:
@@ -195,8 +243,8 @@ def _name_value(node: Any) -> str:
     return ""
 
 
-def _matches_dotted_name(expression: Any, parts: tuple[str, ...]) -> bool:
-    return _module_name(expression) == ".".join(parts)
+def _is_bare_import(alias: Any, name: str) -> bool:
+    return alias.asname is None and _name_value(alias.name) == name
 
 
 def _replace_import_aliases(
@@ -208,6 +256,8 @@ def _replace_import_aliases(
     # names would be invalid syntax.
     if not aliases:
         return cst.RemoveFromParent()
+    # The kept alias that is now last must not keep the comma of a dropped successor.
+    aliases[-1] = aliases[-1].with_changes(comma=cst.MaybeSentinel.DEFAULT)
     return import_from.with_changes(names=tuple(aliases))
 
 

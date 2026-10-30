@@ -24,7 +24,7 @@ Key Methods:
 
 See Also:
     - :class:`IngestionProviderPlugin`: For advanced ingestion customization
-    - :mod:`phlo.ingestion`: Public API for ingestion operations
+    - :mod:`phlo.ingest`: Public API for ingestion operations
 
 Example:
     ```python

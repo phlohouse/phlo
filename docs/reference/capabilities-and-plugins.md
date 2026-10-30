@@ -13,7 +13,6 @@ The authoritative family map is [`PLUGIN_FAMILIES`](../../src/phlo/plugins/disco
 | Quality provider | `phlo.plugins.quality_providers` | `QualityProviderPlugin` | Quality decorator/provider API |
 | Ingestion provider | `phlo.plugins.ingestion_providers` | `IngestionProviderPlugin` | Ingestion decorator/provider API |
 | Transformation provider | `phlo.plugins.transformation_providers` | `TransformationProviderPlugin` | Transformation decorator/provider API |
-| Transformation | `phlo.plugins.transforms` | `TransformationPlugin` | Transformation implementation |
 | Service | `phlo.plugins.services` | `ServicePlugin` | Compose service definition |
 | CLI command | `phlo.plugins.cli` | `CliCommandPlugin` | Click command or group |
 | Hook | `phlo.plugins.hooks` | `HookPlugin` | `HookRegistration` values |

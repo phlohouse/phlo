@@ -15,7 +15,6 @@ import pytest
 from phlo.plugins import (
     PluginMetadata,
     SourceConnectorPlugin,
-    TransformationPlugin,
     discover_plugins,
     get_plugin,
     get_plugin_info,
@@ -33,9 +32,6 @@ from tests.support import (
 from tests.support import (
     DummySourcePlugin as _DummySourcePlugin,
 )
-from tests.support import (
-    DummyTransformPlugin as _DummyTransformPlugin,
-)
 
 pytestmark = pytest.mark.core_regression
 
@@ -52,13 +48,6 @@ class DummyQualityPlugin(_DummyQualityPlugin):
 
     def __init__(self) -> None:
         super().__init__("test_quality", "Test quality plugin")
-
-
-class DummyTransformPlugin(_DummyTransformPlugin):
-    """Canonical transform plugin fixture for this module."""
-
-    def __init__(self) -> None:
-        super().__init__("test_transform", "Test transform plugin")
 
 
 class DummyServicePlugin(_DummyServicePlugin):
@@ -101,14 +90,6 @@ class TestPluginRegistration:
         clean_registry.register("quality_check", plugin)
 
         retrieved = clean_registry.get("quality_check", "test_quality")
-        assert retrieved is plugin
-
-    def test_register_transformation(self, clean_registry):
-        """Test registering a transformation."""
-        plugin = DummyTransformPlugin()
-        clean_registry.register("transformation", plugin)
-
-        retrieved = clean_registry.get("transformation", "test_transform")
         assert retrieved is plugin
 
     def test_register_service(self, clean_registry):
@@ -266,13 +247,11 @@ class TestPluginListing:
         """Test listing all plugins."""
         clean_registry.register("source_connector", DummySourcePlugin())
         clean_registry.register("quality_check", DummyQualityPlugin())
-        clean_registry.register("transformation", DummyTransformPlugin())
         clean_registry.register("service", DummyServicePlugin())
 
         all_plugins = clean_registry.list_all_plugins()
         assert "test_source" in all_plugins["source_connector"]
         assert "test_quality" in all_plugins["quality_check"]
-        assert "test_transform" in all_plugins["transformation"]
         assert "test_service" in all_plugins["service"]
 
 
@@ -286,7 +265,6 @@ class TestPluginDiscovery:
         assert isinstance(result, dict)
         assert "source_connector" in result
         assert "quality_check" in result
-        assert "transformation" in result
         assert "service" in result
 
     def test_discover_single_type(self):
@@ -420,17 +398,14 @@ class TestPluginIntegration:
         """Test registering and retrieving plugins."""
         source = DummySourcePlugin()
         quality = DummyQualityPlugin()
-        transform = DummyTransformPlugin()
         service = DummyServicePlugin()
 
         clean_registry.register("source_connector", source)
         clean_registry.register("quality_check", quality)
-        clean_registry.register("transformation", transform)
         clean_registry.register("service", service)
 
         assert get_plugin("source_connector", "test_source") is source
         assert get_plugin("quality_check", "test_quality") is quality
-        assert get_plugin("transformation", "test_transform") is transform
         assert get_plugin("service", "test_service") is service
 
     def test_get_plugin_info(self, clean_registry):
@@ -473,20 +448,13 @@ class TestPluginIntegration:
         assert info["name"] == "test_source"
 
 
-def test_transformation_plugin_subclassing_warns_deprecation():
-    """Subclassing the deprecated transformation base warns but still works."""
-    with pytest.warns(DeprecationWarning, match="TransformationPlugin is deprecated"):
+def test_legacy_transformation_plugin_family_is_removed(clean_registry):
+    """The legacy transformation SDK family was removed in 0.19.0."""
+    import phlo.plugins
+    import phlo.plugins.base
 
-        class _DeprecatedTransform(TransformationPlugin):
-            @property
-            def metadata(self):
-                return PluginMetadata(
-                    name="deprecated_transform",
-                    version="1.0.0",
-                    description="Deprecation pin",
-                )
-
-            def transform(self, df, config):
-                return df
-
-    assert _DeprecatedTransform is not None
+    assert not hasattr(phlo.plugins, "TransformationPlugin")
+    assert not hasattr(phlo.plugins.base, "TransformationPlugin")
+    assert "transformation" not in discover_plugins(auto_register=False)
+    with pytest.raises(ValueError, match="Unknown plugin family: transformation"):
+        clean_registry.register("transformation", DummySourcePlugin())

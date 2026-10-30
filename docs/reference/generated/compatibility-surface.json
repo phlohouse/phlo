@@ -4318,8 +4318,6 @@
             "sources",
             "source",
             "quality",
-            "transforms",
-            "transform",
             "service",
             "hook",
             "catalog",
@@ -4402,8 +4400,6 @@
             "transformation-providers",
             "transformation-provider",
             "transformation_provider",
-            "transforms",
-            "transform",
             "service",
             "cli",
             "cli-commands",
@@ -4498,8 +4494,6 @@
             "transformation-providers",
             "transformation-provider",
             "transformation_provider",
-            "transforms",
-            "transform",
             "service",
             "cli",
             "cli-commands",
@@ -4589,8 +4583,6 @@
             "transformation-providers",
             "transformation-provider",
             "transformation_provider",
-            "transforms",
-            "transform",
             "service",
             "cli",
             "cli-commands",
@@ -7302,11 +7294,11 @@
   ],
   "counts": {
     "cli_commands": 135,
-    "entry_point_groups": 15,
+    "entry_point_groups": 14,
     "entry_points": 46,
     "hook_event_types": 11,
     "http_routes": 166,
-    "python_api_names": 65
+    "python_api_names": 59
   },
   "entry_points": {
     "phlo.plugins.assets": [
@@ -7379,7 +7371,6 @@
     "phlo.plugins.transformation_providers": [
       "phlo-dbt: dbt = phlo_dbt.plugin:DbtTransformationProvider"
     ],
-    "phlo.plugins.transforms": [],
     "phlo.project_templates": [
       "phlo-dbt: dbt = phlo_dbt.templates:templates",
       "phlo-dlt: dlt = phlo_dlt.templates:templates"
@@ -7609,7 +7600,6 @@
     "UniqueCheck",
     "accepted_values",
     "access",
-    "backfill",
     "clear_access_policies",
     "clear_backfill_assets",
     "clear_contract_specs",
@@ -7625,7 +7615,6 @@
     "get_access_policies",
     "get_backfill_assets",
     "get_contract_specs",
-    "get_ingestion_assets",
     "get_observe_assets",
     "get_publish_assets",
     "get_quality_checks",
@@ -7633,12 +7622,9 @@
     "grain",
     "helpers",
     "ingest",
-    "ingestion",
     "metrics",
     "not_null",
     "observe",
-    "phlo_ingestion",
-    "phlo_quality",
     "publish",
     "quality",
     "quote_identifier",
@@ -7646,7 +7632,6 @@
     "read_dataframe",
     "reconcile_aggregate",
     "ref",
-    "schedule",
     "settings",
     "source",
     "synthetic_key",

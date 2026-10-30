@@ -15,16 +15,13 @@ Key Features:
 
 Lazy-Loaded Modules:
     The following modules are loaded on first access to keep startup lightweight:
-    - ``phlo.ingestion``: Data ingestion operations
+    - ``phlo.ingest``: Data ingestion operations
     - ``phlo.quality``: Data quality validation
     - ``phlo.metrics``: Platform metrics collection
 
 Direct Exports:
     - :class:`Consumer`: Data consumer contract
     - :class:`SLA`: Service level agreement contract
-    - :func:`phlo_ingestion`: Ingestion decorator
-    - :func:`get_ingestion_assets`: Retrieve ingestion assets
-    - :func:`phlo_quality`: Quality decorator (deprecated third name; use ``phlo.quality.pandera``)
     - :func:`get_quality_checks`: Retrieve quality checks
     - Quality check classes: NullCheck, RangeCheck, FreshnessCheck, etc.
 
@@ -34,7 +31,6 @@ Plugin Entry Points:
     - ``phlo.quality``: Quality check implementations
     - ``phlo.ingestion_providers``: Ingestion providers
     - ``phlo.transformation_providers``: Transformation providers
-    - ``phlo.transforms``: Data transformation tools
     - ``phlo.services``: Infrastructure services
     - ``phlo.cli_commands``: CLI command extensions
     - ``phlo.hooks``: Hook handlers
@@ -84,10 +80,8 @@ from typing import Any
 
 __version__ = version("phlo")
 
-_INGESTION_EXPORTS = {"phlo_ingestion", "get_ingestion_assets"}
 _CONTRACT_EXPORTS = {"Consumer", "SLA"}
 _QUALITY_EXPORTS = {
-    "phlo_quality",
     "get_quality_checks",
     "clear_quality_checks",
     "QualityCheck",
@@ -120,7 +114,6 @@ _QUALITY_RULE_EXPORTS = {
 }
 _FLOW_EXPORTS = {
     "access",
-    "backfill",
     "clear_access_policies",
     "clear_backfill_assets",
     "clear_contract_specs",
@@ -137,11 +130,10 @@ _FLOW_EXPORTS = {
     "get_schedules",
     "observe",
     "publish",
-    "schedule",
 }
 _CONFIG_EXPORTS = {"settings"}
 _REFERENCE_EXPORTS = {"LogicalRelation", "quote_identifier", "ref", "source"}
-_SUBMODULE_EXPORTS = {"helpers", "ingest", "ingestion", "metrics", "quality", "transform"}
+_SUBMODULE_EXPORTS = {"helpers", "ingest", "metrics", "quality", "transform"}
 _HELPER_EXPORTS = {"read_dataframe", "synthetic_key"}
 
 __all__ = tuple(
@@ -152,7 +144,6 @@ __all__ = tuple(
             *_SUBMODULE_EXPORTS,
             *_HELPER_EXPORTS,
             *_CONTRACT_EXPORTS,
-            *_INGESTION_EXPORTS,
             *_QUALITY_EXPORTS,
             *_QUALITY_RULE_EXPORTS,
             *_FLOW_EXPORTS,
@@ -190,16 +181,6 @@ def __getattr__(name: str) -> Any:
 
         globals().update({"Consumer": Consumer, "SLA": SLA})
         return globals()[name]
-    if name in _INGESTION_EXPORTS:
-        from phlo.ingestion import get_ingestion_assets, phlo_ingestion
-
-        globals().update(
-            {
-                "get_ingestion_assets": get_ingestion_assets,
-                "phlo_ingestion": phlo_ingestion,
-            }
-        )
-        return globals()[name]
     if name in _QUALITY_RULE_EXPORTS:
         from phlo.quality_rules import (
             accepted_values,
@@ -226,7 +207,6 @@ def __getattr__(name: str) -> Any:
     if name in _FLOW_EXPORTS:
         from phlo.flow import (
             access,
-            backfill,
             clear_access_policies,
             clear_backfill_assets,
             clear_contract_specs,
@@ -243,13 +223,11 @@ def __getattr__(name: str) -> Any:
             get_schedules,
             observe,
             publish,
-            schedule,
         )
 
         globals().update(
             {
                 "access": access,
-                "backfill": backfill,
                 "clear_access_policies": clear_access_policies,
                 "clear_backfill_assets": clear_backfill_assets,
                 "clear_contract_specs": clear_contract_specs,
@@ -266,7 +244,6 @@ def __getattr__(name: str) -> Any:
                 "get_schedules": get_schedules,
                 "observe": observe,
                 "publish": publish,
-                "schedule": schedule,
             }
         )
         return globals()[name]
@@ -309,7 +286,6 @@ def __getattr__(name: str) -> Any:
             clear_quality_checks,
             dbt_check_name,
             get_quality_checks,
-            phlo_quality,
         )
 
         globals().update(
@@ -334,7 +310,6 @@ def __getattr__(name: str) -> Any:
                 "clear_quality_checks": clear_quality_checks,
                 "dbt_check_name": dbt_check_name,
                 "get_quality_checks": get_quality_checks,
-                "phlo_quality": phlo_quality,
             }
         )
         return globals()[name]

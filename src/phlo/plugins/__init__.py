@@ -7,7 +7,6 @@ Phlo provides a plugin system that allows developers to extend
 the framework with custom:
 - Source connectors (ingest data from new APIs/databases)
 - Quality checks (custom validation logic)
-- Transformations (custom data processing steps)
 - Services (Docker-based infrastructure components)
 
 ## Plugin Types
@@ -42,22 +41,7 @@ class CustomQualityCheck(QualityCheckPlugin):
         pass
 ```
 
-### 3. Transformation Plugins
-Add custom transformation functions.
-
-```python
-from phlo.plugins import TransformationPlugin
-
-class CustomTransform(TransformationPlugin):
-    name = "custom_transform"
-    version = "1.0.0"
-
-    def transform(self, df: pd.DataFrame, config: dict) -> pd.DataFrame:
-        # Implement transformation logic
-        pass
-```
-
-### 4. Service Plugins
+### 3. Service Plugins
 Add Docker-based infrastructure components.
 
 ```python
@@ -94,9 +78,6 @@ my_api = "my_phlo_plugin:MyAPIConnector"
 
 [project.entry-points."phlo.plugins.quality"]
 custom_check = "my_phlo_plugin:CustomQualityCheck"
-
-[project.entry-points."phlo.plugins.transforms"]
-custom_transform = "my_phlo_plugin:CustomTransform"
 
 [project.entry-points."phlo.plugins.services"]
 custom_service = "my_phlo_plugin:CustomService"
@@ -149,7 +130,6 @@ from phlo.plugins.base.service import (
     service_plugin_class,
 )
 from phlo.plugins.base.source import SourceConnectorPlugin
-from phlo.plugins.base.transform import TransformationPlugin
 from phlo.plugins.hooks import FailurePolicy, HookFilter, HookHandler, HookPlugin, HookProvider
 
 if TYPE_CHECKING:
@@ -239,7 +219,6 @@ __all__ = [
     "ServicePlugin",
     "PackageYamlServicePlugin",
     "service_plugin_class",
-    "TransformationPlugin",
     "cli_command_plugin_class",
     "AssetProviderPlugin",
     "CatalogPlugin",

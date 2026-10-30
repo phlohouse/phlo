@@ -43,7 +43,7 @@ Example:
 
 from phlo_dagster.authorization import get_adapter
 from phlo_dagster.authorization_middleware import DagsterGraphQLAuthorizationMiddleware
-from phlo_dagster.dagster_ext import DagsterExtensionPlugin, IngestionEnginePlugin
+from phlo_dagster.dagster_ext import DagsterExtensionPlugin
 from phlo_dagster.daemon_identity import (
     PhloQueuedRunCoordinator,
     authorize_daemon_run,
@@ -56,7 +56,6 @@ from phlo_dagster.settings import DagsterSettings, get_settings
 __all__ = [
     "DagsterServicePlugin",
     "DagsterExtensionPlugin",
-    "IngestionEnginePlugin",
     "DagsterSettings",
     "get_settings",
     "get_adapter",

@@ -8,7 +8,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -57,10 +56,6 @@ def test_deprecation_notice_source_audit_names_a_removal_release() -> None:
 @pytest.mark.parametrize(
     ("module_name", "name", "kwargs"),
     [
-        ("phlo.operations.adapters", "SyncToAsyncIngesterAdapter", {}),
-        ("phlo.operations.adapters", "AsyncToSyncIngesterAdapter", {}),
-        ("phlo.operations.adapters", "SyncToAsyncTransformerAdapter", {}),
-        ("phlo.operations.adapters", "AsyncToSyncTransformerAdapter", {}),
         ("phlo.identity.bridge", "create_regulated_mode_bridge", {}),
         ("phlo.infrastructure.config", "get_regulated_mode_config", {}),
         ("phlo.security.mode", "is_regulated_mode_enabled", {}),
@@ -83,9 +78,8 @@ def test_public_compatibility_apis_emit_the_removal_release(
     monkeypatch.setenv("PHLO_REGULATED", "false")
     (tmp_path / "phlo.yaml").write_text("regulated_mode: true\n", encoding="utf-8")
     callback = getattr(importlib.import_module(module_name), name)
-    args = (SimpleNamespace(context=None, logger=None),) if name.endswith("Adapter") else ()
     with pytest.warns(DeprecationWarning, match=r"removed in 0\.19\.0") as notices:
-        callback(*args, **kwargs)
+        callback(**kwargs)
     assert all("removed in 0.19.0" in str(notice.message) for notice in notices)
 
 
@@ -107,4 +101,4 @@ def test_all_is_a_sorted_tuple_across_hash_seeds() -> None:
         outputs.append(json.loads(result.stdout))
     assert outputs[0] == outputs[1] == outputs[2]
     assert outputs[0] == sorted(set(outputs[0]))
-    assert {"ingestion", "transform", "phlo_ingestion", "get_ingestion_assets"} <= set(outputs[0])
+    assert {"ingest", "quality", "transform"} <= set(outputs[0])

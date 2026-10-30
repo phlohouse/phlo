@@ -4,7 +4,7 @@ Data quality checks and validation for Phlo.
 
 ## Description
 
-Define and execute data quality checks using the `@phlo_quality` decorator. Checks emit capability specs that adapters translate into orchestrator-native checks.
+Define and execute data quality checks using the `@phlo.quality.pandera` decorator. Checks emit capability specs that adapters translate into orchestrator-native checks.
 
 ## Installation
 
@@ -34,7 +34,7 @@ This package is **fully auto-configured**:
 ### Event Flow
 
 ```
-@phlo_quality → QualityEventEmitter → quality.result → [Alerting, Metrics, OpenMetadata]
+@phlo.quality.pandera → QualityEventEmitter → quality.result → [Alerting, Metrics, OpenMetadata]
 ```
 
 ## Usage
@@ -42,15 +42,15 @@ This package is **fully auto-configured**:
 ### Defining Checks
 
 ```python
-from phlo.quality import phlo_quality
-from phlo_pandera.checks import null_check, uniqueness_check
+import phlo
+from phlo.quality import NullCheck, UniqueCheck
 
-@phlo_quality(
-    asset="bronze.users",
+@phlo.quality.pandera(
+    table="bronze.users",
     checks=[
-        null_check(column="id"),
-        uniqueness_check(column="email"),
-    ]
+        NullCheck(columns=["id"]),
+        UniqueCheck(columns=["email"]),
+    ],
 )
 def validate_users():
     pass

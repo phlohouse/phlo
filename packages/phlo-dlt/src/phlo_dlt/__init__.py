@@ -55,13 +55,13 @@ Example:
     ```
 
 See Also:
-    - :mod:`phlo.ingestion`: Public API for ingestion operations
+    - :mod:`phlo.ingest`: Public API for ingestion operations
     - :mod:`phlo_dlt.decorator`: Detailed decorator documentation
     - Documentation: https://docs.phlo.dev/packages/phlo-dlt
 
 Note:
-    This package is typically accessed through ``phlo.ingestion`` rather than
-    directly. Use ``import phlo`` or ``from phlo.ingestion import phlo_ingestion``.
+    This package is typically accessed through ``phlo.ingest.dlt`` rather than
+    directly. Use ``import phlo`` and ``@phlo.ingest.dlt(...)``.
 
 """
 

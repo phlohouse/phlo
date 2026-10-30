@@ -10,7 +10,6 @@ Plugin Types:
     - :class:`QualityCheckPlugin`: Data quality validation
     - :class:`QualityProviderPlugin`: Quality check providers
     - :class:`IngestionProviderPlugin`: Data ingestion providers
-    - :class:`TransformationPlugin`: Data transformation tools
     - :class:`TransformationProviderPlugin`: Transformation providers
     - :class:`ServicePlugin`: Infrastructure services
     - :class:`CatalogPlugin`: Metadata catalogs
@@ -66,7 +65,6 @@ from phlo.plugins.base.quality import QualityCheckPlugin
 from phlo.plugins.base.quality_provider import QualityProviderPlugin
 from phlo.plugins.base.service import PackageYamlServicePlugin, ServicePlugin, service_plugin_class
 from phlo.plugins.base.source import SourceConnectorPlugin
-from phlo.plugins.base.transform import TransformationPlugin
 from phlo.plugins.base.transformation_provider import TransformationProviderPlugin
 
 __all__ = [
@@ -78,7 +76,6 @@ __all__ = [
     "QualityCheckPlugin",
     "QualityProviderPlugin",
     "IngestionProviderPlugin",
-    "TransformationPlugin",
     "TransformationProviderPlugin",
     "ServicePlugin",
     "PackageYamlServicePlugin",

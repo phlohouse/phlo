@@ -1,6 +1,6 @@
 """Regression tests for phlo's public API exports.
 
-Guards compatibility aliases, lazy discovery exports, observatory re-exports,
+Guards removed compatibility aliases, lazy discovery exports, observatory re-exports,
 and that importing plugins never pulls provider-only dependencies.
 """
 
@@ -17,29 +17,54 @@ import pytest
 pytestmark = pytest.mark.core_regression
 
 
-def test_phlo_ingestion_module_is_dlt_compatibility_alias(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("module_name", "removed_names"),
+    [
+        (
+            "phlo",
+            {
+                "backfill",
+                "get_ingestion_assets",
+                "ingestion",
+                "phlo_ingestion",
+                "phlo_quality",
+                "schedule",
+            },
+        ),
+        ("phlo.quality", {"phlo_quality"}),
+        ("phlo.flow", {"backfill", "schedule"}),
+        (
+            "phlo.operations",
+            {
+                "AsyncToSyncIngesterAdapter",
+                "AsyncToSyncTransformerAdapter",
+                "SyncToAsyncIngesterAdapter",
+                "SyncToAsyncTransformerAdapter",
+            },
+        ),
+        ("phlo_dagster", {"IngestionEnginePlugin"}),
+        ("phlo_dagster.dagster_ext", {"IngestionEnginePlugin"}),
+    ],
+)
+def test_names_removed_in_0_19_0_are_not_exported(
+    module_name: str, removed_names: set[str]
 ) -> None:
-    """phlo.ingestion should remain callable while dispatching through phlo.ingest.dlt."""
-    import phlo
+    """Deprecated names scheduled for 0.19.0 are gone from attributes and ``__all__``."""
+    module = importlib.import_module(module_name)
 
-    calls: list[dict[str, str]] = []
+    assert removed_names.isdisjoint(getattr(module, "__all__", ()))
+    for name in removed_names:
+        with pytest.raises(AttributeError):
+            getattr(module, name)
 
-    def fake_dlt(**kwargs: str) -> str:
-        calls.append(kwargs)
-        return "decorator"
 
-    monkeypatch.setattr(phlo.ingest, "dlt", fake_dlt)
-    monkeypatch.setattr(phlo.ingest, "assets", lambda provider_name=None: ["dlt_asset"])
-
-    assert callable(phlo.ingestion)
-    with pytest.warns(DeprecationWarning, match=r"phlo.ingestion.*0\.19\.0"):
-        assert phlo.ingestion(table_name="events") == "decorator"
-    with pytest.warns(DeprecationWarning, match=r"phlo.phlo_ingestion.*0\.19\.0"):
-        assert phlo.ingestion.phlo_ingestion(table_name="events") == "decorator"
-    with pytest.warns(DeprecationWarning, match=r"phlo.get_ingestion_assets.*0\.19\.0"):
-        assert phlo.ingestion.get_ingestion_assets() == ["dlt_asset"]
-    assert calls == [{"table_name": "events"}, {"table_name": "events"}]
+@pytest.mark.parametrize(
+    "module_name", ["phlo.ingestion", "phlo.operations.adapters", "phlo.plugins.base.transform"]
+)
+def test_modules_removed_in_0_19_0_are_not_importable(module_name: str) -> None:
+    """The callable ingestion shim, operation adapters and legacy transform base are gone."""
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module(module_name)
 
 
 def test_quality_module_import_does_not_load_provider(monkeypatch: pytest.MonkeyPatch) -> None:

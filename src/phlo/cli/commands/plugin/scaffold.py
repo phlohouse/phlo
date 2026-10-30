@@ -13,7 +13,6 @@ from pathlib import Path
 _TYPE_TO_BASE_CLASS = {
     "source": "SourceConnectorPlugin",
     "quality": "QualityCheckPlugin",
-    "transform": "TransformationPlugin",
     "service": "ServicePlugin",
     "hook": "HookPlugin",
     "catalog": "CatalogPlugin",
@@ -25,7 +24,6 @@ _TYPE_TO_BASE_CLASS = {
 _TYPE_TO_ENTRY_POINT = {
     "source": "phlo.plugins.sources",
     "quality": "phlo.plugins.quality",
-    "transform": "phlo.plugins.transforms",
     "service": "phlo.plugins.services",
     "hook": "phlo.plugins.hooks",
     "catalog": "phlo.plugins.catalogs",
@@ -51,22 +49,6 @@ _PLUGIN_TYPE_TEMPLATES = {
         """Create quality check instance."""
         # Implement your quality check creation logic here
         raise NotImplementedError()
-''',
-    "transform": '''
-    def transform(self, df, config: dict):
-        """Transform dataframe."""
-        # Implement your transformation logic here
-        raise NotImplementedError()
-
-    def get_output_schema(self, input_schema: dict, config: dict) -> dict | None:
-        """Get output schema."""
-        # Return schema or None
-        return None
-
-    def validate_config(self, config: dict) -> bool:
-        """Validate transformation configuration."""
-        # Add config validation logic here
-        return True
 ''',
     "service": '''
     @property
@@ -129,7 +111,6 @@ _README_INTERNAL_TYPE_MAP = {
     "hook": "hook",
     "source": "source_connector",
     "quality": "quality_check",
-    "transform": "transformation",
     "service": "service",
     "catalog": "catalog",
     "asset": "asset_provider",
