@@ -45,7 +45,7 @@ HADOLINT_IMAGE = (
     "hadolint/hadolint@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e"
 )
 TRIVY_IMAGE = (
-    "aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
+    "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"
 )
 MAX_TOOL_OUTPUT_CHARS = 64 * 1024
 MAX_TRIVY_JSON_CHARS = 8 * 1024 * 1024
