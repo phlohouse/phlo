@@ -133,7 +133,7 @@ jobs:
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             report="provider-artifacts/security-${digest#sha256:}.json"
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$PWD/provider-artifacts:/work" mirror.gcr.io/aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+              -v "$PWD/provider-artifacts:/work" mirror.gcr.io/aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
               image --image-src docker --format json --output "/work/${report##*/}" --scanners vuln "$digest"
             jq -e --arg digest "$digest" '.SchemaVersion == 2 and .ArtifactType == "container_image" and .Metadata.ImageID == $digest' "$report" > /dev/null
             uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \

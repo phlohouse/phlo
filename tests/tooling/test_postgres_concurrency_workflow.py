@@ -248,7 +248,7 @@ def test_minio_build_preserves_checkout_source_and_exports_one_local_image() -> 
     steps = action["runs"]["steps"]
     assert steps[0]["uses"] == "./.github/actions/docker-mirror"
     assert steps[1]["uses"] == (
-        "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f"
+        "docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069"
     )
     assert 'mirrors = ["mirror.gcr.io"]' in steps[1]["with"]["buildkitd-config-inline"]
     assert steps[2]["uses"] == ("docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8")

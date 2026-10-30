@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "$PWD/upstream-trivy-cache:/cache" \
-            aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+            aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
             image --cache-dir /cache --download-db-only < /dev/null
 
       - name: Scan exact base and candidate references with the same database snapshot
@@ -109,7 +109,7 @@ jobs:
               -v "$PWD:/work" \
               -v "$PWD/upstream-trivy-cache:/cache" \
               -w /work \
-              aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+              aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
               image --cache-dir /cache --skip-db-update --timeout 10m --scanners vuln --format json \
               --output "/work/base-reports/$base_report" "$base" < /dev/null
             echo "Scanning candidate $candidate"
@@ -117,7 +117,7 @@ jobs:
               -v "$PWD:/work" \
               -v "$PWD/upstream-trivy-cache:/cache" \
               -w /work \
-              aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+              aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
               image --cache-dir /cache --skip-db-update --timeout 10m --scanners vuln --format json \
               --output "/work/candidate-reports/$candidate_report" "$candidate" < /dev/null
           done < <(jq -r '.images[] | [.base, .candidate, .base_report, .candidate_report] | @tsv' upstream-candidates.json)
@@ -236,7 +236,7 @@ jobs:
               -v "$PWD:/work" \
               -v "$PWD/upstream-trivy-cache:/cache" \
               -w /work \
-              aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+              aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
               image --cache-dir /cache --timeout 10m --scanners vuln --format json \
               --output "/work/upstream-reports/$report" "$reference" < /dev/null
           done < <(jq -r '.images[] | [.reference, .report] | @tsv' upstream-inventory.json)

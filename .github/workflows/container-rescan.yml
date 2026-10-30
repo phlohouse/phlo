@@ -44,12 +44,12 @@ jobs:
         with:
           version: "0.12.1"
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
       - uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22
         with:
           cosign-release: v3.0.5
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -173,7 +173,7 @@ jobs:
             digest="$(jq -r .digest <<< "$target")"
             safe="$(tr -d '\n' <<< "$image" | tr '/:@' '___')"
             report="reports/${safe}.json"
-            if ! docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD:/work" -w /work aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+            if ! docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD:/work" -w /work aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
               image --format json --output "/work/$report" --scanners vuln "$image@$digest"; then
               echo "::error::Scanner failed for $image@$digest"
               failed=1
