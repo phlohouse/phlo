@@ -18,8 +18,9 @@ key = "project.version"
 [[release.replacements]]
 files = ["registry/support/v1.json", "src/phlo/support_data/v1.json"]
 packages = ["phlo"]
-search = "\"version\": \"{current_version}\",\n    \"maturity\": \"alpha\""
-replace = "\"version\": \"{next_version}\",\n    \"maturity\": \"alpha\""
+# Match the release version without its maturity so the rewrite survives the 1.0 readiness flip.
+search = "\"version\": \"{current_version}\",\n    \"maturity\": \""
+replace = "\"version\": \"{next_version}\",\n    \"maturity\": \""
 expected_matches = 1
 
 [[release.replacements]]

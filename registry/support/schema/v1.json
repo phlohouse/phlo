@@ -26,7 +26,7 @@
     "manifest_schema": { "const": "phlo.support.v1" },
     "schema_version": { "const": "1.0" },
     "release_line": { "const": "1.x" },
-    "artifact_pinning": { "const": "not_yet_published" },
+    "artifact_pinning": { "type": "string", "enum": ["not_yet_published", "published"] },
     "profiles": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/profile" }
@@ -68,7 +68,15 @@
     },
     "maturity": {
       "type": "string",
-      "enum": ["alpha", "preview", "development_only", "planned", "blocked", "unverified"]
+      "enum": [
+        "alpha",
+        "supported",
+        "preview",
+        "development_only",
+        "planned",
+        "blocked",
+        "unverified"
+      ]
     },
     "scope": {
       "type": "string",
@@ -197,7 +205,7 @@
         "evidence"
       ],
       "properties": {
-        "status": { "type": "string", "enum": ["blocked", "required_before_release"] },
+        "status": { "type": "string", "enum": ["blocked", "required_before_release", "passed"] },
         "requirements": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "development_defaults": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "reason": { "type": "string", "minLength": 1 },
@@ -255,8 +263,8 @@
       "required": ["version", "maturity", "production_ready"],
       "properties": {
         "version": { "type": "string", "minLength": 1 },
-        "maturity": { "const": "alpha" },
-        "production_ready": { "const": false }
+        "maturity": { "type": "string", "enum": ["alpha", "supported"] },
+        "production_ready": { "type": "boolean" }
       }
     },
     "exclusion": {

@@ -199,3 +199,21 @@ def test_phlo_releases_preserve_independent_minio_image_pins() -> None:
             original = yaml.safe_load(source)
             rewritten = yaml.safe_load(result)
             assert rewritten["image"] == original["image"], file_name
+
+
+def test_release_rewrites_current_release_version_at_any_maturity() -> None:
+    version = _workspace_versions()["phlo"]
+    replacement = next(
+        item
+        for item in _replacements()
+        if item["packages"] == ["phlo"] and "registry/support/v1.json" in item["files"]
+    )
+    source = (ROOT / "registry/support/v1.json").read_text(encoding="utf-8")
+    search = replacement["search"].format(current_version=version)
+    replace = replacement["replace"].format(next_version="1.0.0")
+    supported = source.replace('"maturity": "alpha"', '"maturity": "supported"', 1)
+
+    for manifest_text, maturity in ((source, "alpha"), (supported, "supported")):
+        assert manifest_text.count(search) == replacement["expected_matches"]
+        release = json.loads(manifest_text.replace(search, replace))["current_release"]
+        assert (release["version"], release["maturity"]) == ("1.0.0", maturity)

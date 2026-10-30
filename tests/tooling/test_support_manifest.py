@@ -689,3 +689,187 @@ def test_production_ready_remains_false_and_no_gate_passed() -> None:
     assert manifest["current_release"]["production_ready"] is False
     assert manifest["current_release"]["maturity"] == "alpha"
     assert not any(v == "passed" for v in manifest["gates"]["status"].values())
+
+
+def _production_ready_manifest(version: str) -> dict[str, object]:
+    """Return the checked-in manifest with every ADR 0053 release gate passed."""
+    manifest = _manifest()
+    for gate in manifest["gates"]["status"]:
+        manifest["gates"]["status"][gate] = "passed"
+    for component in manifest["gates"]["components"]:
+        component["status"] = "passed"
+        component["blocked_by"] = []
+        component["evidence"] = ["docs/reference/support-matrix.md"]
+    manifest["production"]["status"] = "passed"
+    manifest["artifact_pinning"] = "published"
+    manifest["current_release"] = {
+        "version": version,
+        "maturity": "supported",
+        "production_ready": True,
+    }
+    return manifest
+
+
+_READINESS_ERROR_FRAGMENTS = (
+    "production.status must be derived",
+    "production_ready requires every required gate",
+    "current_release.maturity must be 'supported'",
+    "at or above 1.0.0",
+)
+
+
+def _readiness_errors(manifest: dict[str, object]) -> list[str]:
+    return [
+        error
+        for error in validate_manifest(manifest)
+        if any(fragment in error for fragment in _READINESS_ERROR_FRAGMENTS)
+    ]
+
+
+def test_gate_backed_production_ready_manifest_validates() -> None:
+    manifest = _production_ready_manifest("0.18.0")
+    assert validate_manifest(manifest) == []
+
+    not_required = manifest["gates"]["components"][0]
+    not_required["applicable_gates"] = []
+    not_required["status"] = "not_required"
+    assert validate_manifest(manifest) == []
+
+    del not_required["evidence"]
+    assert validate_manifest(manifest) == [
+        f"gate component {not_required['name']!r} is not_required without checked evidence"
+    ]
+
+
+def test_version_1_0_requires_production_ready_manifest() -> None:
+    assert _readiness_errors(_production_ready_manifest("1.0.0")) == []
+
+    manifest = _production_ready_manifest("1.0.0")
+    manifest["current_release"]["production_ready"] = False
+    manifest["current_release"]["maturity"] = "alpha"
+    manifest["production"]["status"] = "required_before_release"
+
+    assert _readiness_errors(manifest) == [
+        "current_release.version '1.0.0' is at or above 1.0.0 but production_ready is not true "
+        "(ADR 0053)"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("version", "rejected"),
+    [
+        ("0.99.0", False),
+        ("1.0.0rc1", False),
+        ("1.0.0.dev3", False),
+        ("1.0.0-rc1", False),
+        ("1.0.0alpha1", False),
+        ("1.0.0c1", False),
+        ("1.0.0-rc.1", False),
+        ("1.0.0_rc1", False),
+        ("1.0.0.0rc1", False),
+        ("1.0.0.post1.dev1", True),
+        ("1.0.0.1", True),
+        ("1!0.1.0", True),
+        ("not-a-version", True),
+        ("1.0", True),
+        ("1.0.0.post1", True),
+        ("1.1.0rc1", True),
+        ("2.0.0", True),
+        ("v1.0.0", True),
+    ],
+)
+def test_release_guard_orders_pre_releases_below_1_0(version: str, rejected: bool) -> None:
+    manifest = _manifest()
+    manifest["current_release"]["version"] = version
+
+    errors = _readiness_errors(manifest) + [
+        error for error in validate_manifest(manifest) if "not a PEP 440 version" in error
+    ]
+
+    assert bool(errors) is rejected
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda m: m["gates"]["status"].__setitem__("golden_path", "planned"),
+        lambda m: m["gates"]["status"].__setitem__("security", "not_required"),
+        lambda m: next(
+            c for c in m["gates"]["components"] if c["name"] == "capability:upgrade_restore"
+        ).__setitem__("status", "blocked"),
+    ],
+    ids=["gate-planned", "gate-not-required", "blessed-component-blocked"],
+)
+def test_production_ready_requires_every_gate_and_blessed_component(mutate) -> None:
+    manifest = _production_ready_manifest("1.0.0")
+    mutate(manifest)
+
+    errors = _readiness_errors(manifest)
+
+    assert any("production_ready requires every required gate" in error for error in errors)
+    assert any("production.status must be derived" in error for error in errors)
+
+
+def test_production_status_passed_requires_production_ready_and_passed_gates() -> None:
+    blocked = _manifest()
+    blocked["production"]["status"] = "passed"
+    assert any("production.status must be derived" in e for e in _readiness_errors(blocked))
+
+    not_claimed = _production_ready_manifest("0.18.0")
+    not_claimed["current_release"]["production_ready"] = False
+    not_claimed["current_release"]["maturity"] = "alpha"
+    assert _readiness_errors(not_claimed) == [
+        "production.status must be derived from the release-gate states and production_ready"
+    ]
+
+
+@pytest.mark.parametrize(("maturity", "production_ready"), [("alpha", True), ("supported", False)])
+def test_supported_maturity_matches_production_ready(maturity: str, production_ready: bool) -> None:
+    manifest = _production_ready_manifest("0.18.0")
+    manifest["current_release"]["maturity"] = maturity
+    manifest["current_release"]["production_ready"] = production_ready
+    if not production_ready:
+        manifest["production"]["status"] = "required_before_release"
+
+    assert any(
+        "current_release.maturity must be 'supported'" in error
+        for error in _readiness_errors(manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("artifact_pinning",), "pinned"),
+        (("current_release", "maturity"), "beta"),
+        (("production", "status"), "ready"),
+    ],
+)
+def test_release_vocabularies_stay_closed(path: tuple[str, ...], value: str) -> None:
+    manifest = _manifest()
+    target = manifest
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+
+    assert any("unknown value" in error for error in validate_manifest(manifest))
+
+
+def test_supported_component_maturity_requires_production_ready_blessed_core() -> None:
+    manifest = _production_ready_manifest("0.18.0")
+    _package(manifest, "phlo")["current_maturity"] = "supported"
+    assert validate_manifest(manifest) == []
+
+    optional = next(
+        entry
+        for entry in manifest["services"]
+        if entry["scope"] == "optional" and entry["target_status"] == "supported"
+    )
+    optional["current_maturity"] = "supported"
+    alpha = _manifest()
+    _package(alpha, "phlo")["current_maturity"] = "supported"
+
+    assert validate_manifest(manifest) == [
+        f"service {optional['name']!r}: current_maturity contradicts target_status"
+    ]
+    assert "package 'phlo': current_maturity contradicts target_status" in validate_manifest(alpha)

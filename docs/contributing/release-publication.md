@@ -86,6 +86,13 @@ or a version-name guess:
 - Every other candidate requires production qualification as well. Missing
   manifest text in a legacy BOM retains that stricter requirement.
 
+ReleaseX rewrites only `current_release.version`, at any maturity. Setting
+`production_ready: true`, `maturity: supported`, and `production.status: passed`
+is a reviewed change on `main` that lands before the release PR, together with
+its `make docs-reference-generate` output. The support-manifest validator
+rejects a release PR that proposes a version at or above `1.0.0` without that
+claim; see the [support matrix](../reference/support-matrix.md#release-claims).
+
 Evidence records `qualification: artifact` or `qualification: production`.
 Validation and promotion independently derive the expected qualification from
 the BOM. Artifact evidence cannot qualify a production candidate, and no skipped
