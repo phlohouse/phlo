@@ -190,7 +190,7 @@
       "scope": "blessed_core",
       "target_status": "supported",
       "current_maturity": "alpha",
-      "reason": "API and Observatory integration are implemented and tested, but mandatory authorization remains a release gate.",
+      "reason": "API and Observatory integration are implemented and tested, including mandatory route classification and production fail-closed authorization; the non-regulated production audit gap and missing live authorization evidence recorded under mandatory_authorization still block the security gate.",
       "evidence": [
         "packages/phlo-api/pyproject.toml",
         "packages/phlo-api/tests",
@@ -235,7 +235,7 @@
       "scope": "blessed_core",
       "target_status": "supported",
       "current_maturity": "alpha",
-      "reason": "dlt ingestion is part of the current core path and has focused tests; run-evidence correlation is not included in this manifest version.",
+      "reason": "dlt ingestion is part of the current core path, has focused tests, and contributes dlt.ingest run evidence to the ADR 0048 WAP profile; the shared release gates still control readiness.",
       "evidence": [
         "packages/phlo-dlt/pyproject.toml",
         "packages/phlo-dlt/tests",
@@ -282,12 +282,13 @@
       "scope": "blessed_core",
       "target_status": "supported",
       "current_maturity": "alpha",
-      "reason": "The API-backed Observatory UI exists and is tested. The authenticated durable per-run report remains available through Phlo API; its dedicated UI projection is pending.",
+      "reason": "The API-backed Observatory UI exists and is tested, including the /reports projection of the authenticated durable per-run report; installed-artifact Observatory acceptance does not yet visit /reports.",
       "evidence": [
         "packages/phlo-observatory/pyproject.toml",
         "packages/phlo-observatory/tests",
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
-        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/pipelines.ts",
+        "packages/phlo-observatory/src/phlo_observatory/src/routes/_app/reports.tsx",
+        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/reports.ts",
         "registry/support/dependency-qualification.md#typescript-6-not-an-unsupported-typescript-7-override"
       ]
     },
@@ -1182,9 +1183,14 @@
       "scope": "blessed_core",
       "target_status": "supported",
       "current_maturity": "alpha",
-      "reason": "dlt ingestion is implemented and covered by focused tests; run-evidence correlation is not included in this manifest version.",
+      "reason": "dlt ingestion is implemented and covered by focused tests. The provider registers the dlt.ingest contribution to the ADR 0048 WAP run-evidence profile, and its executor emits lifecycle and observed-metric run evidence, marking evidence incomplete when the sink fails instead of rewriting the load result. No dlt-specific gap is known; readiness depends on the shared run_evidence, security, upgrade_restore, and golden_path gates.",
       "evidence": [
-        "packages/phlo-dlt/tests"
+        "packages/phlo-dlt/tests",
+        "packages/phlo-dlt/src/phlo_dlt/plugin.py",
+        "packages/phlo-dlt/src/phlo_dlt/evidence.py",
+        "packages/phlo-dlt/tests/test_executor_validation.py",
+        "tests/observability/test_blessed_evidence_profile.py",
+        "docs/architecture/decisions/0048-blessed-run-evidence-composition.md"
       ]
     },
     {
@@ -1212,10 +1218,15 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "Phlo API exposes the authenticated durable per-run report at alpha maturity. Its dedicated Observatory UI projection and the run_evidence release gate remain pending.",
+      "reason": "Phlo API serves the authenticated durable per-run report at /api/v1/projects/{project}/runs/{run}/attempts/{attempt}/report. The Observatory /reports page projects it for an exact project, logical run, and attempt, and run detail links to it when the run carries phlo/project_id, phlo/run_id, and phlo/attempt tags. The release golden path verifies the report and a scoped-token denial through the API. Missing: the installed-artifact Observatory acceptance visits Overview, Assets, Incidents, Jobs, Query, and Branches but not /reports, so the UI projection has no release evidence.",
       "evidence": [
         "packages/phlo-api/src/phlo_api/observatory_api/run_report.py",
         "packages/phlo-api/tests/test_observatory_api.py",
+        "packages/phlo-observatory/src/phlo_observatory/src/routes/_app/reports.tsx",
+        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/reports.ts",
+        "packages/phlo-observatory/src/phlo_observatory/src/lib/data/api/reports.test.ts",
+        "scripts/release_golden_path.py",
+        "scripts/release_observatory_acceptance.py",
         "docs/reference/packages.md#durable-run-report-support-boundary"
       ]
     },
@@ -1224,9 +1235,16 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "blocked",
-      "reason": "Authorization enforcement remains mixed between guarded and optional paths; mandatory route classification is required before v1 release.",
+      "reason": "phlo-api classifies every route in its security manifest: startup fails on an unclassified or stale route, and only /health is public. When PHLO_ENVIRONMENT is prod, production, staging, or regulated, or regulated mode is on, every non-public route requires a verified principal and an RBAC allow before its handler runs, an unset authorization mode resolves to required, an explicit optional mode aborts API startup, and the production preflight check http.authorization_required requires a JWT issuer, audience, and JWKS URL with the development bypass off. Missing: (1) fail-closed durable audit of permitted mutations and audit of denials run only when regulated mode is on; a production deployment without regulated mode evaluates RBAC without emitting audit, contrary to ADR 0047 section 6; (2) the ADR 0047 section 8.1 API matrix (anonymous 401, insufficient scope 403, backend unavailable 503, direct-port rejection) has not been demonstrated against a production-shaped deployment; the release golden path only proves a CLI mutation denial.",
       "evidence": [
         "packages/phlo-api/src/phlo_api/api/authorization.py",
+        "packages/phlo-api/src/phlo_api/security_manifest.py",
+        "packages/phlo-api/tests/test_security_manifest.py",
+        "packages/phlo-api/tests/test_route_inventory.py",
+        "src/phlo/security/mode.py",
+        "src/phlo/security/production_preflight.py",
+        "scripts/release_golden_path.py",
+        "docs/architecture/decisions/0047-v1-production-trust-and-readiness.md",
         "docs/reference/auth-and-access.md"
       ]
     },
@@ -1235,11 +1253,19 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "blocked",
-      "reason": "Current generated services include development credentials, public ports, or disabled authentication; the secure production profile is not implemented.",
+      "reason": "phlo services init --production rejects bundled, empty, or shared credentials, rejects default or shared workload identity references (missing references are reported by the production preflight), and renders protected backends without host ports. The ADR 0047 Stage A static preflight runs from phlo services preflight --production and before any container contact in phlo services start when PHLO_ENVIRONMENT is production. Missing: (1) Stage B runtime attestation is not implemented (edge TLS probe, live API authorization matrix, external port reachability, observed provider grants and audit, audit canary), so every report has stage static_preflight; (2) the postgres, trino, minio, and nessie readiness adapters return unavailable (evidence_unavailable) because they do not inspect live grants or audit, so the backend.readiness check, and therefore production preflight and a production services start, cannot pass; (3) no live production deployment evidence or production-scope release qualification exists.",
       "evidence": [
-        "docs/guides/secure-the-stack.md",
-        "packages/phlo-postgres/src/phlo_postgres/service.yaml",
-        "packages/phlo-minio/src/phlo_minio/service.yaml"
+        "src/phlo/security/production_preflight.py",
+        "src/phlo/cli/commands/services/init.py",
+        "src/phlo/cli/commands/services/preflight.py",
+        "src/phlo/cli/commands/services/start.py",
+        "tests/security/test_production_preflight.py",
+        "packages/phlo-postgres/src/phlo_postgres/security_readiness.py",
+        "packages/phlo-trino/src/phlo_trino/security_readiness.py",
+        "packages/phlo-minio/src/phlo_minio/security_readiness.py",
+        "packages/phlo-nessie/src/phlo_nessie/security_readiness.py",
+        "docs/architecture/decisions/0047-v1-production-trust-and-readiness.md",
+        "docs/guides/secure-the-stack.md"
       ]
     },
     {
@@ -1247,13 +1273,18 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "Compaction is implemented and proven through the Iceberg and ref-aware Trino contracts; the broader required maintenance surface remains incomplete.",
+      "reason": "phlo operations maintenance inventory, plan, and apply implement ADR 0049 section 2 compaction and snapshot expiry: apply requires the plan token, rejects a plan whose table snapshot changed, enforces snapshot-expiry object and byte limits, refuses orphan deletion, and records a durable journal entry. The release golden path and the nightly operations-evidence lane run plan-first maintenance on a live table. Missing: (1) maintenance plans carry no expiry, so the required unexpired-plan check is not enforced, and the compaction token is the bare snapshot revision rather than a plan digest; (2) inventory lists only the main ref and silently omits size and snapshot state when table statistics cannot be read; (3) apply journals under the fixed operation ID <operation>:<table>:<ref> with subject operator, so the durable journal refuses a second apply of the same operation on the same table and ref, and entries are not attributed to the authorized principal.",
       "evidence": [
+        "src/phlo/cli/commands/operations.py",
+        "src/phlo/operations/journal_store.py",
         "packages/phlo-iceberg/src/phlo_iceberg/resource.py",
         "packages/phlo-iceberg/tests/test_compaction_contract.py",
         "packages/phlo-trino/src/phlo_trino/resource.py",
         "packages/phlo-trino/tests/test_resource_maintenance.py",
-        "docs/guides/run-in-production.md"
+        "scripts/nightly_evidence.py",
+        "scripts/release_golden_path.py",
+        "docs/architecture/decisions/0049-v1-continuity-and-upgrade-contract.md",
+        "docs/guides/maintain-a-table.md"
       ]
     },
     {
@@ -1261,11 +1292,15 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "A CI recovery drill exercises owned backup and restore, but live PostgreSQL migration evidence remains pending.",
+      "reason": "scripts/recovery_drill.py runs in integration CI: it backs up MinIO objects, the Nessie repository, and a PostgreSQL dump, restores them into a fresh isolated stack, and verifies snapshot, rows, object checksum, and evidence, outside the Phlo CLI. Phlo's own phlo operations restore apply and upgrade apply are fixture substrates: both require --fixture-substrate and only stage files or version markers beneath the target, and upgrade supports only the immutable 0.14.0 to 0.15.0 pair. Missing: provider restore and upgrade adapters that act on a live deployment, and a supported upgrade pair ending at the current release, which production-scope release qualification requires.",
       "evidence": [
         "scripts/recovery_drill.py",
         "tests/scripts/test_recovery_drill.py",
         ".github/workflows/integration.yml",
+        "src/phlo/cli/commands/operations.py",
+        "src/phlo/operations/upgrade.py",
+        "src/phlo/operations/restore.py",
+        "docs/guides/maintain-and-recover.md",
         "docs/guides/run-in-production.md"
       ]
     },
@@ -1274,11 +1309,17 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "Required CI exercises the release golden-path contract, but installed provider-artifact coverage remains incomplete.",
+      "reason": "Required CI builds the provider wheelhouse and runs the installed provider artifacts jobs, which install the wheels, build and health-check provider images, and scan first-party images. Nightly runs the release golden path, and 0.18.0 passed Release Artifact Acceptance from its staged BOM on amd64 and arm64. That acceptance used artifact qualification scope (alpha, production_ready false), which skips the production_preflight, supported_upgrade, and upgrade_recovery demonstrations. Missing: a production-scope qualification run; it is blocked by the production preflight and live upgrade gaps recorded under secure_production_deployment and upgrade_restore.",
       "evidence": [
         "scripts/release_golden_path.py",
         "tests/scripts/test_release_golden_path.py",
-        ".github/workflows/windows-compose-portability.yml"
+        ".github/workflows/windows-compose-portability.yml",
+        ".github/workflows/ci.yml",
+        "scripts/verify_installed_provider_artifacts.py",
+        ".github/workflows/nightly.yml",
+        ".github/workflows/release-artifact-acceptance.yml",
+        "scripts/release_evidence.py",
+        "docs/architecture/decisions/0050-freeze-release-promotion-contract.md"
       ]
     }
   ],
@@ -1952,7 +1993,7 @@
       "Generated credentials and convenient host ports are for a trusted local development machine only.",
       "Current service images and tags are implementation metadata, not release artifact guarantees."
     ],
-    "reason": "Mandatory HTTP authorization, scoped workload identities, backend-native readiness adapters, and fail-closed durable audit on mutations are implemented and observable through the production preflight; the gate remains open until converged grant/audit evidence is demonstrated on a live deployment and the other release gates pass.",
+    "reason": "Mandatory HTTP authorization, scoped workload identity references, backend readiness adapter registration, and the Stage A static preflight are implemented. The gate stays open: backend readiness adapters cannot yet observe live grants or audit, Stage B runtime attestation is not implemented, fail-closed durable mutation audit is wired only for regulated mode, and no live deployment has demonstrated converged grant and audit evidence.",
     "release_cut_note": "production.status is required_before_release because release BOM resolution, supply-chain checks, and final release-cut evidence are outside this support boundary.",
     "evidence": [
       "docs/guides/secure-the-stack.md",
