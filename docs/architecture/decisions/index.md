@@ -58,3 +58,17 @@ follow once a decision is accepted.
 | [0050](0050-freeze-release-promotion-contract.md) | ADR 0050: Freeze the Release Promotion Contract | Accepted |
 | [0051](0051-dataset-authority.md) | ADR 0051: Dataset authority contract | Accepted |
 | [0052](0052-domain-vocabulary.md) | ADR 0052: Domain vocabulary | Accepted |
+| [0054](0054-workspace-monorepo-and-release-sets.md) | ADR 0054: Workspace monorepo released as one release set | Accepted |
+| [0055](0055-provider-neutral-core-boundary.md) | ADR 0055: Provider-neutral core and declared package edges | Accepted |
+| [0056](0056-core-layering-and-acyclic-imports.md) | ADR 0056: Core layering and acyclic imports enforced by import-linter | Accepted |
+| [0057](0057-complexity-gate-and-tests-first-refactoring.md) | ADR 0057: Cyclomatic complexity gate with a shrinking baseline | Accepted |
+| [0058](0058-support-manifest-as-support-authority.md) | ADR 0058: Support manifest as the authority for support scope, maturity and gates | Accepted |
+| [0059](0059-runtime-and-deployment-baseline.md) | ADR 0059: Python 3.12 and generated Docker Compose as the runtime baseline | Accepted |
+| [0060](0060-regulated-mode-and-signed-service-identity.md) | ADR 0060: Regulated mode and signed service-to-service identity | Accepted |
+| [0061](0061-run-evidence-store-backends.md) | ADR 0061: Run-evidence store on SQLite in development and PostgreSQL in production | Accepted |
+| [0062](0062-dependency-caps-and-qualification.md) | ADR 0062: Cap dependencies that break contracts, and qualify before lifting | Accepted |
+| [0063](0063-dependency-and-container-vulnerability-policy.md) | ADR 0063: Fail-closed vulnerability policy with time-boxed, human-reviewed exceptions | Accepted |
+| [0064](0064-ci-contracts-and-required-lanes.md) | ADR 0064: Separate CI contracts with one required result and no silent skips | Accepted |
+| [0065](0065-deprecation-and-removal-schedule.md) | ADR 0065: Deprecations name a removal release, a replacement and a usage measure | Accepted |
+| [0066](0066-observatory-node-runtime-as-api-adapter-tier.md) | ADR 0066: Observatory keeps its Node runtime as an authenticated API-adapter tier | Accepted |
+| [0067](0067-explicit-freshness-grain-and-data-interval-contracts.md) | ADR 0067: Explicit freshness, grain, reconciliation and data-interval contracts | Accepted |

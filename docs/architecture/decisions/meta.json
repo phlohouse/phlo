@@ -52,6 +52,20 @@
     "0049-v1-continuity-and-upgrade-contract",
     "0050-freeze-release-promotion-contract",
     "0051-dataset-authority",
-    "0052-domain-vocabulary"
+    "0052-domain-vocabulary",
+    "0054-workspace-monorepo-and-release-sets",
+    "0055-provider-neutral-core-boundary",
+    "0056-core-layering-and-acyclic-imports",
+    "0057-complexity-gate-and-tests-first-refactoring",
+    "0058-support-manifest-as-support-authority",
+    "0059-runtime-and-deployment-baseline",
+    "0060-regulated-mode-and-signed-service-identity",
+    "0061-run-evidence-store-backends",
+    "0062-dependency-caps-and-qualification",
+    "0063-dependency-and-container-vulnerability-policy",
+    "0064-ci-contracts-and-required-lanes",
+    "0065-deprecation-and-removal-schedule",
+    "0066-observatory-node-runtime-as-api-adapter-tier",
+    "0067-explicit-freshness-grain-and-data-interval-contracts"
   ]
 }
