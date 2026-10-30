@@ -41,7 +41,7 @@ follow once a decision is accepted.
 | [0033](0033-hook-based-capability-plugins.md) | ADR 0033: Hook-Based Capability Plugins | Accepted |
 | [0034](0034-migrate-to-ty-typechecker.md) | ADR 0034: Migrate to TY Type Checker | Accepted |
 | [0035](0035-package-integration-tests.md) | ADR 0035: Package-Level Integration Tests | Proposed |
-| [0036](0036-iceberg-maintenance-observability.md) | ADR 0036: Iceberg Maintenance Observability | Accepted |
+| [0036](0036-iceberg-maintenance-observability.md) | ADR 0036: Iceberg Maintenance Observability | Proposed |
 | [0037](0037-advanced-reconciliation-checks.md) | ADR 0037: Advanced Reconciliation Checks | Accepted |
 | [0038](0038-golden-path-e2e-workflow-test.md) | ADR 0038: Golden Path E2E Workflow Test | Accepted |
 | [0039](0039-dbt-project-under-workflows.md) | ADR 0039: dbt Project Under Workflows | Accepted |

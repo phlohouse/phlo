@@ -17,7 +17,7 @@ remaining deterministic, partition-aware, and cost-controlled.
 
 ## Decision
 
-Add a checksum-based reconciliation check to `phlo_quality.reconciliation` that compares
+Add a checksum-based reconciliation check to `phlo_pandera.reconciliation` that compares
 row-level hashes between a source and target table using Trino, and add three complementary
 reconciliation capabilities that were prioritized alongside checksums: key-level anti-join
 parity, absolute-difference tolerances, and multi-aggregate parity.
@@ -107,8 +107,8 @@ Introduce `MultiAggregateConsistencyCheck` to compare multiple aggregates in a s
 ## Implementation
 
 - Add `ChecksumReconciliationCheck` to
-  `packages/phlo-pandera/src/phlo_quality/reconciliation.py` and export from
-  `packages/phlo-pandera/src/phlo_quality/__init__.py`.
+  `packages/phlo-pandera/src/phlo_pandera/reconciliation.py` and export from
+  `packages/phlo-pandera/src/phlo_pandera/__init__.py`.
 - Add `KeyParityCheck` and `MultiAggregateConsistencyCheck` to the same module and exports.
 - Extend `ReconciliationCheck` and `AggregateConsistencyCheck` to support `absolute_tolerance`.
 - Build source/target queries using Trino SQL with deterministic normalization.

@@ -38,7 +38,7 @@ Key elements:
 ## Implementation
 
 - Add `LogEvent` to `phlo.hooks.events` and `LogRouterHandler` in
-  `phlo.logging.router`.
+  `phlo.logging`.
 - Create `phlo.logging` module with `setup_logging()`, `get_logger()`, and
   context binding helpers.
 - Update CLI/service entrypoints to call `setup_logging()` early.
