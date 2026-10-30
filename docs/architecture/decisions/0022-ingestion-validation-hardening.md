@@ -4,7 +4,7 @@ Date: 2025-12-18
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -40,7 +40,7 @@ def phlo_ingestion(
 )
 ```
 
-The decorator wrapper will use this flag to decide whether to raise a `dagster.Failure` or just yield a failed `AssetCheckResult`.
+The decorator wrapper will use this flag to decide whether to raise a `RuntimeError` or just yield a failed `AssetCheckResult`.
 
 #### Changes in `dlt_helpers.py`
 
@@ -81,11 +81,11 @@ Remove `add_phlo_timestamp` from `phlo.ingest.dlt.dlt_helpers`. All ingestion pa
 ### Automated Tests
 
 1.  **Strict Validation Tests**:
-    - Verify `phlo_ingestion(..., strict_validation=True)` raises Failure on invalid data.
-    - Verify `phlo_ingestion(..., strict_validation=False)` does NOT raise Failure but reports failed check.
+    - Verify `phlo_ingestion(..., strict_validation=True)` raises `RuntimeError` on invalid data.
+    - Verify `phlo_ingestion(..., strict_validation=False)` does NOT raise `RuntimeError` but reports failed check.
     - Verify `validate_with_pandera(..., strict=True)` raises Exception.
-    - Verify `phlo_ingestion(..., strict_validation=True)` raises Failure on invalid data.
-    - Verify `phlo_ingestion(..., strict_validation=False)` does NOT raise Failure but reports failed check.
+    - Verify `phlo_ingestion(..., strict_validation=True)` raises `RuntimeError` on invalid data.
+    - Verify `phlo_ingestion(..., strict_validation=False)` does NOT raise `RuntimeError` but reports failed check.
     - Verify `validate_with_pandera(..., strict=True)` raises Exception.
 
 2.  **Regression Tests**:
