@@ -58,6 +58,7 @@ follow once a decision is accepted.
 | [0050](0050-freeze-release-promotion-contract.md) | ADR 0050: Freeze the Release Promotion Contract | Accepted |
 | [0051](0051-dataset-authority.md) | ADR 0051: Dataset authority contract | Accepted |
 | [0052](0052-domain-vocabulary.md) | ADR 0052: Domain vocabulary | Accepted |
+| [0053](0053-what-1-0-promises.md) | ADR 0053: What 1.0 Promises | Accepted |
 | [0054](0054-workspace-monorepo-and-release-sets.md) | ADR 0054: Workspace monorepo released as one release set | Accepted |
 | [0055](0055-provider-neutral-core-boundary.md) | ADR 0055: Provider-neutral core and declared package edges | Accepted |
 | [0056](0056-core-layering-and-acyclic-imports.md) | ADR 0056: Core layering and acyclic imports enforced by import-linter | Accepted |

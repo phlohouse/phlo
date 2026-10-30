@@ -53,6 +53,7 @@
     "0050-freeze-release-promotion-contract",
     "0051-dataset-authority",
     "0052-domain-vocabulary",
+    "0053-what-1-0-promises",
     "0054-workspace-monorepo-and-release-sets",
     "0055-provider-neutral-core-boundary",
     "0056-core-layering-and-acyclic-imports",
