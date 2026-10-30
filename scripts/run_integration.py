@@ -139,7 +139,7 @@ def run_suites(env: dict[str, str], suites: dict[str, list[str]]) -> int:
 def run_with_services(env: dict[str, str], suites: dict[str, list[str]]) -> int:
     """Provision host-accessible storage and catalog with ephemeral credentials."""
     with (
-        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.2")
+        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.3")
         .with_env("MINIO_ROOT_USER", "localtest")
         .with_env("MINIO_ROOT_PASSWORD", "localpass123")
         .with_command("server /bitnami/minio/data")
