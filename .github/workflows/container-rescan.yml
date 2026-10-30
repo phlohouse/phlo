@@ -140,6 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p reports
+          failed=0
           jq -ce '.[] | select(.image | startswith("ghcr.io/phlohouse/"))' \
             published/generated-service-images.json > "$RUNNER_TEMP/signature-targets.jsonl"
           while read -r target; do
@@ -151,11 +152,15 @@ jobs:
               workflow=publish-minio.yml
             fi
             safe="$(tr -d '\n' <<< "$image" | tr '/:@' '___')"
-            cosign verify --certificate-identity \
+            if ! cosign verify --certificate-identity \
               "https://github.com/phlohouse/phlo/.github/workflows/$workflow@refs/heads/main" \
               --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-              "${image%:*}@$digest" > "reports/${safe}-signatures.json"
+              "${image%:*}@$digest" > "reports/${safe}-signatures.json"; then
+              echo "::error::Signature verification failed for $image@$digest"
+              failed=1
+            fi
           done < "$RUNNER_TEMP/signature-targets.jsonl"
+          exit "$failed"
       - name: Rescan immutable images with fresh Trivy data
         if: ${{ !cancelled() && steps.fleet.outcome == 'success' }}
         env:

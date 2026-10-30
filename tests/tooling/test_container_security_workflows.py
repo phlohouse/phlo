@@ -355,6 +355,55 @@ def test_rescan_includes_independent_minio_before_a_phlo_release(
         ]
 
 
+@pytest.mark.parametrize("unsigned", [["phlo-minio", "phlo-observatory"], []])
+def test_rescan_verifies_every_signature_before_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unsigned: list[str]
+) -> None:
+    workflow = _load_workflow("container-rescan.yml")
+    script = next(
+        step["run"]
+        for step in _steps(workflow)
+        if step.get("name") == "Verify signatures for every first-party rescan subject"
+    )
+    targets = {
+        "phlo-api": ("0.18.0", "sha256:" + "a" * 64),
+        "phlo-minio": ("0.17.1", "sha256:" + "b" * 64),
+        "phlo-observatory": ("0.18.0", "sha256:" + "c" * 64),
+    }
+    published = tmp_path / "published/generated-service-images.json"
+    published.parent.mkdir()
+    published.write_text(
+        json.dumps(
+            [
+                {"image": f"ghcr.io/phlohouse/{name}:{tag}", "digest": digest}
+                for name, (tag, digest) in targets.items()
+            ]
+        )
+    )
+    cosign = tmp_path / "cosign"
+    cosign.write_text(
+        "#!/bin/bash\n"
+        'subject="${*: -1}"\n'
+        'echo "$subject" >> "$RUNNER_TEMP/cosign-calls"\n'
+        'for name in $UNSIGNED; do [[ "$subject" = "ghcr.io/phlohouse/$name@"* ]] && exit 10; done\n'
+        "echo '[]'\n"
+    )
+    cosign.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("UNSIGNED", " ".join(unsigned))
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True)
+
+    assert (tmp_path / "cosign-calls").read_text().splitlines() == [
+        f"ghcr.io/phlohouse/{name}@{digest}" for name, (_, digest) in targets.items()
+    ]
+    assert result.returncode == (1 if unsigned else 0), result.stderr
+    failures = re.findall(r"::error::Signature verification failed for (\S+)", result.stdout)
+    assert failures == [
+        f"ghcr.io/phlohouse/{name}:{targets[name][0]}@{targets[name][1]}" for name in unsigned
+    ]
+
+
 def test_minio_plugin_validation_cannot_bypass_qualified_publication() -> None:
     workflow = _load_workflow("publish-minio-plugin.yml")
     assert set(_triggers(workflow)) == {"workflow_dispatch"}
