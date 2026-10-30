@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 273,
+  "endpoint_count": 272,
   "endpoints": [
     {
       "method": "GET",
@@ -658,15 +658,6 @@
       "operation_id": "post_observatory_package_install_api_observatory_packages_install_post",
       "path": "/api/observatory/packages/install",
       "summary": "Post Observatory Package Install",
-      "tags": [
-        "observatory"
-      ]
-    },
-    {
-      "method": "GET",
-      "operation_id": "get_observatory_pipelines_api_observatory_pipelines_get",
-      "path": "/api/observatory/pipelines",
-      "summary": "Get Observatory Pipelines",
       "tags": [
         "observatory"
       ]
