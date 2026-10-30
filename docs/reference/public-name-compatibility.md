@@ -6,40 +6,28 @@ and the [domain glossary](../concepts/glossary.md) define the terms. The
 [public deprecation process](python-api.md#removal-schedule) requires a named
 removal release, a replacement, and honest usage evidence.
 
-## Dataset production compatibility until 0.19.0
+## Dataset production names removed in 0.19.0
 
 Dataset production describes stages that produce a governed Dataset. It does
 not identify a job, a run, or a publication transition. Publication state
 remains on `dataset.publication_state`; readiness remains on `publishing`.
 
-| Public name | Canonical name | Compatibility and removal decision |
+The compatibility window for the legacy "pipeline" names ended in 0.19.0, and
+every alias below was removed in that release. Use the canonical name.
+
+| Removed name | Canonical name | Notes |
 | --- | --- | --- |
-| `ObservatoryDatasetPipeline` | `ObservatoryDatasetProduction` | Python import alias warns with replacement and removal in 0.19.0. Both imports resolve to the same model. |
-| `ObservatoryPipelineStage` | `ObservatoryProductionStage` | Python import alias warns; removed in 0.19.0. Stage IDs `ingest`, `transform`, `checks`, and `publish` are unchanged. |
-| `ObservatoryPipelineList` | `ObservatoryDatasetProductionList` | Python import alias warns; removed in 0.19.0. The `items` envelope is unchanged. |
-| `ObservatoryDatasetProfile.pipeline` | `production` | Old constructor input warns. Responses expose both names from the same value, and OpenAPI marks `pipeline` deprecated. Removed in 0.19.0. |
-| Production model `last_run` | `last_operation` | The referenced object has `kind="operation"`, not a run. Old constructor input warns. Responses preserve the old name as a deprecated computed field until 0.19.0. |
-| `GET /api/observatory/pipelines` | `GET /api/observatory/dataset-production` | Same protected Dataset-read action, cache, and response. OpenAPI marks the old route deprecated with removal in 0.19.0. Neither route lists orchestrator jobs. |
-| Profile `sections.pipelines` | `sections.production` | Both availability keys remain until 0.19.0. Consumers must move to `production`. |
-| Dataset capability metadata `profile_sections=["pipelines"]`, `read_models=["pipelines", "dataset-profile"]` | `production`, `dataset-production`, and `dataset-profile` | Retained for existing capability consumers until 0.19.0. These names describe Dataset production, not the Jobs page. |
+| `ObservatoryDatasetPipeline` | `ObservatoryDatasetProduction` | Python import alias removed. |
+| `ObservatoryPipelineStage` | `ObservatoryProductionStage` | Python import alias removed. Stage IDs `ingest`, `transform`, `checks`, and `publish` are unchanged. |
+| `ObservatoryPipelineList` | `ObservatoryDatasetProductionList` | Python import alias removed. The `items` envelope is unchanged. |
+| `ObservatoryDatasetProfile.pipeline` | `production` | Constructor input and response field removed. A `pipeline` input key is ignored. |
+| Production model `last_run` | `last_operation` | Constructor input and response field removed. The referenced object has `kind="operation"`, not a run. |
+| `GET /api/observatory/pipelines` | `GET /api/observatory/dataset-production` | Route removed and no longer in OpenAPI. The canonical route keeps the same protected Dataset-read action, cache, and response. Neither route lists orchestrator jobs. |
+| Profile `sections.pipelines` | `sections.production` | Availability key removed. |
+| Dataset capability metadata `profile_sections=["pipelines"]`, `read_models=["pipelines", "dataset-profile"]` | `profile_sections=["production"]`, `read_models=["dataset-production", "dataset-profile"]` | Metadata values on the `pipelines` capability page now name Dataset production. The page ID stays `pipelines` because it gates the Jobs UI routes retained below. |
 
-Canonical input wins if both field names are present. Legacy response fields
-are computed from canonical data, so a stale alias cannot overwrite a newer
-operation or production value. Legacy fields remain readable in Python and
-JSON throughout the compatibility window. Assigning a legacy Python property
-warns and updates the canonical value. New Python code uses the canonical
-models and fields.
-
-`phlo.legacy.dataset_production_name.uses` counts old Python model lookups and
-old-only constructor inputs or legacy property assignments, tagged by name. It does not count automatic
-response serialisation. `phlo.legacy.dataset_production_route.uses` counts
-requests reaching the old HTTP handler, including cache hits. Both counters
-use canonical observe metrics, with value `1` per use.
-
-The server cannot observe which JSON field a remote client reads. A zero
-counter therefore does not prove that response aliases or capability metadata
-have no consumers. They remain until 0.19.0 unless a release owner confirms
-consumer migration separately. Disabled telemetry does not prove zero use.
+The usage counters `phlo.legacy.dataset_production_name.uses` and
+`phlo.legacy.dataset_production_route.uses` were removed with the aliases.
 
 ## Retained contracts and distinct concepts
 
@@ -60,6 +48,4 @@ consumer migration separately. Disabled telemetry does not prove zero use.
 
 The inventory follows the current provider-neutral models, legacy Dagster
 adapter, v1 job/run contracts, workflow authoring and branch APIs, evidence
-models, DLT adapter, and Observatory route consumers. There is no current
-TypeScript consumer of `ObservatoryDatasetPipeline` or `profile.pipeline`;
-their HTTP and Python contracts still require the compatibility window.
+models, DLT adapter, and Observatory route consumers.

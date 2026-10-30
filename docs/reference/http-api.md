@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (273)
+## Endpoints (272)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -86,7 +86,6 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/observatory/operations/{operation_id}/agent-context` | Get Observatory Operation Agent Context | `observatory` |
 | `GET` | `/api/observatory/overview` | Get Observatory Overview | `observatory` |
 | `POST` | `/api/observatory/packages/install` | Post Observatory Package Install | `observatory` |
-| `GET` | `/api/observatory/pipelines` | Get Observatory Pipelines | `observatory` |
 | `GET` | `/api/observatory/preferences` | Get Observatory Preferences | `observatory` |
 | `PUT` | `/api/observatory/preferences` | Put Observatory Preferences | `observatory` |
 | `GET` | `/api/observatory/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report` | Get Observatory Run Report | `observatory` |

@@ -43,7 +43,6 @@ from phlo.dataset_projection import (
     build_dataset_authority,
 )
 from phlo.governance import build_governance_surface
-from phlo.telemetry import metric
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from phlo_api.api.operation_controls import (
@@ -1492,7 +1491,6 @@ def _load_dataset_profile(dataset_id: str) -> ObservatoryDatasetProfile:
             "access": False,
             "usage": _has_usage(usage),
             "production": bool(production.stages or operations),
-            "pipelines": bool(production.stages or operations),
             "governance": bool(governance),
             "publishing": True,
         },
@@ -3498,8 +3496,8 @@ _DATASET_SURFACE_METADATA: dict[str, dict[str, object]] = {
     },
     "pipelines": {
         "domain": "datasets",
-        "profile_sections": ["pipelines"],
-        "read_models": ["pipelines", "dataset-profile"],
+        "profile_sections": ["production"],
+        "read_models": ["dataset-production", "dataset-profile"],
         "actions": ["retry", "cancel", "materialize", "backfill"],
         "contribution_policy": "shared_surface",
     },
@@ -4693,18 +4691,6 @@ def get_observatory_dataset_production() -> ObservatoryDatasetProductionList:
         _EXPENSIVE_READ_MODEL_TTL_SECONDS,
         _load_dataset_production,
     )
-
-
-@router.get(
-    "/pipelines",
-    response_model=ObservatoryDatasetProductionList,
-    deprecated=True,
-    description="Deprecated; removed in 0.19.0. Use /api/observatory/dataset-production. This lists Dataset production stages, not jobs.",
-)
-def get_observatory_pipelines() -> ObservatoryDatasetProductionList:
-    """Compatibility route for Dataset production summaries, removed in 0.19.0."""
-    metric("phlo.legacy.dataset_production_route.uses", 1, unit="uses")
-    return get_observatory_dataset_production()
 
 
 @router.get("/asset-graph", response_model=ObservatoryAssetGraph)
