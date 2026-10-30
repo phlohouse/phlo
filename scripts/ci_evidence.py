@@ -11,6 +11,8 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -155,6 +157,36 @@ def run_jobs(run: dict) -> list[dict]:
     )
 
 
+def settled_jobs(
+    run: dict,
+    expected: set[str],
+    *,
+    reads: int = 12,
+    delay: float = 10.0,
+    sleep: Callable[[float], object] = time.sleep,
+) -> list[dict]:
+    """Re-read the job list until every expected job has settled.
+
+    The run job list lags a lane's own completion by tens of seconds, so the
+    aggregate can observe a finished required job as ``in_progress``. The last
+    read is returned as observed; ``successful_jobs`` still rejects anything
+    that has not completed.
+    """
+    jobs = run_jobs(run)
+    for _ in range(reads - 1):
+        pending = sorted(
+            job["name"]
+            for job in jobs
+            if job["name"] in expected and job.get("status") != "completed"
+        )
+        if not pending:
+            break
+        print(f"Waiting for GitHub to settle {len(pending)} required job(s): {pending}")
+        sleep(delay)
+        jobs = run_jobs(run)
+    return jobs
+
+
 def assessment_record(run: dict, destination: Path) -> dict:
     """Bind the successful assessment to the entire revision-bound dependency inventory."""
     artifact = github.download_artifact(run, "dependency-delta", destination)
@@ -188,7 +220,7 @@ def emit(output: Path) -> None:
     if run["run_attempt"] != int(os.environ["GITHUB_RUN_ATTEMPT"]):
         raise ValueError("Producer attempt changed")
     expected = expected_jobs()
-    jobs = run_jobs(run)
+    jobs = settled_jobs(run, expected - {AGGREGATE})
     conclusions = successful_jobs(jobs, expected - {AGGREGATE}, run["head_sha"])
     durations = {
         job["name"]: (
