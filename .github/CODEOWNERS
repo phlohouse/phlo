@@ -1,6 +1,6 @@
-# Proposed routing for #1015; see docs/contributing/change-policy-proposal.md.
-# @iamgp is the existing administrator and human contributor, not an
-# independent reviewer or a confirmed fallback. No approval gate is added here.
+# Review routing for the single-maintainer model in
+# docs/contributing/change-policy.md. @iamgp is the only maintainer, not an
+# independent reviewer. No approval gate is added here.
 * @iamgp
 
 # Core and shared contracts

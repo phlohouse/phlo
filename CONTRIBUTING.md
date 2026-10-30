@@ -24,9 +24,10 @@ The [CI contracts and rollout](docs/contributing/ci.md),
 contract](docs/architecture/decisions/0050-freeze-release-promotion-contract.md)
 describe the release process.
 
-The [proposed change and ownership policy](docs/contributing/change-policy-proposal.md)
-records the material-change, recovery, ownership, and release decisions still
-needed for #1015. It is not accepted policy and adds no mandatory approval gate.
+The [change, ownership, and release policy](docs/contributing/change-policy.md)
+defines material changes, how the single maintainer approves work (including
+approval given to agents outside the PR), and release compatibility. It adds
+no mandatory approval gate.
 Use the [PR template](.github/PULL_REQUEST_TEMPLATE.md) to identify verification,
 including a regression test or justification for fixes, and pending decisions.
 

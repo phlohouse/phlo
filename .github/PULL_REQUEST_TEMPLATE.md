@@ -6,8 +6,8 @@
 
 <!-- Separate mechanical edits from behaviour changes. Name affected consumers,
 material changes, known exceptions, and unresolved decisions. For material-change
-criteria and proposed approval expectations, see
-docs/contributing/change-policy-proposal.md. -->
+criteria and approval expectations, see
+docs/contributing/change-policy.md. -->
 
 ## Verification
 
@@ -23,6 +23,7 @@ was not checked. Include rendered evidence for visible UI changes. -->
 
 <!-- For material changes, give the rollback or forward-recovery procedure,
 data-loss boundaries, and recovery verification. A source revert alone does not
-undo a migration or publication. Record the approving maintainer or pending
-decision, and disclose when there is no independent reviewer. This template does
-not authorise publication, deployment, or shared-settings changes. -->
+undo a migration or publication. Note any maintainer decision still pending.
+Approval the maintainer gave an agent outside GitHub need not be repeated here.
+This template does not authorise publication, deployment, or shared-settings
+changes. -->
