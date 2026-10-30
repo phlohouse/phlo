@@ -12,12 +12,12 @@ reviewer exists.
 
 These controls are unchanged and remain in force:
 
-- [CONTRIBUTING.md](https://github.com/phlohouse/phlo/blob/main/CONTRIBUTING.md)
+- [CONTRIBUTING.md](../../CONTRIBUTING.md)
   requires behavioural tests and discussion of substantial changes.
-- [ADR 0050](https://github.com/phlohouse/phlo/blob/main/docs/architecture/decisions/0050-freeze-release-promotion-contract.md)
+- [ADR 0050](../architecture/decisions/0050-freeze-release-promotion-contract.md)
   requires release-owner authorisation for an exact candidate and its
   evidence.
-- The [publication procedure](https://github.com/phlohouse/phlo/blob/main/docs/contributing/release-publication.md)
+- The [publication procedure](release-publication.md)
   defines manual dispatch, `execute=false` by default, qualification, and
   separate approval for shared settings.
 
@@ -54,7 +54,7 @@ defects to fix or explicitly dismiss before merge.
 
 ## Pull request record
 
-Use the [PR template](https://github.com/phlohouse/phlo/blob/main/.github/PULL_REQUEST_TEMPLATE.md).
+Use the [PR template](../../.github/PULL_REQUEST_TEMPLATE.md).
 For material changes, record:
 
 - The goal, the non-goals, the affected consumers, and a map separating
@@ -77,10 +77,10 @@ record. No CI gate checks commit messages.
 
 ## Ownership
 
-[CODEOWNERS](https://github.com/phlohouse/phlo/blob/main/.github/CODEOWNERS)
+[CODEOWNERS](../../.github/CODEOWNERS)
 groups the maintenance domains, and every entry names `@iamgp`. It routes
 review requests and requires no approval. The
-[engineering map](https://github.com/phlohouse/phlo/blob/main/docs/contributing/engineering-map.md)
+[engineering map](engineering-map.md)
 identifies authoritative source files and generated boundaries.
 
 There is no second owner for release or security surfaces. Revisit this
@@ -90,7 +90,9 @@ policy if another contributor with write access joins.
 
 The `PR validation and merge queue` ruleset covers `main` and `beta`. It
 requires resolved review threads, `pr / required`, and the squash merge queue,
-with no bypass actors. It requires zero approvals.
+with no bypass actors. It requires zero approvals. The tracked copy in
+[`security/release-candidate-ruleset.json`](../../security/release-candidate-ruleset.json)
+matches these review settings.
 
 Keep it that way. GitHub does not let an author approve their own PR, so with
 one maintainer, a required approval or code-owner review would block every
@@ -103,7 +105,7 @@ The exact package versions, schemas, and service digests in
 qualification unit. Support claims apply to that tested combination, not to
 arbitrary mixtures. ReleaseX `release_set` selection and cascading
 `>=version,<next_minor` dependency updates in
-[relx.toml](https://github.com/phlohouse/phlo/blob/main/relx.toml) stay as they
+[relx.toml](../../relx.toml) stay as they
 are.
 
 Lockstep qualification does not mean equal version numbers or republishing
