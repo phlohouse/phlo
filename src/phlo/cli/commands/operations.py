@@ -518,6 +518,8 @@ def maintenance_plan(
     output_json: bool = False,
 ) -> None:
     """Create a deterministic maintenance plan (read-only, no mutation)."""
+    from phlo.operations.journal import maintenance_plan_token
+
     store = _maintenance_store()
     method_name = _STORE_PLAN_METHOD[operation]
     plan_fn = getattr(store, method_name, None)
@@ -533,10 +535,10 @@ def maintenance_plan(
         )
     result = plan_fn(**plan_kwargs)
     plan = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-    if not plan.get("plan_token") and plan.get("before_revision") is not None:
-        # compact binds by revision precondition rather than a plan hash; the
-        # confirmation token the caller echoes is that revision.
-        plan["plan_token"] = str(plan["before_revision"])
+    # compact binds by revision precondition rather than a plan hash; the
+    # confirmation token the caller echoes is that revision.
+    if plan_token := maintenance_plan_token(plan):
+        plan["plan_token"] = plan_token
     rejected = plan.get("accepted") is False or plan.get("status") in {"blocked", "failed"}
     valid = not rejected and bool(plan.get("plan_token"))
     if output_json or output_format == "json":

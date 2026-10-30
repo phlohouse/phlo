@@ -130,6 +130,19 @@ def maintenance_operation_id(operation: str, table: str, ref: str, plan_token: s
     return f"{operation}:{table}:{ref}:{plan_token}"
 
 
+def maintenance_plan_token(plan: Mapping[str, Any]) -> str:
+    """Confirmation token for one maintenance plan.
+
+    Compaction binds by its revision precondition rather than a plan hash, so
+    a plan without a ``plan_token`` uses its ``before_revision``. The CLI and
+    HTTP surfaces both derive the token here so they journal the same id.
+    """
+    token = plan.get("plan_token")
+    if not token and plan.get("before_revision") is not None:
+        token = plan["before_revision"]
+    return "" if token is None else str(token)
+
+
 def claim_operation(
     store: OperationJournalStore,
     *,

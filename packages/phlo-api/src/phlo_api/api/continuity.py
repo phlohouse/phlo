@@ -43,6 +43,7 @@ from phlo.operations.journal import (
     claim_operation,
     complete_operation,
     maintenance_operation_id,
+    maintenance_plan_token,
     mark_submitted,
     mark_unknown,
 )
@@ -168,7 +169,8 @@ class ContinuityApplyRequest(BaseModel):
     plan: dict[str, Any] | None = None
     target: str | None = None
     table: str | None = None
-    ref: str = "main"
+    # The plan names its ref; a request ref only confirms it and never retargets.
+    ref: str | None = None
 
 
 # --- shared guards ----------------------------------------------------------
@@ -339,13 +341,21 @@ def _plan_operation(request: ContinuityPlanRequest) -> dict[str, Any]:
         plan_fn = getattr(provider, "plan", None)
         if not callable(plan_fn):
             raise _error(400, "maintenance_executor_cannot_plan", (maintenance_operation,))
-        plan = plan_fn(table_name=request.table, ref=request.ref)
+        plan = dict(plan_fn(table_name=request.table, ref=request.ref))
+        # Echo the token the CLI would derive, so apply journals the same id.
+        plan_token = maintenance_plan_token(plan)
+        if plan_token:
+            plan["plan_token"] = plan_token
+        # Id the plan by the table and ref it names, exactly as apply will.
         return {
             "operation": operation,
             "plan": plan,
-            "plan_token": plan.get("plan_token", ""),
+            "plan_token": plan_token,
             "operation_id": maintenance_operation_id(
-                maintenance_operation, request.table, request.ref, plan.get("plan_token", "")
+                maintenance_operation,
+                str(plan.get("table_name") or request.table),
+                str(plan.get("ref") or "main"),
+                plan_token,
             ),
         }
 
@@ -431,8 +441,12 @@ def _maintenance_execution(
     if maintenance_operation not in _MAINTENANCE_OPERATIONS:
         raise _error(400, "unknown_maintenance_operation", (maintenance_operation,))
     table = request.table or str(plan.get("table_name", ""))
-    ref = request.ref or str(plan.get("ref", "main"))
-    plan_token = str(plan.get("plan_token", ""))
+    # Like the CLI, the plan owns its ref: a request may repeat it but never
+    # redirect the plan to another branch.
+    ref = str(plan.get("ref") or "main")
+    if request.ref is not None and request.ref != ref:
+        raise _error(400, "ref_mismatch", (request.ref, ref))
+    plan_token = maintenance_plan_token(plan)
     _require_confirmation(request.confirmation_token, plan_token)
     plan_id = maintenance_operation_id(maintenance_operation, table, ref, plan_token)
 
