@@ -97,7 +97,7 @@ Provides the API-backed Observatory UI, run views, Python extension contracts, a
 
 ## Durable run-report support boundary
 
-Phlo API provides an authenticated durable per-run report at alpha maturity. The dedicated report projection in Observatory is pending; pipeline run views are not that durable report. The support registry records this capability under `phlo-observatory` and `phlo-api`. Authentication and route authorisation remain configuration and deployment concerns described in [Auth and access](auth-and-access.md).
+Phlo API provides an authenticated durable per-run report at alpha maturity. Observatory projects it on the **Durable run reports** page (`/reports`) for an exact project, logical run, and attempt; pipeline run views are not that durable report, but link to it when the run carries Phlo run identity tags. The support registry records this capability under `phlo-observatory` and `phlo-api`. Authentication and route authorisation remain configuration and deployment concerns described in [Auth and access](auth-and-access.md).
 
 ## phlo-pandera
 
