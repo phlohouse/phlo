@@ -44,9 +44,11 @@ env_vars:
   OAUTH2_PROXY_CLIENT_ID:
     description: OAuth2 client ID from your identity provider
   OAUTH2_PROXY_CLIENT_SECRET:
-    description: OAuth2 client secret (store in .phlo/.env.local)
+    description: OAuth2 client secret from your identity provider (replace the generated placeholder in .phlo/secrets/.env)
+    secret: true
   OAUTH2_PROXY_COOKIE_SECRET:
-    description: Random 32-byte base64 string for cookie encryption (generate with python -c "import secrets; print(secrets.token_urlsafe(32))")
+    description: Base64url-encoded 32-byte key for cookie encryption (generated in .phlo/secrets/.env)
+    secret: true
   OAUTH2_PROXY_COOKIE_SECURE:
     default: "false"
     description: Set to true when using HTTPS

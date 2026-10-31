@@ -8,14 +8,23 @@ behind SSO authentication.
 
 ## Quick Start
 
-1. Configure your IdP credentials in `.phlo/.env.local`:
+1. Set the issuer and client ID in `phlo.yaml` under `env:`:
+
+   ```yaml
+   env:
+     OAUTH2_PROXY_OIDC_ISSUER_URL: https://your-idp.example.com
+     OAUTH2_PROXY_CLIENT_ID: your-client-id
+   ```
+
+   `phlo services init` writes a client secret placeholder and a generated
+   cookie key to `.phlo/secrets/.env`. Replace the placeholder with your
+   identity provider's client secret:
 
    ```env
-   OAUTH2_PROXY_OIDC_ISSUER_URL=https://your-idp.example.com
-   OAUTH2_PROXY_CLIENT_ID=your-client-id
    OAUTH2_PROXY_CLIENT_SECRET=your-client-secret
-   OAUTH2_PROXY_COOKIE_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
    ```
+
+   Regenerating the stack keeps both values.
 
 2. Start with the proxy profile:
 
