@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 272,
+  "endpoint_count": 283,
   "endpoints": [
     {
       "method": "GET",
@@ -1182,12 +1182,39 @@
       ]
     },
     {
+      "method": "GET",
+      "operation_id": "v1_asset_materializations_api_v1_assets__asset_id__materializations_get",
+      "path": "/api/v1/assets/{asset_id}/materializations",
+      "summary": "V1 Asset Materializations",
+      "tags": [
+        "v1 asset insights"
+      ]
+    },
+    {
       "method": "POST",
       "operation_id": "v1_asset_materialize_api_v1_assets__asset_id__materialize_post",
       "path": "/api/v1/assets/{asset_id}/materialize",
       "summary": "V1 Asset Materialize",
       "tags": [
         "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_neighbors_api_v1_assets__asset_id__neighbors_get",
+      "path": "/api/v1/assets/{asset_id}/neighbors",
+      "summary": "V1 Asset Neighbors",
+      "tags": [
+        "v1 asset insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_partitions_api_v1_assets__asset_id__partitions_get",
+      "path": "/api/v1/assets/{asset_id}/partitions",
+      "summary": "V1 Asset Partitions",
+      "tags": [
+        "v1 asset insights"
       ]
     },
     {
@@ -1224,6 +1251,15 @@
       "summary": "V1 Asset Runs",
       "tags": [
         "v1 assets"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_asset_schema_diff_api_v1_assets__asset_id__schema_diff_get",
+      "path": "/api/v1/assets/{asset_id}/schema-diff",
+      "summary": "V1 Asset Schema Diff",
+      "tags": [
+        "v1 asset insights"
       ]
     },
     {
@@ -1476,6 +1512,33 @@
       "summary": "V1 Events",
       "tags": [
         "v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_extensions_api_v1_extensions_get",
+      "path": "/api/v1/extensions",
+      "summary": "V1 Extensions",
+      "tags": [
+        "v1 extensions"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_extension_asset_api_v1_extensions__name__assets__asset_path__get",
+      "path": "/api/v1/extensions/{name}/assets/{asset_path}",
+      "summary": "V1 Extension Asset",
+      "tags": [
+        "v1 extensions"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_extension_settings_api_v1_extensions__name__settings_get",
+      "path": "/api/v1/extensions/{name}/settings",
+      "summary": "V1 Extension Settings",
+      "tags": [
+        "v1 extensions"
       ]
     },
     {
@@ -1804,6 +1867,24 @@
     },
     {
       "method": "GET",
+      "operation_id": "v1_operations_api_v1_operations_get",
+      "path": "/api/v1/operations",
+      "summary": "V1 Operations",
+      "tags": [
+        "v1 operations"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_operation_agent_context_api_v1_operations__operation_id__agent_context_get",
+      "path": "/api/v1/operations/{operation_id}/agent-context",
+      "summary": "V1 Operation Agent Context",
+      "tags": [
+        "v1 operations"
+      ]
+    },
+    {
+      "method": "GET",
       "operation_id": "v1_overview_api_v1_overview_get",
       "path": "/api/v1/overview",
       "summary": "V1 Overview",
@@ -1818,6 +1899,15 @@
       "summary": "V1 Run Report",
       "tags": [
         "observatory"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_quality_checks_api_v1_quality_checks_get",
+      "path": "/api/v1/quality-checks",
+      "summary": "V1 Quality Checks",
+      "tags": [
+        "v1 asset insights"
       ]
     },
     {
@@ -2016,6 +2106,15 @@
       "summary": "V1 Schedule Action",
       "tags": [
         "v1 jobs and runs"
+      ]
+    },
+    {
+      "method": "GET",
+      "operation_id": "v1_search_api_v1_search_get",
+      "path": "/api/v1/search",
+      "summary": "V1 Search",
+      "tags": [
+        "v1 search"
       ]
     },
     {
