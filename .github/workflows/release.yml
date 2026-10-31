@@ -34,9 +34,21 @@ jobs:
       # ReleaseX transformers run with a fixed PATH, not setup-uv's PATH.
       - name: Expose uv to release transformers
         run: sudo ln -sf "$(command -v uv)" /usr/local/bin/uv
+      # Installs relx for the lockstep step and logs the per-package plan.
+      - uses: iamgp/ReleaseX@5dc88dc73d728dd1560444baadf66d6115c1bec2
+        if: github.ref_name == 'main'
+        with:
+          command: release plan
+          version: v1.5.0
+      # ADR 0053 decision 4: empty below 1.0.0, so packages keep independent versions.
+      - name: Resolve lockstep release version
+        id: lockstep
+        if: github.ref_name == 'main'
+        run: python3 scripts/release_lockstep_version.py >> "$GITHUB_OUTPUT"
       - uses: iamgp/ReleaseX@5dc88dc73d728dd1560444baadf66d6115c1bec2
         with:
           command: release pr
           version: v1.5.0
+          next-version: ${{ steps.lockstep.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}

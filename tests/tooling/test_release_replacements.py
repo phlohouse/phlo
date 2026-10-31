@@ -217,3 +217,32 @@ def test_release_rewrites_current_release_version_at_any_maturity() -> None:
         assert manifest_text.count(search) == replacement["expected_matches"]
         release = json.loads(manifest_text.replace(search, replace))["current_release"]
         assert (release["version"], release["maturity"]) == ("1.0.0", maturity)
+
+
+def test_release_pr_applies_one_lockstep_version_from_1_0(monkeypatch) -> None:
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import release_lockstep_version as resolver
+
+    def plan(phlo_next: str | None) -> Any:
+        return lambda: [
+            {"name": "phlo-dlt", "selected": True, "next_version": "1.0.1"},
+            {"name": "phlo", "selected": phlo_next is not None, "next_version": phlo_next},
+        ]
+
+    def relx_not_consulted() -> Any:
+        raise AssertionError("independent versions must not depend on the relx plan")
+
+    assert resolver.lockstep_version("0.19.0", False, relx_not_consulted) == ""
+    assert resolver.lockstep_version("0.19.0", True, plan("0.20.0")) == "1.0.0"
+    assert resolver.lockstep_version("0.19.0", True, plan(None)) == ""
+    assert resolver.lockstep_version("1.0.0", True, plan("1.1.0")) == "1.1.0"
+    assert resolver.lockstep_version("1.0.0", False, plan("1.0.1")) == "1.0.1"
+    assert resolver.lockstep_version("1.0.0", True, plan(None)) == ""
+
+    steps = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))[
+        "jobs"
+    ]["release-pr"]["steps"]
+    resolve = next(step for step in steps if step.get("id") == "lockstep")
+    release_pr = next(step for step in steps if step.get("with", {}).get("command") == "release pr")
+    assert "scripts/release_lockstep_version.py" in resolve["run"]
+    assert release_pr["with"]["next-version"] == "${{ steps.lockstep.outputs.version }}"

@@ -56,6 +56,49 @@ instead records the human dispatcher. `execute` defaults to `false`.
 If additional environment protection is required, obtain separate approval
 for that shared-settings change. This procedure does not grant that approval.
 
+## Version the blessed_core set in lockstep
+
+Below `1.0.0`, ReleaseX versions each package from its own conventional
+commits. From `1.0.0`, every `blessed_core` package shares one version
+([ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 4).
+
+ReleaseX has no shared-version group. Its `--next-version` option applies one
+version to every selected package. The root package owns every path, and
+`cascade_bumps` selects every package that depends on `phlo`, so each release PR
+selects the whole workspace. Optional, preview, and development packages
+therefore take the shared version too. The version number does not extend the
+1.0 promise to them; the support manifest profiles define coverage.
+
+On `main`, the release workflow passes the output of
+`scripts/release_lockstep_version.py` to ReleaseX as `next-version`:
+
+| Repository state | `next-version` |
+| --- | --- |
+| Root version below `1.0.0`, `production_ready: false` | Empty: independent versions |
+| Root version below `1.0.0`, `production_ready: true` | `1.0.0` |
+| Root version at or above `1.0.0` | The root package's planned version, the largest bump in the set |
+
+The value is empty when no release is pending. ReleaseX rejects `next-version`
+on prerelease channels, so `beta` release PRs keep independent versions. From
+`1.0.0`, the validator rejects such a PR.
+
+The `[workspace.dependencies]` rules render `>={version},<{next_minor}` from
+the shared version, and the provider core epoch derives from the root version.
+Under lockstep, both are therefore set-wide bounds. From `1.0.0`, the
+support-manifest validator rejects a release in which any `blessed_core`
+package has a different version from `current_release.version`. It also rejects
+any upper-bounded requirement between `blessed_core` packages that is not the
+set-wide bound.
+
+To release `1.0.0`:
+
+1. Land the reviewed
+   [support-manifest change](#artifact-acceptance-and-production-qualification),
+   together with its `make docs-reference-generate` output. Do not edit package versions.
+2. The next **Release PR** run proposes `1.0.0` for every workspace package.
+   Confirm that it does and that PR validation passes.
+3. Merge the release PR. Publication then follows the automatic path.
+
 ## Monitor automatic publication
 
 **Merge the ReleaseX release PR. No further release action is required.**
