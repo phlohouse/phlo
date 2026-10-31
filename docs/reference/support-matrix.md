@@ -14,6 +14,14 @@ The file does not record every covered detail. HTTP schemas, status codes and au
 
 Run `make docs-reference-generate` to regenerate it with the other references. `make docs-reference-check`, which `make check` and the CI Python lane run, fails when the file is stale. Review a diff to this file as a change to a covered surface under ADR 0053 decision 4; during the decision 6 feature freeze, an addition also needs the recorded exception that decision 6 requires.
 
+## Release claims
+
+- Release maturity: `alpha`. The schema permits `alpha` and `supported`. `supported` is permitted only together with production readiness `true`. In a production-ready release, `blessed_core` components with target status `supported` may also report current maturity `supported`.
+- Production readiness: `false`. `true` is permitted only when every required gate (`security`, `run_evidence`, `maintenance`, `upgrade_restore`, `golden_path`) is `passed` and every `blessed_core` gate component is `passed` or `not_required` (ADR 0053). A gate component is `not_required` only when no gate applies to it, and it still needs checked evidence.
+- Production status: `blocked`. It is `blocked` until those gates pass, then `required_before_release` while production readiness is `false`, and `passed` once production readiness is `true`.
+- Artifact pinning: `not_yet_published`. The schema permits `not_yet_published` and `published`; `published` records that the release set's artifacts are published and pinned by the release BOM (ADR 0050).
+- Release version: a `current_release.version` at or above `1.0.0` is rejected unless production readiness is `true`. Following PEP 440 ordering, pre-releases and dev releases of 1.0.0, such as `1.0.0rc1`, sort below `1.0.0` and are permitted. `1.0.0.post1` and pre-releases of later versions, such as `1.1.0rc1`, are not.
+
 ## Capabilities
 
 ### `dbt_transformations`

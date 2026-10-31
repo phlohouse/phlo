@@ -37,6 +37,7 @@ APPROVED_V1_CAPABILITIES = REQUIRED_V1_CAPABILITIES | {
     "dbt_transformations",
     "pandera_quality",
 }
+REQUIRED_V1_GATES = ("security", "run_evidence", "maintenance", "upgrade_restore", "golden_path")
 APPROVED_PROFILES = {
     "blessed_core": "scope-frozen",
     "supported_optional": "target_capabilities_only",
@@ -557,7 +558,9 @@ def _approved_set_errors(ctx: _ManifestContext) -> list[str]:
     return errors
 
 
-def _component_entry_errors(kind: str, entry: dict[str, Any], repo_root: Path) -> list[str]:
+def _component_entry_errors(
+    kind: str, entry: dict[str, Any], repo_root: Path, *, production_ready: bool
+) -> list[str]:
     errors: list[str] = []
     name = entry["name"]
     status = entry["target_status"]
@@ -568,6 +571,9 @@ def _component_entry_errors(kind: str, entry: dict[str, Any], repo_root: Path) -
     allowed_maturity = {_EXPECTED_MATURITY[status]}
     if kind == "capability" and status == "required":
         allowed_maturity = {"planned", "blocked"}
+    # Only a production-ready release can carry blessed_core components at supported maturity.
+    if status == "supported" and entry["scope"] == "blessed_core" and production_ready:
+        allowed_maturity.add("supported")
     if entry["current_maturity"] not in allowed_maturity:
         errors.append(f"{kind} {name!r}: current_maturity contradicts target_status")
     if kind != "capability" and status == "required":
@@ -586,6 +592,7 @@ def _component_entry_errors(kind: str, entry: dict[str, Any], repo_root: Path) -
 
 def _component_errors(ctx: _ManifestContext) -> list[str]:
     errors: list[str] = []
+    production_ready = ctx.manifest["current_release"]["production_ready"]
     for kind, entries in (
         ("package", ctx.packages),
         ("service", ctx.services),
@@ -595,7 +602,11 @@ def _component_errors(ctx: _ManifestContext) -> list[str]:
         duplicates = sorted({name for name in names if names.count(name) > 1})
         errors.extend(f"duplicate {kind} entry {name!r}" for name in duplicates)
         for entry in entries:
-            errors.extend(_component_entry_errors(kind, entry, ctx.repo_root))
+            errors.extend(
+                _component_entry_errors(
+                    kind, entry, ctx.repo_root, production_ready=production_ready
+                )
+            )
     return errors
 
 
@@ -865,17 +876,21 @@ def _gate_component_errors(
             f"gate component {name!r} names unknown applicable gates: {sorted(unknown_gates)!r}"
         )
     blocked_by = {gate for gate in applicable & known_gates if gate_status[gate] != "passed"}
-    if not applicable:
+    # A component that no gate applies to is not_required, never passed by default.
+    if not applicable and entry["status"] != "not_required":
         errors.append(f"gate component {name!r} has no applicable gates")
     if set(entry["blocked_by"]) != blocked_by:
         errors.append(
             f"gate component {name!r} blocked_by does not derive from applicable gate state"
         )
-    expected_status = "passed" if not blocked_by else "blocked"
+    if not applicable:
+        expected_status = "not_required"
+    else:
+        expected_status = "passed" if not blocked_by else "blocked"
     if entry["status"] != expected_status:
         errors.append(f"gate component {name!r} status does not derive from applicable gate state")
-    if entry["status"] == "passed" and not entry.get("evidence"):
-        errors.append(f"gate component {name!r} is passed without checked evidence")
+    if entry["status"] in {"passed", "not_required"} and not entry.get("evidence"):
+        errors.append(f"gate component {name!r} is {entry['status']} without checked evidence")
     return errors
 
 
@@ -893,12 +908,85 @@ def _gate_errors(ctx: _ManifestContext) -> list[str]:
         errors.append("gates.required and gates.status must name the same gates")
     for entry in gates["components"]:
         errors.extend(_gate_component_errors(entry, gates["status"], ctx.repo_root))
-    gate_states = set(gates["status"].values())
-    expected_production_status = (
-        "blocked" if gate_states != {"passed"} else "required_before_release"
+    return errors
+
+
+def _release_gates_passed(ctx: _ManifestContext) -> bool:
+    """Return whether every required gate and blessed_core gate component has passed."""
+    gates = ctx.manifest["gates"]
+    blessed = _blessed_core_components(ctx)
+    return all(gates["status"][gate] == "passed" for gate in REQUIRED_V1_GATES) and all(
+        entry["status"] in {"passed", "not_required"}
+        for entry in gates["components"]
+        if entry["name"] in blessed
     )
+
+
+# PEP 440 public versions with their accepted spelling variants, after
+# packaging.version.VERSION_PATTERN; the validator runs without third-party imports.
+_PEP440_VERSION = re.compile(
+    r"v?(?:(?P<epoch>\d+)!)?(?P<release>\d+(?:\.\d+)*)"
+    r"(?P<pre>[-_.]?(?:alpha|a|beta|b|preview|pre|c|rc)[-_.]?\d*)?"
+    r"(?P<post>-\d+|[-_.]?(?:post|rev|r)[-_.]?\d*)?"
+    r"(?P<dev>[-_.]?dev[-_.]?\d*)?"
+    r"(?:\+[a-z0-9]+(?:[-_.][a-z0-9]+)*)?",
+    re.IGNORECASE,
+)
+
+
+def _version_is_at_least_1_0(version: str) -> bool | None:
+    """Order a PEP 440 version against 1.0.0, or return None when it cannot be parsed.
+
+    As in PEP 440, pre-releases and dev releases of 1.0.0 (``1.0.0rc1``,
+    ``1.0.0.dev1``) sort below 1.0.0; ADR 0053 lets a release that is not
+    production-ready carry an explicit pre-release suffix. ``1.0.0.post1`` and
+    pre-releases of later versions (``1.1.0rc1``) sort above it.
+    """
+    match = _PEP440_VERSION.fullmatch(version.strip())
+    if not match:
+        return None
+    if int(match["epoch"] or 0):
+        return True
+    release = tuple(int(part) for part in match["release"].split("."))
+    release += (0,) * (3 - len(release))
+    if release[:3] != (1, 0, 0) or any(release[3:]):
+        return release > (1, 0, 0)
+    return not (match["pre"] or (match["dev"] and not match["post"]))
+
+
+def _release_readiness_errors(ctx: _ManifestContext) -> list[str]:
+    """Enforce ADR 0053 decision 1: 1.0 requires a gate-backed production-ready claim."""
+    release = ctx.manifest["current_release"]
+    production_ready = release["production_ready"]
+    gates_passed = _release_gates_passed(ctx)
+    errors: list[str] = []
+    if not gates_passed:
+        expected_production_status = "blocked"
+    elif production_ready:
+        expected_production_status = "passed"
+    else:
+        expected_production_status = "required_before_release"
     if ctx.manifest["production"]["status"] != expected_production_status:
-        errors.append("production.status must be derived from the release-gate states")
+        errors.append(
+            "production.status must be derived from the release-gate states and production_ready"
+        )
+    if production_ready and not gates_passed:
+        errors.append(
+            "current_release.production_ready requires every required gate to be passed and "
+            "every blessed_core gate component to be passed or not_required"
+        )
+    if (release["maturity"] == "supported") != production_ready:
+        errors.append(
+            "current_release.maturity must be 'supported' exactly when production_ready is true"
+        )
+    at_least_1_0 = _version_is_at_least_1_0(release["version"])
+    if at_least_1_0 is None:
+        errors.append(f"current_release.version {release['version']!r} is not a PEP 440 version")
+    elif at_least_1_0 and not production_ready:
+        errors.append(
+            f"current_release.version {release['version']!r} is at or above 1.0.0 but "
+            "production_ready is not true (ADR 0053)"
+        )
     return errors
 
 
@@ -975,6 +1063,7 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
     errors.extend(_published_extra_errors(ctx))
     errors.extend(_profile_errors(ctx))
     errors.extend(_gate_errors(ctx))
+    errors.extend(_release_readiness_errors(ctx))
     errors.extend(_python_runtime_errors(ctx))
     return errors
 
