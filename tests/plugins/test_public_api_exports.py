@@ -281,6 +281,12 @@ def test_plugins_module_imports_without_psycopg2(monkeypatch: pytest.MonkeyPatch
             raise ModuleNotFoundError("No module named 'psycopg2'")
         return builtin_import(name, globals, locals, fromlist, level)
 
+    import phlo
+    import phlo.plugins
+
+    # Re-importing rebinds ``phlo.plugins`` on the parent package; restore it with
+    # sys.modules so later ``import phlo.plugins.base`` sees the original module.
+    monkeypatch.setattr(phlo, "plugins", phlo.plugins)
     monkeypatch.delitem(sys.modules, "phlo.plugins", raising=False)
     monkeypatch.delitem(sys.modules, "phlo.plugins.observatory_settings", raising=False)
     monkeypatch.setattr("builtins.__import__", _block_psycopg2)
