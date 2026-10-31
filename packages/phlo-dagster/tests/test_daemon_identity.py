@@ -221,3 +221,65 @@ class TestQueuedRunCoordinator:
             coordinator.submit_run(context)
 
         mock_authorize.assert_not_called()
+
+
+class TestDefaultRunRef:
+    @staticmethod
+    def _submit(tmp_path, monkeypatch, tags, *, regulated=False):
+        (tmp_path / "phlo.yaml").write_text(
+            "name: demo\n"
+            "environments:\n"
+            "  nightscout:\n"
+            "    dagster_location: demo.definitions\n"
+            "    nessie_ref: soak\n"
+            "default_environment: nightscout\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        from phlo.config.project import clear_config_cache
+
+        clear_config_cache()
+        coordinator = PhloQueuedRunCoordinator()
+        instance = MagicMock()
+        dagster_run = MagicMock(run_id="run-9", tags=tags)
+        context = MagicMock(dagster_run=dagster_run)
+        context.get_request_header.return_value = None
+        with (
+            patch("phlo_dagster.daemon_identity.QueuedRunCoordinator.submit_run"),
+            patch("phlo_dagster.daemon_identity.is_regulated", return_value=regulated),
+            patch(
+                "phlo_dagster.daemon_identity.authorize_daemon_run",
+                side_effect=RuntimeError("denied"),
+            ),
+            patch.object(
+                PhloQueuedRunCoordinator,
+                "_instance",
+                new_callable=PropertyMock,
+                return_value=instance,
+            ),
+        ):
+            try:
+                if regulated:
+                    with pytest.raises(RuntimeError, match="denied"):
+                        coordinator.submit_run(context)
+                else:
+                    coordinator.submit_run(context)
+            finally:
+                clear_config_cache()
+        return instance
+
+    def test_untagged_scheduled_run_gets_default_environment_ref(self, tmp_path, monkeypatch):
+        instance = self._submit(tmp_path, monkeypatch, {"dagster/schedule_name": "marts"})
+
+        instance.add_run_tags.assert_called_once_with("run-9", {"phlo/ref": "soak"})
+
+    def test_run_that_names_a_ref_is_left_alone(self, tmp_path, monkeypatch):
+        instance = self._submit(tmp_path, monkeypatch, {"phlo/wap_branch": "wap-1"})
+
+        instance.add_run_tags.assert_not_called()
+
+    def test_denied_daemon_run_is_not_attributed_to_an_environment(self, tmp_path, monkeypatch):
+        instance = self._submit(
+            tmp_path, monkeypatch, {"dagster/schedule_name": "marts"}, regulated=True
+        )
+
+        instance.add_run_tags.assert_not_called()
