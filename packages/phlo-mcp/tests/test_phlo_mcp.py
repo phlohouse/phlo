@@ -340,7 +340,7 @@ def test_api_client_wraps_operational_routes(monkeypatch) -> None:
     seen_posts: list[dict[str, object]] = []
     seen_gets: list[tuple[str, object]] = []
 
-    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):
         seen_posts.append({"url": url, "params": params, "json": json})
         assert headers == {"Authorization": "Bearer secret"}
         return _FakeResponse({"queued": True})
@@ -428,7 +428,7 @@ def test_api_client_wraps_operational_routes(monkeypatch) -> None:
 def test_actions_generate_distinct_idempotency_keys_when_caller_omits_one(monkeypatch) -> None:
     keys: list[str] = []
 
-    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):
         keys.append(json["idempotency_key"])
         return _FakeResponse({"queued": True})
 
@@ -452,7 +452,7 @@ def test_install_plugin_applies_exactly_the_planned_install(monkeypatch) -> None
     }
     seen: list[tuple[str, object]] = []
 
-    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):
         seen.append((url, json))
         if url.endswith("/install-plan"):
             return _FakeResponse({"plan": plan, "plan_token": "tok", "operation_id": "op"})
@@ -478,7 +478,7 @@ def test_install_plugin_applies_exactly_the_planned_install(monkeypatch) -> None
 def test_install_plugin_does_not_apply_a_rejected_plan(monkeypatch) -> None:
     seen: list[str] = []
 
-    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):
         seen.append(url)
         return httpx.Response(400, json={"detail": "untrusted"}, request=httpx.Request("POST", url))
 
@@ -514,7 +514,7 @@ def test_search_quality_lineage_and_schema_reads_use_environment_scoped_routes(
         },
     }
 
-    def fake_get(url: str, params=None, headers=None, timeout=10.0):  # noqa: ANN001
+    def fake_get(url: str, params=None, headers=None, timeout=10.0):
         seen.append((url, dict(params)))
         if url.endswith("/api/v1/quality-checks"):
             return _FakeResponse(quality_pages[params.get("cursor")])
@@ -557,7 +557,7 @@ def test_search_quality_lineage_and_schema_reads_use_environment_scoped_routes(
 
 
 def test_quality_results_return_the_first_page_error(monkeypatch) -> None:
-    def fake_get(url: str, params=None, headers=None, timeout=10.0):  # noqa: ANN001
+    def fake_get(url: str, params=None, headers=None, timeout=10.0):
         return httpx.Response(503, json={"detail": "down"}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
