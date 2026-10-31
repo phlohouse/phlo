@@ -446,18 +446,21 @@ def test_pause_outbox_uses_scoped_graph_and_real_schedule_consumer(incident_db, 
                 }
             }
         if "V1AssetJobs" in query:
-            selector = variables["pipeline"]
+            selector = variables["repositorySelector"]
             inventory = await graphql(url, "V1Assets")
             return {
                 "data": {
-                    "assetNodes": [
-                        node
-                        for repository in inventory["data"]["repositoriesOrError"]["nodes"]
-                        if repository["location"]["name"] == selector["repositoryLocationName"]
-                        and repository["name"] == selector["repositoryName"]
-                        for node in repository["assetNodes"]
-                        if selector["pipelineName"] in node["jobNames"]
-                    ]
+                    "repositoryOrError": {
+                        "__typename": "Repository",
+                        "assetNodes": [
+                            node
+                            for repository in inventory["data"]["repositoriesOrError"]["nodes"]
+                            if repository["location"]["name"]
+                            == selector["repositoryLocationName"]
+                            and repository["name"] == selector["repositoryName"]
+                            for node in repository["assetNodes"]
+                        ],
+                    }
                 }
             }
         assert "V1ScheduleStop" in query
