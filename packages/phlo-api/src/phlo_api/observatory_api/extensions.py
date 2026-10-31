@@ -85,11 +85,16 @@ def _load_extensions() -> list[Any]:
     return extensions
 
 
+def extension_assets_base_path(name: str) -> str:
+    """Return the canonical URL prefix that serves an extension's packaged assets."""
+    return f"/api/v1/extensions/{name}/assets"
+
+
 def _extension_payload(plugin: Any) -> dict[str, Any]:
     manifest = plugin.get_manifest()
     return {
         "manifest": manifest.model_dump(),
-        "assets_base_path": f"/api/observatory/extensions/{plugin.metadata.name}/assets",
+        "assets_base_path": extension_assets_base_path(plugin.metadata.name),
     }
 
 

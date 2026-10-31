@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-## Endpoints (272)
+## Endpoints (283)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -145,11 +145,15 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/assets/{asset_id}/incident-policy` | Get Asset Incident Policy | `v1 incidents` |
 | `PUT` | `/api/v1/assets/{asset_id}/incident-policy` | Put Asset Incident Policy | `v1 incidents` |
 | `GET` | `/api/v1/assets/{asset_id}/materialization-estimate` | V1 Materialization Estimate | `v1 assets` |
+| `GET` | `/api/v1/assets/{asset_id}/materializations` | V1 Asset Materializations | `v1 asset insights` |
 | `POST` | `/api/v1/assets/{asset_id}/materialize` | V1 Asset Materialize | `v1 assets` |
+| `GET` | `/api/v1/assets/{asset_id}/neighbors` | V1 Asset Neighbors | `v1 asset insights` |
+| `GET` | `/api/v1/assets/{asset_id}/partitions` | V1 Asset Partitions | `v1 asset insights` |
 | `GET` | `/api/v1/assets/{asset_id}/preview` | V1 Asset Preview | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/query-usage` | V1 Asset Query Usage | `v1 assets` |
 | `POST` | `/api/v1/assets/{asset_id}/row-count` | V1 Asset Exact Row Count | `v1 assets` |
 | `GET` | `/api/v1/assets/{asset_id}/runs` | V1 Asset Runs | `v1 assets` |
+| `GET` | `/api/v1/assets/{asset_id}/schema-diff` | V1 Asset Schema Diff | `v1 asset insights` |
 | `GET` | `/api/v1/assets/{asset_id}/usage` | V1 Asset Usage | `v1 assets` |
 | `POST` | `/api/v1/authoring/schemas/validate` | V1 Validate Schema | `v1 authoring` |
 | `POST` | `/api/v1/authoring/workflows` | V1 Create Workflow | `v1 authoring` |
@@ -178,6 +182,9 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/datasets` | V1 Datasets | `v1 datasets` |
 | `GET` | `/api/v1/environments` | V1 Environments | `v1` |
 | `GET` | `/api/v1/events` | V1 Events | `v1` |
+| `GET` | `/api/v1/extensions` | V1 Extensions | `v1 extensions` |
+| `GET` | `/api/v1/extensions/{name}/assets/{asset_path}` | V1 Extension Asset | `v1 extensions` |
+| `GET` | `/api/v1/extensions/{name}/settings` | V1 Extension Settings | `v1 extensions` |
 | `GET` | `/api/v1/incident-policies` | List Asset Incident Policies | `v1 incidents` |
 | `GET` | `/api/v1/incidents` | List Incidents | `v1 incidents` |
 | `POST` | `/api/v1/incidents` | Create Incident | `v1 incidents` |
@@ -214,8 +221,11 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `POST` | `/api/v1/metric-models/{model_id}/restore` | V1 Metric Model Restore | `v1 metrics` |
 | `GET` | `/api/v1/notifications` | V1 Notifications | `v1 notifications` |
 | `PUT` | `/api/v1/notifications/read-state` | V1 Notifications Read | `v1 notifications` |
+| `GET` | `/api/v1/operations` | V1 Operations | `v1 operations` |
+| `GET` | `/api/v1/operations/{operation_id}/agent-context` | V1 Operation Agent Context | `v1 operations` |
 | `GET` | `/api/v1/overview` | V1 Overview | `v1 assets` |
 | `GET` | `/api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report` | V1 Run Report | `observatory` |
+| `GET` | `/api/v1/quality-checks` | V1 Quality Checks | `v1 asset insights` |
 | `POST` | `/api/v1/queries` | V1 Query Submit | `v1 query workspace` |
 | `POST` | `/api/v1/queries/explain` | V1 Query Explain | `v1 query workspace` |
 | `GET` | `/api/v1/queries/history` | V1 Query History | `v1 query workspace` |
@@ -238,6 +248,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `GET` | `/api/v1/runs/{run_id}/timeline` | V1 Run Timeline | `v1 jobs and runs` |
 | `GET` | `/api/v1/schedules` | V1 Schedules | `v1 jobs and runs` |
 | `POST` | `/api/v1/schedules/{schedule_id}/{action}` | V1 Schedule Action | `v1 jobs and runs` |
+| `GET` | `/api/v1/search` | V1 Search | `v1 search` |
 | `GET` | `/api/v1/services` | V1 Services | `v1` |
 | `GET` | `/api/v1/signatures` | V1 Signatures | `v1 admin identity` |
 | `POST` | `/api/v1/signatures` | V1 Signature Create | `v1 admin identity` |
