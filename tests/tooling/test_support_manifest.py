@@ -484,7 +484,7 @@ def test_service_package_must_own_discovered_source() -> None:
 
 def test_runtime_claim_sets_must_be_disjoint() -> None:
     manifest = _manifest()
-    manifest["runtime"]["python"]["supported"].append("3.13")
+    manifest["runtime"]["python"]["supported"].append("3.14+")
 
     errors = validate_manifest(manifest)
 
@@ -493,7 +493,7 @@ def test_runtime_claim_sets_must_be_disjoint() -> None:
 
 def test_runtime_python_claims_must_match_advertised_classifiers() -> None:
     manifest = _manifest()
-    manifest["runtime"]["python"]["advertised_unverified"] = ["3.13"]
+    manifest["runtime"]["python"]["advertised_unverified"] = ["3.14"]
 
     errors = validate_manifest(manifest)
 
@@ -502,12 +502,12 @@ def test_runtime_python_claims_must_match_advertised_classifiers() -> None:
 
 def test_runtime_supported_python_requires_ci_evidence() -> None:
     manifest = _manifest()
-    manifest["runtime"]["python"]["supported"] = ["3.13"]
+    manifest["runtime"]["python"]["supported"] = ["3.14"]
     manifest["runtime"]["python"]["advertised_unverified"] = []
 
     errors = validate_manifest(manifest)
 
-    assert any("3.13" in error and "no CI matrix evidence" in error for error in errors)
+    assert any("3.14" in error and "no CI matrix evidence" in error for error in errors)
 
 
 # ---------------------------------------------------------------------------

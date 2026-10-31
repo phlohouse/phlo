@@ -1929,16 +1929,18 @@
     "python": {
       "minimum": "3.12",
       "supported": [
-        "3.12"
+        "3.12",
+        "3.13"
       ],
       "unverified": [
-        "3.13",
         "3.14+"
       ],
-      "reason": "Python 3.12 is the minimum version and executes in the CI matrix.",
+      "reason": "Python 3.12 is the minimum version. The required python-core-tests and python-package-tests lanes in .github/workflows/ci.yml run on both 3.12 and 3.13, and pr / required in .github/workflows/pr.yml gates merges on them.",
       "evidence": [
         "pyproject.toml",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        ".github/workflows/pr.yml",
+        "scripts/select_ci.py"
       ],
       "advertised_unverified": []
     },
