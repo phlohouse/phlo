@@ -527,9 +527,12 @@ def test_get_selection_resource_rejects_unclassified_fields() -> None:
         middleware._get_selection_resource(None)
 
 
-@patch("phlo_dagster.authorization_middleware.is_regulated", return_value=True)
+@patch(
+    "phlo_dagster.authorization_middleware.is_regulated",
+    side_effect=AssertionError("nested fields must not consult regulated mode"),
+)
 @patch("phlo_dagster.authorization_middleware.enforce")
-def test_resolve_skips_nested_mutation_fields(mock_enforce, _mock_regulated):
+def test_resolve_skips_nested_mutation_fields(mock_enforce, mock_regulated):
     middleware = DagsterGraphQLAuthorizationMiddleware()
     next_fn = MagicMock(return_value="ok")
     info = _build_info(
@@ -540,6 +543,22 @@ def test_resolve_skips_nested_mutation_fields(mock_enforce, _mock_regulated):
 
     assert result == "ok"
     mock_enforce.assert_not_called()
+    mock_regulated.assert_not_called()
+
+
+@patch(
+    "phlo_dagster.authorization_middleware.is_regulated",
+    side_effect=RuntimeError("settings unavailable"),
+)
+def test_root_field_settings_failure_fails_closed(_mock_regulated):
+    next_fn = MagicMock(return_value="ok")
+    info = _build_info({}, operation_kind="query", parent_type_name="Query")
+
+    with pytest.raises(GraphQLError) as excinfo:
+        DagsterGraphQLAuthorizationMiddleware().resolve(next_fn, None, info)
+
+    assert excinfo.value.extensions["code"] == "AUTHORIZATION_UNAVAILABLE"
+    next_fn.assert_not_called()
 
 
 class _AcceptingNonceStore:
@@ -656,3 +675,19 @@ def test_extract_principal_never_falls_through_failed_scoped_token_to_oidc(
         middleware._extract_principal(_build_info({"Authorization": f"Bearer {token_text}"}))
         is None
     )
+
+
+def test_nested_fields_resolve_without_settings_lookup(monkeypatch):
+    """Nested fields run once per row; they must not re-read process settings."""
+
+    def settings_lookup(*_args, **_kwargs):
+        raise AssertionError("nested fields must not consult regulated mode")
+
+    monkeypatch.setattr("phlo_dagster.authorization_middleware.is_regulated", settings_lookup)
+    info = _build_info({}, operation_kind="query", parent_type_name="Run", path_prev=object())
+
+    result = DagsterGraphQLAuthorizationMiddleware().resolve(
+        lambda root, info, **kwargs: "SUCCESS", None, info
+    )
+
+    assert result == "SUCCESS"
