@@ -97,24 +97,30 @@ def events(partition_date: str) -> None:
     assert "Workflow is valid" in result.output
 
 
-def test_validate_workflow_recognizes_preferred_phlo_ingestion_decorator() -> None:
-    """Recognizes public and legacy ingestion decorator spellings."""
+def test_validate_workflow_recognizes_supported_ingestion_decorators() -> None:
+    """Recognizes the DLT facade and provider decorator, not the removed phlo.ingestion shim."""
     source = """
 @phlo.ingest.dlt(table_name="events")
 def dlt_facade(): pass
 
-@phlo.ingestion(table_name="events")
-def preferred(): pass
-
 @phlo_ingestion(table_name="events")
-def legacy(): pass
+def provider(): pass
+
+@phlo.ingestion(table_name="events")
+def removed(): pass
 """
     tree = ast.parse(source)
-    decorators = [
-        node.decorator_list[0] for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-    ]
+    decorators = {
+        node.name: node.decorator_list[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+    }
 
-    assert all(_is_phlo_ingestion_decorator(decorator) for decorator in decorators)
+    assert {name: _is_phlo_ingestion_decorator(d) for name, d in decorators.items()} == {
+        "dlt_facade": True,
+        "provider": True,
+        "removed": False,
+    }
 
 
 def test_validate_workflow_recognizes_phlo_ingest_dlt_facade(tmp_path) -> None:

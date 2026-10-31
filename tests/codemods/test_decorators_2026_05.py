@@ -1,12 +1,15 @@
 """Tests for decorators 2026-05 migration codemods.
 
-Rewrites phlo_dlt/phlo_quality decorator imports into their provider-neutral
-phlo.ingest.dlt and phlo.quality.pandera forms, handling aliases, callable
-aliases, and aliased phlo namespace imports, and reports unchanged sources
+Rewrites phlo_dlt/phlo_quality decorator imports and names removed in 0.19.0
+into their provider-neutral phlo.ingest.dlt, phlo.ingest.assets and
+phlo.quality.pandera forms, handling aliases, callable aliases, and aliased phlo
+namespace imports, and reports unchanged sources
 without touching them.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from phlo.codemods.decorators_2026_05 import migrate_decorators_2026_05_source
 
@@ -138,6 +141,93 @@ def events_quality():
     assert "from phlo.quality import NullCheck, RangeCheck" in migrated.code
     assert "@phlo.quality.pandera(" in migrated.code
     assert "phlo_quality" not in migrated.code
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            """from phlo.ingestion import get_ingestion_assets, phlo_ingestion
+
+
+@phlo_ingestion(table_name="events")
+def events():
+    pass
+
+
+ASSETS = get_ingestion_assets()
+""",
+            """import phlo
+
+
+@phlo.ingest.dlt(table_name="events")
+def events():
+    pass
+
+
+ASSETS = phlo.ingest.assets("dlt")
+""",
+        ),
+        (
+            """import os, phlo.ingestion
+
+
+@phlo.ingestion.phlo_ingestion(table_name="events")
+def events():
+    pass
+
+
+ASSETS = phlo.get_ingestion_assets()
+""",
+            """import os, phlo
+
+
+@phlo.ingest.dlt(table_name="events")
+def events():
+    pass
+
+
+ASSETS = phlo.ingest.assets("dlt")
+""",
+        ),
+        (
+            """from phlo import NullCheck, phlo_quality
+
+
+@phlo_quality(table="bronze.events", checks=[NullCheck(columns=["id"])])
+def events_quality():
+    pass
+""",
+            """import phlo
+from phlo import NullCheck
+
+
+@phlo.quality.pandera(table="bronze.events", checks=[NullCheck(columns=["id"])])
+def events_quality():
+    pass
+""",
+        ),
+    ],
+    ids=["phlo-ingestion-module-imports", "import-phlo-ingestion", "top-level-phlo-quality"],
+)
+def test_migrates_names_removed_in_0_19_0(source: str, expected: str) -> None:
+    """Imports of names removed in 0.19.0 must not survive migration."""
+    migrated = migrate_decorators_2026_05_source(source)
+
+    assert migrated.changed is True
+    assert migrated.code == expected
+
+
+def test_keeps_provider_asset_accessor_import() -> None:
+    """phlo_dlt.get_ingestion_assets is a supported provider name, not a removed alias."""
+    source = """from phlo_dlt import get_ingestion_assets
+
+ASSETS = get_ingestion_assets()
+"""
+
+    migrated = migrate_decorators_2026_05_source(source)
+
+    assert migrated.changed is False
 
 
 def test_reports_unchanged_source() -> None:

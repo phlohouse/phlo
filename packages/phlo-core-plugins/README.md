@@ -43,14 +43,15 @@ This package is **fully auto-configured**:
 ### Quality Checks
 
 ```python
-from phlo_quality.checks import null_check, uniqueness_check
+import phlo
+from phlo.quality import NullCheck, UniqueCheck
 
-@phlo_quality(
-    asset="bronze.users",
+@phlo.quality.pandera(
+    table="bronze.users",
     checks=[
-        null_check(column="id"),
-        uniqueness_check(column="email"),
-    ]
+        NullCheck(columns=["id"]),
+        UniqueCheck(columns=["email"]),
+    ],
 )
 def validate_users():
     pass
@@ -59,9 +60,9 @@ def validate_users():
 ### Source Connectors
 
 ```python
-from phlo.ingestion import phlo_ingestion
+import phlo
 
-@phlo_ingestion(
+@phlo.ingest.dlt(
     name="api_data",
     source="rest_api",  # Uses rest_api connector
     destination="bronze.api_data"

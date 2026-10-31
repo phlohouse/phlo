@@ -268,7 +268,6 @@ empty_parameter_set_mark = "fail_at_collect"
 xfail_strict = true
 filterwarnings = [
     "error",
-    "ignore:TransformationPlugin is deprecated and will be removed:DeprecationWarning",
     "ignore:Using `@model_validator` with mode='after' on a classmethod is deprecated:DeprecationWarning",
     "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
 ]

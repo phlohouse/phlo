@@ -70,14 +70,6 @@ Phlo plugins are Python classes discovered through entry points. Base classes ar
 | `get_decorator` | `() -> Callable` | Return the ingestion decorator. |
 | `get_asset_retriever` | `() -> Callable[[], list[Any]]` | Return the asset registry accessor. |
 
-### TransformationPlugin
-
-| Member | Type | Meaning |
-| --- | --- | --- |
-| `transform` | `(df: Any, config: dict[str, Any]) -> Any` | Transform data. |
-| `get_output_schema` | `(...) -> Any` | Return output schema. |
-| `validate_config` | `(config: dict[str, Any]) -> bool` | Validate transform configuration. |
-
 ### TransformationProviderPlugin
 
 | Member | Type | Meaning |
@@ -161,7 +153,6 @@ Declare plugin classes in `pyproject.toml` entry-point groups:
 | --- | --- |
 | Source | `phlo.plugins.sources` |
 | Quality | `phlo.plugins.quality` |
-| Transform | `phlo.plugins.transforms` |
 | Service | `phlo.plugins.services` |
 | CLI | `phlo.plugins.cli` |
 | Hook | `phlo.plugins.hooks` |

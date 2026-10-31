@@ -37,7 +37,7 @@ def test_schedule_replacement_example_creates_a_provider_schedule() -> None:
     import phlo
 
     document = Path(__file__).resolve().parents[1] / "docs/reference/python-api.md"
-    section = document.read_text(encoding="utf-8").split("### `schedule`", 1)[1]
+    section = document.read_text(encoding="utf-8").split("### Backfills and schedules", 1)[1]
     example = re.search(r"```python\n(.*?)```", section, flags=re.DOTALL)
     assert example is not None
     clear_ingestion_assets()

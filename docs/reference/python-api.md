@@ -326,25 +326,6 @@ def daily_sales_observation() -> object:
     return daily_sales
 ```
 
-### `backfill`
-
-This dormant decorator raises `NotImplementedError` and is removed in 0.19.0.
-The `phlo backfill` CLI remains supported for partitioned provider assets.
-
-| Parameter | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `target` | `str` | required | Target asset. |
-| `partitions` | `dict[str, Any]` | required | Partition range or values. |
-| `mode` | `str` | `"replace-partitions"` | Backfill mode. |
-| `depends_on` | `list[AssetDependency] \| None` | `None` | Asset dependencies. |
-| `group` | `str` | `"backfill"` | Asset group. |
-| `owner` | `str \| None` | `None` | Owner. |
-| `description` | `str \| None` | `None` | Asset description. |
-
-```bash
-phlo backfill daily_sales --start-date 2025-01-01 --end-date 2025-01-07
-```
-
 ### `contract`
 
 | Parameter | Type | Default | Meaning |
@@ -380,18 +361,18 @@ def daily_sales_access() -> object:
     return daily_sales
 ```
 
-### `schedule`
+### Backfills and schedules
 
-This dormant decorator raises `NotImplementedError` and is removed in 0.19.0.
-Provider decorators with `cron` support and native Dagster schedules remain supported.
+The dormant `phlo.backfill` and `phlo.schedule` decorators were removed in
+0.19.0. Launch partition backfills for provider assets with the `phlo backfill`
+CLI:
 
-| Parameter | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `name` | `str` | required | Schedule name. |
-| `cron` | `str` | required | Cron expression. |
-| `targets` | `list[str]` | required | Static targets. |
-| `timezone` | `str` | `"UTC"` | Schedule timezone. |
-| `metadata` | `dict[str, Any] \| None` | `None` | Additional metadata. |
+```bash
+phlo backfill daily_sales --start-date 2025-01-01 --end-date 2025-01-07
+```
+
+Schedule assets through a provider decorator's `cron` argument or native
+Dagster schedules:
 
 ```python
 import phlo
@@ -421,16 +402,25 @@ supplies both providers can enable SQL authoring through this decorator.
 
 ## Removal schedule
 
-Deprecated top-level ingestion aliases and `phlo_quality` are removed in 0.19.0.
-Warnings name that release and the replacement API. The callable-module shim
-for `phlo.ingestion(...)` remains only until 0.19.0. The
-`phlo migrate decorators-2026-05 PATH` codemod remains through at least 0.20.0.
-Its C901 exception ends only when the codemod is removed.
+The following deprecated Python names and plugin SDK types were removed in
+0.19.0. The `phlo migrate decorators-2026-05 PATH` codemod remains through at
+least 0.20.0 to rewrite the removed decorator names. Its C901 exception ends
+only when the codemod is removed.
 
-The deprecated sync/async operation adapters, legacy `TransformationPlugin`,
-Dagster `IngestionEnginePlugin`, and regulated-mode aliases also have a 0.19.0
-removal deadline. `TransformationProviderPlugin` and `AssetProviderPlugin`
-remain supported provider boundaries.
+| Removed name | Replacement |
+| --- | --- |
+| `phlo.phlo_ingestion`, `phlo.ingestion.phlo_ingestion`, and the callable `phlo.ingestion(...)` module | `phlo.ingest.dlt` or `phlo.ingest.provider(name)` |
+| `phlo.get_ingestion_assets`, `phlo.ingestion.get_ingestion_assets` | `phlo.ingest.assets("dlt")` |
+| `phlo.phlo_quality`, `phlo.quality.phlo_quality` | `phlo.quality.pandera` or `phlo.quality.provider(name)` |
+| `phlo.backfill` | The `phlo backfill` CLI for partitioned provider assets |
+| `phlo.schedule` | A provider decorator's `cron` argument or native Dagster schedules |
+| `SyncToAsyncIngesterAdapter`, `AsyncToSyncIngesterAdapter`, `SyncToAsyncTransformerAdapter`, `AsyncToSyncTransformerAdapter` | Implement the target sync or async contract directly |
+| `TransformationPlugin` and the `phlo.plugins.transforms` plugin family | `AssetProviderPlugin` or `TransformationProviderPlugin` |
+| Dagster `IngestionEnginePlugin` | Capability specs translated by an orchestrator adapter |
+
+The regulated-mode aliases also have a 0.19.0 removal deadline.
+`TransformationProviderPlugin` and `AssetProviderPlugin` remain supported
+provider boundaries.
 
 The Observatory production model aliases, the profile `pipeline` field,
 production `last_run`, and the Dataset `/api/observatory/pipelines` route were

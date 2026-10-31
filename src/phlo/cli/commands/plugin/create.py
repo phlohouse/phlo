@@ -33,8 +33,6 @@ logger = get_logger(__name__)
             "sources",
             "source",
             "quality",
-            "transforms",
-            "transform",
             "service",
             "hook",
             "catalog",
@@ -59,7 +57,7 @@ def create_cmd(plugin_name: str, plugin_type: str, path: str | None, output_json
     Examples:
         phlo plugin create my-source              # Create source connector plugin
         phlo plugin create my-check --type quality # Create quality check plugin
-        phlo plugin create my-transform --type transforms --path ./plugins/
+        phlo plugin create my-assets --type assets --path ./plugins/
     """
     try:
         plugin_type = SCAFFOLD_TYPE_MAP.get(plugin_type, plugin_type)

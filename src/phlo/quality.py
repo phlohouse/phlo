@@ -11,7 +11,6 @@ data exploration.
 
 Key Components:
     - :func:`pandera` via :func:`provider`: Primary decorator path for applying quality checks
-    - :func:`phlo_quality`: Deprecated third name for the Pandera decorator (emits a DeprecationWarning)
     - :func:`get_quality_checks`: Retrieve registered quality checks
     - :func:`clear_quality_checks`: Clear the quality check registry
     - Quality check classes: Validation primitives for various data checks
@@ -58,7 +57,7 @@ Example:
     ```
 
 See Also:
-    - :mod:`phlo.ingestion`: Data ingestion operations
+    - :mod:`phlo.ingest`: Data ingestion operations
     - :mod:`phlo.hooks.events.QualityResultEvent`: Quality result events
     - ``phlo-pandera`` package for Pandera integration
 
@@ -69,9 +68,7 @@ Raises:
 
 from __future__ import annotations
 
-import functools
 import importlib
-import warnings
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -105,11 +102,9 @@ ChecksumReconciliationCheck: type | None
 PANDERA_CONTRACT_CHECK_NAME: str | None
 QualityCheckContract: type | None
 dbt_check_name: Callable[[str, str], str] | None
-phlo_quality: Callable | None
 
 _QUALITY_EXPORTS = {
     "pandera",
-    "phlo_quality",
     "provider",
     "providers",
     "rules",
@@ -147,31 +142,8 @@ def _provider_api_module(provider: QualityProviderPlugin) -> Any | None:
         return None
 
 
-def _deprecate_phlo_quality_alias(decorator: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap the provider decorator so the ``phlo_quality`` third name warns.
-
-    The alias can be migrated with the ``decorators-2026-05`` codemod. The
-    wrapped decorator stays reachable through ``phlo.quality.__wrapped__`` for
-    introspection and compatibility.
-    """
-
-    @functools.wraps(decorator)
-    def _phlo_quality_alias(*args: Any, **kwargs: Any) -> Any:
-        warnings.warn(
-            "phlo_quality is deprecated and will be removed in 0.19.0; "
-            "use phlo.quality.pandera (or the provider package "
-            "decorator) instead. Migrate with: phlo migrate decorators-2026-05",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return decorator(*args, **kwargs)
-
-    return _phlo_quality_alias
-
-
 def _load_quality_provider() -> QualityProviderPlugin | None:
     """Load quality provider exports through plugin discovery."""
-    global phlo_quality
     global get_quality_checks
     global clear_quality_checks
     global QualityCheck
@@ -207,7 +179,6 @@ def _load_quality_provider() -> QualityProviderPlugin | None:
         )
         if provider is not None:
             provider_module = _provider_api_module(provider)
-            phlo_quality = _deprecate_phlo_quality_alias(provider.get_decorator())
             check_classes = provider.get_check_classes()
             NullCheck = check_classes.get("null")
             RangeCheck = check_classes.get("range")
@@ -353,7 +324,6 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "pandera",
-    "phlo_quality",
     "provider",
     "providers",
     "rules",

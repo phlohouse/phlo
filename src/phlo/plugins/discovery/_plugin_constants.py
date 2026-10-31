@@ -21,7 +21,6 @@ from phlo.plugins.base.quality import QualityCheckPlugin
 from phlo.plugins.base.quality_provider import QualityProviderPlugin
 from phlo.plugins.base.service import ServicePlugin
 from phlo.plugins.base.source import SourceConnectorPlugin
-from phlo.plugins.base.transform import TransformationPlugin
 from phlo.plugins.base.transformation_provider import (
     TransformationProviderPlugin,
 )
@@ -74,13 +73,6 @@ PLUGIN_FAMILIES: dict[str, PluginFamilyDefinition] = {
         "Transformation provider",
         "phlo.plugins.transformation_providers",
         TransformationProviderPlugin,
-    ),
-    "transformation": PluginFamilyDefinition(
-        "transformation",
-        "transformation",
-        "Transformation",
-        "phlo.plugins.transforms",
-        TransformationPlugin,
     ),
     "service": PluginFamilyDefinition(
         "service", "service", "Service", "phlo.plugins.services", ServicePlugin

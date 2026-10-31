@@ -30,11 +30,11 @@ Example:
     import phlo
 
     # Uses DLTIngestionProvider internally
-    @phlo.ingestion.phlo_ingestion(table_name="users", ...)
+    @phlo.ingest.dlt(table_name="users", ...)
     def load_users(): ...
 
     # Uses DltAssetProvider internally
-    assets = phlo.ingestion.get_ingestion_assets()
+    assets = phlo.ingest.assets("dlt")
     ```
 
 

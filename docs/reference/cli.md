@@ -1427,7 +1427,7 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 | Name | Kind | Options | Type | Required | Default | Other |
 | --- | --- | --- | --- | --- | --- | --- |
 | `plugin_name` | argument | none | `text` | true | `Sentinel.UNSET` | none |
-| `plugin_type` | option | `--type` | `choice` | false | `sources` | choices: sources, source, quality, transforms, transform, service, hook, catalog, assets, resources, orchestrator |
+| `plugin_type` | option | `--type` | `choice` | false | `sources` | choices: sources, source, quality, service, hook, catalog, assets, resources, orchestrator |
 | `path` | option | `--path` | `path` | false | `Sentinel.UNSET` | none |
 | `output_json` | option | `--json` | `boolean` | false | `false` | flag |
 
@@ -1440,7 +1440,7 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 | Name | Kind | Options | Type | Required | Default | Other |
 | --- | --- | --- | --- | --- | --- | --- |
 | `plugin_name` | argument | none | `text` | true | `Sentinel.UNSET` | none |
-| `plugin_type` | option | `--type` | `choice` | false | `Sentinel.UNSET` | choices: sources, source, quality, quality-providers, quality-provider, quality_provider, ingestion, ingestion-providers, ingestion-provider, ingestion_provider, transformation-providers, transformation-provider, transformation_provider, transforms, transform, service, cli, cli-commands, cli-command, cli_command, hook, assets, asset, resources, resource, orchestrator, catalog |
+| `plugin_type` | option | `--type` | `choice` | false | `Sentinel.UNSET` | choices: sources, source, quality, quality-providers, quality-provider, quality_provider, ingestion, ingestion-providers, ingestion-provider, ingestion_provider, transformation-providers, transformation-provider, transformation_provider, service, cli, cli-commands, cli-command, cli_command, hook, assets, asset, resources, resource, orchestrator, catalog |
 | `output_json` | option | `--json` | `boolean` | false | `false` | flag |
 
 ## `phlo plugin install`
@@ -1462,7 +1462,7 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 
 | Name | Kind | Options | Type | Required | Default | Other |
 | --- | --- | --- | --- | --- | --- | --- |
-| `plugin_type` | option | `--type` | `choice` | false | `all` | choices: sources, source, quality, quality-providers, quality-provider, quality_provider, ingestion, ingestion-providers, ingestion-provider, ingestion_provider, transformation-providers, transformation-provider, transformation_provider, transforms, transform, service, cli, cli-commands, cli-command, cli_command, hook, assets, asset, resources, resource, orchestrator, catalog, all |
+| `plugin_type` | option | `--type` | `choice` | false | `all` | choices: sources, source, quality, quality-providers, quality-provider, quality_provider, ingestion, ingestion-providers, ingestion-provider, ingestion_provider, transformation-providers, transformation-provider, transformation_provider, service, cli, cli-commands, cli-command, cli_command, hook, assets, asset, resources, resource, orchestrator, catalog, all |
 | `include_registry` | option | `--all` | `boolean` | false | `false` | flag |
 | `output_json` | option | `--json` | `boolean` | false | `false` | flag |
 
@@ -1475,7 +1475,7 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 | Name | Kind | Options | Type | Required | Default | Other |
 | --- | --- | --- | --- | --- | --- | --- |
 | `query` | argument | none | `text` | false | `Sentinel.UNSET` | none |
-| `plugin_type` | option | `--type` | `choice` | false | `Sentinel.UNSET` | choices: sources, source, quality, quality-providers, quality-provider, quality_provider, ingestion, ingestion-providers, ingestion-provider, ingestion_provider, transformation-providers, transformation-provider, transformation_provider, transforms, transform, service, cli, cli-commands, cli-command, cli_command, hook, assets, asset, resources, resource, orchestrator, catalog |
+| `plugin_type` | option | `--type` | `choice` | false | `Sentinel.UNSET` | choices: sources, source, quality, quality-providers, quality-provider, quality_provider, ingestion, ingestion-providers, ingestion-provider, ingestion_provider, transformation-providers, transformation-provider, transformation_provider, service, cli, cli-commands, cli-command, cli_command, hook, assets, asset, resources, resource, orchestrator, catalog |
 | `tags` | option | `--tag` | `text` | false | `Sentinel.UNSET` | multiple |
 | `output_json` | option | `--json` | `boolean` | false | `false` | flag |
 
