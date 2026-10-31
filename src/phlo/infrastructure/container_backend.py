@@ -13,6 +13,7 @@ import platform
 import shutil
 import subprocess
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from time import monotonic as _monotonic
 from typing import Literal, Protocol, cast
@@ -622,3 +623,42 @@ def select_project_container_backend(*, cli_backend: str | None = None) -> Conta
     except Exception:
         config_backend = None
     return select_container_backend(cli_backend=cli_backend, config_backend=config_backend)
+
+
+_ROOTLESS_PROBES = {
+    "docker": ["docker", "info", "--format", "{{json .SecurityOptions}}"],
+    "podman": ["podman", "info", "--format", "{{.Host.Security.Rootless}}"],
+}
+
+
+@cache
+def container_host_identity(backend_name: str) -> tuple[int, int]:
+    """Return the in-container user and group that own host project files.
+
+    Rootless Docker and Podman map the invoking host user to container root, so
+    inside the container the host's own UID is an unrelated subordinate user
+    that cannot read owner-only project files. Rootful engines keep the host
+    UID. When the engine cannot be queried, this warns and keeps the host UID.
+    """
+    command = _ROOTLESS_PROBES[backend_name]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=15, check=False)
+    except (OSError, subprocess.SubprocessError):
+        completed = None
+    if completed is None or completed.returncode != 0:
+        click.echo(
+            f"Warning: could not tell whether {backend_name} runs rootless; "
+            "containers that read project files will use the host UID.",
+            err=True,
+        )
+        return os.getuid(), os.getgid()
+    output = completed.stdout
+    rootless = "name=rootless" in output if backend_name == "docker" else output.strip() == "true"
+    return (0, 0) if rootless else (os.getuid(), os.getgid())
+
+
+def project_container_host_identity(*, cli_backend: str | None = None) -> tuple[int, int] | None:
+    """Return the host identity for the project's container backend, or None off Linux."""
+    if platform.system() != "Linux":
+        return None
+    return container_host_identity(select_project_container_backend(cli_backend=cli_backend).name)

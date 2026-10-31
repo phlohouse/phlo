@@ -24,6 +24,7 @@ from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.config.layout import SHARED_LAYOUT_MARKER, project_env_paths
 from phlo.infrastructure.container_backend import (
     project_compose_paths,
+    project_container_host_identity,
     select_project_container_backend,
 )
 from phlo.operations.api_runtime import (
@@ -107,7 +108,7 @@ def _candidate(
     for path in project_env_paths(state):
         checked_path(root, path.relative_to(root).as_posix())
         env.update(parse_env_file(path))
-    generator = ComposeGenerator(discovery)
+    generator = ComposeGenerator(discovery, host_identity=project_container_host_identity())
     rendered = yaml.safe_load(
         generator.generate_compose(
             services,

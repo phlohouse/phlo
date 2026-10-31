@@ -41,7 +41,6 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import os
 import platform
 import shlex
 import subprocess
@@ -58,6 +57,7 @@ from phlo.application.discovery import discover_capabilities
 from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
+    container_host_identity,
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
@@ -494,7 +494,9 @@ def _materialize_command(
             exec_env[pretty_var] = project_env[pretty_var]
     cmd = backend.container_exec_cmd(
         container_name=container_name,
-        user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
+        user=":".join(map(str, container_host_identity(backend.name)))
+        if host_platform == "Linux"
+        else None,
         env=exec_env,
         workdir="/app",
         command=["dagster", "asset", "materialize", "-m", "phlo_dagster.framework.definitions"],

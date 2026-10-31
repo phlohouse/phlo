@@ -781,6 +781,7 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     """Regenerate docker-compose.yml based on current config."""
     from phlo.cli.infrastructure.selection import select_services_to_install
     from phlo.cli.infrastructure.utils import parse_env_file
+    from phlo.infrastructure.container_backend import project_container_host_identity
     from phlo.plugins.compose.generator import ComposeGenerator
 
     all_services = discovery.discover()
@@ -806,7 +807,7 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     existing_env_local = parse_env_file(env_local_file)
 
     # Generate docker-compose.yml
-    composer = ComposeGenerator(discovery)
+    composer = ComposeGenerator(discovery, host_identity=project_container_host_identity())
     try:
         service_files = prepare_service_files(
             services_to_install, phlo_dir, user_overrides=user_overrides
