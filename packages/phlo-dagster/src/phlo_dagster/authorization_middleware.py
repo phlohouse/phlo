@@ -109,12 +109,13 @@ class DagsterGraphQLAuthorizationMiddleware:
         Non-root fields pass through untouched; a denied root operation
         raises GraphQLError before reaching the resolver.
         """
-        regulated = is_regulated()
         try:
-            if not regulated:
-                logger.debug("dagster_graphql_mandatory_enforcement_non_regulated")
+            # Nested fields are resolved once per row and per leaf; return them
+            # before any settings lookup so large results stay fast.
             if not self._is_root_operation_field(info):
                 return next_fn(root, info, **kwargs)
+            if not is_regulated():
+                logger.debug("dagster_graphql_mandatory_enforcement_non_regulated")
 
             if not self._is_known_field(info):
                 raise GraphQLError(
