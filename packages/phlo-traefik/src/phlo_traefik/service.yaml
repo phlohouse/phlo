@@ -21,6 +21,7 @@ compose:
     - "--providers.docker.endpoint=tcp://traefik-docker:2375"
     - "--providers.docker.exposedbydefault=false"
     - "--entrypoints.web.address=:80"
+    - "--entrypoints.web.forwardedHeaders.trustedIPs=${TRAEFIK_TRUSTED_IPS:-}"
     - "--api.dashboard=true"
   ports:
     - "${TRAEFIK_HTTP_PORT:-80}:80"
@@ -37,3 +38,6 @@ env_vars:
   TRAEFIK_DOMAIN:
     default: phlo.localhost
     description: Base domain used to build service hostnames
+  TRAEFIK_TRUSTED_IPS:
+    default: ""
+    description: Comma-separated IPs or CIDRs whose X-Forwarded-* headers Traefik keeps

@@ -23,3 +23,14 @@ def test_traefik_plugin_metadata():
 
     assert meta.name == "traefik"
     assert "networking" in meta.tags
+
+
+def test_traefik_trusted_forwarded_headers_are_configurable():
+    """A TLS-terminating proxy's X-Forwarded-Proto survives only from trusted IPs."""
+    defn = TraefikServicePlugin().service_definition
+
+    assert (
+        "--entrypoints.web.forwardedHeaders.trustedIPs=${TRAEFIK_TRUSTED_IPS:-}"
+        in defn["compose"]["command"]
+    )
+    assert defn["env_vars"]["TRAEFIK_TRUSTED_IPS"]["default"] == ""
