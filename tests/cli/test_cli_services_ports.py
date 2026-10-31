@@ -505,6 +505,37 @@ def test_get_service_routes_use_resolved_traefik_port() -> None:
     assert routes == {"dagster": {"3000": "http://dagster.phlo.localhost:8088"}}
 
 
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({}, "http://observatory.example.test"),
+        ({"OBSERVATORY_HOST": ""}, "http://observatory.example.test"),
+        ({"OBSERVATORY_HOST": "phlo.internal.test"}, "http://phlo.internal.test"),
+    ],
+)
+def test_get_service_routes_resolve_host_override(env: dict[str, str], expected: str) -> None:
+    service = ServiceDefinition(
+        name="observatory",
+        description="Observatory",
+        compose={
+            "labels": {
+                "traefik.enable": "true",
+                "traefik.http.routers.observatory.rule": (
+                    "Host(`${OBSERVATORY_HOST:-observatory.${TRAEFIK_DOMAIN:-phlo.localhost}}`)"
+                    " && !PathPrefix(`/oauth2/`)"
+                ),
+                "traefik.http.services.observatory.loadbalancer.server.port": "3000",
+            }
+        },
+    )
+
+    routes = ports_module._get_service_routes(
+        {"observatory": service},
+        ports_module.TraefikContext(domain="example.test", host_port=80, env=env),
+    )
+    assert routes == {"observatory": {"3000": expected}}
+
+
 def test_get_service_routes_support_traefik_dashboard_api_internal() -> None:
     service = ServiceDefinition(
         name="traefik",

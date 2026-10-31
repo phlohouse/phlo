@@ -17,7 +17,7 @@ compose:
   labels:
     phlo.metrics.enabled: 'false'
     traefik.enable: 'true'
-    traefik.http.routers.observatory.rule: 'Host(`observatory.${TRAEFIK_DOMAIN:-phlo.localhost}`) && !PathPrefix(`/oauth2/`)'
+    traefik.http.routers.observatory.rule: 'Host(`${OBSERVATORY_HOST:-observatory.${TRAEFIK_DOMAIN:-phlo.localhost}}`) && !PathPrefix(`/oauth2/`)'
     traefik.http.routers.observatory.entrypoints: 'web'
     traefik.http.routers.observatory.middlewares: 'phlo-api-login,phlo-api-auth'
     traefik.http.routers.observatory.service: 'observatory'
@@ -44,6 +44,9 @@ env_vars:
   OBSERVATORY_PORT:
     default: 3001
     description: Observatory UI port
+  OBSERVATORY_HOST:
+    default: ''
+    description: Hostname Traefik routes to Observatory (empty means observatory.<TRAEFIK_DOMAIN>)
 
 dev:
   command:

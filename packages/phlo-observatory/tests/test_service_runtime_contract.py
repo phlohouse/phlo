@@ -120,3 +120,12 @@ def test_observatory_bundles_only_the_api_backed_ui() -> None:
     assert ("COPY", "--from=builder /app/.output /app/.output") in instructions
     assert ("CMD", '["node", ".output/server/index.mjs"]') in instructions
     assert not any("replacement" in args or "select-ui" in args for _, args in instructions)
+
+
+def test_observatory_router_host_is_configurable() -> None:
+    labels = _load_service_document()["compose"]["labels"]
+
+    assert labels["traefik.http.routers.observatory.rule"] == (
+        "Host(`${OBSERVATORY_HOST:-observatory.${TRAEFIK_DOMAIN:-phlo.localhost}}`)"
+        " && !PathPrefix(`/oauth2/`)"
+    )

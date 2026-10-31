@@ -135,7 +135,7 @@ def test_phlo_api_has_forward_auth_middleware() -> None:
 
     assert auth_labels["traefik.enable"] == "true"
     assert auth_labels["traefik.http.routers.phlo-api.rule"] == (
-        "Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) && !PathPrefix(`/oauth2/`)"
+        "Host(`${PHLO_API_HOST:-api.${TRAEFIK_DOMAIN:-phlo.localhost}}`) && !PathPrefix(`/oauth2/`)"
     )
     assert auth_labels["traefik.http.routers.phlo-api.middlewares"] == (
         "phlo-api-login,phlo-api-auth"
