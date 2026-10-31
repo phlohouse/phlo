@@ -59,7 +59,7 @@ This single function registers a partitioned ingestion asset, validates rows wit
 
 **Prerequisites**
 
-- Python 3.12 or newer; Python 3.12 is tested in CI
+- Python 3.12 or newer; Python 3.12 and 3.13 are tested in CI
 - [`uv`](https://docs.astral.sh/uv/)
 - Docker with Compose v2 (the currently supported path); Podman with a Compose provider is documented as experimental and is not CI-supported
 

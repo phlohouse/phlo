@@ -572,7 +572,7 @@ def test_shards_are_disjoint_complete_and_keep_module_fixtures_together() -> Non
 
 def test_supported_python_version_runs_before_merge() -> None:
     ci = workflow("ci.yml")["jobs"]
-    assert ci["python-core-tests"]["strategy"]["matrix"]["python-version"] == ["3.12"]
+    assert ci["python-core-tests"]["strategy"]["matrix"]["python-version"] == ["3.12", "3.13"]
     assert ci["python-package-tests"]["strategy"]["matrix"] == {
         "include": "${{ fromJSON(needs.ci-config.outputs.groups) }}"
     }
@@ -582,7 +582,12 @@ def test_supported_python_version_runs_before_merge() -> None:
     assert selection_spec and selection_spec.loader
     selector = importlib.util.module_from_spec(selection_spec)
     selection_spec.loader.exec_module(selector)
-    assert {entry["python-version"] for entry in selector.select(set())["groups"]} == {"3.12"}
+    groups = selector.select(set())["groups"]
+    assert {(entry["group"], entry["python-version"]) for entry in groups} == {
+        (group, version)
+        for group in ("platform", "data", "api", "runtime", "interfaces")
+        for version in ("3.12", "3.13")
+    }
     assert ci["python-core-tests"]["env"]["UV_PYTHON"] == "${{ matrix.python-version }}"
 
 

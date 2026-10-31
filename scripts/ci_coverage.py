@@ -40,9 +40,13 @@ def _validate_data(path: Path) -> None:
     if not path.is_file() or not path.stat().st_size:
         raise ValueError(f"{path}: missing coverage data")
     data = CoverageData(basename=str(path))
-    data.read()
-    if not data.has_arcs() or not data.measured_files():
-        raise ValueError(f"{path}: expected nonempty branch coverage data")
+    try:
+        data.read()
+        if not data.has_arcs() or not data.measured_files():
+            raise ValueError(f"{path}: expected nonempty branch coverage data")
+    finally:
+        # A failed read of a corrupt file leaves its SQLite connection open.
+        data.close(force=True)
 
 
 def combine(inputs: Path, output: Path, shards: int) -> Path:

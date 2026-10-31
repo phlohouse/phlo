@@ -27,26 +27,29 @@ def commands(selection: dict[str, object]) -> list[list[str]]:
         if "all" in selection["reasons"]:
             checks.append(["uv", "run", "--locked", "pytest", "-m", "not integration"])
         else:
-            for group in selection["groups"]:
-                for package in group["packages"].split():
-                    checks.append(
-                        [
-                            "uv",
-                            "run",
-                            "--locked",
-                            "--package",
-                            package,
-                            "--with-editable",
-                            "./packages/phlo-testing",
-                            "--with",
-                            "pytest",
-                            "pytest",
-                            "-m",
-                            "not integration",
-                            "--tb=short",
-                            f"packages/{package}/tests",
-                        ]
-                    )
+            # Groups repeat once per CI Python version; local checks use one interpreter.
+            packages = dict.fromkeys(
+                package for group in selection["groups"] for package in group["packages"].split()
+            )
+            for package in packages:
+                checks.append(
+                    [
+                        "uv",
+                        "run",
+                        "--locked",
+                        "--package",
+                        package,
+                        "--with-editable",
+                        "./packages/phlo-testing",
+                        "--with",
+                        "pytest",
+                        "pytest",
+                        "-m",
+                        "not integration",
+                        "--tb=short",
+                        f"packages/{package}/tests",
+                    ]
+                )
     if selection["frontend"]:
         checks.append(["make", "lint-ts", "format-ts", "typecheck-ts"])
         checks.extend(

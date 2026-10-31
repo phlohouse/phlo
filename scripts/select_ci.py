@@ -12,6 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPENDENCY_PATTERN = re.compile(r"^(phlo(?:-[a-z0-9-]+)?)\b")
+# Supported Python versions; every package test group runs on each one.
+PYTHON_VERSIONS = ("3.12", "3.13")
 
 
 def inert_doc(path: str) -> bool:
@@ -64,7 +66,8 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     if broad:
         return {
             "groups": [
-                {"group": group, "packages": " ".join(packages), "python-version": "3.12"}
+                {"group": group, "packages": " ".join(packages), "python-version": version}
+                for version in PYTHON_VERSIONS
                 for group, packages in groups.items()
             ],
             "python": True,
@@ -97,7 +100,8 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
             affected.add(dependent)
             pending.append(dependent)
     selected = [
-        {"group": group, "packages": " ".join(packages), "python-version": "3.12"}
+        {"group": group, "packages": " ".join(packages), "python-version": version}
+        for version in PYTHON_VERSIONS
         for group, packages in groups.items()
         if affected.intersection(packages)
     ]

@@ -39,8 +39,12 @@ def test_trino_selects_reverse_dependency_groups() -> None:
     }
     assert selection["python"] is True
     assert selection["integration"] is True
-    assert len(selection["groups"]) == 5
-    assert all(entry["python-version"] == "3.12" for entry in selection["groups"])
+    # Every selected group runs once per supported Python version.
+    assert sorted((entry["group"], entry["python-version"]) for entry in selection["groups"]) == [
+        (group, version)
+        for group in ("api", "data", "interfaces", "platform", "runtime")
+        for version in ("3.12", "3.13")
+    ]
 
 
 def test_unknown_config_and_empty_diff_run_everything() -> None:
@@ -66,7 +70,10 @@ def test_writer_only_skips_python_and_package_groups() -> None:
 
 def test_leaf_package_does_not_run_unrelated_groups() -> None:
     selection = select({"packages/phlo-traefik/src/phlo_traefik/plugin.py"})
-    assert [entry["group"] for entry in selection["groups"]] == ["platform"]
+    assert [(entry["group"], entry["python-version"]) for entry in selection["groups"]] == [
+        ("platform", "3.12"),
+        ("platform", "3.13"),
+    ]
 
 
 def test_non_documentation_under_docs_and_unknown_package_inputs_fail_open() -> None:
