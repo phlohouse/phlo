@@ -438,9 +438,8 @@ def _persist_aggregate_quality_decision(
     )
     try:
         get_hook_bus().emit(event)
-        results = default_run_evidence_store().list_quality_results(
-            project_id, run_id, attempt=attempt
-        )
+        with default_run_evidence_store() as store:
+            results = store.list_quality_results(project_id, run_id, attempt=attempt)
     except Exception:
         logger.warning(
             "wap_aggregate_quality_evidence_persist_failed", run_id=run_id, exc_info=True
@@ -720,10 +719,11 @@ def _reconcile_promoted_wap_run(run: Any, instance: Any) -> bool:
             profile = RequiredEvidenceProfile(profile_id="wap", version="1", provider="dagster")
         else:
             profile = composed.profile
-        RunReconciler(
-            default_run_evidence_store(),
-            DagsterRunEvidenceSource(instance, project_id=project_id),
-        ).reconcile(project_id, dagster_run_id, profile)
+        with default_run_evidence_store() as store:
+            RunReconciler(
+                store,
+                DagsterRunEvidenceSource(instance, project_id=project_id),
+            ).reconcile(project_id, dagster_run_id, profile)
         return True
     except Exception:
         logger.warning(

@@ -9,6 +9,7 @@ terminal runs are reported but never promoted.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -637,7 +638,9 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
     monkeypatch.setattr("phlo.run_evidence.emit.get_hook_bus", lambda: bus)
     monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
     query_catalog_manager = MagicMock()
@@ -971,7 +974,9 @@ def test_wap_quality_evidence_ignores_non_mapping_reports(monkeypatch, tmp_path,
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
 
     quality_id, metadata = _quality_evidence(
         run_id, instance, project_id="project-quality", attempt=1
@@ -1020,7 +1025,9 @@ def test_wap_quality_evidence_persists_decision_without_a_preexisting_report(mon
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
 
     quality_id, metadata = _quality_evidence(
         dagster_run_id,
@@ -1085,7 +1092,9 @@ def test_wap_merge_failure_preserves_successful_dagster_run_status(
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
     monkeypatch.setattr("phlo.run_evidence.emit.get_hook_bus", lambda: bus)
     monkeypatch.setattr("phlo_dagster.wap_sensors._load_versioned_catalog", lambda: catalog)
     context = MagicMock(instance=instance, cursor=None, evaluation_time=datetime.now(timezone.utc))
@@ -1484,7 +1493,9 @@ def test_quality_evidence_uses_decision_correct_aggregate(
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
 
     quality_id, metadata = _quality_evidence(
         run_id,
@@ -1518,7 +1529,9 @@ def test_persist_aggregate_quality_decision_allows_empty_checks(monkeypatch, tmp
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
 
     quality_id, metadata = _quality_evidence(
         run_id,
@@ -1569,7 +1582,9 @@ def test_persist_aggregate_quality_decision_reflects_failures(monkeypatch, tmp_p
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
 
     quality_id, metadata = _quality_evidence(
         run_id,
@@ -1624,7 +1639,9 @@ def test_persist_aggregate_quality_decision_warn_only_passes_with_warnings(
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
 
     quality_id, metadata = _quality_evidence(
         run_id,
@@ -1677,7 +1694,9 @@ def test_persist_aggregate_quality_decision_mixed_severity_rejects(monkeypatch, 
     bus = HookBus()
     bus.register_provider(CoreRunEvidenceHookProvider(store), plugin_name="test")
     monkeypatch.setattr("phlo_dagster.wap_sensors.get_hook_bus", lambda: bus)
-    monkeypatch.setattr("phlo_dagster.wap_sensors.default_run_evidence_store", lambda: store)
+    monkeypatch.setattr(
+        "phlo_dagster.wap_sensors.default_run_evidence_store", lambda: nullcontext(store)
+    )
 
     quality_id, metadata = _quality_evidence(
         run_id,

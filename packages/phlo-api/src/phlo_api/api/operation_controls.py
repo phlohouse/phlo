@@ -898,37 +898,41 @@ def _idempotency_connection() -> sqlite3.Connection:
     state_dir = project_root() / ".phlo" / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(state_dir / "operations.sqlite")
-    conn.execute(f"PRAGMA busy_timeout = {_IDEMPOTENCY_BUSY_TIMEOUT_MS}")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS operations(
-            project TEXT NOT NULL,
-            key_hash TEXT NOT NULL,
-            operation TEXT NOT NULL,
-            target TEXT NOT NULL,
-            state TEXT NOT NULL DEFAULT 'completed',
-            response_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            PRIMARY KEY(project, key_hash, operation, target)
+    try:
+        conn.execute(f"PRAGMA busy_timeout = {_IDEMPOTENCY_BUSY_TIMEOUT_MS}")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS operations(
+                project TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                target TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'completed',
+                response_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                PRIMARY KEY(project, key_hash, operation, target)
+            )
+            """
         )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS idempotency_resolutions(
-            project TEXT NOT NULL,
-            key_hash TEXT NOT NULL,
-            operation TEXT NOT NULL,
-            target TEXT NOT NULL,
-            resolution TEXT NOT NULL,
-            resolved_by TEXT NOT NULL,
-            evidence_json TEXT NOT NULL,
-            resolved_at TEXT NOT NULL
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS idempotency_resolutions(
+                project TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                target TEXT NOT NULL,
+                resolution TEXT NOT NULL,
+                resolved_by TEXT NOT NULL,
+                evidence_json TEXT NOT NULL,
+                resolved_at TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
-    _migrate_operations_schema(conn)
+        _migrate_operations_schema(conn)
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 

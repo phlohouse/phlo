@@ -152,14 +152,14 @@ class ReadModelCache:
                 return None
 
     def _store(self, project: str, name: str, expires_at: float, value: Any) -> None:
-        connection = self._connect()
-        if connection is None:
-            return
         # A value JSON cannot represent is simply not persisted; it still lives
         # in the in-memory layer for this process.
         try:
             payload = _serialize_value(value)
         except (TypeError, ValueError):
+            return
+        connection = self._connect()
+        if connection is None:
             return
         with closing(connection), connection:
             connection.execute(
