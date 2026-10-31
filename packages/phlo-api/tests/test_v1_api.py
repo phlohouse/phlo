@@ -2361,8 +2361,16 @@ def test_latest_and_all_backfills_are_environment_pinned_and_bounded(client, mon
         "selection": "all",
         "idempotency_key": "prod-full",
     }
-    assert http.post(endpoint, json={**dry_request, "dry_run": False}).status_code == 409
-    live_request = {**dry_request, "idempotency_key": "prod-live", "dry_run": False}
+    assert (
+        http.post(endpoint, json={**dry_request, "dry_run": False, "confirmed": True}).status_code
+        == 409
+    )
+    live_request = {
+        **dry_request,
+        "idempotency_key": "prod-live",
+        "dry_run": False,
+        "confirmed": True,
+    }
     assert http.post(endpoint, json=live_request).status_code == 200
     assert http.post(endpoint, json={**live_request, "dry_run": True}).status_code == 409
     assert len(provider_calls) == 4

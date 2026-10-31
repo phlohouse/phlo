@@ -563,6 +563,7 @@ class BackfillAssetAction(WireModel):
     partitions: list[str] = Field(default_factory=list, max_length=500)
     dry_run: bool = True
     idempotency_key: str = Field(min_length=1, max_length=128)
+    confirmed: bool = False
 
 
 class AssetActionResponse(WireModel):
@@ -2760,6 +2761,8 @@ async def v1_asset_backfill(
     from phlo_api.observatory_api.orchestrator_operations import resolve_orchestrator_operations
 
     asset_id = asset_id.strip("/")
+    if not payload.dry_run and not payload.confirmed:
+        raise HTTPException(status_code=422, detail="Confirm the backfill before executing.")
     target, repository_name, job_names = await _action_context(request, env, asset_id)
     auth = require_scope(request, "lakehouse:operate")
     if payload.job_name not in job_names:
@@ -2803,7 +2806,7 @@ async def v1_asset_backfill(
         result = await provider.backfill_asset(
             asset_id,
             {
-                **payload.model_dump(exclude={"selection"}),
+                **payload.model_dump(exclude={"selection", "confirmed"}),
                 "partitions": partition_keys,
                 "all_partitions": payload.selection == "all",
                 "repository_location_name": target.dagster_location,

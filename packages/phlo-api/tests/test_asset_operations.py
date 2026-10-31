@@ -375,6 +375,17 @@ def test_duplicate_keys_keep_estimate_materialize_and_latest_backfill_scoped(ope
         },
     )
     assert response.status_code == 200, response.text
+    unconfirmed = http.post(
+        "/api/v1/assets/warehouse/orders/backfill?env=staging",
+        json={
+            "job_name": "warehouse_job",
+            "partition_set_name": "daily",
+            "selection": "latest",
+            "idempotency_key": "stage-live-backfill",
+            "dry_run": False,
+        },
+    )
+    assert unconfirmed.status_code == 422, unconfirmed.text
     assert len(calls) == 2
     assert calls[0][1]["partition_key"] == "2026-09-26"
     assert calls[1][1]["partitions"] == ["2026-09-26"]
@@ -507,6 +518,7 @@ defs = dg.Definitions(assets=[orders, summary], jobs=[dg.define_asset_job("wareh
                     "selection": "latest",
                     "idempotency_key": "native-backfill",
                     "dry_run": False,
+                    "confirmed": True,
                 },
             )
             assert response.status_code == 200, response.text

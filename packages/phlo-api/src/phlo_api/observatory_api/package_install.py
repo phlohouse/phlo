@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -95,24 +96,24 @@ def _uv_project_root() -> Path | None:
     return None
 
 
-def _run_python_package_install(package_spec: str) -> tuple[bool, str]:
+def package_installer_command(package_spec: str) -> tuple[list[str], Path | None]:
+    """Return the install command and working directory for one package spec."""
     uv = shutil.which("uv")
     if uv is not None:
         project_root = _uv_project_root()
         if project_root is not None:
             # Inside a uv project, add to pyproject/lockfile and install into the
             # active environment so the dependency survives regeneration.
-            command = [uv, "add", "--active", package_spec]
-            cwd = project_root
-        else:
-            command = [uv, "pip", "install", package_spec]
-            cwd = None
-    elif importlib.util.find_spec("pip") is not None:
-        command = [sys.executable, "-m", "pip", "install", package_spec]
-        cwd = None
-    else:
-        raise RuntimeError("Neither uv nor pip is available to install packages.")
+            return [uv, "add", "--active", package_spec], project_root
+        return [uv, "pip", "install", package_spec], None
+    if importlib.util.find_spec("pip") is not None:
+        return [sys.executable, "-m", "pip", "install", package_spec], None
+    raise RuntimeError("Neither uv nor pip is available to install packages.")
 
+
+def run_package_install(package_spec: str) -> tuple[bool, str]:
+    """Run the package installer and return whether it succeeded with its output."""
+    command, cwd = package_installer_command(package_spec)
     result = subprocess.run(
         command,
         cwd=cwd,
@@ -136,10 +137,18 @@ def _clear_read_model_cache() -> None:
     clear_cache()
 
 
-def _install_python_package(
-    request: ObservatoryPackageInstallRequest,
-) -> ObservatoryPackageInstallResult:
-    requested = request.package_name.strip()
+@dataclass(frozen=True)
+class TrustedPackage:
+    """One registry-vetted package and the exact spec Phlo would install."""
+
+    registry_name: str
+    package_name: str
+    package_spec: str
+
+
+def resolve_trusted_package(requested_name: str) -> TrustedPackage:
+    """Resolve a requested name to its trusted registry package, or reject it."""
+    requested = requested_name.strip()
     if not requested:
         raise HTTPException(status_code=400, detail="Package name is required.")
 
@@ -162,26 +171,11 @@ def _install_python_package(
         version = str(registry_entry.get("version") or "").strip()
         if version:
             package_spec = f"{package_name}=={version}"
+    return TrustedPackage(registry_name, package_name, package_spec)
 
-    try:
-        succeeded, install_message = _run_python_package_install(package_spec)
-    except Exception as exc:
-        return ObservatoryPackageInstallResult(
-            package_name=package_name,
-            package_spec=package_spec,
-            status="failed",
-            message=f"Install failed: {exc}",
-            services=[registry_name],
-        )
-    if not succeeded:
-        return ObservatoryPackageInstallResult(
-            package_name=package_name,
-            package_spec=package_spec,
-            status="failed",
-            message=install_message[-500:],
-            services=[registry_name],
-        )
 
+def installed_package_services(package: TrustedPackage) -> list[str]:
+    """Refresh import caches after an install and list the services it provides."""
     # New distributions are on disk but unknown to the running interpreter until
     # the import path caches are refreshed.
     importlib.invalidate_caches()
@@ -189,14 +183,43 @@ def _install_python_package(
     installed_services = [
         service.id
         for service in _load_services()
-        if service.metadata.get("package") == package_name
+        if service.metadata.get("package") == package.package_name
     ]
+    return installed_services or [package.registry_name]
+
+
+def _install_python_package(
+    request: ObservatoryPackageInstallRequest,
+) -> ObservatoryPackageInstallResult:
+    package = resolve_trusted_package(request.package_name)
+    try:
+        succeeded, install_message = run_package_install(package.package_spec)
+    except Exception as exc:
+        return ObservatoryPackageInstallResult(
+            package_name=package.package_name,
+            package_spec=package.package_spec,
+            status="failed",
+            message=f"Install failed: {exc}",
+            services=[package.registry_name],
+        )
+    if not succeeded:
+        return ObservatoryPackageInstallResult(
+            package_name=package.package_name,
+            package_spec=package.package_spec,
+            status="failed",
+            message=install_message[-500:],
+            services=[package.registry_name],
+        )
+
     return ObservatoryPackageInstallResult(
-        package_name=package_name,
-        package_spec=package_spec,
+        package_name=package.package_name,
+        package_spec=package.package_spec,
         status="succeeded",
-        message=f"Installed {package_name}. Regenerate the Phlo service stack before starting it.",
-        services=installed_services or [registry_name],
+        message=(
+            f"Installed {package.package_name}. "
+            "Regenerate the Phlo service stack before starting it."
+        ),
+        services=installed_package_services(package),
     )
 
 

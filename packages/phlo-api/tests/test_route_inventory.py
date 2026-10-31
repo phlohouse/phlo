@@ -116,6 +116,8 @@ _GUARDED_NON_GET_ROUTES: dict[tuple[str, str], str] = {
     ("DELETE", "/api/v1/queries/saved/{query_id}"): "v1_manifest",
     ("PUT", "/api/v1/admin/settings"): "v1_manifest",
     ("PATCH", "/api/v1/admin/members/{subject}/roles"): "v1_manifest",
+    ("POST", "/api/v1/admin/packages/{package_name}/install-plan"): "v1_manifest",
+    ("POST", "/api/v1/admin/packages/{package_name}/install"): "v1_manifest",
     ("POST", "/api/v1/admin/invitations"): "v1_manifest",
     ("POST", "/api/v1/invitations/accept"): "v1_manifest",
     ("POST", "/api/v1/admin/service-accounts"): "v1_manifest",
