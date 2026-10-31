@@ -8,6 +8,8 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
+OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3 removes them before `1.0.0`. [Legacy route replacements](#legacy-route-replacements) lists each one with its `/api/v1` replacement, where one exists.
+
 ## Endpoints (285)
 
 | Method | Path | Summary | Tags |
@@ -297,3 +299,77 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 | `POST` | `/api/v1/uploads/csv/{upload_id}/reclaim` | V1 Csv Upload Reclaim | `v1 CSV uploads` |
 | `GET` | `/api/v1/wap/runs` | V1 Wap Runs | `v1 WAP` |
 | `GET` | `/health` | Health | none |
+
+## Legacy route replacements
+
+Each deprecated route and the `/api/v1` route that replaces it. A route without a replacement has no `/api/v1` resource yet and stays available until one exists. Unlike the legacy routes, most `/api/v1` resources require an explicit `env` query parameter.
+
+| Deprecated route | Replacement | Notes |
+| --- | --- | --- |
+| `POST /api/observatory/actions` | None yet |  |
+| `GET /api/observatory/apis` | None yet |  |
+| `GET /api/observatory/asset-graph` | None yet | `GET /api/v1/assets` returns each asset's dependencies. |
+| `GET /api/observatory/asset-graph/impact` | `GET /api/v1/assets/{asset_id}/neighbors` | Use `direction=downstream`; `depth` is limited to 10. Requires `env`. |
+| `GET /api/observatory/asset-graph/neighbors` | `GET /api/v1/assets/{asset_id}/neighbors` | The `asset_key` query parameter becomes the path. Requires `env`. |
+| `GET /api/observatory/assets` | `GET /api/v1/assets` | Requires `env`. |
+| `GET /api/observatory/assets/{asset_id}` | `GET /api/v1/assets/{asset_id}` | Requires `env`. |
+| `POST /api/observatory/assets/{asset_id}/backfill` | `POST /api/v1/assets/{asset_id}/backfill` | Requires `env`, `job_name`, `partition_set_name` and an idempotency key. A live backfill requires `confirmed: true`. |
+| `GET /api/observatory/assets/{asset_id}/materializations` | `GET /api/v1/assets/{asset_id}/materializations` | Requires `env`. Returns a page with `items` and `next_cursor`. |
+| `POST /api/observatory/assets/{asset_id}/materialize` | `POST /api/v1/assets/{asset_id}/materialize` | Requires `env`, one of the asset's `job_name`s and an idempotency key. |
+| `GET /api/observatory/assets/{asset_id}/partitions` | `GET /api/v1/assets/{asset_id}/partitions` | Requires `env`. Returns a page with `items` and `next_cursor`. |
+| `GET /api/observatory/bi` | None yet |  |
+| `GET /api/observatory/branches` | `GET /api/v1/branches` |  |
+| `POST /api/observatory/branches/actions` | `POST /api/v1/branches`<br>`POST /api/v1/branches/{branch_name}/merge` | Each branch action has its own route under `/api/v1/branches`. |
+| `GET /api/observatory/branches/{branch_name}` | `GET /api/v1/branches/{branch_name}` |  |
+| `GET /api/observatory/capabilities` | None yet |  |
+| `GET /api/observatory/capability-inventory` | None yet |  |
+| `POST /api/observatory/contributing-rows/page` | None yet |  |
+| `POST /api/observatory/contributing-rows/query` | None yet |  |
+| `GET /api/observatory/dataset-production` | None yet |  |
+| `GET /api/observatory/dataset-workflow/config` | None yet |  |
+| `PUT /api/observatory/dataset-workflow/config` | None yet |  |
+| `GET /api/observatory/datasets` | `GET /api/v1/datasets` | Lists project Dataset declarations. |
+| `GET /api/observatory/datasets/facets` | None yet |  |
+| `GET /api/observatory/datasets/publishing-readiness` | None yet |  |
+| `GET /api/observatory/datasets/{dataset_id}` | None yet |  |
+| `GET /api/observatory/extension-manifests` | `GET /api/v1/extensions` |  |
+| `GET /api/observatory/extensions` | None yet |  |
+| `GET /api/observatory/extensions/{extension_id}` | None yet |  |
+| `GET /api/observatory/extensions/{name}/assets/{asset_path}` | `GET /api/v1/extensions/{name}/assets/{asset_path}` |  |
+| `GET /api/observatory/extensions/{name}/settings` | `GET /api/v1/extensions/{name}/settings` |  |
+| `PUT /api/observatory/extensions/{name}/settings` | None yet |  |
+| `GET /api/observatory/governance` | None yet |  |
+| `GET /api/observatory/logs` | None yet |  |
+| `GET /api/observatory/logs/facets` | None yet |  |
+| `GET /api/observatory/observability` | None yet |  |
+| `GET /api/observatory/operations` | `GET /api/v1/operations` | Project-scoped; returns `next_cursor`. |
+| `GET /api/observatory/operations/{operation_id}` | None yet |  |
+| `GET /api/observatory/operations/{operation_id}/agent-context` | `GET /api/v1/operations/{operation_id}/agent-context` |  |
+| `GET /api/observatory/overview` | `GET /api/v1/overview` |  |
+| `POST /api/observatory/packages/install` | `POST /api/v1/admin/packages/{package_name}/install-plan`<br>`POST /api/v1/admin/packages/{package_name}/install` | Plan first, then apply the returned `plan` with its `plan_token` as `confirmation_token` and an `idempotency_key`. |
+| `GET /api/observatory/preferences` | None yet |  |
+| `PUT /api/observatory/preferences` | None yet |  |
+| `GET /api/observatory/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report` | `GET /api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report` | Same handler and response. |
+| `GET /api/observatory/quality` | `GET /api/v1/quality-checks` | Requires `env`. Returns pages with `items` and `next_cursor`. |
+| `GET /api/observatory/quality/{check_id}` | `GET /api/v1/assets/{asset_id}/checks` | Checks are read per asset. Requires `env`. |
+| `POST /api/observatory/query` | `POST /api/v1/queries` |  |
+| `GET /api/observatory/row-journey/{table_id}/{row_id}` | None yet |  |
+| `GET /api/observatory/runs` | `GET /api/v1/runs`<br>`GET /api/v1/search` | Requires `env`. For the `q` filter, use `/api/v1/search` with `kind=run`. |
+| `POST /api/observatory/runs/{run_id}/cancel` | `POST /api/v1/runs/{run_id}/cancel` | Requires `env`, `expected_status` and an idempotency key. A live cancel requires `dry_run: false` and `confirmed: true`. |
+| `POST /api/observatory/runs/{run_id}/retry` | `POST /api/v1/runs/{run_id}/retry` | Requires `env`, `expected_status` and an idempotency key. A live retry requires `confirmed: true`; only `FROM_FAILURE` is supported. |
+| `GET /api/observatory/runs/{run_id}/status` | `GET /api/v1/runs/{run_id}` | Requires `env`. The run detail includes its status. |
+| `GET /api/observatory/saved-queries` | `GET /api/v1/queries/saved` |  |
+| `POST /api/observatory/saved-queries` | `POST /api/v1/queries/saved` |  |
+| `POST /api/observatory/schemas/diff` | `GET /api/v1/assets/{asset_id}/schema-diff` | Requires `env` and `from_run`; `to_run` is optional. |
+| `GET /api/observatory/search` | `GET /api/v1/search` | Requires `env`. `kind` is a subset of `asset,run`. |
+| `GET /api/observatory/services` | `GET /api/v1/services` |  |
+| `GET /api/observatory/services/{service_id}` | None yet |  |
+| `GET /api/observatory/settings` | None yet |  |
+| `GET /api/observatory/stage-diff` | None yet |  |
+| `GET /api/observatory/storage` | None yet |  |
+| `GET /api/observatory/surface-capabilities` | None yet |  |
+| `GET /api/observatory/table-preview/{table_id}` | None yet |  |
+| `GET /api/observatory/tables` | None yet |  |
+| `GET /api/observatory/workflow-wizard` | None yet |  |
+| `POST /api/observatory/workflow-wizard/actions` | None yet |  |
+| `POST /api/observatory/workflow-wizard/proposals` | None yet |  |

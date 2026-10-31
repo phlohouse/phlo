@@ -18,6 +18,7 @@ router = APIRouter(tags=["observatory"])
 @router.get(
     "/api/observatory/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
     response_model=RunReport,
+    deprecated=True,
 )
 @router.get(
     "/api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
