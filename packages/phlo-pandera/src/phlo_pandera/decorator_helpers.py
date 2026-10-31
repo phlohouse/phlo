@@ -41,12 +41,15 @@ from phlo.hooks.emitters import (
     TelemetryEventEmitter,
 )
 from phlo.hooks.events import HookCorrelation
+from phlo.logging import get_logger
 
 from phlo_pandera.checks import QualityCheck, QualityCheckResult
 from phlo_pandera.contract import QualityCheckContract
 from phlo_pandera.aggregate_checks import execute_aggregate_check, supports_aggregation
 from phlo_pandera.dataset_constraints import DatasetConstraintCheck
 from phlo_pandera.partitioning import PartitionScope
+
+logger = get_logger(__name__)
 
 
 class QueryCheckRunner:
@@ -231,7 +234,7 @@ def _load_data_trino(context: RuntimeContext, query: str, trino: Any) -> Any:
     df = pd.DataFrame(rows, columns=columns)
     df.attrs["floating_columns"] = floating_columns
 
-    context.logger.info("loaded_rows_from_trino", row_count=len(df))
+    logger.info("loaded_rows_from_trino", row_count=len(df))
 
     return df
 
@@ -331,7 +334,7 @@ def _load_data_duckdb(context: RuntimeContext, query: str, duckdb_conn: Any) -> 
     df = result.fetchdf()
     df.attrs["floating_columns"] = floating_columns
 
-    context.logger.info("loaded_rows_from_duckdb", row_count=len(df))
+    logger.info("loaded_rows_from_duckdb", row_count=len(df))
 
     return df
 

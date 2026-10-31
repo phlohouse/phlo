@@ -9,6 +9,7 @@ Tests cover:
 - Threshold-based results (warn vs fail)
 """
 
+import logging
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -18,8 +19,8 @@ import duckdb
 import pandas as pd
 import pandera.pandas as pa
 import pytest
-from phlo.contracts import SLA
 from phlo.capabilities import RuntimeRouting
+from phlo.contracts import SLA
 from phlo.logging import get_logger
 
 from phlo_pandera import (
@@ -583,6 +584,9 @@ def test_registered_checks_execute_against_duckdb(schema: bool, outcome: str) ->
         if schema
         else [RangeCheck(column="id", min_value=1), CountCheck(min_rows=1)]
     )
+    # Enabled at INFO like Dagster's context logger, so keyword fields raise.
+    logger = logging.getLogger("test.quality")
+    logger.setLevel(logging.INFO)
     with duckdb.connect() as connection:
         connection.execute("CREATE TABLE readings (id BIGINT)")
         if outcome != "empty":
@@ -593,7 +597,8 @@ def test_registered_checks_execute_against_duckdb(schema: bool, outcome: str) ->
             run_id="quality-run",
             partition_key=None,
             resources={"duckdb": connection},
-            logger=get_logger("test.quality"),
+            # Orchestrator loggers such as Dagster's reject structured fields.
+            logger=logger,
         )
 
         def quality():

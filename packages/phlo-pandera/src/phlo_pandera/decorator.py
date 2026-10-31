@@ -18,6 +18,7 @@ from phlo.capabilities import (
 )
 from phlo.capabilities.runtime import RuntimeContext
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_sla
+from phlo.logging import get_logger
 
 from phlo_pandera.checks import FreshnessCheck, QualityCheck, QualityCheckResult
 from phlo_pandera.checks_extra import SchemaCheck
@@ -36,6 +37,10 @@ from phlo_pandera.decorator_helpers import (
 from phlo_pandera.partitioning import PartitionScope, apply_partition_scope, get_partition_key
 from phlo_pandera.helpers import freshness_check_from_sla
 from phlo_pandera.severity import severity_for_pandera_contract, severity_for_quality_check
+
+
+# Orchestrator loggers (such as Dagster's) reject structured keyword fields.
+logger = get_logger(__name__)
 
 
 def phlo_pandera(
@@ -187,12 +192,12 @@ def _register_quality_checks(
             )
             final_query = apply_partition_scope(sql_query, scope=scope)
             if partition_key and not full_table:
-                runtime.logger.info("validating_partition", partition_key=partition_key)
+                logger.info("validating_partition", partition_key=partition_key)
 
             try:
                 df = QueryCheckRunner(runtime, final_query, backend, scope=scope)
             except Exception as exc:
-                runtime.logger.error(
+                logger.error(
                     "quality_data_load_failed",
                     table=table,
                     partition_key=partition_key_value,
@@ -239,7 +244,7 @@ def _register_quality_checks(
                 or (isinstance(check, FreshnessCheck) and check.require_timestamps)
             ]
             if not checks_to_run:
-                runtime.logger.warning("No rows returned; marking check as skipped.")
+                logger.warning("No rows returned; marking check as skipped.")
                 emitter.emit_result(
                     check_name=getattr(func, "__name__", "quality_check"),
                     passed=True,
@@ -266,7 +271,7 @@ def _register_quality_checks(
                     },
                 )
 
-            runtime.logger.info(
+            logger.info(
                 "executing_quality_checks",
                 check_count=len(checks_to_run),
                 row_count=len(df),
@@ -282,15 +287,15 @@ def _register_quality_checks(
 
                     if not result.passed:
                         all_passed = False
-                        runtime.logger.warning(
+                        logger.warning(
                             "quality_check_failed",
                             check_name=check.name,
                             failure_message=result.failure_message,
                         )
                     else:
-                        runtime.logger.info("quality_check_passed", check_name=check.name)
+                        logger.info("quality_check_passed", check_name=check.name)
                 except Exception as exc:
-                    runtime.logger.exception(
+                    logger.exception(
                         "quality_check_execution_error",
                         check_name=check.name,
                         error=str(exc),
@@ -338,7 +343,7 @@ def _register_quality_checks(
                 warn_threshold=warn_threshold,
             )
             if severity == "warn":
-                runtime.logger.warning(
+                logger.warning(
                     "quality_check_warning_threshold",
                     failure_fraction=failure_fraction,
                     warn_threshold=warn_threshold,
@@ -447,12 +452,12 @@ def _register_schema_checks(
             )
             final_query = apply_partition_scope(sql_query, scope=scope)
             if partition_key and not full_table:
-                runtime.logger.info("validating_partition", partition_key=partition_key)
+                logger.info("validating_partition", partition_key=partition_key)
 
             try:
                 df = _load_data(runtime, final_query, backend)
             except Exception as exc:
-                runtime.logger.error(
+                logger.error(
                     "quality_data_load_failed",
                     table=table,
                     partition_key=partition_key_value,

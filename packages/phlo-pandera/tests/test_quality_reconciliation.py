@@ -3,6 +3,7 @@
 Tests the ReconciliationCheck and AggregateConsistencyCheck classes.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -43,6 +44,21 @@ class TestReconciliationCheck:
         assert result.metric_value["target_count"] == 100
         assert result.metric_value["source_count"] == 100
         assert result.metric_value["difference_pct"] == 0.0
+
+    def test_source_query_failure_is_reported_under_a_stdlib_logger(self):
+        """Dagster's context logger rejects structured fields; a failed source
+        query must still produce a check result."""
+        df = pd.DataFrame({"id": range(3)})
+        context = MagicMock()
+        context.partition_key = None
+        context.logger = logging.getLogger("test.reconciliation")
+        context.resources.trino.execute_query.side_effect = RuntimeError("source down")
+
+        check = ReconciliationCheck(source_table="silver.events", check_type="rowcount_parity")
+
+        result = check.execute(df, context)
+
+        assert result.passed is False
 
     def test_check_fails_when_counts_differ(self):
         """Test that check fails when target and source counts differ."""

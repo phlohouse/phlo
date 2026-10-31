@@ -82,7 +82,10 @@ from typing import Any
 import pandas as pd
 
 from phlo.capabilities.runtime import RuntimeContext
+from phlo.logging import get_logger
 from phlo_pandera.checks import QualityCheck, QualityCheckResult
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -260,8 +263,7 @@ class ReconciliationCheck(QualityCheck):
                     return int(result[0][0])
 
         except Exception as e:
-            if context and context.logger:
-                context.logger.warning("source_query_failed", query=query, error=str(e))
+            logger.warning("source_query_failed", query=query, error=str(e))
             return None
 
     @property
@@ -515,8 +517,7 @@ class AggregateConsistencyCheck(QualityCheck):
             return None
 
         except Exception as e:
-            if context and context.logger:
-                context.logger.warning("source_aggregate_query_failed", query=query, error=str(e))
+            logger.warning("source_aggregate_query_failed", query=query, error=str(e))
             return None
 
     @property
@@ -693,8 +694,7 @@ class KeyParityCheck(QualityCheck):
                 if result is not None:
                     return [tuple(row) for row in result]
         except Exception as exc:
-            if context and context.logger:
-                context.logger.warning("source_keys_query_failed", query=query, error=str(exc))
+            logger.warning("source_keys_query_failed", query=query, error=str(exc))
             return None
         return None
 
@@ -985,12 +985,11 @@ class MultiAggregateConsistencyCheck(QualityCheck):
 
             return None
         except Exception as exc:
-            if context and context.logger:
-                context.logger.warning(
-                    "source_aggregate_query_failed",
-                    query=query,
-                    error=str(exc),
-                )
+            logger.warning(
+                "source_aggregate_query_failed",
+                query=query,
+                error=str(exc),
+            )
             return None
 
     @property
@@ -1291,8 +1290,7 @@ class ChecksumReconciliationCheck(QualityCheck):
                 if result is not None:
                     return [tuple(row) for row in result]
         except Exception as exc:
-            if context and context.logger:
-                context.logger.warning("hash_query_failed", query=query, error=str(exc))
+            logger.warning("hash_query_failed", query=query, error=str(exc))
             return None
         return None
 
