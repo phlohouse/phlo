@@ -76,6 +76,9 @@ from phlo_dagster.wap_launch import bind_wap_audit
 
 logger = get_logger(__name__)
 
+# Runs the on_cron automation conditions of assets that declare a cron.
+CRON_SENSOR_NAME = "phlo_cron_automation_sensor"
+
 
 def _asset_key_from_string(key: str) -> dg.AssetKey:
     """Convert a dotted asset key string into a Dagster asset key."""
@@ -349,10 +352,40 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             resource_definition_count=len(resources_map),
         )
 
+        # Dagster evaluates automation conditions only while an automation
+        # condition sensor runs, and its default sensor starts stopped. Without
+        # this sensor a declared ``cron`` would never launch a run. WAP-enabled
+        # projects and isolated writes need launch tags that only the CLI
+        # prepares, so a sensor-launched run would fail; those keep launching
+        # through ``phlo materialize``.
+        from phlo.infrastructure import load_wap_config
+
+        cron_keys = (
+            []
+            if load_wap_config().enabled
+            else [
+                _asset_key_from_string(spec.key)
+                for spec in assets_list
+                if spec.run and spec.run.cron and spec.run.isolated_write is None
+            ]
+        )
+        sensors = (
+            [
+                dg.AutomationConditionSensorDefinition(
+                    CRON_SENSOR_NAME,
+                    target=dg.AssetSelection.assets(*cron_keys),
+                    default_status=dg.DefaultSensorStatus.RUNNING,
+                )
+            ]
+            if cron_keys
+            else None
+        )
+
         return dg.Definitions(
             assets=asset_defs,
             asset_checks=check_defs,
             resources=resources_map,
+            sensors=sensors,
         )
 
     def _build_asset(self, spec: AssetSpec) -> dg.AssetsDefinition:

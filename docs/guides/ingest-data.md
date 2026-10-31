@@ -70,7 +70,7 @@ What each argument does:
 | `unique_key="id"` | Rows with the same `id` are upserted. The column must exist in the schema. |
 | `group="api"` | Groups the asset in the Dagster UI. It does not affect the table namespace. |
 | `validation_schema=UserSchema` | Validates each batch and derives the table schema. |
-| `cron="0 */6 * * *"` | Creates a Dagster schedule that runs every six hours. |
+| `cron="0 */6 * * *"` | Runs the asset every six hours through the running `phlo_cron_automation_sensor`. |
 | `freshness_hours=(6, 24)` | Warns when the table is older than 6 hours and fails freshness checks after 24. |
 
 The table lands in the `raw` namespace by default. Set `DLT_DEFAULT_NAMESPACE` in `.phlo/overrides/.env` to change it. The full parameter list is in [Python API](../reference/python-api.md#phloingestdlt).
@@ -180,7 +180,9 @@ phlo materialize dlt_users --partition 2025-01-15
 
 The command streams the run log and ends with `Successfully materialized dlt_users`. If validation fails, the log lists the failing column and check, and the table is not updated.
 
-The `cron` argument creates a Dagster schedule, so in steady state Dagster runs this asset every six hours without a manual command.
+The `cron` argument becomes a Dagster `on_cron` automation condition. Phlo registers `phlo_cron_automation_sensor`, which starts in the running state, so in steady state Dagster runs this asset every six hours without a manual command.
+
+Two cases keep their existing behaviour. In a project with `wap.enabled`, and for assets with `isolated_write`, runs need launch context that `phlo materialize` prepares, so the sensor leaves those assets out and you launch them through the CLI. If your project or a Dagster extension registers its own automation condition sensor, the assets it targets stay with that sensor and `phlo_cron_automation_sensor` covers only the rest.
 
 ## 5. Verify the table
 

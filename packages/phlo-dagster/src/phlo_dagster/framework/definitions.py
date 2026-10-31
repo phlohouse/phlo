@@ -147,6 +147,43 @@ def _default_executor() -> dg.ExecutorDefinition | None:
     return dg.multiprocess_executor.configured({"max_concurrent": 4})
 
 
+def _cede_cron_assets_to_project_sensors(merged: dg.Definitions) -> list[Any]:
+    """Drop assets another automation sensor already owns from Phlo's cron sensor.
+
+    Dagster refuses to load two automation condition sensors that select the
+    same asset, so a project or extension sensor keeps the assets it targets.
+    """
+    from phlo_dagster.adapter import CRON_SENSOR_NAME
+
+    sensors = list(merged.sensors or [])
+    cron_sensor = next((s for s in sensors if s.name == CRON_SENSOR_NAME), None)
+    others = [
+        s
+        for s in sensors
+        if s is not cron_sensor and isinstance(s, dg.AutomationConditionSensorDefinition)
+    ]
+    if cron_sensor is None or not others:
+        return sensors
+    graph = dg.Definitions(assets=merged.assets).resolve_asset_graph()
+    claimed = set().union(*(s.asset_selection.resolve(graph, allow_missing=True) for s in others))
+    cron_keys = cron_sensor.asset_selection.resolve(graph, allow_missing=True)
+    remaining = sorted(cron_keys - claimed)
+    logger.info(
+        "cron_sensor_cedes_assets_to_project_sensors",
+        ceded=[key.to_user_string() for key in sorted(cron_keys & claimed)],
+    )
+    sensors.remove(cron_sensor)
+    if remaining:
+        sensors.append(
+            dg.AutomationConditionSensorDefinition(
+                CRON_SENSOR_NAME,
+                target=dg.AssetSelection.assets(*remaining),
+                default_status=dg.DefaultSensorStatus.RUNNING,
+            )
+        )
+    return sensors
+
+
 def build_definitions(
     workflows_path: Path | str | None = None,
 ) -> Any:
@@ -232,7 +269,7 @@ def build_definitions(
         assets=merged.assets,
         asset_checks=merged.asset_checks,
         schedules=merged.schedules,
-        sensors=merged.sensors,
+        sensors=_cede_cron_assets_to_project_sensors(merged),
         resources=merged.resources,
         jobs=merged.jobs,
         executor=executor,
