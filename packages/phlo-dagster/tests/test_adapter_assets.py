@@ -339,3 +339,83 @@ def test_isolated_contract_cannot_write_configured_custom_primary(
     with pytest.raises(PhloConfigError, match="restricted"):
         list(adapter._execute_asset(context, spec))
     assert writes == []
+
+
+def test_cron_assets_get_a_running_automation_sensor() -> None:
+    """A declared cron must launch runs without starting a sensor by hand."""
+
+    def spec(key: str, cron: str | None) -> AssetSpec:
+        return AssetSpec(
+            key=key, group="raw", description=key, run=RunSpec(fn=lambda runtime: [], cron=cron)
+        )
+
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=[spec("raw.scheduled", "*/10 * * * *"), spec("raw.manual", None)],
+        checks=[],
+        resources=[],
+    )
+
+    (sensor,) = definitions.sensors
+    assert sensor.name == adapter.CRON_SENSOR_NAME
+    assert sensor.default_status == dg.DefaultSensorStatus.RUNNING
+    selected = sensor.asset_selection.resolve(definitions.resolve_asset_graph())
+    assert selected == {dg.AssetKey(["raw", "scheduled"])}
+
+    unscheduled = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=[spec("raw.manual", None)], checks=[], resources=[]
+    )
+    assert not unscheduled.sensors
+
+
+def _cron_spec(key: str, cron: str | None = "*/10 * * * *") -> AssetSpec:
+    return AssetSpec(
+        key=key, group="raw", description=key, run=RunSpec(fn=lambda runtime: [], cron=cron)
+    )
+
+
+def test_wap_projects_keep_cron_assets_off_the_sensor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sensor-launched runs lack the WAP launch tags, so WAP projects keep CLI launches."""
+    import phlo.infrastructure
+
+    monkeypatch.setattr(
+        phlo.infrastructure, "load_wap_config", lambda: SimpleNamespace(enabled=True)
+    )
+
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=[_cron_spec("raw.scheduled")], checks=[], resources=[]
+    )
+
+    assert not definitions.sensors
+
+
+@pytest.mark.parametrize(
+    ("project_target", "expected_cron_keys"),
+    [
+        (dg.AssetSelection.all(), None),
+        (dg.AssetSelection.assets(["raw", "first"]), {dg.AssetKey(["raw", "second"])}),
+    ],
+)
+def test_project_automation_sensor_keeps_the_cron_assets_it_targets(
+    project_target: dg.AssetSelection, expected_cron_keys: set[dg.AssetKey] | None
+) -> None:
+    """Dagster refuses overlapping automation sensors, so the project sensor wins."""
+    from phlo_dagster.framework.definitions import _cede_cron_assets_to_project_sensors
+
+    phlo_defs = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=[_cron_spec("raw.first"), _cron_spec("raw.second")], checks=[], resources=[]
+    )
+    project_sensor = dg.AutomationConditionSensorDefinition("project_sensor", target=project_target)
+    merged = dg.Definitions.merge(phlo_defs, dg.Definitions(sensors=[project_sensor]))
+
+    sensors = _cede_cron_assets_to_project_sensors(merged)
+    final = dg.Definitions(assets=merged.assets, sensors=sensors)
+    final.get_repository_def()  # raises DagsterInvalidDefinitionError on overlap
+
+    cron_sensors = [s for s in sensors if s.name == adapter.CRON_SENSOR_NAME]
+    if expected_cron_keys is None:
+        assert cron_sensors == []
+    else:
+        (cron_sensor,) = cron_sensors
+        assert cron_sensor.default_status == dg.DefaultSensorStatus.RUNNING
+        graph = final.resolve_asset_graph()
+        assert cron_sensor.asset_selection.resolve(graph) == expected_cron_keys
