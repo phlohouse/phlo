@@ -741,6 +741,7 @@ export const backfillAsset = createServerFn({ method: 'POST' })
           partitions: data.selection === 'explicit' ? data.partitions : [],
           dry_run: false,
           idempotency_key: data.idempotency_key,
+          confirmed: data.confirmed,
         },
       },
     ),

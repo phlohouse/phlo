@@ -121,7 +121,7 @@ All `O` paths below use the exact prefix `/api/observatory`. The caller is `pack
 | --- | --- | --- |
 | `get_platform_health` | GET `/api/observability/health` | Keep aggregate observability capability. |
 | `get_config`, `get_plugins` | GET `/api/config`, GET `/api/plugins` | Keep configuration and installed-plugin inventory. |
-| `install_plugin` | POST `O/packages/install` | Keep distinct administrator package action. |
+| `install_plugin` | POST `O/packages/install` | Keep distinct administrator package action. Canonical replacement: POST `/api/v1/admin/packages/{package_name}/install-plan`, then POST `/api/v1/admin/packages/{package_name}/install` with the plan, its `confirmation_token` and an `idempotency_key`. |
 | `get_services`, `get_service_info` | GET `/api/services`, GET `/api/services/{service_name}` | Keep compatibility until registry detail and environment-scoped live health callers migrate. Shapes are not interchangeable. |
 | `get_assets`, `get_asset_details` | GET `O/assets`, GET `O/assets/{asset_key_path}` | Migrate only with an explicit MCP environment selection and response-shape contract. Keep URLs meanwhile. |
 | `list_operations`, `get_operation_context` | GET `O/operations`, GET `O/operations/{operation_id}/agent-context` | Keep distinct operation/agent-context capabilities. |
@@ -137,8 +137,8 @@ All `O` paths below use the exact prefix `/api/observatory`. The caller is `pack
 | `get_materialization_history` | GET `O/assets/{asset_key_path}/materializations` | Keep compatibility pending environment-aware migration. |
 | `get_run_trace_spans`, `get_trace_spans` | GET `/api/observability/traces/runs/{run_id}`, GET `/api/observability/traces` | Keep provider trace capability. |
 | `get_logs_query_link`, `get_metrics_query_link` | GET `/api/observability/links/logs`, GET `/api/observability/links/metrics` | Keep provider links. |
-| `materialize_asset`, `backfill_asset` | POST `O/assets/{asset_key_path}/materialize`, POST `O/assets/{asset_key_path}/backfill` | Keep compatibility until MCP adopts environment, confirmation, plan, and idempotency contracts. |
-| `retry_run`, `cancel_run` | POST `O/runs/{run_id}/retry`, POST `O/runs/{run_id}/cancel` | Keep compatibility until MCP adopts environment and expected-state contracts. |
+| `materialize_asset`, `backfill_asset` | POST `O/assets/{asset_key_path}/materialize`, POST `O/assets/{asset_key_path}/backfill` | Keep compatibility until MCP adopts environment, confirmation, plan, and idempotency contracts. Canonical replacements: POST `/api/v1/assets/{asset_id}/materialize?env=` and POST `/api/v1/assets/{asset_id}/backfill?env=`; a live backfill requires `confirmed: true`. |
+| `retry_run`, `cancel_run` | POST `O/runs/{run_id}/retry`, POST `O/runs/{run_id}/cancel` | Keep compatibility until MCP adopts environment and expected-state contracts. Canonical replacements: POST `/api/v1/runs/{run_id}/retry?env=` and POST `/api/v1/runs/{run_id}/cancel?env=` with `expected_status`. |
 | `list_partitions`, `get_run_status` | GET `O/assets/{asset_key_path}/partitions`, GET `O/runs/{run_id}/status` | Keep partition capability and compatibility status read. |
 
 Other consumers and URL producers have these decisions:

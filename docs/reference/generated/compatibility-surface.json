@@ -7297,7 +7297,7 @@
     "entry_point_groups": 14,
     "entry_points": 46,
     "hook_event_types": 11,
-    "http_routes": 177,
+    "http_routes": 179,
     "python_api_names": 59
   },
   "entry_points": {
@@ -7402,6 +7402,8 @@
     "POST /api/v1/admin/invitations",
     "GET /api/v1/admin/members",
     "PATCH /api/v1/admin/members/{subject}/roles",
+    "POST /api/v1/admin/packages/{package_name}/install",
+    "POST /api/v1/admin/packages/{package_name}/install-plan",
     "GET /api/v1/admin/permissions",
     "GET /api/v1/admin/roles",
     "GET /api/v1/admin/service-accounts",

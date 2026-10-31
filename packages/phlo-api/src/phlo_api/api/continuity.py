@@ -176,7 +176,7 @@ class ContinuityApplyRequest(BaseModel):
 # --- shared guards ----------------------------------------------------------
 
 
-def _durable_journal() -> OperationJournalStore:
+def durable_operation_journal() -> OperationJournalStore:
     """Resolve the configured durable journal; fail closed when none is present.
 
     An authorized mutation must never silently fall back to an ephemeral
@@ -493,7 +493,7 @@ def post_continuity_apply(request: ContinuityApplyRequest, http_request: Request
     if not request.idempotency_key:
         raise _error(400, "missing_idempotency_key")
 
-    journal = _durable_journal()
+    journal = durable_operation_journal()
     execution = {
         "restore.apply": _restore_execution,
         "upgrade.apply": _upgrade_execution,
@@ -549,7 +549,7 @@ def get_continuity_verification(operation_id: str, http_request: Request) -> dic
     reported as such and can never be automatically replayed.
     """
     require_scope(http_request, "lakehouse:read")
-    journal: OperationJournalStore = _durable_journal()
+    journal: OperationJournalStore = durable_operation_journal()
     entry = journal.read(operation_id)
     if entry is None:
         raise _error(404, "unknown_operation", (operation_id,))

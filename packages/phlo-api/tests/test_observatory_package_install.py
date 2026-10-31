@@ -120,7 +120,7 @@ def test_observatory_package_install_uses_trusted_registry_package(
         installed.append(package_spec)
         return True, "installed"
 
-    monkeypatch.setattr(package_install, "_run_python_package_install", fake_install)
+    monkeypatch.setattr(package_install, "run_package_install", fake_install)
     monkeypatch.setattr(package_install, "_load_services", lambda: [])
 
     response = authenticated_client("admin").post(
@@ -147,7 +147,7 @@ def test_observatory_package_install_rejects_unknown_package_before_execution(
     monkeypatch.setattr(package_install, "get_registry_data", lambda: {"plugins": {}})
     monkeypatch.setattr(
         package_install,
-        "_run_python_package_install",
+        "run_package_install",
         lambda _package_spec: (_ for _ in ()).throw(AssertionError("installer must not run")),
     )
 
@@ -174,7 +174,7 @@ def test_observatory_package_install_prefers_uv_add_for_uv_projects(
     monkeypatch.setattr(package_install, "_uv_project_root", lambda: tmp_path)
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    succeeded, message = package_install._run_python_package_install("phlo-openmetadata==0.1.0")
+    succeeded, message = package_install.run_package_install("phlo-openmetadata==0.1.0")
 
     assert succeeded is True
     assert message == "ok"

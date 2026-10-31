@@ -191,6 +191,20 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("subject", "path"),),
     ),
     *_specs(
+        ("v1_package_install_plan",),
+        action=CanonicalAction.ADMIN_READ.value,
+        resource_type="package",
+        resource_keys=("package_name",),
+        resource_sources=(("package_name", "path"),),
+    ),
+    *_specs(
+        ("v1_package_install",),
+        action=CanonicalAction.ADMIN_MANAGE.value,
+        resource_type="package",
+        resource_keys=("package_name",),
+        resource_sources=(("package_name", "path"),),
+    ),
+    *_specs(
         ("v1_invitation_accept",),
         action=CanonicalAction.OBJECT_WRITE.value,
         resource_type="invitation",

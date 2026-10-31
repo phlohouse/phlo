@@ -204,6 +204,8 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/admin/permissions",
         "/api/v1/admin/members",
         "/api/v1/admin/members/{subject}/roles",
+        "/api/v1/admin/packages/{package_name}/install-plan",
+        "/api/v1/admin/packages/{package_name}/install",
         "/api/v1/admin/invitations",
         "/api/v1/invitations/accept",
         "/api/v1/admin/service-accounts",
