@@ -81,7 +81,9 @@ def load_project_model(project_root: Path) -> ProjectConfig:
     try:
         validated = ProjectConfig.model_validate(project_config)
     except ValidationError as exc:
-        fields = ", ".join(".".join(map(str, error["loc"])) for error in exc.errors())
+        fields = ", ".join(
+            ".".join(map(str, error["loc"])) or error["msg"] for error in exc.errors()
+        )
         raise ProjectConfigError(f"Invalid phlo.yaml fields: {fields}") from exc
 
     logger.info(
@@ -217,49 +219,13 @@ def get_regulated_config(project_root: Path | None = None) -> bool | None:
 
         regulated: true
 
-    Returns True/False when configured, otherwise None. Falls back to the
-    deprecated ``regulated_mode`` key with a DeprecationWarning; raises
-    ValueError when the value is not a boolean.
+    Returns True/False when configured, otherwise None; raises ValueError
+    when the value is not a boolean.
     """
     if project_root is None:
         project_root = _default_project_root()
 
-    project_config = load_project_model(project_root)
-    value = project_config.regulated
-    if value is None:
-        deprecated_value = project_config.regulated_mode
-        if deprecated_value is not None:
-            import warnings
-
-            warnings.warn(
-                "phlo.yaml 'regulated_mode' is deprecated and will be removed in 0.19.0; "
-                "use 'regulated' instead",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            logger.warning(
-                "deprecated_config_key",
-                old="regulated_mode",
-                new="regulated",
-                removal_version="0.19.0",
-                message="phlo.yaml 'regulated_mode' is deprecated and will be removed in 0.19.0; "
-                "use 'regulated' instead",
-            )
-            value = deprecated_value
-    return value
-
-
-def get_regulated_mode_config(project_root: Path | None = None) -> bool | None:
-    """Deprecated: use get_regulated_config() instead."""
-    import warnings
-
-    warnings.warn(
-        "get_regulated_mode_config() is deprecated and will be removed in 0.19.0; "
-        "use get_regulated_config() instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return get_regulated_config(project_root)
+    return load_project_model(project_root).regulated
 
 
 def get_authentication_provider_config(project_root: Path | None = None) -> str | None:

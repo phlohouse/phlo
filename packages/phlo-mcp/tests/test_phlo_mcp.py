@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -28,13 +26,7 @@ from phlo_mcp.run_analysis import (
     summarize_run_logs,
 )
 from phlo_mcp.server import create_server
-from phlo_mcp.tracing import (
-    CanonicalTracer,
-    configure_tracing,
-    get_tracer,
-    load_spans,
-    render_trace_tree,
-)
+from phlo_mcp.tracing import CanonicalTracer
 
 
 @pytest.mark.parametrize("transport", ["streamable-http", "sse"])
@@ -747,156 +739,58 @@ def test_render_run_trace_tree_uses_most_recent_logs_with_limit() -> None:
     assert tree.index("latest warning") < tree.index("latest failure")
 
 
-def test_render_trace_tree_formats_tree(tmp_path: Path) -> None:
-    trace_file = tmp_path / "trace.jsonl"
-    spans = [
-        {
-            "name": "mcp.request",
-            "context": {"trace_id": "a" * 32, "span_id": "1" * 16, "parent_id": None},
-            "start_time_ns": 0,
-            "end_time_ns": 4_000_000,
-            "attributes": {},
-            "status": {"code": "UNSET", "description": None},
-        },
-        {
-            "name": "mcp.tool.execute",
-            "context": {"trace_id": "a" * 32, "span_id": "2" * 16, "parent_id": "1" * 16},
-            "start_time_ns": 1_000_000,
-            "end_time_ns": 3_000_000,
-            "attributes": {"mcp.tool.name": "get_platform_health"},
-            "status": {"code": "UNSET", "description": None},
-        },
-    ]
-    trace_file.write_text("\n".join(json.dumps(span) for span in spans), encoding="utf-8")
-
-    rendered = render_trace_tree(trace_file)
-
-    assert "Trace aaaaaaaa" in rendered
-    assert "mcp.request 4.0ms" in rendered
-    assert "mcp.tool.execute 2.0ms [tool=get_platform_health]" in rendered
-
-
 @pytest.mark.parametrize(
     "tool_name,method_name",
     [("list_plugins", "get_plugins"), ("get_platform_health", "get_platform_health")],
 )
 @pytest.mark.parametrize("fail", [False, True])
 def test_registered_tools_trace_success_and_failure_without_changing_results(
-    tmp_path: Path, monkeypatch, tool_name: str, method_name: str, fail: bool
+    monkeypatch, tool_name: str, method_name: str, fail: bool
 ) -> None:
-    monkeypatch.setattr("phlo_mcp.tracing._CONFIGURED_PATH", None)
-    trace_file = tmp_path / "tools.jsonl"
-    with pytest.warns(DeprecationWarning, match="OBSERVE_DRAINS"):
-        configure_tracing(trace_file=str(trace_file))
+    from observe_core import flush
+    from observe_core.runtime import get_runtime
+
+    from phlo import telemetry
 
     def response(_self):
         if fail:
             raise RuntimeError("backend unavailable")
         return {"healthy": True}
 
+    monkeypatch.setenv("PHLO_OBSERVE_PRETTY", "false")
     monkeypatch.setattr(PhloApiClient, method_name, response)
-    server = create_server(McpConfig())
-    tool = next(tool for tool in server._tool_manager.list_tools() if tool.name == tool_name)
-    assert tool.parameters["properties"] == {}
-    if fail:
-        with pytest.raises(RuntimeError, match="backend unavailable"):
-            tool.fn()
-    else:
-        assert tool.fn()["payload"] == {"healthy": True}
+    telemetry.reset_for_tests()
+    try:
+        assert telemetry.configure(enabled=True, runtime_backend="capture", drains=[])
+        server = create_server(McpConfig())
+        tool = next(tool for tool in server._tool_manager.list_tools() if tool.name == tool_name)
+        assert tool.parameters["properties"] == {}
+        if fail:
+            with pytest.raises(RuntimeError, match="backend unavailable"):
+                tool.fn()
+        else:
+            assert tool.fn()["payload"] == {"healthy": True}
+        flush()
+        events = [
+            record
+            for record in get_runtime()._backend.payloads()
+            if record["event"].startswith(("mcp.", "phlo.observability."))
+        ]
+    finally:
+        telemetry.reset_for_tests()
 
-    spans = load_spans(trace_file)
-    by_name = {span["name"]: span for span in spans}
-    request = by_name["mcp.request"]
-    execution = by_name["mcp.tool.execute"]
-    assert sum(span["name"] == "mcp.request" for span in spans) == 1
-    assert sum(span["name"] == "mcp.tool.execute" for span in spans) == 1
-    assert execution["context"]["parent_id"] == request["context"]["span_id"]
-    assert execution["attributes"]["mcp.tool.name"] == tool_name
-    assert all(span["status"]["code"] == ("ERROR" if fail else "UNSET") for span in spans)
+    by_name = {event["event"]: event for event in events}
+    request = by_name["mcp.request"]["correlation"]
+    execution = by_name["mcp.tool.execute"]["correlation"]
+    assert sum(event["event"] == "mcp.request" for event in events) == 1
+    assert sum(event["event"] == "mcp.tool.execute" for event in events) == 1
+    assert execution["parent_span_id"] == request["span_id"]
+    assert execution["trace_id"] == request["trace_id"]
+    assert by_name["mcp.tool.execute"]["attributes"]["mcp.tool.name"] == tool_name
+    assert all(event["outcome"] == ("failure" if fail else "success") for event in events)
     if tool_name == "get_platform_health":
-        assert (
-            by_name["phlo.observability.health"]["context"]["parent_id"]
-            == execution["context"]["span_id"]
-        )
-
-
-def test_canonical_tracer_preserves_debug_file_nesting(tmp_path: Path, monkeypatch) -> None:
-    """The legacy debug file is a drain from canonical operation scopes."""
-    monkeypatch.setattr("phlo_mcp.tracing._CONFIGURED_PATH", None)
-    trace_file = tmp_path / "trace.jsonl"
-    with pytest.warns(DeprecationWarning, match=r"0\.19\.0.*OBSERVE_DRAINS"):
-        configure_tracing(trace_file=str(trace_file))
-    assert configure_tracing(trace_file=str(tmp_path / "ignored.jsonl")) == str(trace_file)
-
-    tracer = get_tracer()
-    with tracer.start_as_current_span("mcp.request"):
-        with tracer.start_as_current_span(
-            "mcp.tool.execute", attributes={"mcp.tool.name": "get_platform_health"}
-        ):
-            pass
-
-    spans = load_spans(trace_file)
-    by_name = {span["name"]: span for span in spans}
-    assert (
-        by_name["mcp.request"]["context"]["trace_id"]
-        == by_name["mcp.tool.execute"]["context"]["trace_id"]
-    )
-    assert (
-        by_name["mcp.tool.execute"]["context"]["parent_id"]
-        == by_name["mcp.request"]["context"]["span_id"]
-    )
-
-
-@pytest.mark.parametrize("legacy", [False, True])
-def test_legacy_span_counter_reaches_canonical_summaries(tmp_path: Path, legacy: bool) -> None:
-    metrics = tmp_path / "metrics.jsonl"
-    trace_file = tmp_path / "legacy.jsonl"
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            """
-import sys
-from observe_core import flush_metrics, flush
-from phlo.telemetry import configure
-from phlo_mcp.tracing import configure_tracing, get_tracer
-configure()
-configure_tracing(trace_file=sys.argv[1] or None)
-tracer = get_tracer()
-with tracer.start_as_current_span('mcp.request'):
-    with tracer.start_as_current_span('mcp.tool.execute'):
-        pass
-flush_metrics()
-flush()
-""",
-            str(trace_file) if legacy else "",
-        ],
-        env={
-            **os.environ,
-            "PHLO_MCP_TRACE_FILE": "",
-            "PHLO_OBSERVE_ENABLED": "true",
-            "PHLO_OBSERVE_PRETTY": "false",
-            "OBSERVE_DRAINS": "jsonl",
-            "OBSERVE_JSONL_PATH": str(metrics),
-        },
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    summaries = [
-        record["attributes"]
-        for line in metrics.read_text().splitlines()
-        if (record := json.loads(line))["event"] == "metric.summary"
-        and record["attributes"]["metric"] == "phlo.legacy.mcp_jsonl_span.uses"
-    ]
-    assert sum(summary["sum"] for summary in summaries) == (2 if legacy else 0)
-    assert sum(summary["count"] for summary in summaries) == (2 if legacy else 0)
-    assert trace_file.exists() is legacy
-    if legacy:
-        assert {span["name"] for span in load_spans(trace_file)} == {
-            "mcp.request",
-            "mcp.tool.execute",
-        }
+        health = by_name["phlo.observability.health"]["correlation"]
+        assert health["parent_span_id"] == execution["span_id"]
 
 
 @pytest.mark.parametrize("env", ["prod", "staging"])

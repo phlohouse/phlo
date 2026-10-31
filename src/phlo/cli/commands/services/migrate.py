@@ -10,7 +10,8 @@ import click
 import yaml
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
-from phlo.cli.commands.services.utils import ensure_compose_project
+from phlo.cli.commands.services.utils import ensure_phlo_dir
+from phlo.cli.output import missing_compose_file_error
 from phlo.plugins.compose.artifacts import (
     render_shared_gitignore,
     shared_artifact_files,
@@ -104,9 +105,13 @@ def migrate_cmd(dry_run: bool, includes: tuple[str, ...]) -> None:
     Shared files remain in .phlo. Secrets and overrides remain ignored. Review
     shared files for private values before committing. No Git staging is performed.
     """
-    state = ensure_compose_project()
+    # Unlike other compose commands, migrate accepts a missing .phlo/.env so a
+    # project holding only .phlo/.env.local can still move it to secrets/.env.
+    state = ensure_phlo_dir()
     project = state.parent
     base = state / "docker-compose.yml"
+    if not base.exists():
+        raise missing_compose_file_error(".phlo/docker-compose.yml")
     _regular_path(base, project)
     from phlo.cli.infrastructure.container_backend import validate_development_compose_layers
 

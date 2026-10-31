@@ -265,11 +265,7 @@
     "PHLO_MCP_HOST",
     "PHLO_MCP_HTTP_PATH",
     "PHLO_MCP_PORT",
-    "PHLO_MCP_TRACE_FILE",
     "PHLO_MCP_TRANSPORT"
-  ],
-  "packages/phlo-mcp/src/phlo_mcp/tracing.py": [
-    "PHLO_MCP_TRACE_FILE"
   ],
   "packages/phlo-openmetadata/src/phlo_openmetadata/hooks_plugin.py": [
     "PHLO_POSTGRES_MART_SCHEMA"

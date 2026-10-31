@@ -31,7 +31,7 @@ caller could spoof.
 1. **Regulated mode is an explicit deployment posture.** It is enabled with
    `PHLO_REGULATED` or `regulated: true` in `phlo.yaml`, in that order of
    precedence (`phlo.security.mode.is_regulated`). The earlier `PHLO_REGULATED_MODE`
-   variable is a deprecated fallback with a 0.19.0 removal release
+   variable and `regulated_mode` key were removed in 0.19.0
    ([ADR 0065](0065-deprecation-and-removal-schedule.md)).
 2. **Every surface has a classification.** `phlo.security.gating` and the
    [regulated surface inventory](../regulated-surface-inventory.md) place each

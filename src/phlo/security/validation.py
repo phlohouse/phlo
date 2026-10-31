@@ -689,19 +689,6 @@ def run_regulated_validation(
     return report
 
 
-def run_regulated_mode_validation(**kwargs):
-    """Deprecated: use run_regulated_validation() instead."""
-    import warnings
-
-    warnings.warn(
-        "run_regulated_mode_validation() is deprecated and will be removed in 0.19.0; "
-        "use run_regulated_validation() instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return run_regulated_validation(**kwargs)
-
-
 def _check_canonical_taxonomy(
     surface_actions: list[str] | None = None,
     surface_resource_types: list[str] | None = None,
@@ -753,19 +740,6 @@ def require_regulated_validation(
     if report.regulated_enabled and not report.passed:
         error_message = f"Regulated mode validation failed. Errors: {'; '.join(report.errors)}"
         raise RegulatedValidationError(error_message)
-
-
-def require_regulated_mode_validation(**kwargs):
-    """Deprecated: use require_regulated_validation() instead."""
-    import warnings
-
-    warnings.warn(
-        "require_regulated_mode_validation() is deprecated and will be removed in 0.19.0; "
-        "use require_regulated_validation() instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return require_regulated_validation(**kwargs)
 
 
 def _verify_compiled_rbac(report: RegulatedValidationReport) -> None:

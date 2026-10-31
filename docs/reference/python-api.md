@@ -418,7 +418,6 @@ only when the codemod is removed.
 | `TransformationPlugin` and the `phlo.plugins.transforms` plugin family | `AssetProviderPlugin` or `TransformationProviderPlugin` |
 | Dagster `IngestionEnginePlugin` | Capability specs translated by an orchestrator adapter |
 
-The regulated-mode aliases also have a 0.19.0 removal deadline.
 `TransformationProviderPlugin` and `AssetProviderPlugin` remain supported
 provider boundaries.
 
@@ -428,20 +427,14 @@ removed in 0.19.0. The [Dataset production name inventory](public-name-compatibi
 lists each replacement. Replacements describe production stages and operations,
 not jobs or publication transitions. Existing Jobs UI URLs remain supported.
 
-Compatibility-path usage counters are canonical observe metrics, with one
-sample of value `1` per use. Summing the `sum` field of `metric.summary` events
-over the observation window gives the usage count. Telemetry must be enabled
-with a configured drain; disabled or missing telemetry does not prove zero use.
+The compatibility paths below were removed in 0.19.0, together with their
+usage counters. Use the replacement.
 
-| Compatibility path | Removal release | Counter | What counts | Replacement |
-| --- | --- | --- | --- | --- |
-| `PHLO_REGULATED_MODE` | 0.19.0 | `phlo.legacy.regulated_mode_env.uses` | Each non-empty fallback read, not values overridden by canonical environment or explicit config | `PHLO_REGULATED` |
-| Legacy Dagster env files | 0.19.0 | `phlo.legacy.dagster_env_file.uses` | Each existing `.env` or `.env.local` attachment per generated Phlo-dev service, tagged by relative filename | `phlo services migrate` to `overrides/.env` and `secrets/.env` |
-| Legacy MCP JSONL tracing | 0.19.0 | `phlo.legacy.mcp_jsonl_span.uses` | Each successful debug span write, not configuration or canonical-only operations | `OBSERVE_DRAINS` or `OBSERVE_HTTP_ENDPOINT` |
-
-A release owner can remove these paths earlier after confirming zero use across
-enabled deployment telemetry. Otherwise the 0.19.0 deadline applies. MCP's
-legacy JSONL readers retire with its writer; canonical trace queries remain supported.
+| Removed compatibility path | Removed counter | Replacement |
+| --- | --- | --- |
+| `PHLO_REGULATED_MODE` environment fallback, the phlo.yaml `regulated_mode` key, and the aliases `is_regulated_mode_enabled`, `PHLO_REGULATED_MODE_ENV`, `get_regulated_mode_config`, `create_regulated_mode_bridge`, `run_regulated_mode_validation`, and `require_regulated_mode_validation` | `phlo.legacy.regulated_mode_env.uses` | `PHLO_REGULATED` or `regulated: true` in `phlo.yaml`; `is_regulated`, `PHLO_REGULATED_ENV`, `get_regulated_config`, `create_regulated_bridge`, `run_regulated_validation`, and `require_regulated_validation`. A `regulated_mode` key now fails phlo.yaml validation, and a set `PHLO_REGULATED_MODE` raises when neither `PHLO_REGULATED` nor explicit configuration decides regulated mode. |
+| Legacy Dagster `.env` and `.env.local` attachment per generated Phlo-dev service | `phlo.legacy.dagster_env_file.uses` | `phlo services migrate` to `overrides/.env` and `secrets/.env`. Generation fails while either legacy file remains; `phlo services migrate` also accepts a project that has only `.env.local`. |
+| Legacy MCP JSONL debug tracing (`--trace-file`, `PHLO_MCP_TRACE_FILE`) and its readers `load_spans` and `render_trace_tree` | `phlo.legacy.mcp_jsonl_span.uses` | `OBSERVE_DRAINS` or `OBSERVE_HTTP_ENDPOINT`. Canonical trace queries remain supported. |
 
 ## Contracts
 

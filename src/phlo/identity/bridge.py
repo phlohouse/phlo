@@ -216,22 +216,6 @@ def create_regulated_bridge(
     return IdentityBridge(config)
 
 
-def create_regulated_mode_bridge(
-    group_role_mapping: dict[str, str] | None = None,
-    canonical_rbac: CanonicalRBAC | None = None,
-) -> IdentityBridge:
-    """Deprecated: use create_regulated_bridge() instead."""
-    import warnings
-
-    warnings.warn(
-        "create_regulated_mode_bridge() is deprecated and will be removed in 0.19.0; "
-        "use create_regulated_bridge() instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return create_regulated_bridge(group_role_mapping, canonical_rbac)
-
-
 def canonicalize_principal(
     auth_principal: AuthPrincipal,
     regulated: bool = False,

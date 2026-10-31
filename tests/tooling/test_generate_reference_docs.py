@@ -256,7 +256,6 @@ def test_supported_phlo_environment_names_have_one_declaring_owner() -> None:
     assert owners["PHLO_ENVIRONMENT"] == ("phlo", "Settings", "phlo_environment")
     assert owners["PHLO_LOG_LEVEL"] == ("phlo", "Settings", "phlo_log_level")
     assert owners["PHLO_LINEAGE_DB_URL"] == ("phlo", "LineageDatabaseSettings", "lineage_db_url")
-    assert owners["PHLO_MCP_TRACE_FILE"] == ("phlo-mcp", "McpTraceSettings", "trace_file")
 
 
 def test_settings_inventory_distinguishes_inheritance_from_duplicate_declarations(

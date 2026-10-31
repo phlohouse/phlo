@@ -465,7 +465,7 @@ def test_compose_generator_injects_phlo_dev_mounts(tmp_path) -> None:
     assert dagster["environment"]["PHLO_DEV_MODE"] == "true"
 
 
-def test_compose_generator_passes_legacy_local_env_to_phlo_services(tmp_path) -> None:
+def test_compose_generator_attaches_only_shared_env_files_to_phlo_services(tmp_path) -> None:
     service = ServiceDefinition(
         name="dagster",
         description="dagster",
@@ -474,21 +474,15 @@ def test_compose_generator_passes_legacy_local_env_to_phlo_services(tmp_path) ->
         phlo_dev=True,
         compose={},
     )
-    (tmp_path / ".env.local").write_text("PHLO_SOURCE_MODE=fake\n")
     (tmp_path / ".gitignore").write_text("# Phlo shared layout v1\n")
+    generator = ComposeGenerator(cast(ServiceDiscovery, FakeDiscovery()))
 
-    compose = yaml.safe_load(
-        ComposeGenerator(cast(ServiceDiscovery, FakeDiscovery())).generate_compose(
-            services=[service],
-            output_dir=tmp_path,
-        )
-    )
+    compose = yaml.safe_load(generator.generate_compose(services=[service], output_dir=tmp_path))
 
-    assert compose["services"]["dagster"]["env_file"] == [
-        ".env.local",
-        "overrides/.env",
-        "secrets/.env",
-    ]
+    assert compose["services"]["dagster"]["env_file"] == ["overrides/.env", "secrets/.env"]
+    (tmp_path / ".env.local").write_text("PHLO_SOURCE_MODE=fake\n")
+    with pytest.raises(ValueError, match=r"\(\.env\.local\) were removed.*phlo services migrate"):
+        generator.generate_compose(services=[service], output_dir=tmp_path)
 
 
 def test_compose_generator_dev_mode_builds_phlo_services_from_source(tmp_path) -> None:

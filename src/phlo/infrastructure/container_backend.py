@@ -102,6 +102,7 @@ def validate_development_compose_layers(phlo_dir: Path) -> None:
     protected = requires_http_authorization() or any(
         source.get("PHLO_ENVIRONMENT", "").strip().lower()
         in {"prod", "production", "staging", "regulated"}
+        # The removed PHLO_REGULATED_MODE still protects, so a stale value fails closed.
         or any(
             source.get(key, "").strip().lower() in {"1", "true", "yes", "on"}
             for key in ("PHLO_REGULATED", "PHLO_REGULATED_MODE")

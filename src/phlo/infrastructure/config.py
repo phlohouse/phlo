@@ -37,9 +37,6 @@ from phlo.config.project import (
     get_regulated_config as get_regulated_config,
 )
 from phlo.config.project import (
-    get_regulated_mode_config as get_regulated_mode_config,
-)
-from phlo.config.project import (
     get_service_config as get_service_config,
 )
 from phlo.config.project import (

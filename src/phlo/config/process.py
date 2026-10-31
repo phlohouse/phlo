@@ -285,7 +285,7 @@ class CoreProcessSettings(ProjectRootProcessSettings):
     phlo_regulated_mode: str | None = Field(
         None,
         validation_alias="PHLO_REGULATED_MODE",
-        description="Deprecated regulated-mode override, removed in 0.19.0; explicit config and PHLO_REGULATED take precedence.",
+        description="Removed in 0.19.0; read only to fail closed. A non-empty value raises when PHLO_REGULATED and explicit config are absent. Use PHLO_REGULATED.",
     )
     phlo_service_credentials_file: str | None = Field(
         None,

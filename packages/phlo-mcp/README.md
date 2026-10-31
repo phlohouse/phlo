@@ -210,12 +210,10 @@ Canonical local span capture:
 OBSERVE_DRAINS=jsonl OBSERVE_JSONL_PATH=.phlo/mcp-events.jsonl phlo-mcp
 ```
 
-The legacy `--trace-file` and `PHLO_MCP_TRACE_FILE` debug drain, `load_spans`,
-and `render_trace_tree` retire in 0.19.0. Until then configuration warns once,
-and each successful debug span write records
-`phlo.legacy.mcp_jsonl_span.uses` through canonical observe telemetry.
-Sum the metric summaries' `sum` fields to count use. Disabled telemetry is
-not evidence of zero use. Canonical operation scopes and trace queries remain supported.
+The legacy `--trace-file` and `PHLO_MCP_TRACE_FILE` JSONL debug drain and its
+readers, `load_spans` and `render_trace_tree`, were removed in 0.19.0. Configure
+canonical observe drains with `OBSERVE_DRAINS` or `OBSERVE_HTTP_ENDPOINT`
+instead. Canonical operation scopes and trace queries remain supported.
 
 ## Live stack smoke
 

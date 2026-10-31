@@ -19,7 +19,7 @@ from phlo_mcp._tools_runs import _register_run_tools
 from phlo_mcp._tools_traces import _register_materialization_tools, _register_trace_tools
 from phlo_mcp.api_client import PhloApiClient
 from phlo_mcp.config import McpConfig, config_from_env
-from phlo_mcp.tracing import configure_tracing, get_tracer
+from phlo_mcp.tracing import get_tracer
 
 
 def create_server(config: McpConfig | None = None) -> FastMCP:
@@ -37,8 +37,6 @@ def create_server(config: McpConfig | None = None) -> FastMCP:
                 "outbound API requests. Bind to 127.0.0.1 (or ::1) and use an authenticated "
                 "reverse proxy for remote access."
             )
-    configure_tracing(trace_file=resolved.trace_file)
-
     mcp = FastMCP("phlo", json_response=True)
     mcp.settings.host = resolved.host
     mcp.settings.port = resolved.port

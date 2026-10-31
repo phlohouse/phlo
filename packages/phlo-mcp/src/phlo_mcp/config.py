@@ -36,27 +36,16 @@ class McpConfig:
     api_base_url: str = _DEFAULT_API_BASE_URL
     api_token: str | None = None
     enable_write_tools: bool = False
-    trace_file: str | None = None
     transport: Transport = "stdio"
     host: str = "127.0.0.1"
     port: int = 8000
     streamable_http_path: str = "/mcp"
 
 
-class McpTraceSettings(BaseSettings):
-    """Read the legacy trace destination independently of server configuration."""
+class McpSettings(BaseSettings):
+    """Resolve fresh typed MCP settings only when server configuration is requested."""
 
     model_config = SettingsConfigDict(case_sensitive=True, extra="ignore", env_file=None)
-
-    trace_file: str | None = Field(
-        None,
-        validation_alias="PHLO_MCP_TRACE_FILE",
-        description="Legacy JSONL debug drain destination; removed in 0.19.0. Explicit trace argument wins; blank disables.",
-    )
-
-
-class McpSettings(McpTraceSettings, BaseSettings):
-    """Resolve fresh typed MCP settings only when server configuration is requested."""
 
     port: int = Field(
         8000,
@@ -115,7 +104,6 @@ def config_from_env() -> McpConfig:
         api_base_url=settings.api_base_url.rstrip("/"),
         api_token=settings.api_token or None,
         enable_write_tools=settings.enable_write_tools,
-        trace_file=settings.trace_file or None,
         transport=settings.transport,
         host=settings.host,
         port=settings.port,
