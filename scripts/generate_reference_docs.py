@@ -13,6 +13,7 @@ import tempfile
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
+from importlib.metadata import distribution, packages_distributions
 from pathlib import Path
 from typing import Any
 
@@ -70,15 +71,23 @@ def cli_docs(root: Path) -> tuple[dict[str, object], str]:
         raise RuntimeError(f"Cannot load the CLI contract: {exc}") from exc
     commands = describe_commands(cli)
     concrete: dict[str, Any] = {}
+    owners: dict[str, str] = {}
+    # The editable root install records no top-level modules, so name it explicitly.
+    distributions = {"phlo": ["phlo"], **packages_distributions()}
 
-    def visit(command: Any, path: list[str]) -> None:
+    def visit(command: Any, path: list[str], owner: str) -> None:
+        """Record each command and the distribution whose module defines its callback."""
+        module = getattr(command.callback, "__module__", "")
+        owner = distributions.get(module.partition(".")[0], [owner])[0]
         concrete[" ".join(path)] = command
+        owners[" ".join(path)] = owner
         for name, child in sorted(getattr(command, "commands", {}).items()):
             if not child.hidden:
-                visit(child, [*path, name])
+                visit(child, [*path, name], owner)
 
-    visit(cli, ["phlo"])
+    visit(cli, ["phlo"], "phlo")
     for command in commands:
+        command["package"] = owners[command["command"]]
         for parameter, actual in zip(
             command["parameters"], concrete[command["command"]].params, strict=True
         ):
@@ -386,6 +395,14 @@ def support_docs(root: Path) -> tuple[dict[str, object], str]:
         "",
         "A target profile states the intended support boundary. Maturity and readiness state what is available now. Gates and blockers state what must pass before release.",
         "",
+        "## Compatibility surface inventory",
+        "",
+        "`generated/compatibility-surface.json` is the checked inventory that [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) exit criterion 10 requires for the `blessed_core` profile: CLI command paths and parameters from `blessed_core` packages, `/api/v1` methods and paths plus `/health`, `phlo.__all__`, the covered entry-point groups and the entry points that `blessed_core` packages declare in them, hook event types and the envelope version, and the configuration and run-evidence schema versions. It excludes surfaces that decision 2 does not cover, such as legacy HTTP families, non-`blessed_core` packages, and underscore-prefixed names.",
+        "",
+        "The file does not record every covered detail. HTTP schemas, status codes and authorisation actions, the CLI JSON envelope and exit status, plugin base classes, capability specifications, `service.yaml`, project layout, and the support manifest shape remain governed by their decision 2 sources of truth, so an unchanged inventory does not show that those are unchanged.",
+        "",
+        "Run `make docs-reference-generate` to regenerate it with the other references. `make docs-reference-check`, which `make check` and the CI Python lane run, fails when the file is stale. Review a diff to this file as a change to a covered surface under ADR 0053 decision 4; during the decision 6 feature freeze, an addition also needs the recorded exception that decision 6 requires.",
+        "",
     ]
     for prefix, heading in (
         ("capability:", "Capabilities"),
@@ -470,9 +487,90 @@ def topology_docs(root: Path) -> tuple[dict[str, object], str]:
     return data, "\n".join(lines) + "\n"
 
 
+def compatibility_surface(
+    root: Path, cli: Mapping[str, Any], http: Mapping[str, Any]
+) -> dict[str, object]:
+    """Project the ADR 0053 decision 2 surface of the blessed_core profile."""
+    prepare_imports(root)
+    import phlo
+    from phlo.hooks import events
+    from phlo.plugins.discovery import PLUGIN_FAMILIES
+
+    manifest = json.loads((root / "registry/support/v1.json").read_text(encoding="utf-8"))
+    packages = sorted(
+        item.removeprefix("package:")
+        for item in manifest["profiles"]["blessed_core"]["components"]
+        if item.startswith("package:")
+    )
+    commands = [
+        {
+            "command": command["command"],
+            "package": command["package"],
+            "parameters": [
+                {key: value for key, value in parameter.items() if key != "help"}
+                for parameter in command["parameters"]
+            ],
+        }
+        for command in cli["commands"]
+        if command["package"] in packages
+    ]
+    routes = [
+        f"{item['method']} {item['path']}"
+        for item in http["endpoints"]
+        if item["path"] == "/health" or item["path"].startswith("/api/v1/")
+    ]
+    groups = sorted(
+        {family.entry_point_group for family in PLUGIN_FAMILIES.values()}
+        | {"phlo.plugins.observatory", "phlo.project_templates"}
+    )
+    entry_points: dict[str, list[str]] = {group: [] for group in groups}
+    for package in packages:
+        for entry_point in distribution(package).entry_points:
+            if entry_point.group in entry_points:
+                entry_points[entry_point.group].append(
+                    f"{package}: {entry_point.name} = {entry_point.value}"
+                )
+    event_types = sorted(
+        name
+        for name, value in vars(events).items()
+        if isinstance(value, type)
+        and issubclass(value, events.HookEvent)
+        and value is not events.HookEvent
+    )
+    python_api = sorted(name for name in phlo.__all__ if not name.startswith("_"))
+    schemas = manifest["release_set"]["schemas"]
+    return {
+        "schema_version": 1,
+        "profile": "blessed_core",
+        "packages": packages,
+        "counts": {
+            "cli_commands": len(commands),
+            "http_routes": len(routes),
+            "python_api_names": len(python_api),
+            "entry_point_groups": len(groups),
+            "entry_points": sum(map(len, entry_points.values())),
+            "hook_event_types": len(event_types),
+        },
+        "cli": commands,
+        "http": routes,
+        "python_api": python_api,
+        "entry_points": {group: sorted(items) for group, items in entry_points.items()},
+        "hook_events": {
+            "envelope_version": events.EVENT_VERSION,
+            "types": event_types,
+        },
+        "schemas": {name: schemas[name]["version"] for name in ("configuration", "database")},
+    }
+
+
+def render_json(data: object) -> str:
+    return json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
 def outputs(root: Path) -> dict[Path, str]:
     destination = root / "docs/reference"
     result = {}
+    built = {}
     builders: tuple[tuple[str, Callable[[Path], tuple[dict[str, object], str]]], ...] = (
         ("cli", cli_docs),
         ("settings", settings_docs),
@@ -482,10 +580,12 @@ def outputs(root: Path) -> dict[Path, str]:
     )
     for name, builder in builders:
         data, markdown = builder(root)
+        built[name] = data
         result[destination / f"{name}.md"] = markdown
-        result[destination / "generated" / f"{name}.json"] = (
-            json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        )
+        result[destination / "generated" / f"{name}.json"] = render_json(data)
+    result[destination / "generated" / "compatibility-surface.json"] = render_json(
+        compatibility_surface(root, built["cli"], built["http-api"])
+    )
     return result
 
 

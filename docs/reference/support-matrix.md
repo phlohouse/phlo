@@ -6,6 +6,14 @@ Release `0.18.0` has `alpha` maturity. Production readiness is `false`.
 
 A target profile states the intended support boundary. Maturity and readiness state what is available now. Gates and blockers state what must pass before release.
 
+## Compatibility surface inventory
+
+`generated/compatibility-surface.json` is the checked inventory that [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) exit criterion 10 requires for the `blessed_core` profile: CLI command paths and parameters from `blessed_core` packages, `/api/v1` methods and paths plus `/health`, `phlo.__all__`, the covered entry-point groups and the entry points that `blessed_core` packages declare in them, hook event types and the envelope version, and the configuration and run-evidence schema versions. It excludes surfaces that decision 2 does not cover, such as legacy HTTP families, non-`blessed_core` packages, and underscore-prefixed names.
+
+The file does not record every covered detail. HTTP schemas, status codes and authorisation actions, the CLI JSON envelope and exit status, plugin base classes, capability specifications, `service.yaml`, project layout, and the support manifest shape remain governed by their decision 2 sources of truth, so an unchanged inventory does not show that those are unchanged.
+
+Run `make docs-reference-generate` to regenerate it with the other references. `make docs-reference-check`, which `make check` and the CI Python lane run, fails when the file is stale. Review a diff to this file as a change to a covered surface under ADR 0053 decision 4; during the decision 6 feature freeze, an addition also needs the recorded exception that decision 6 requires.
+
 ## Capabilities
 
 ### `dbt_transformations`

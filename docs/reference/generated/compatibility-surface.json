@@ -1,0 +1,7661 @@
+{
+  "cli": [
+    {
+      "command": "phlo",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "version",
+          "nargs": 1,
+          "options": [
+            "--version"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "quiet",
+          "nargs": 1,
+          "options": [
+            "--quiet"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_color",
+          "nargs": 1,
+          "options": [
+            "--no-color"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo audit",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo audit query",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "operation",
+          "nargs": 1,
+          "options": [
+            "--operation"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "since",
+          "nargs": 1,
+          "options": [
+            "--since"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo audit tail",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": 20,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "limit",
+          "nargs": 1,
+          "options": [
+            "--limit"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "since",
+          "nargs": 1,
+          "options": [
+            "--since"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo authz identity",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "api_url",
+          "nargs": 1,
+          "options": [
+            "--api-url"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": "PHLO_AUTHZ_TOKEN",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "token",
+          "nargs": 1,
+          "options": [
+            "--token"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz identity assign",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "subject",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "role_names",
+          "nargs": 1,
+          "options": [
+            "--role"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "expected_version",
+          "nargs": 1,
+          "options": [
+            "--expected-version"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer range"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "justification",
+          "nargs": 1,
+          "options": [
+            "--justification"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "operation_id",
+          "nargs": 1,
+          "options": [
+            "--operation-id"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "yes",
+          "nargs": 1,
+          "options": [
+            "--yes"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz identity members",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo authz identity permissions",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "action",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "resource_type",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "resource_id",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz identity roles",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo authz plan",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "path",
+          "nargs": 1,
+          "options": [
+            "--path"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "backend",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "development",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz revert",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "revert_ids",
+          "nargs": -1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "path",
+          "nargs": 1,
+          "options": [
+            "--path"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "backend",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "development",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz sync",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "path",
+          "nargs": 1,
+          "options": [
+            "--path"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "backend",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "development",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz validate",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "path",
+          "nargs": 1,
+          "options": [
+            "--path"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        }
+      ]
+    },
+    {
+      "command": "phlo authz verify",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "path",
+          "nargs": 1,
+          "options": [
+            "--path"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "backend",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "development",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo backfill",
+      "package": "phlo-dagster",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "asset_name",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "start_date",
+          "nargs": 1,
+          "options": [
+            "--start-date"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "end_date",
+          "nargs": 1,
+          "options": [
+            "--end-date"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "partitions",
+          "nargs": 1,
+          "options": [
+            "--partitions"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": 1,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "parallel",
+          "nargs": 1,
+          "options": [
+            "--parallel"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "resume",
+          "nargs": 1,
+          "options": [
+            "--resume"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": 0.0,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "delay",
+          "nargs": 1,
+          "options": [
+            "--delay"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "float"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo branch",
+      "package": "phlo-nessie",
+      "parameters": []
+    },
+    {
+      "command": "phlo branch create",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "branch_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "main",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "from_ref",
+          "nargs": 1,
+          "options": [
+            "--from"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo branch delete",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "branch_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo branch diff",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "source_branch",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "main",
+          "envvar": null,
+          "kind": "argument",
+          "name": "target_branch",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo branch list",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "all",
+          "nargs": 1,
+          "options": [
+            "--all"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo branch merge",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "source_branch",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "main",
+          "envvar": null,
+          "kind": "argument",
+          "name": "target_branch",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_delete_source",
+          "nargs": 1,
+          "options": [
+            "--no-delete-source"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo catalog",
+      "package": "phlo-nessie",
+      "parameters": []
+    },
+    {
+      "command": "phlo catalog describe",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "main",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "ref",
+          "nargs": 1,
+          "options": [
+            "--ref"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo catalog history",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": 10,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "limit",
+          "nargs": 1,
+          "options": [
+            "--limit"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": "main",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "ref",
+          "nargs": 1,
+          "options": [
+            "--ref"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo catalog tables",
+      "package": "phlo-nessie",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "namespace",
+          "nargs": 1,
+          "options": [
+            "--namespace"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "main",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "ref",
+          "nargs": 1,
+          "options": [
+            "--ref"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo commands",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "path",
+          "nargs": -1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo compliance",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo compliance export-evidence",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output",
+          "nargs": 1,
+          "options": [
+            "--output",
+            "-o"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "created_by",
+          "nargs": 1,
+          "options": [
+            "--created-by"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "domain",
+          "nargs": 1,
+          "options": [
+            "--domain"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "description",
+          "nargs": 1,
+          "options": [
+            "--description",
+            "-d"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "audit_records",
+          "nargs": 1,
+          "options": [
+            "--audit-records"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "signatures",
+          "nargs": 1,
+          "options": [
+            "--signatures"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "manifest",
+          "nargs": 1,
+          "options": [
+            "--manifest"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        }
+      ]
+    },
+    {
+      "command": "phlo compliance verify-evidence",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "zip_path",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "path"
+        }
+      ]
+    },
+    {
+      "command": "phlo config",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo config show",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "yaml",
+            "json"
+          ],
+          "default": "yaml",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo config upgrade",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_only",
+          "nargs": 1,
+          "options": [
+            "--plan-only"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo config validate",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo contracts",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo contracts check",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "table",
+          "nargs": 1,
+          "options": [
+            "--table"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "breaking",
+            "warning"
+          ],
+          "default": "breaking",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "fail_on",
+          "nargs": 1,
+          "options": [
+            "--fail-on"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo contracts snapshot",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "table",
+          "nargs": 1,
+          "options": [
+            "--table"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "schema_file",
+          "nargs": 1,
+          "options": [
+            "--schema-file"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "run_id",
+          "nargs": 1,
+          "options": [
+            "--run-id"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "cli",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source",
+          "nargs": 1,
+          "options": [
+            "--source"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset list",
+      "package": "phlo",
+      "parameters": [
+        {
+          "choices": [
+            "durable",
+            "memory"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "store_mode",
+          "nargs": 1,
+          "options": [
+            "--store-mode"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset migrate-overlay",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset migrate-overlay apply",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source",
+          "nargs": 1,
+          "options": [
+            "--source"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_path",
+          "nargs": 1,
+          "options": [
+            "--plan"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "digest",
+          "nargs": 1,
+          "options": [
+            "--digest"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "durable",
+            "memory"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "store_mode",
+          "nargs": 1,
+          "options": [
+            "--store-mode"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset migrate-overlay discard",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source",
+          "nargs": 1,
+          "options": [
+            "--source"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_path",
+          "nargs": 1,
+          "options": [
+            "--plan"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "digest",
+          "nargs": 1,
+          "options": [
+            "--digest"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "durable",
+            "memory"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "store_mode",
+          "nargs": 1,
+          "options": [
+            "--store-mode"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset migrate-overlay plan",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source",
+          "nargs": 1,
+          "options": [
+            "--source"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset show",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "dataset_id",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "action",
+          "nargs": 1,
+          "options": [
+            "--action"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "durable",
+            "memory"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "store_mode",
+          "nargs": 1,
+          "options": [
+            "--store-mode"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dataset transition",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "dataset_id",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "choices": [
+            "claim",
+            "promote",
+            "publish",
+            "reject",
+            "retire",
+            "review"
+          ],
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "action",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "choice"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "action_id",
+          "nargs": 1,
+          "options": [
+            "--action-id"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "expected_state",
+          "nargs": 1,
+          "options": [
+            "--expected-state"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "owner",
+          "nargs": 1,
+          "options": [
+            "--owner"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "durable",
+            "memory"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "store_mode",
+          "nargs": 1,
+          "options": [
+            "--store-mode"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dbt",
+      "package": "phlo-dbt",
+      "parameters": []
+    },
+    {
+      "command": "phlo dbt compile",
+      "package": "phlo-dbt",
+      "parameters": [
+        {
+          "default": "dev",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "target",
+          "nargs": 1,
+          "options": [
+            "--target"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "local",
+          "nargs": 1,
+          "options": [
+            "--local"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dbt publishing",
+      "package": "phlo-dbt",
+      "parameters": []
+    },
+    {
+      "command": "phlo dbt publishing scaffold",
+      "package": "phlo-dbt",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "manifest",
+          "nargs": 1,
+          "options": [
+            "--manifest"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "publishing.yaml",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": [
+            "mrt_*"
+          ],
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "select_patterns",
+          "nargs": 1,
+          "options": [
+            "--select"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source_key",
+          "nargs": 1,
+          "options": [
+            "--source"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "marts",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "physical_schema",
+          "nargs": 1,
+          "options": [
+            "--physical-schema"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "physical_schema",
+          "nargs": 1,
+          "options": [
+            "--iceberg-schema"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": true,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "logical_refs",
+          "nargs": 1,
+          "options": [
+            "--logical-refs"
+          ],
+          "required": false,
+          "secondary_options": [
+            "--physical-tables"
+          ],
+          "type": "boolean"
+        },
+        {
+          "default": "publishing",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "group",
+          "nargs": 1,
+          "options": [
+            "--group"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "asset_name",
+          "nargs": 1,
+          "options": [
+            "--asset-name"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dbt run",
+      "package": "phlo-dbt",
+      "parameters": [
+        {
+          "default": "dev",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "target",
+          "nargs": 1,
+          "options": [
+            "--target"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "select_exprs",
+          "nargs": 1,
+          "options": [
+            "--select"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "local",
+          "nargs": 1,
+          "options": [
+            "--local"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dbt test",
+      "package": "phlo-dbt",
+      "parameters": [
+        {
+          "default": "dev",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "target",
+          "nargs": 1,
+          "options": [
+            "--target"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "select_exprs",
+          "nargs": 1,
+          "options": [
+            "--select"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "local",
+          "nargs": 1,
+          "options": [
+            "--local"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo dev",
+      "package": "phlo-dagster",
+      "parameters": [
+        {
+          "default": "127.0.0.1",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "host",
+          "nargs": 1,
+          "options": [
+            "--host"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": 3000,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "port",
+          "nargs": 1,
+          "options": [
+            "--port"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": "workflows",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "workflows_path",
+          "nargs": 1,
+          "options": [
+            "--workflows-path"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo doctor",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "verbose",
+          "nargs": 1,
+          "options": [
+            "--verbose"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo env",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo env export",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "include_secrets",
+          "nargs": 1,
+          "options": [
+            "--include-secrets"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "choices": [
+            "dotenv"
+          ],
+          "default": "dotenv",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo governance",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo governance check",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "modules",
+          "nargs": 1,
+          "options": [
+            "--module"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo governance export",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "modules",
+          "nargs": 1,
+          "options": [
+            "--module"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo init",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "project_name",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": "minimal",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "template",
+          "nargs": 1,
+          "options": [
+            "--template"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "list_templates",
+          "nargs": 1,
+          "options": [
+            "--list-templates"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo logs",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "services",
+          "nargs": -1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "service_options",
+          "nargs": 1,
+          "options": [
+            "-s",
+            "--service",
+            "--package"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "follow",
+          "nargs": 1,
+          "options": [
+            "-f",
+            "--follow"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": 100,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "tail",
+          "nargs": 1,
+          "options": [
+            "-n",
+            "--tail",
+            "--lines"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer range"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "since",
+          "nargs": 1,
+          "options": [
+            "--since"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "until",
+          "nargs": 1,
+          "options": [
+            "--until"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "timestamps",
+          "nargs": 1,
+          "options": [
+            "--timestamps"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_color",
+          "nargs": 1,
+          "options": [
+            "--no-color"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo materialize",
+      "package": "phlo-dagster",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "asset_name",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "partition",
+          "nargs": 1,
+          "options": [
+            "-p",
+            "--partition"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_default_partition",
+          "nargs": 1,
+          "options": [
+            "--no-default-partition"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "select",
+          "nargs": 1,
+          "options": [
+            "--select"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_contract_refresh",
+          "nargs": 1,
+          "options": [
+            "--no-contract-refresh"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "environment",
+          "nargs": 1,
+          "options": [
+            "--environment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo metrics",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo metrics asset",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "asset_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": 10,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "runs",
+          "nargs": 1,
+          "options": [
+            "--runs"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo metrics export",
+      "package": "phlo",
+      "parameters": [
+        {
+          "choices": [
+            "json",
+            "csv",
+            "prometheus"
+          ],
+          "default": "json",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "export_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "Path"
+        },
+        {
+          "default": "24h",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "period",
+          "nargs": 1,
+          "options": [
+            "--period"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo metrics summary",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "24h",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "period",
+          "nargs": 1,
+          "options": [
+            "--period"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo migrate",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo migrate decorators-2026-05",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "path",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "path"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "check",
+          "nargs": 1,
+          "options": [
+            "--check"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "write",
+          "nargs": 1,
+          "options": [
+            "--write"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "show_diff",
+          "nargs": 1,
+          "options": [
+            "--diff"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo migrate list",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "directory",
+          "nargs": 1,
+          "options": [
+            "--directory"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        }
+      ]
+    },
+    {
+      "command": "phlo migrate run",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "spec_file",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "file"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "fmt",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo migrate status",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": 10,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "limit",
+          "nargs": 1,
+          "options": [
+            "--limit"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "fmt",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo migrate validate",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "spec_file",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "file"
+        }
+      ]
+    },
+    {
+      "command": "phlo minio",
+      "package": "phlo-minio",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "mc_args",
+          "nargs": -1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations backup",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations backup create",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "target",
+          "nargs": 1,
+          "options": [
+            "--target"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations backup verify",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backup_set",
+          "nargs": 1,
+          "options": [
+            "--backup-set"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "expected_deployment",
+          "nargs": 1,
+          "options": [
+            "--expected-deployment"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations maintenance",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations maintenance apply",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_path",
+          "nargs": 1,
+          "options": [
+            "--plan"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "confirmation_token",
+          "nargs": 1,
+          "options": [
+            "--confirmation-token"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations maintenance inventory",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations maintenance plan",
+      "package": "phlo",
+      "parameters": [
+        {
+          "choices": [
+            "compact",
+            "snapshot_expiry"
+          ],
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "operation",
+          "nargs": 1,
+          "options": [
+            "--operation"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "table",
+          "nargs": 1,
+          "options": [
+            "--table"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "main",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "ref",
+          "nargs": 1,
+          "options": [
+            "--ref"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "iceberg",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "catalog",
+          "nargs": 1,
+          "options": [
+            "--catalog"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": 1000,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "max_affected_objects",
+          "nargs": 1,
+          "options": [
+            "--max-affected-objects"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": 1073741824,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "max_affected_bytes",
+          "nargs": 1,
+          "options": [
+            "--max-affected-bytes"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations restore",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations restore apply",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_path",
+          "nargs": 1,
+          "options": [
+            "--plan"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "confirmation_token",
+          "nargs": 1,
+          "options": [
+            "--confirmation-token"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "fixture_substrate",
+          "nargs": 1,
+          "options": [
+            "--fixture-substrate"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations restore plan",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backup_set",
+          "nargs": 1,
+          "options": [
+            "--backup-set"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "target",
+          "nargs": 1,
+          "options": [
+            "--target"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations upgrade",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations upgrade apply",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_path",
+          "nargs": 1,
+          "options": [
+            "--plan"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "confirmation_token",
+          "nargs": 1,
+          "options": [
+            "--confirmation-token"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "fixture_substrate",
+          "nargs": 1,
+          "options": [
+            "--fixture-substrate"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo operations upgrade plan",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "from_version",
+          "nargs": 1,
+          "options": [
+            "--from"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "to_version",
+          "nargs": 1,
+          "options": [
+            "--to"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backup_set",
+          "nargs": 1,
+          "options": [
+            "--backup-set"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "target",
+          "nargs": 1,
+          "options": [
+            "--target"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "json",
+            "table"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin check",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "containers",
+          "nargs": 1,
+          "options": [
+            "--containers"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "remote_images",
+          "nargs": 1,
+          "options": [
+            "--remote-images"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "vulnerability_waiver_values",
+          "nargs": 1,
+          "options": [
+            "--allow-vulnerable-image"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin create",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "plugin_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "choices": [
+            "sources",
+            "source",
+            "quality",
+            "transforms",
+            "transform",
+            "service",
+            "hook",
+            "catalog",
+            "assets",
+            "resources",
+            "orchestrator"
+          ],
+          "default": "sources",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plugin_type",
+          "nargs": 1,
+          "options": [
+            "--type"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "path",
+          "nargs": 1,
+          "options": [
+            "--path"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin info",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "plugin_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "choices": [
+            "sources",
+            "source",
+            "quality",
+            "quality-providers",
+            "quality-provider",
+            "quality_provider",
+            "ingestion",
+            "ingestion-providers",
+            "ingestion-provider",
+            "ingestion_provider",
+            "transformation-providers",
+            "transformation-provider",
+            "transformation_provider",
+            "transforms",
+            "transform",
+            "service",
+            "cli",
+            "cli-commands",
+            "cli-command",
+            "cli_command",
+            "hook",
+            "assets",
+            "asset",
+            "resources",
+            "resource",
+            "orchestrator",
+            "catalog"
+          ],
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plugin_type",
+          "nargs": 1,
+          "options": [
+            "--type"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin install",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "plugin_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin list",
+      "package": "phlo",
+      "parameters": [
+        {
+          "choices": [
+            "sources",
+            "source",
+            "quality",
+            "quality-providers",
+            "quality-provider",
+            "quality_provider",
+            "ingestion",
+            "ingestion-providers",
+            "ingestion-provider",
+            "ingestion_provider",
+            "transformation-providers",
+            "transformation-provider",
+            "transformation_provider",
+            "transforms",
+            "transform",
+            "service",
+            "cli",
+            "cli-commands",
+            "cli-command",
+            "cli_command",
+            "hook",
+            "assets",
+            "asset",
+            "resources",
+            "resource",
+            "orchestrator",
+            "catalog",
+            "all"
+          ],
+          "default": "all",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plugin_type",
+          "nargs": 1,
+          "options": [
+            "--type"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "include_registry",
+          "nargs": 1,
+          "options": [
+            "--all"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin search",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "query",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "choices": [
+            "sources",
+            "source",
+            "quality",
+            "quality-providers",
+            "quality-provider",
+            "quality_provider",
+            "ingestion",
+            "ingestion-providers",
+            "ingestion-provider",
+            "ingestion_provider",
+            "transformation-providers",
+            "transformation-provider",
+            "transformation_provider",
+            "transforms",
+            "transform",
+            "service",
+            "cli",
+            "cli-commands",
+            "cli-command",
+            "cli_command",
+            "hook",
+            "assets",
+            "asset",
+            "resources",
+            "resource",
+            "orchestrator",
+            "catalog"
+          ],
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plugin_type",
+          "nargs": 1,
+          "options": [
+            "--type"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "tags",
+          "nargs": 1,
+          "options": [
+            "--tag"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo plugin update",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo postgres",
+      "package": "phlo-postgres",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "postgres_args",
+          "nargs": -1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema",
+      "package": "phlo-pandera",
+      "parameters": []
+    },
+    {
+      "command": "phlo schema diff",
+      "package": "phlo-pandera",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "schema_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "HEAD~1",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "old",
+          "nargs": 1,
+          "options": [
+            "--old"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "text",
+            "json"
+          ],
+          "default": "text",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema generate",
+      "package": "phlo-pandera",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "from_ref",
+          "nargs": 1,
+          "options": [
+            "--from"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "domain",
+          "nargs": 1,
+          "options": [
+            "--domain"
+          ],
+          "required": true,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "table_name",
+          "nargs": 1,
+          "options": [
+            "--table"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "class_name",
+          "nargs": 1,
+          "options": [
+            "--class"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "partition_date",
+          "nargs": 1,
+          "options": [
+            "--partition-date"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": 200,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "max_records",
+          "nargs": 1,
+          "options": [
+            "--max-records"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "out_path",
+          "nargs": 1,
+          "options": [
+            "--out"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "update",
+          "nargs": 1,
+          "options": [
+            "--update"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "overwrite",
+          "nargs": 1,
+          "options": [
+            "--overwrite"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema list",
+      "package": "phlo-pandera",
+      "parameters": [
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "domain",
+          "nargs": 1,
+          "options": [
+            "--domain"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "format",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema show",
+      "package": "phlo-pandera",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "schema_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "iceberg",
+          "nargs": 1,
+          "options": [
+            "--iceberg"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema validate",
+      "package": "phlo-pandera",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "schema_path",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate apply",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "schema_class",
+          "nargs": 1,
+          "options": [
+            "--schema-class"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "migration_file",
+          "nargs": 1,
+          "options": [
+            "--migration-file"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "rename",
+          "nargs": 1,
+          "options": [
+            "--rename"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "yes",
+          "nargs": 1,
+          "options": [
+            "--yes"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate diff",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "schema_class",
+          "nargs": 1,
+          "options": [
+            "--schema-class"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "migration_file",
+          "nargs": 1,
+          "options": [
+            "--migration-file"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "rename",
+          "nargs": 1,
+          "options": [
+            "--rename"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "fmt",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate export-contract",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "schema_class",
+          "nargs": 1,
+          "options": [
+            "--schema-class"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_path",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate history",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": 10,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "limit",
+          "nargs": 1,
+          "options": [
+            "--limit"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "fmt",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate plan",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "schema_class",
+          "nargs": 1,
+          "options": [
+            "--schema-class"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "migration_file",
+          "nargs": 1,
+          "options": [
+            "--migration-file"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "rename",
+          "nargs": 1,
+          "options": [
+            "--rename"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "table",
+            "json"
+          ],
+          "default": "table",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "fmt",
+          "nargs": 1,
+          "options": [
+            "--format"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate scaffold-yaml",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "table_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "contract_path",
+          "nargs": 1,
+          "options": [
+            "--from-contract"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_path",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo schema-migrate scaffold-yaml-recent",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": 24,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "since_hours",
+          "nargs": 1,
+          "options": [
+            "--since-hours"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "limit",
+          "nargs": 1,
+          "options": [
+            "--limit"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo services",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo services add",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "service_name",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "profiles",
+          "nargs": 1,
+          "options": [
+            "--profile"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "services",
+          "nargs": 1,
+          "options": [
+            "--service"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_start",
+          "nargs": 1,
+          "options": [
+            "--no-start"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo services exec",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "service_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "command",
+          "nargs": -1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "tty",
+          "nargs": 1,
+          "options": [
+            "--tty"
+          ],
+          "required": false,
+          "secondary_options": [
+            "--no-tty"
+          ],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo services init",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "force",
+          "nargs": 1,
+          "options": [
+            "--force"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "project_name",
+          "nargs": 1,
+          "options": [
+            "--name"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dev",
+          "nargs": 1,
+          "options": [
+            "--dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_dev",
+          "nargs": 1,
+          "options": [
+            "--no-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "phlo_source",
+          "nargs": 1,
+          "options": [
+            "--phlo-source"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "service_dev",
+          "nargs": 1,
+          "options": [
+            "--service-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "production",
+          "nargs": 1,
+          "options": [
+            "--production"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "publish_all_interfaces",
+          "nargs": 1,
+          "options": [
+            "--publish-all-interfaces"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "allow_insecure",
+          "nargs": 1,
+          "options": [
+            "--allow-insecure"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "profiles",
+          "nargs": 1,
+          "options": [
+            "--profile"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo services list",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "show_all",
+          "nargs": 1,
+          "options": [
+            "--all"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo services logs",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "services",
+          "nargs": -1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "service_options",
+          "nargs": 1,
+          "options": [
+            "-s",
+            "--service",
+            "--package"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "follow",
+          "nargs": 1,
+          "options": [
+            "-f",
+            "--follow"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": 100,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "tail",
+          "nargs": 1,
+          "options": [
+            "-n",
+            "--tail",
+            "--lines"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer range"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "since",
+          "nargs": 1,
+          "options": [
+            "--since"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "until",
+          "nargs": 1,
+          "options": [
+            "--until"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "timestamps",
+          "nargs": 1,
+          "options": [
+            "--timestamps"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "no_color",
+          "nargs": 1,
+          "options": [
+            "--no-color"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo services migrate",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "includes",
+          "nargs": 1,
+          "options": [
+            "--include"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo services ports",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "show_all",
+          "nargs": 1,
+          "options": [
+            "--all"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo services preflight",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "production",
+          "nargs": 1,
+          "options": [
+            "--production"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "as_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_path",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "file"
+        }
+      ]
+    },
+    {
+      "command": "phlo services remove",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "service_name",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "keep_running",
+          "nargs": 1,
+          "options": [
+            "--keep-running"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo services reset",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "service",
+          "nargs": 1,
+          "options": [
+            "--service"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "yes",
+          "nargs": 1,
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "non_interactive",
+          "nargs": 1,
+          "options": [
+            "--non-interactive"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo services restart",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "build",
+          "nargs": 1,
+          "options": [
+            "--build"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "profile",
+          "nargs": 1,
+          "options": [
+            "--profile"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "service",
+          "nargs": 1,
+          "options": [
+            "--service"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dev",
+          "nargs": 1,
+          "options": [
+            "--dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo services start",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": true,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "detach",
+          "nargs": 1,
+          "options": [
+            "-d",
+            "--detach"
+          ],
+          "required": false,
+          "secondary_options": [
+            "--no-detach"
+          ],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "build",
+          "nargs": 1,
+          "options": [
+            "--build"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "profile",
+          "nargs": 1,
+          "options": [
+            "--profile"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "service",
+          "nargs": 1,
+          "options": [
+            "--service"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "native",
+          "nargs": 1,
+          "options": [
+            "--native"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo services status",
+      "package": "phlo",
+      "parameters": [
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "service",
+          "nargs": 1,
+          "options": [
+            "--service"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo services stop",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "volumes",
+          "nargs": 1,
+          "options": [
+            "-v",
+            "--volumes"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "stop_native",
+          "nargs": 1,
+          "options": [
+            "--native"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "profile",
+          "nargs": 1,
+          "options": [
+            "--profile"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "service",
+          "nargs": 1,
+          "options": [
+            "--service"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "docker",
+            "podman",
+            "auto"
+          ],
+          "default": null,
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "backend_name",
+          "nargs": 1,
+          "options": [
+            "--backend"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        }
+      ]
+    },
+    {
+      "command": "phlo services upgrade",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "dry_run",
+          "nargs": 1,
+          "options": [
+            "--dry-run"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "output",
+          "nargs": 1,
+          "options": [
+            "--output"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "plan_path",
+          "nargs": 1,
+          "options": [
+            "--apply"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "path"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "confirm",
+          "nargs": 1,
+          "options": [
+            "--confirm"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "previous_generated",
+          "nargs": 1,
+          "options": [
+            "--previous-generated"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "directory"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "production",
+          "nargs": 1,
+          "options": [
+            "--production"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "observatory_dev",
+          "nargs": 1,
+          "options": [
+            "--observatory-dev"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "repair_empty_api_binds",
+          "nargs": 1,
+          "options": [
+            "--repair-empty-api-binds"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "allow_insecure",
+          "nargs": 1,
+          "options": [
+            "--allow-insecure"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo status",
+      "package": "phlo-dagster",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "assets",
+          "nargs": 1,
+          "options": [
+            "--assets"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "services",
+          "nargs": 1,
+          "options": [
+            "--services"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "group",
+          "nargs": 1,
+          "options": [
+            "--group"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "stale",
+          "nargs": 1,
+          "options": [
+            "--stale"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo support",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo support status",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo test",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "asset_name",
+          "nargs": 1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "local",
+          "nargs": 1,
+          "options": [
+            "--local"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "coverage",
+          "nargs": 1,
+          "options": [
+            "--coverage"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "verbose",
+          "nargs": 1,
+          "options": [
+            "-v",
+            "--verbose"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "marker",
+          "nargs": 1,
+          "options": [
+            "-m",
+            "--marker"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo trino",
+      "package": "phlo-trino",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "trino_args",
+          "nargs": -1,
+          "options": [],
+          "required": false,
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "command": "phlo validate-schema",
+      "package": "phlo-pandera",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "schema_file",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "file"
+        },
+        {
+          "default": true,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "check_constraints",
+          "nargs": 1,
+          "options": [
+            "--check-constraints"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        },
+        {
+          "default": true,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "check_descriptions",
+          "nargs": 1,
+          "options": [
+            "--check-descriptions"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo validate-workflow",
+      "package": "phlo-pandera",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "asset_file",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "path"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "fix",
+          "nargs": 1,
+          "options": [
+            "--fix"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo workflow",
+      "package": "phlo",
+      "parameters": []
+    },
+    {
+      "command": "phlo workflow check",
+      "package": "phlo",
+      "parameters": [
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "kind": "argument",
+          "name": "workflow_file",
+          "nargs": 1,
+          "options": [],
+          "required": true,
+          "type": "file"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "command": "phlo workflow create",
+      "package": "phlo",
+      "parameters": [
+        {
+          "choices": [
+            "ingestion"
+          ],
+          "default": "ingestion",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "workflow_type",
+          "nargs": 1,
+          "options": [
+            "--type"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "domain",
+          "nargs": 1,
+          "options": [
+            "--domain"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "table",
+          "nargs": 1,
+          "options": [
+            "--table"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "unique_key",
+          "nargs": 1,
+          "options": [
+            "--unique-key"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "0 */1 * * *",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "cron",
+          "nargs": 1,
+          "options": [
+            "--cron"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "api_base_url",
+          "nargs": 1,
+          "options": [
+            "--api-base-url"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "fields",
+          "nargs": 1,
+          "options": [
+            "--field"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "provider",
+          "nargs": 1,
+          "options": [
+            "--provider"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "text"
+        },
+        {
+          "choices": [
+            "rest-api",
+            "partitioned-sql"
+          ],
+          "default": "rest-api",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "source_kind",
+          "nargs": 1,
+          "options": [
+            "--source-kind"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "choice"
+        },
+        {
+          "default": false,
+          "envvar": null,
+          "is_flag": true,
+          "kind": "option",
+          "multiple": false,
+          "name": "output_json",
+          "nargs": 1,
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "boolean"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "cli_commands": 135,
+    "entry_point_groups": 15,
+    "entry_points": 46,
+    "hook_event_types": 11,
+    "http_routes": 166,
+    "python_api_names": 65
+  },
+  "entry_points": {
+    "phlo.plugins.assets": [
+      "phlo-dbt: dbt = phlo_dbt.plugin:DbtAssetProvider",
+      "phlo-dlt: dlt = phlo_dlt.plugin:DltAssetProvider"
+    ],
+    "phlo.plugins.catalogs": [
+      "phlo-nessie: iceberg = phlo_nessie.adapters.trino:TrinoNessieIcebergCatalogPlugin",
+      "phlo-nessie: iceberg_dev = phlo_nessie.adapters.trino:TrinoNessieIcebergDevCatalogPlugin"
+    ],
+    "phlo.plugins.cli": [
+      "phlo-dagster: dagster = phlo_dagster.cli_plugin:DagsterCliPlugin",
+      "phlo-dbt: dbt = phlo_dbt.cli_plugin:DbtCliPlugin",
+      "phlo-dlt: dlt = phlo_dlt.cli_plugin:DltCliPlugin",
+      "phlo-minio: minio = phlo_minio.cli_plugin:MinioCliPlugin",
+      "phlo-nessie: nessie = phlo_nessie.cli_plugin:NessieCliPlugin",
+      "phlo-pandera: pandera = phlo_pandera.cli_plugin:PanderaCliPlugin",
+      "phlo-postgres: postgres = phlo_postgres.cli_plugin:PostgresCliPlugin",
+      "phlo-trino: trino = phlo_trino.cli_plugin:TrinoCliPlugin"
+    ],
+    "phlo.plugins.hooks": [
+      "phlo-observe-plugin: observe = phlo_observe_plugin.hooks_plugin:ObserveHookPlugin"
+    ],
+    "phlo.plugins.ingestion_providers": [
+      "phlo-dlt: dlt = phlo_dlt.plugin:DLTIngestionProvider"
+    ],
+    "phlo.plugins.observatory": [
+      "phlo-dagster: dagster = phlo_dagster.observatory_plugin:DagsterObservatoryExtension",
+      "phlo-nessie: nessie = phlo_nessie.observatory_plugin:NessieObservatoryExtension",
+      "phlo-pandera: pandera = phlo_pandera.observatory_plugin:PanderaObservatoryExtension",
+      "phlo-trino: trino = phlo_trino.observatory_plugin:TrinoObservatoryExtension"
+    ],
+    "phlo.plugins.orchestrators": [
+      "phlo-dagster: dagster = phlo_dagster.adapter:DagsterOrchestratorAdapter"
+    ],
+    "phlo.plugins.quality": [
+      "phlo-core-plugins: freshness_check = phlo_core.quality.freshness_check:FreshnessCheckPlugin",
+      "phlo-core-plugins: null_check = phlo_core.quality.null_check:NullCheckPlugin",
+      "phlo-core-plugins: schema_check = phlo_core.quality.schema_check:SchemaCheckPlugin",
+      "phlo-core-plugins: uniqueness_check = phlo_core.quality.uniqueness_check:UniquenessCheckPlugin"
+    ],
+    "phlo.plugins.quality_providers": [
+      "phlo-pandera: pandera = phlo_pandera.plugin:PanderaQualityProvider"
+    ],
+    "phlo.plugins.resources": [
+      "phlo-iceberg: iceberg = phlo_iceberg.plugin:IcebergResourceProvider",
+      "phlo-minio: minio = phlo_minio.plugin:MinioResourceProvider",
+      "phlo-nessie: nessie = phlo_nessie.resource_provider:NessieResourceProvider",
+      "phlo-postgres: postgres = phlo_postgres.plugin:PostgresResourceProvider",
+      "phlo-trino: trino = phlo_trino.plugin:TrinoResourceProvider"
+    ],
+    "phlo.plugins.services": [
+      "phlo-api: phlo-api = phlo_api.plugin:PhloApiServicePlugin",
+      "phlo-dagster: dagster = phlo_dagster.plugin:DagsterServicePlugin",
+      "phlo-dagster: dagster-daemon = phlo_dagster.plugin:DagsterDaemonServicePlugin",
+      "phlo-minio: minio = phlo_minio.plugin:MinioServicePlugin",
+      "phlo-minio: minio-setup = phlo_minio.plugin:MinioSetupServicePlugin",
+      "phlo-nessie: nessie = phlo_nessie.plugin:NessieServicePlugin",
+      "phlo-observatory: observatory = phlo_observatory.plugin:ObservatoryServicePlugin",
+      "phlo-observe-plugin: phlo-observer = phlo_observe_plugin.plugin:PhloObserverServicePlugin",
+      "phlo-observe-plugin: phlo-observer-db-setup = phlo_observe_plugin.plugin:PhloObserverDbSetupPlugin",
+      "phlo-postgres: postgres = phlo_postgres.plugin:PostgresServicePlugin",
+      "phlo-postgres: postgres-exporter = phlo_postgres.plugin:PostgresExporterServicePlugin",
+      "phlo-postgres: postgres-volume-setup = phlo_postgres.plugin:PostgresVolumeSetupServicePlugin",
+      "phlo-trino: trino = phlo_trino.plugin:TrinoServicePlugin"
+    ],
+    "phlo.plugins.sources": [
+      "phlo-core-plugins: rest_api = phlo_core.sources.rest_api:RestAPIPlugin"
+    ],
+    "phlo.plugins.transformation_providers": [
+      "phlo-dbt: dbt = phlo_dbt.plugin:DbtTransformationProvider"
+    ],
+    "phlo.plugins.transforms": [],
+    "phlo.project_templates": [
+      "phlo-dbt: dbt = phlo_dbt.templates:templates",
+      "phlo-dlt: dlt = phlo_dlt.templates:templates"
+    ]
+  },
+  "hook_events": {
+    "envelope_version": "1.0",
+    "types": [
+      "DataMigrationEvent",
+      "IngestionEvent",
+      "LineageEvent",
+      "LogEvent",
+      "PublishEvent",
+      "QualityResultEvent",
+      "RunEvidenceObservationEvent",
+      "SchemaMigrationEvent",
+      "ServiceLifecycleEvent",
+      "TelemetryEvent",
+      "TransformEvent"
+    ]
+  },
+  "http": [
+    "GET /api/v1/action-availability",
+    "GET /api/v1/activity",
+    "GET /api/v1/admin/audit/export",
+    "GET /api/v1/admin/audit/records",
+    "GET /api/v1/admin/audit/verify",
+    "GET /api/v1/admin/invitations",
+    "POST /api/v1/admin/invitations",
+    "GET /api/v1/admin/members",
+    "PATCH /api/v1/admin/members/{subject}/roles",
+    "GET /api/v1/admin/permissions",
+    "GET /api/v1/admin/roles",
+    "GET /api/v1/admin/service-accounts",
+    "POST /api/v1/admin/service-accounts",
+    "DELETE /api/v1/admin/service-accounts/{subject}",
+    "GET /api/v1/admin/settings",
+    "PUT /api/v1/admin/settings",
+    "GET /api/v1/assets",
+    "GET /api/v1/assets/{asset_id}",
+    "POST /api/v1/assets/{asset_id}/audits",
+    "GET /api/v1/assets/{asset_id}/audits/{proposal_id}",
+    "POST /api/v1/assets/{asset_id}/audits/{proposal_id}/pull-request",
+    "POST /api/v1/assets/{asset_id}/audits/{proposal_id}/test",
+    "POST /api/v1/assets/{asset_id}/backfill",
+    "GET /api/v1/assets/{asset_id}/checks",
+    "GET /api/v1/assets/{asset_id}/incident-policy",
+    "PUT /api/v1/assets/{asset_id}/incident-policy",
+    "GET /api/v1/assets/{asset_id}/materialization-estimate",
+    "POST /api/v1/assets/{asset_id}/materialize",
+    "GET /api/v1/assets/{asset_id}/preview",
+    "GET /api/v1/assets/{asset_id}/query-usage",
+    "POST /api/v1/assets/{asset_id}/row-count",
+    "GET /api/v1/assets/{asset_id}/runs",
+    "GET /api/v1/assets/{asset_id}/usage",
+    "POST /api/v1/authoring/schemas/validate",
+    "POST /api/v1/authoring/workflows",
+    "POST /api/v1/authoring/workflows/validate",
+    "GET /api/v1/branches",
+    "POST /api/v1/branches",
+    "GET /api/v1/branches/refs",
+    "DELETE /api/v1/branches/{branch_name}",
+    "GET /api/v1/branches/{branch_name}",
+    "POST /api/v1/branches/{branch_name}/checks",
+    "GET /api/v1/branches/{branch_name}/commits",
+    "GET /api/v1/branches/{branch_name}/compare",
+    "GET /api/v1/branches/{branch_name}/diff",
+    "POST /api/v1/branches/{branch_name}/merge",
+    "POST /api/v1/branches/{branch_name}/rebase",
+    "GET /api/v1/branches/{branch_name}/schema-diff",
+    "POST /api/v1/branches/{branch_name}/trial-merge",
+    "GET /api/v1/data-products",
+    "POST /api/v1/data-products",
+    "GET /api/v1/data-products/{product_id}",
+    "PUT /api/v1/data-products/{product_id}",
+    "POST /api/v1/data-products/{product_id}/archive",
+    "GET /api/v1/data-products/{product_id}/export",
+    "POST /api/v1/data-products/{product_id}/reclaim",
+    "POST /api/v1/data-products/{product_id}/restore",
+    "GET /api/v1/datasets",
+    "GET /api/v1/environments",
+    "GET /api/v1/events",
+    "GET /api/v1/incident-policies",
+    "GET /api/v1/incidents",
+    "POST /api/v1/incidents",
+    "GET /api/v1/incidents/stats",
+    "GET /api/v1/incidents/{incident_id}",
+    "PATCH /api/v1/incidents/{incident_id}",
+    "GET /api/v1/incidents/{incident_id}/follow-ups",
+    "POST /api/v1/incidents/{incident_id}/follow-ups",
+    "PATCH /api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}",
+    "GET /api/v1/incidents/{incident_id}/schema-decisions",
+    "POST /api/v1/incidents/{incident_id}/schema-decisions",
+    "GET /api/v1/incidents/{incident_id}/subscriptions",
+    "PUT /api/v1/incidents/{incident_id}/subscriptions",
+    "GET /api/v1/incidents/{incident_id}/timeline",
+    "POST /api/v1/invitations/accept",
+    "GET /api/v1/jobs",
+    "GET /api/v1/jobs/{job_id}",
+    "POST /api/v1/jobs/{job_id}/launch",
+    "GET /api/v1/jobs/{job_id}/patterns",
+    "GET /api/v1/jobs/{job_id}/schedules",
+    "GET /api/v1/jobs/{job_id}/summary",
+    "GET /api/v1/layers",
+    "GET /api/v1/loads",
+    "GET /api/v1/maintenance-windows",
+    "GET /api/v1/me",
+    "GET /api/v1/metric-models",
+    "POST /api/v1/metric-models",
+    "GET /api/v1/metric-models/{model_id}",
+    "PUT /api/v1/metric-models/{model_id}",
+    "POST /api/v1/metric-models/{model_id}/archive",
+    "GET /api/v1/metric-models/{model_id}/export",
+    "POST /api/v1/metric-models/{model_id}/preview-sql",
+    "POST /api/v1/metric-models/{model_id}/reclaim",
+    "POST /api/v1/metric-models/{model_id}/restore",
+    "GET /api/v1/notifications",
+    "PUT /api/v1/notifications/read-state",
+    "GET /api/v1/overview",
+    "GET /api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
+    "POST /api/v1/queries",
+    "POST /api/v1/queries/explain",
+    "GET /api/v1/queries/history",
+    "GET /api/v1/queries/saved",
+    "POST /api/v1/queries/saved",
+    "DELETE /api/v1/queries/saved/{query_id}",
+    "PUT /api/v1/queries/saved/{query_id}",
+    "GET /api/v1/queries/{query_id}",
+    "POST /api/v1/queries/{query_id}/cancel",
+    "GET /api/v1/queries/{query_id}/csv",
+    "GET /api/v1/query/catalog",
+    "GET /api/v1/query/engines",
+    "GET /api/v1/query/refs",
+    "GET /api/v1/readiness",
+    "GET /api/v1/runs",
+    "GET /api/v1/runs/{run_id}",
+    "POST /api/v1/runs/{run_id}/cancel",
+    "GET /api/v1/runs/{run_id}/logs",
+    "POST /api/v1/runs/{run_id}/retry",
+    "GET /api/v1/runs/{run_id}/timeline",
+    "GET /api/v1/schedules",
+    "POST /api/v1/schedules/{schedule_id}/{action}",
+    "GET /api/v1/services",
+    "GET /api/v1/signatures",
+    "POST /api/v1/signatures",
+    "GET /api/v1/sources",
+    "GET /api/v1/staging/promotions",
+    "POST /api/v1/staging/promotions",
+    "GET /api/v1/staging/promotions/candidate",
+    "POST /api/v1/staging/promotions/candidate/checks",
+    "POST /api/v1/staging/resync",
+    "POST /api/v1/tables/{table_name}/rollback",
+    "GET /api/v1/tables/{table_name}/schema-history",
+    "GET /api/v1/tables/{table_name}/snapshots",
+    "GET /api/v1/transform",
+    "GET /api/v1/transform/models/{model_id}/drafts",
+    "POST /api/v1/transform/models/{model_id}/drafts",
+    "GET /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}",
+    "POST /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/archive",
+    "GET /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compare",
+    "POST /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compile",
+    "GET /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions",
+    "POST /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions",
+    "GET /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}",
+    "POST /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/archive",
+    "GET /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/preview",
+    "POST /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim",
+    "POST /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reconcile",
+    "GET /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/handoff",
+    "POST /api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim",
+    "GET /api/v1/transform/models/{model_id}/source",
+    "POST /api/v1/trino/query-completed",
+    "GET /api/v1/uploads/csv",
+    "POST /api/v1/uploads/csv",
+    "GET /api/v1/uploads/csv/{upload_id}",
+    "POST /api/v1/uploads/csv/{upload_id}/archive",
+    "GET /api/v1/uploads/csv/{upload_id}/candidate",
+    "GET /api/v1/uploads/csv/{upload_id}/candidate/handoff",
+    "POST /api/v1/uploads/csv/{upload_id}/candidate/load",
+    "POST /api/v1/uploads/csv/{upload_id}/candidate/plan",
+    "GET /api/v1/uploads/csv/{upload_id}/candidate/preview",
+    "POST /api/v1/uploads/csv/{upload_id}/candidate/reconcile",
+    "GET /api/v1/uploads/csv/{upload_id}/candidate/review",
+    "PUT /api/v1/uploads/csv/{upload_id}/columns",
+    "POST /api/v1/uploads/csv/{upload_id}/destination",
+    "POST /api/v1/uploads/csv/{upload_id}/reclaim",
+    "GET /api/v1/wap/runs",
+    "GET /health"
+  ],
+  "packages": [
+    "phlo",
+    "phlo-api",
+    "phlo-core-plugins",
+    "phlo-dagster",
+    "phlo-dbt",
+    "phlo-dlt",
+    "phlo-iceberg",
+    "phlo-minio",
+    "phlo-nessie",
+    "phlo-observatory",
+    "phlo-observe-plugin",
+    "phlo-pandera",
+    "phlo-postgres",
+    "phlo-trino"
+  ],
+  "profile": "blessed_core",
+  "python_api": [
+    "AggregateConsistencyCheck",
+    "AggregateSpec",
+    "ChecksumReconciliationCheck",
+    "Consumer",
+    "CountCheck",
+    "CustomSQLCheck",
+    "FreshnessCheck",
+    "KeyParityCheck",
+    "LogicalRelation",
+    "MultiAggregateConsistencyCheck",
+    "NullCheck",
+    "PANDERA_CONTRACT_CHECK_NAME",
+    "PatternCheck",
+    "QualityCheck",
+    "QualityCheckContract",
+    "RangeCheck",
+    "ReconciliationCheck",
+    "SLA",
+    "SchemaCheck",
+    "UniqueCheck",
+    "accepted_values",
+    "access",
+    "backfill",
+    "clear_access_policies",
+    "clear_backfill_assets",
+    "clear_contract_specs",
+    "clear_flow_declarations",
+    "clear_observe_assets",
+    "clear_publish_assets",
+    "clear_quality_checks",
+    "clear_schedules",
+    "contract",
+    "dbt_check_name",
+    "export",
+    "freshness",
+    "get_access_policies",
+    "get_backfill_assets",
+    "get_contract_specs",
+    "get_ingestion_assets",
+    "get_observe_assets",
+    "get_publish_assets",
+    "get_quality_checks",
+    "get_schedules",
+    "grain",
+    "helpers",
+    "ingest",
+    "ingestion",
+    "metrics",
+    "not_null",
+    "observe",
+    "phlo_ingestion",
+    "phlo_quality",
+    "publish",
+    "quality",
+    "quote_identifier",
+    "range_between",
+    "read_dataframe",
+    "reconcile_aggregate",
+    "ref",
+    "schedule",
+    "settings",
+    "source",
+    "synthetic_key",
+    "transform",
+    "unique"
+  ],
+  "schema_version": 1,
+  "schemas": {
+    "configuration": "1",
+    "database": "5"
+  }
+}

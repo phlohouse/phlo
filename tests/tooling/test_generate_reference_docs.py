@@ -79,6 +79,56 @@ def test_live_inventories_are_internally_consistent() -> None:
     assert ("GET", "/health") in endpoint_keys
 
 
+def test_compatibility_surface_covers_only_blessed_core_surfaces() -> None:
+    """ADR 0053 decision 2 excludes preview/optional packages and legacy HTTP families."""
+    cli, _ = generator.cli_docs(ROOT)
+    http, _ = generator.http_docs(ROOT)
+    surface = generator.compatibility_surface(ROOT, cli, http)
+
+    owners = {item["command"]: item["package"] for item in cli["commands"]}
+    covered = {item["command"]: item["package"] for item in surface["cli"]}
+    # Plugin-contributed commands are attributed to their distribution, not to phlo.
+    assert (owners["phlo dev"], owners["phlo mcp serve"], owners["phlo sling run"]) == (
+        "phlo-dagster",
+        "phlo-mcp",
+        "phlo-sling",
+    )
+    assert covered["phlo init"] == "phlo" and covered["phlo dev"] == "phlo-dagster"
+    assert not {"phlo mcp", "phlo sling", "phlo transform"} & covered.keys()
+    assert all(
+        "help" not in parameter for item in surface["cli"] for parameter in item["parameters"]
+    )
+
+    assert "GET /health" in surface["http"]
+    assert any(
+        route.startswith("GET /api/observatory/")
+        for route in (f"{item['method']} {item['path']}" for item in http["endpoints"])
+    )
+    assert all(
+        route == "GET /health" or route.split(" ", 1)[1].startswith("/api/v1/")
+        for route in surface["http"]
+    )
+
+    entry_points = surface["entry_points"]
+    # phlo-observe-plugin declares phlo.plugins.dagster, which decision 2 does not list.
+    assert "phlo.plugins.dagster" not in entry_points
+    assert entry_points["phlo.project_templates"] == [
+        "phlo-dbt: dbt = phlo_dbt.templates:templates",
+        "phlo-dlt: dlt = phlo_dlt.templates:templates",
+    ]
+    assert "phlo.plugins.observatory" in entry_points and "phlo.plugins.hooks" in entry_points
+
+    import phlo
+
+    # Underscore-prefixed names, including __version__, are outside decision 2.
+    assert "__version__" not in surface["python_api"]
+    assert surface["python_api"] == sorted(name for name in phlo.__all__ if name[0] != "_")
+    manifest = json.loads((ROOT / "registry/support/v1.json").read_text(encoding="utf-8"))
+    assert surface["schemas"] == {
+        name: item["version"] for name, item in manifest["release_set"]["schemas"].items()
+    }
+
+
 @pytest.mark.parametrize("mutation", ["identity", "port", "dependency"])
 def test_service_manifest_disagreement_fails_read_only_projection_check(
     tmp_path: Path,
