@@ -165,7 +165,6 @@ def _observatory_dev_preflight(
             "reason_code": "development_only",
             "passed": not production
             and not model.regulated
-            and not model.regulated_mode
             and environment in {"dev", "development", "local", "test"},
             "message": "Use only a development deployment with loopback UI/API ports.",
         }

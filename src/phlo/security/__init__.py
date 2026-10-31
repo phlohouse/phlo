@@ -25,7 +25,7 @@ from phlo.security.gating import (
     is_service_allowed,
     validate_service_selection,
 )
-from phlo.security.mode import is_regulated, is_regulated_mode_enabled
+from phlo.security.mode import is_regulated
 from phlo.security.production_preflight import (
     ProductionReadinessCheck,
     ProductionReadinessCheckId,
@@ -39,9 +39,7 @@ from phlo.security.validation import (
     RegulatedModeValidationReport,
     RegulatedValidationError,
     RegulatedValidationReport,
-    require_regulated_mode_validation,
     require_regulated_validation,
-    run_regulated_mode_validation,
     run_regulated_validation,
 )
 
@@ -65,13 +63,10 @@ __all__ = [
     "get_approved_services",
     "get_blocked_services",
     "is_regulated",
-    "is_regulated_mode_enabled",
     "is_service_allowed",
     "load_effective_environment",
-    "require_regulated_mode_validation",
     "require_regulated_validation",
     "run_production_readiness",
-    "run_regulated_mode_validation",
     "run_regulated_validation",
     "validate_service_selection",
 ]

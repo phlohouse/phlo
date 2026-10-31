@@ -7,13 +7,9 @@ setting to determine whether regulated mode is active.
 from __future__ import annotations
 
 from phlo.config.process import get_process_settings
-from phlo.logging_context import get_logger
-from phlo.telemetry import metric
-
-logger = get_logger(__name__)
 
 PHLO_REGULATED_ENV = "PHLO_REGULATED"
-_PHLO_REGULATED_MODE_ENV_DEPRECATED = "PHLO_REGULATED_MODE"
+_REMOVED_REGULATED_MODE_ENV = "PHLO_REGULATED_MODE"
 
 PHLO_ENVIRONMENT_ENV = "PHLO_ENVIRONMENT"
 # Environments that require HTTP authorization independently of regulated
@@ -42,8 +38,8 @@ def requires_http_authorization() -> bool:
 def is_regulated(config_regulated: bool | None = None) -> bool:
     """Return whether regulated mode is enabled, resolving in precedence order:
     PHLO_REGULATED env var, then config_regulated from phlo.yaml, then the
-    deprecated PHLO_REGULATED_MODE env var, then the config file default,
-    otherwise False."""
+    config file default, otherwise False. Raises when the removed
+    PHLO_REGULATED_MODE variable would otherwise have decided the result."""
     env_value = get_process_settings().phlo_regulated
     if env_value is not None:
         return env_value
@@ -51,23 +47,11 @@ def is_regulated(config_regulated: bool | None = None) -> bool:
     if config_regulated is not None:
         return config_regulated
 
-    deprecated_env_value = (
-        get_process_settings().get(_PHLO_REGULATED_MODE_ENV_DEPRECATED, "").strip().lower()
-    )
-    if deprecated_env_value:
-        metric("phlo.legacy.regulated_mode_env.uses", 1, unit="uses")
-        logger.warning(
-            "deprecated_env_var",
-            old=_PHLO_REGULATED_MODE_ENV_DEPRECATED,
-            new=PHLO_REGULATED_ENV,
-            removal_version="0.19.0",
-            message=f"{_PHLO_REGULATED_MODE_ENV_DEPRECATED} is deprecated and will be removed "
-            f"in 0.19.0; use {PHLO_REGULATED_ENV} instead",
+    # Fail closed: a stale removed variable must not silently disable regulated mode.
+    if (get_process_settings().phlo_regulated_mode or "").strip():
+        raise RuntimeError(
+            f"{_REMOVED_REGULATED_MODE_ENV} was removed in 0.19.0; set {PHLO_REGULATED_ENV} instead"
         )
-        if deprecated_env_value in ("1", "true", "yes", "on"):
-            return True
-        if deprecated_env_value in ("0", "false", "no", "off"):
-            return False
 
     from phlo.config.project import get_regulated_config
 
@@ -76,19 +60,3 @@ def is_regulated(config_regulated: bool | None = None) -> bool:
         return configured_value
 
     return False
-
-
-def is_regulated_mode_enabled(config_regulated_mode: bool | None = None) -> bool:
-    """Deprecated: use is_regulated() instead."""
-    import warnings
-
-    warnings.warn(
-        "is_regulated_mode_enabled() is deprecated and will be removed in 0.19.0; "
-        "use is_regulated() instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return is_regulated(config_regulated_mode)
-
-
-PHLO_REGULATED_MODE_ENV = PHLO_REGULATED_ENV  # deprecated alias

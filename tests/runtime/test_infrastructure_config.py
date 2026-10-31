@@ -27,7 +27,7 @@ from phlo.infrastructure import (
     load_wap_config,
 )
 from phlo.infrastructure.config import ProjectConfigError, get_api_authorization_config
-from phlo.security.mode import is_regulated, is_regulated_mode_enabled
+from phlo.security.mode import is_regulated
 
 
 @pytest.fixture(autouse=True)
@@ -552,42 +552,12 @@ def test_phlo_project_path_allows_explicit_absolute_path_outside_cwd(
     assert _default_project_root() == project_root.resolve()
 
 
-def test_get_regulated_config_falls_back_to_regulated_mode_key(tmp_path: Path) -> None:
-    """get_regulated_config should fallback to regulated_mode key with deprecation warning."""
-    config_path = tmp_path / "phlo.yaml"
-    _write_phlo_yaml(config_path, {"regulated_mode": True})
+def test_get_regulated_config_rejects_removed_regulated_mode_key(tmp_path: Path) -> None:
+    """A removed regulated_mode key must fail closed instead of disabling regulated mode."""
+    _write_phlo_yaml(tmp_path / "phlo.yaml", {"regulated_mode": True})
 
-    with pytest.warns(DeprecationWarning, match="'regulated_mode' is deprecated"):
-        result = get_regulated_config(tmp_path)
-
-    assert result is True
-
-
-def test_get_regulated_config_prefers_regulated_over_regulated_mode(tmp_path: Path) -> None:
-    """get_regulated_config should prefer regulated key over regulated_mode."""
-    config_path = tmp_path / "phlo.yaml"
-    _write_phlo_yaml(config_path, {"regulated": False, "regulated_mode": True})
-
-    result = get_regulated_config(tmp_path)
-
-    assert result is False
-
-
-def test_is_regulated_mode_enabled_alias_emits_deprecation_warning(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Calling is_regulated_mode_enabled should emit DeprecationWarning."""
-    config_path = tmp_path / "phlo.yaml"
-    _write_phlo_yaml(config_path, {"regulated": True})
-
-    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
-    monkeypatch.delenv("PHLO_REGULATED", raising=False)
-    clear_config_cache()
-
-    with pytest.warns(DeprecationWarning, match="is_regulated_mode_enabled.*deprecated"):
-        result = is_regulated_mode_enabled()
-
-    assert result is True
+    with pytest.raises(ValueError, match="'regulated_mode' was removed in 0.19.0; use 'regulated'"):
+        get_regulated_config(tmp_path)
 
 
 @pytest.mark.parametrize(

@@ -522,10 +522,17 @@ class ProjectConfig(BaseModel):
     api: ApiConfig | None = None
     wap: WapConfig = Field(default_factory=WapConfig)
     regulated: bool | None = Field(default=None, strict=True)
-    regulated_mode: bool | None = Field(default=None, strict=True)
     environments: dict[EnvironmentId, EnvironmentTarget] = Field(default_factory=dict)
     default_environment: EnvironmentId | None = None
     promotion: PromotionEnvironments | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_regulated_mode(cls, value: Any) -> Any:
+        """Fail closed instead of silently dropping a removed regulated-mode key."""
+        if isinstance(value, dict) and "regulated_mode" in value:
+            raise ValueError("'regulated_mode' was removed in 0.19.0; use 'regulated' instead")
+        return value
 
     @model_validator(mode="after")
     def validate_environments(self) -> ProjectConfig:

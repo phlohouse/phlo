@@ -14,7 +14,7 @@ Break-glass review and activity monitoring are available to API and plugin integ
 
 ## Regulated mode
 
-Set `PHLO_REGULATED` to enable regulated mode. `PHLO_REGULATED_MODE` remains a deprecated alias.
+Set `PHLO_REGULATED` or `regulated: true` in `phlo.yaml` to enable regulated mode. The `PHLO_REGULATED_MODE` alias and the `regulated_mode` key were removed in 0.19.0.
 
 Production readiness checks provide the preflight result used by the production guidance. `phlo doctor` diagnoses local setup and service health, while `phlo support status` checks the bundled support contract.
 

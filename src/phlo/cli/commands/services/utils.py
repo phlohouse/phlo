@@ -14,7 +14,7 @@ import time
 from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 import click
@@ -77,7 +77,7 @@ capabilities:
     table_store: iceberg
     query_engine: trino
 #
-# Secrets belong in .phlo/.env.local (not committed).
+# Secrets belong in .phlo/secrets/.env (not committed).
 """
 
 
@@ -769,6 +769,14 @@ def _get_service_overrides(project_config: dict) -> dict[str, dict]:
     return overrides
 
 
+def generate_compose_or_fail(composer, *args: Any, **kwargs: Any) -> str:
+    """Generate Compose, reporting invalid project state as a CLI error."""
+    try:
+        return composer.generate_compose(*args, **kwargs)
+    except ValueError as exc:
+        raise user_error("could not generate services", details={"Error": str(exc)}) from exc
+
+
 def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     """Regenerate docker-compose.yml based on current config."""
     from phlo.cli.infrastructure.selection import select_services_to_install
@@ -806,7 +814,8 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     except (ValueError, OSError) as exc:
         raise user_error("invalid service file override", details={"Error": str(exc)}) from exc
     env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
-    compose_content = composer.generate_compose(
+    compose_content = generate_compose_or_fail(
+        composer,
         services_to_install,
         phlo_dir,
         user_overrides=user_overrides,

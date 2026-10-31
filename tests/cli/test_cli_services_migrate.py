@@ -223,3 +223,13 @@ def test_second_migration_keeps_explicit_shared_artifact(project):
     assert (
         subprocess.run(["git", "check-ignore", "-q", ".phlo/custom.conf"], cwd=root).returncode == 1
     )
+
+
+def test_lone_legacy_secrets_file_migrates(project):
+    """Without .phlo/.env, migrate must still move .env.local that generation rejects."""
+    _, state, _ = project
+    (state / ".env").unlink()
+    result = CliRunner().invoke(migrate_cmd)
+    assert result.exit_code == 0, result.output
+    assert not (state / ".env.local").exists()
+    assert (state / "secrets/.env").read_text() == "PASSWORD=private\n"

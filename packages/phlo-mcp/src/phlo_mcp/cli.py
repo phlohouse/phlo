@@ -27,10 +27,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Register guarded operational tools (requires authenticated phlo-api)",
     )
-    parser.add_argument(
-        "--trace-file",
-        help="Deprecated JSONL debug drain, removed in 0.19.0; use OBSERVE_DRAINS instead",
-    )
     parser.add_argument("--host", help="Bind host for streamable-http transport")
     parser.add_argument("--port", type=int, help="Bind port for streamable-http transport")
     parser.add_argument("--path", help="HTTP path for streamable-http transport (default: /mcp)")
@@ -46,7 +42,6 @@ def parse_args() -> McpConfig:
         api_base_url=(args.api_base_url or env_config.api_base_url).rstrip("/"),
         api_token=args.api_token if args.api_token is not None else env_config.api_token,
         enable_write_tools=args.enable_write_tools or env_config.enable_write_tools,
-        trace_file=args.trace_file if args.trace_file is not None else env_config.trace_file,
         transport=parse_transport(args.transport or env_config.transport),
         host=args.host or env_config.host,
         port=args.port if args.port is not None else env_config.port,

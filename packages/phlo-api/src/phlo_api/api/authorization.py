@@ -22,7 +22,7 @@ below cover the observatory settings routes.
 Environment Variables:
     PHLO_AUTHORIZATION_BACKEND: Name of the authorization backend to use.
         Required when multiple backends are installed.
-    PHLO_REGULATED_MODE: Enable regulated mode (enables core enforcement).
+    PHLO_REGULATED: Enable regulated mode (enables core enforcement).
 
 Example:
     Enforcing authorization in an observatory admin route:

@@ -26,6 +26,7 @@ from phlo.cli.commands.services.utils import (
     apply_uv_lock_env_override,
     detect_phlo_source_path,
     expand_service_dependencies,
+    generate_compose_or_fail,
     get_phlo_dir,
     prepare_api_runtime_directories,
     resolve_phlo_package_dir,
@@ -132,7 +133,7 @@ def _validate_production_credentials(
         raise click.ClickException(
             "Production credentials must be non-empty, non-default, and independent: "
             f"{variables}. Set POSTGRES_USER and MINIO_ROOT_USER under phlo.yaml env:, "
-            "then replace any existing default passwords in .phlo/.env.local."
+            "then replace any existing default passwords in .phlo/secrets/.env."
         )
 
 
@@ -318,7 +319,8 @@ def init_cmd(
         raise user_error("invalid service file override", details={"Error": str(exc)}) from exc
     # Stage build inputs only after service-file validation succeeds.
     env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
-    compose_content = composer.generate_compose(
+    compose_content = generate_compose_or_fail(
+        composer,
         services_to_install,
         phlo_dir,
         dev_mode=dev,

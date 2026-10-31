@@ -21,7 +21,7 @@ environment names, not a substring match on field names.
 | `phlo-api` | `ApiSettings`, `ApiDeploymentSettings`, `ApiProcessSettings` | API runtime controls, infrastructure assertions, operational JSON contracts, preview credentials, review and promotion overrides |
 | `phlo-dagster` | `DagsterSettings`, `DagsterProcessSettings`, `DagsterOidcTimingSettings`, `DagsterWebsocketSettings`, `WapSensorSettings`, `WapBackfillSettings` | Executor, identity, sensor, CLI and websocket settings |
 | `phlo-dbt` | `DbtSettings`, `DbtDescriptionSettings`, `DbtTranslatorSettings` | Project configuration and compiled SQL presentation |
-| `phlo-mcp` | `McpSettings`, `McpTraceSettings` | MCP server controls and legacy debug trace destination |
+| `phlo-mcp` | `McpSettings` | MCP server controls |
 | `phlo-pandera` | `PanderaSettings` | Schema discovery paths |
 | `phlo-openmetadata` | `OpenMetadataSettings`, `OpenMetadataProcessSettings` | Integration configuration and publish-event schema fallback |
 | `phlo-sling` | `SlingSettings`, `SlingProcessSettings` | Replication configuration and object-store selection |
@@ -39,8 +39,7 @@ Each PHLO environment name has one declaring owner. Process views of
 field metadata through `EnvSettingsSource`, without redeclaring fields or applying
 resolved defaults. `LineageSettings` inherits the shared `LineageDatabaseSettings`
 declaration. Observatory UI and storage inherit `ObservatoryDatabaseSettings`,
-which does not add backend validation to the UI. `McpSettings` inherits the trace
-field from `McpTraceSettings`. The generator lists inherited fields under their
+which does not add backend validation to the UI. The generator lists inherited fields under their
 declaring model once, with references from the consuming models. A regression
 rejects duplicate supported PHLO environment names across the whole inventory.
 
@@ -107,13 +106,12 @@ temporary lifetime. Single-replica, single-process and ref/tag assertions are
 persistent infrastructure contracts, not temporary flags. The inventory does not
 assign an invented removal release to them.
 
-Two legacy controls already have a declared removal release. Ownership below is
-the owning package/module, not a newly assigned person or team.
+Two legacy controls were removed in 0.19.0 and no longer configure anything:
 
-| Control | Owner | Removal release | Source evidence |
-| --- | --- | --- | --- |
-| `PHLO_REGULATED_MODE` | `phlo`, `security/mode.py` | `0.19.0` | Existing `deprecated_env_var` warning with `removal_version`; `PHLO_REGULATED` and explicit configuration take precedence. |
-| `PHLO_MCP_TRACE_FILE` | `phlo-mcp`, `tracing.py` | `0.19.0` | Existing deprecation warning for the JSONL drain; canonical `OBSERVE_DRAINS` or `OBSERVE_HTTP_ENDPOINT` replaces it. |
+| Removed control | Former owner | Replacement |
+| --- | --- | --- |
+| `PHLO_REGULATED_MODE` | `phlo`, `security/mode.py` | `PHLO_REGULATED` or the `regulated` key in `phlo.yaml`. The name is still read so that a stale value fails closed: regulated-mode detection raises when it would have decided the result, and the Compose override-layer guard treats a true value as protected. |
+| `PHLO_MCP_TRACE_FILE` | `phlo-mcp`, `tracing.py` | Canonical observe drains through `OBSERVE_DRAINS` or `OBSERVE_HTTP_ENDPOINT`. |
 
 `PHLO_SERVICE_SECRET` is a development-only compatibility input. Production
 rejects it. The source declares no removal release, so this inventory does not
