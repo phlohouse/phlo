@@ -100,6 +100,17 @@ registered redirect URI and `OAUTH2_PROXY_REDIRECT_URL` to
 callback remains the default for API-only deployments. Cross-host cookie sharing
 is not automatic. Configure it explicitly only for trusted sibling hosts.
 
+When the ingress serves one fixed hostname instead of a wildcard domain, set
+`OBSERVATORY_HOST` to that hostname. The Observatory and `/oauth2/` routes then
+match it, and the default redirect allow-list includes it. The default
+`OAUTH2_PROXY_REDIRECT_URL` uses the API host over HTTP; when browsers sign in on
+the Observatory host, set it to `https://<OBSERVATORY_HOST>/oauth2/callback` and
+register the same URL with the identity provider. Set `PHLO_API_HOST`
+the same way for a dedicated API hostname. Do not give both the same value:
+the two routers would then match the same requests. Observatory reaches the API
+over the internal network, so a browser-only deployment can leave the API on its
+default name.
+
 When a TLS-terminating proxy forwards plain HTTP to Traefik, set
 `TRAEFIK_TRUSTED_IPS` to that proxy's source address as Traefik sees it, for
 example `TRAEFIK_TRUSTED_IPS=172.20.0.1/32`. Traefik then keeps the proxy's

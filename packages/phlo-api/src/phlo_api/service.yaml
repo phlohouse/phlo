@@ -24,7 +24,7 @@ compose:
     restart: unless-stopped
     labels:
         traefik.enable: "true"
-        traefik.http.routers.phlo-api.rule: "Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) && !PathPrefix(`/oauth2/`)"
+        traefik.http.routers.phlo-api.rule: "Host(`${PHLO_API_HOST:-api.${TRAEFIK_DOMAIN:-phlo.localhost}}`) && !PathPrefix(`/oauth2/`)"
         traefik.http.routers.phlo-api.entrypoints: "web"
         traefik.http.routers.phlo-api.middlewares: "phlo-api-login,phlo-api-auth"
         traefik.http.routers.phlo-api.service: "phlo-api"
@@ -167,6 +167,9 @@ env_vars:
     PHLO_API_PORT:
         default: 4000
         description: Phlo API port
+    PHLO_API_HOST:
+        default: ""
+        description: Hostname Traefik routes to the API (empty means api.<TRAEFIK_DOMAIN>)
     OAUTH2_PROXY_AUTH_COOKIES:
         default: _oauth2_proxy
         description: Comma-separated session cookie names forwarded after refresh; include all chunk names if oauth2-proxy splits a large cookie

@@ -41,7 +41,7 @@ def test_oauth2_proxy_exposes_only_its_callback_path_through_traefik():
 
     assert labels["traefik.enable"] == "true"
     assert labels["traefik.http.routers.oauth2-proxy.rule"] == (
-        "(Host(`api.${TRAEFIK_DOMAIN:-phlo.localhost}`) || Host(`observatory.${TRAEFIK_DOMAIN:-phlo.localhost}`)) && PathPrefix(`/oauth2/`)"
+        "(Host(`${PHLO_API_HOST:-api.${TRAEFIK_DOMAIN:-phlo.localhost}}`) || Host(`${OBSERVATORY_HOST:-observatory.${TRAEFIK_DOMAIN:-phlo.localhost}}`)) && PathPrefix(`/oauth2/`)"
     )
     assert labels["traefik.http.routers.oauth2-proxy.entrypoints"] == "web"
     assert labels["traefik.http.routers.oauth2-proxy.priority"] == "100"
@@ -53,8 +53,11 @@ def test_oauth2_proxy_exposes_only_its_callback_path_through_traefik():
     assert environment["OAUTH2_PROXY_SCOPE"] == (
         "${OAUTH2_PROXY_SCOPE:-openid email profile offline_access}"
     )
+    assert environment["OAUTH2_PROXY_REDIRECT_URL"] == (
+        "${OAUTH2_PROXY_REDIRECT_URL:-http://${PHLO_API_HOST:-api.${TRAEFIK_DOMAIN:-phlo.localhost}}/oauth2/callback}"
+    )
     assert environment["OAUTH2_PROXY_WHITELIST_DOMAINS"] == (
-        "${OAUTH2_PROXY_WHITELIST_DOMAINS:-api.${TRAEFIK_DOMAIN:-phlo.localhost},observatory.${TRAEFIK_DOMAIN:-phlo.localhost}}"
+        "${OAUTH2_PROXY_WHITELIST_DOMAINS:-${PHLO_API_HOST:-api.${TRAEFIK_DOMAIN:-phlo.localhost}},${OBSERVATORY_HOST:-observatory.${TRAEFIK_DOMAIN:-phlo.localhost}}}"
     )
 
 

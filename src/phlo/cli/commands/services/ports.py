@@ -8,7 +8,8 @@ cross-service host-port conflicts and reports table or JSON output.
 
 import os
 import re
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ class TraefikContext:
 
     domain: str
     host_port: int
+    env: Mapping[str, str] = field(default_factory=dict, compare=False)
 
 
 def _parse_compose_port(port_str: str) -> tuple[str | None, str]:
@@ -232,9 +234,24 @@ def _get_active_traefik_context(
             return TraefikContext(
                 domain=env.get("TRAEFIK_DOMAIN", "phlo.localhost"),
                 host_port=host_port,
+                env=env,
             )
 
     return None
+
+
+_COMPOSE_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^${}]*))?\}")
+
+
+def _interpolate(value: str, env: Mapping[str, str]) -> str:
+    """Resolve nested Compose ``${VAR:-default}`` placeholders, innermost first."""
+    while (
+        resolved := _COMPOSE_PLACEHOLDER.sub(
+            lambda match: env.get(match.group(1)) or match.group(2) or "", value
+        )
+    ) != value:
+        value = resolved
+    return value
 
 
 def _get_traefik_routes(
@@ -266,12 +283,9 @@ def _get_traefik_routes(
             router_name = key_str.replace("traefik.http.routers.", "").replace(".rule", "")
             match = router_rule_pattern.search(str(value))
             if match:
-                hostname = match.group(1)
-                hostname = hostname.replace(
-                    "${TRAEFIK_DOMAIN:-phlo.localhost}",
-                    traefik.domain,
+                router_hostnames[router_name] = _interpolate(
+                    match.group(1), {**traefik.env, "TRAEFIK_DOMAIN": traefik.domain}
                 )
-                router_hostnames[router_name] = hostname
 
         if key_str.startswith("traefik.http.routers.") and ".service" in key_str:
             router_name = key_str.replace("traefik.http.routers.", "").replace(".service", "")
