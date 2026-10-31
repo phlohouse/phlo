@@ -87,3 +87,23 @@ def test_recommend_table_maintenance_loads_stats() -> None:
 
     get_stats.assert_called_once_with("raw.events", ref="dev")
     assert recommendations == ["consider_compaction"]
+
+
+@pytest.mark.parametrize(
+    ("transform", "expected"),
+    [("day", 20757), ("hour", 498168), ("month", 681), ("year", 56)],
+)
+def test_advertised_temporal_transforms_compute_partition_values(
+    transform: str, expected: int
+) -> None:
+    """Appends to transform-partitioned tables need pyiceberg-core at write time."""
+    from datetime import datetime, timezone
+
+    import pyarrow as pa
+    from pyiceberg.transforms import parse_transform
+    from pyiceberg.types import TimestamptzType
+
+    compute = parse_transform(transform).pyarrow_transform(TimestamptzType())
+    value = pa.array([datetime(2026, 10, 31, tzinfo=timezone.utc)], pa.timestamp("us", tz="UTC"))
+
+    assert compute(value).to_pylist() == [expected]
