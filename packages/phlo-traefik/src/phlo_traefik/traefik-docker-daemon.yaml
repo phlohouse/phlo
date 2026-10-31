@@ -15,8 +15,12 @@ compose:
   security_opt: [no-new-privileges:true]
   networks: [traefik-docker]
   volumes:
-    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
     - ./traefik/docker-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+env_vars:
+  DOCKER_SOCKET_PATH:
+    default: /var/run/docker.sock
+    description: Host Docker socket the read-only proxy reads; rootless Docker uses $XDG_RUNTIME_DIR/docker.sock
 files:
   - source: docker-proxy.cfg
     dest: traefik/docker-proxy.cfg
