@@ -42,11 +42,11 @@ def _process_is_live(pid: int) -> bool:
         return False
 
     stat_path = Path(f"/proc/{pid}/stat")
-    if not stat_path.exists():
-        return True
     try:
+        if not stat_path.exists():
+            return True
         state = stat_path.read_text().rsplit(") ", 1)[1].split(maxsplit=1)[0]
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return False
     return state != "Z"
 
