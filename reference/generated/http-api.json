@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 283,
+  "endpoint_count": 285,
   "endpoints": [
     {
       "method": "GET",
@@ -1017,6 +1017,24 @@
       "summary": "V1 Admin Member Roles",
       "tags": [
         "v1 admin identity"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_package_install_api_v1_admin_packages__package_name__install_post",
+      "path": "/api/v1/admin/packages/{package_name}/install",
+      "summary": "V1 Package Install",
+      "tags": [
+        "v1 packages"
+      ]
+    },
+    {
+      "method": "POST",
+      "operation_id": "v1_package_install_plan_api_v1_admin_packages__package_name__install_plan_post",
+      "path": "/api/v1/admin/packages/{package_name}/install-plan",
+      "summary": "V1 Package Install Plan",
+      "tags": [
+        "v1 packages"
       ]
     },
     {
