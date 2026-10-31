@@ -65,6 +65,28 @@ def test_socket_and_root_exceptions_are_bounded_by_runtime_waivers() -> None:
 
 
 @pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({}, "/var/run/docker.sock"),
+        ({"DOCKER_SOCKET_PATH": "/run/user/1001/docker.sock"}, "/run/user/1001/docker.sock"),
+    ],
+)
+def test_socket_proxies_read_the_configured_host_socket(env: dict[str, str], expected: str) -> None:
+    # Rootless Docker serves its socket under $XDG_RUNTIME_DIR, not /var/run.
+    placeholder = re.compile(r"\$\{([A-Z0-9_]+):-([^}]*)\}")
+    proxies = {}
+    for _, document in manifests():
+        for mount in document.get("compose", {}).get("volumes", []):
+            if not isinstance(mount, str):
+                continue
+            resolved = placeholder.sub(lambda m: env.get(m.group(1), m.group(2)), mount)
+            source, _, target = resolved.partition(":")
+            if target.startswith("/var/run/docker.sock"):
+                proxies[document["name"]] = source
+    assert proxies == {"alloy-docker": expected, "traefik-docker": expected}
+
+
+@pytest.mark.parametrize(
     "service_dev,production,expected",
     [(False, False, "false"), (True, False, "true"), (False, True, "false")],
 )
