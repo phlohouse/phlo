@@ -531,7 +531,7 @@ def http_docs(root: Path) -> tuple[dict[str, object], str]:
         "",
         "`/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.",
         "",
-        f"OpenAPI marks all {len(replacements)} `/api/observatory` routes as deprecated. [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3 removes them before `1.0.0`. [Legacy route replacements](#legacy-route-replacements) lists each one with its `/api/v1` replacement, where one exists.",
+        f"OpenAPI marks all {len(replacements)} `/api/observatory` routes as deprecated. [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3 removes them at the `1.0.0` release commit. [Legacy route replacements](#legacy-route-replacements) lists each one with its `/api/v1` replacement, or `None` for the routes that are removed without one.",
         "",
         f"## Endpoints ({len(endpoints)})",
         "",
@@ -546,13 +546,13 @@ def http_docs(root: Path) -> tuple[dict[str, object], str]:
         "",
         "## Legacy route replacements",
         "",
-        "Each deprecated route and the `/api/v1` route that replaces it. A route without a replacement has no `/api/v1` resource yet and stays available until one exists. Unlike the legacy routes, most `/api/v1` resources require an explicit `env` query parameter.",
+        "Each deprecated route and the `/api/v1` route that replaces it. A route whose replacement is `None` has no first-party caller and is removed at the `1.0.0` release commit without a replacement (ADR 0053 decision 3, maintainer decision of 2026-10-31); a `/api/v1` resource for that capability can be added later as an additive change. Unlike the legacy routes, most `/api/v1` resources require an explicit `env` query parameter.",
         "",
         "| Deprecated route | Replacement | Notes |",
         "| --- | --- | --- |",
     ]
     for row in replacements:
-        replacement = "<br>".join(f"`{item}`" for item in row["replacements"]) or "None yet"
+        replacement = "<br>".join(f"`{item}`" for item in row["replacements"]) or "None"
         note = cell(row["note"]) if row["note"] else ""
         lines.append(f"| `{row['route']}` | {replacement} | {note} |")
     return data, "\n".join(lines).rstrip() + "\n"
@@ -603,7 +603,7 @@ def support_docs(root: Path) -> tuple[dict[str, object], str]:
         "",
         "## Compatibility surface inventory",
         "",
-        "`generated/compatibility-surface.json` is the checked inventory that [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) exit criterion 10 requires for the `blessed_core` profile: CLI command paths and parameters from `blessed_core` packages, `/api/v1` methods and paths plus `/health`, `phlo.__all__`, the covered entry-point groups and the entry points that `blessed_core` packages declare in them, hook event types and the envelope version, and the configuration and run-evidence schema versions. It excludes surfaces that decision 2 does not cover, such as legacy HTTP families, non-`blessed_core` packages, and underscore-prefixed names.",
+        "`generated/compatibility-surface.json` is the checked inventory that the [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 7 exit criteria require for the `blessed_core` profile: CLI command paths and parameters from `blessed_core` packages, `/api/v1` methods and paths plus `/health`, `phlo.__all__`, the covered entry-point groups and the entry points that `blessed_core` packages declare in them, hook event types and the envelope version, and the configuration and run-evidence schema versions. It excludes surfaces that decision 2 does not cover, such as legacy HTTP families, non-`blessed_core` packages, and underscore-prefixed names.",
         "",
         "The file does not record every covered detail. HTTP schemas, status codes and authorisation actions, the CLI JSON envelope and exit status, plugin base classes, capability specifications, `service.yaml`, project layout, and the support manifest shape remain governed by their decision 2 sources of truth, so an unchanged inventory does not show that those are unchanged.",
         "",
