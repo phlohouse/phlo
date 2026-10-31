@@ -29,6 +29,7 @@ from dagster._core.storage.tags import (
 )
 
 from phlo.capabilities import AuthPrincipal, DecisionContext, ResourceRef
+from phlo.capabilities.runtime import runtime_ref_from_tags
 from phlo.logging import get_logger
 from phlo.security import is_regulated
 from phlo.security.enforcement import enforce
@@ -184,12 +185,23 @@ def _has_request_principal(context: SubmitRunContext) -> bool:
     return any(context.get_request_header(header) for header in _DAEMON_AUTH_HEADERS)
 
 
+def _default_run_ref() -> str | None:
+    """Return the default environment's Nessie ref, or None without environments."""
+    from phlo.config.project import get_default_environment, get_environment_targets
+
+    try:
+        return get_environment_targets()[get_default_environment()].nessie_ref
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
 class PhloQueuedRunCoordinator(QueuedRunCoordinator):
     """Queued run coordinator that audits daemon-initiated Dagster runs."""
 
     def submit_run(self, context: SubmitRunContext):
         """Authorize daemon-initiated runs before enqueueing them, stamping
-        principal-propagation tags on regulated runs."""
+        the default environment ref on untagged runs and principal-propagation
+        tags on regulated runs."""
         dagster_run = context.dagster_run
         trigger = _infer_daemon_trigger(dagster_run.tags)
 
@@ -207,5 +219,15 @@ class PhloQueuedRunCoordinator(QueuedRunCoordinator):
                     trigger_name=trigger_name,
                 ),
             )
+
+        # Runs launched by schedules, sensors or the Dagster UI carry no ref, so
+        # writers fall back to their default and phlo-api cannot attribute the
+        # run to an environment. Routing reads this tag, so it names the ref the
+        # run actually writes. Stamp only after authorization so a denied run
+        # is never attributed to an environment.
+        if runtime_ref_from_tags(dagster_run.tags) is None:
+            default_ref = _default_run_ref()
+            if default_ref:
+                self._instance.add_run_tags(dagster_run.run_id, {"phlo/ref": default_ref})
 
         return super().submit_run(context)
