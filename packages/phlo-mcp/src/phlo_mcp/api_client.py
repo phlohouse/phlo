@@ -1,6 +1,8 @@
 """HTTP client helpers for phlo-mcp.
 
-PhloApiClient wraps phlo-api and Observatory routes for MCP tool calls.
+PhloApiClient wraps phlo-api routes for MCP tool calls. Asset, run, search,
+quality, lineage, operation, and package-install calls use the canonical
+/api/v1 resources; it no longer calls the deprecated /api/observatory routes.
 Transport failures are never raised: they come back as {"error": ...}
 envelopes so each tool call yields a structured result the agent can
 act on. Requests carry a bearer token when configured, span OpenTelemetry
@@ -11,8 +13,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
+from uuid import uuid4
 
 import httpx
 
@@ -31,10 +34,17 @@ def _environment_params(env: Environment) -> dict[str, Any]:
     return {"env": env}
 
 
+def _asset_path(asset_id: str) -> str:
+    return f"/api/v1/assets/{quote(asset_id.strip('/'), safe='/')}"
+
+
+def _idempotency_key(key: str | None) -> str:
+    """Return the caller's key, or a fresh one: every v1 action requires a key."""
+    return key or f"phlo-mcp-{uuid4().hex}"
+
+
 class PhloApiClient:
     """Small typed wrapper around phlo-api routes."""
-
-    _OBSERVATORY_PREFIX = "/api/observatory"
 
     def __init__(self, config: McpConfig) -> None:
         self._config = config
@@ -65,9 +75,23 @@ class PhloApiClient:
         return self._get_json("/api/plugins")
 
     def install_plugin(self, package_name: str) -> dict[str, Any] | list[dict[str, Any]]:
-        """Install a plugin package into the platform via Observatory."""
+        """Plan a trusted package install, then apply exactly that plan.
+
+        The apply request confirms the plan with its ``plan_token`` and binds an
+        idempotency key derived from it, so a transport retry replays the same
+        install instead of starting another.
+        """
+        path = f"/api/v1/admin/packages/{quote(package_name, safe='')}"
+        planned = self._post_json(f"{path}/install-plan", json={})
+        if not isinstance(planned, dict) or "error" in planned:
+            return planned
         return self._post_json(
-            f"{self._OBSERVATORY_PREFIX}/packages/install", json={"package_name": package_name}
+            f"{path}/install",
+            json={
+                "plan": planned["plan"],
+                "confirmation_token": planned["plan_token"],
+                "idempotency_key": f"phlo-mcp-install-{planned['plan_token']}",
+            },
         )
 
     def get_services(self) -> dict[str, Any] | list[dict[str, Any]]:
@@ -77,10 +101,6 @@ class PhloApiClient:
     def get_service_info(self, service_name: str) -> dict[str, Any] | list[dict[str, Any]]:
         """Fetch detailed information for one managed service."""
         return self._get_json(f"/api/services/{service_name}")
-
-    def get_assets(self) -> dict[str, Any] | list[dict[str, Any]]:
-        """List assets, unwrapping the items envelope into a bare list when present."""
-        return self._observatory_items("/assets")
 
     def list_assets(
         self, env: Environment, *, limit: int = 100, cursor: str | None = None
@@ -96,9 +116,7 @@ class PhloApiClient:
 
     def get_asset(self, asset_id: str, env: Environment) -> dict[str, Any]:
         """Read canonical asset detail in the explicitly selected environment."""
-        return self._get_object(
-            f"/api/v1/assets/{quote(asset_id, safe='/')}", params=_environment_params(env)
-        )
+        return self._get_object(_asset_path(asset_id), params=_environment_params(env))
 
     def list_runs(
         self,
@@ -125,10 +143,6 @@ class PhloApiClient:
             f"/api/v1/runs/{quote(run_id, safe='')}", params=_environment_params(env)
         )
 
-    def get_asset_details(self, asset_key_path: str) -> dict[str, Any] | list[dict[str, Any]]:
-        """Fetch full metadata for a single asset by key path."""
-        return self._get_json(f"{self._OBSERVATORY_PREFIX}/assets/{asset_key_path}")
-
     def list_operations(
         self,
         *,
@@ -136,8 +150,9 @@ class PhloApiClient:
         kind: str | None = None,
         query: str | None = None,
         limit: int = 20,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """List operations, optionally filtered by status, kind, or free-text query."""
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List project operations, newest first, filtered before pagination."""
         params = {
             key: value
             for key, value in {
@@ -145,14 +160,15 @@ class PhloApiClient:
                 "kind": kind,
                 "q": query,
                 "limit": limit,
+                "cursor": cursor,
             }.items()
             if value is not None
         }
-        return self._get_json(f"{self._OBSERVATORY_PREFIX}/operations", params=params)
+        return self._get_object("/api/v1/operations", params=params)
 
-    def get_operation_context(self, operation_id: str) -> dict[str, Any] | list[dict[str, Any]]:
+    def get_operation_context(self, operation_id: str) -> dict[str, Any]:
         """Fetch the agent-oriented context document for one operation."""
-        return self._get_json(f"{self._OBSERVATORY_PREFIX}/operations/{operation_id}/agent-context")
+        return self._get_object(f"/api/v1/operations/{quote(operation_id, safe='')}/agent-context")
 
     def get_contracts(self) -> dict[str, Any] | list[dict[str, Any]]:
         """Fetch all declared data contracts."""
@@ -231,13 +247,10 @@ class PhloApiClient:
         return self._get_json("/api/authoring/doctor")
 
     def search_assets(
-        self, query: str, *, limit: int = 20, cursor: str | None = None
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Search assets by free-text query with limit and cursor pagination."""
-        params: dict[str, Any] = {"q": query, "limit": limit}
-        if cursor:
-            params["cursor"] = cursor
-        return self._get_json(f"{self._OBSERVATORY_PREFIX}/search", params=params)
+        self, query: str, env: Environment, *, limit: int = 20, cursor: str | None = None
+    ) -> dict[str, Any]:
+        """Search one environment's assets by case-insensitive substring."""
+        return self._search(query, env, kind="asset", limit=limit, cursor=cursor)
 
     def search_contracts(
         self, query: str, *, limit: int = 20, cursor: str | None = None
@@ -251,47 +264,73 @@ class PhloApiClient:
         return {"items": filtered[:limit], "next_cursor": None}
 
     def search_runs(
-        self, query: str | None = None, *, limit: int = 20, cursor: str | None = None
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Search runs by optional query with limit and cursor pagination."""
-        params: dict[str, Any] = {"limit": limit}
-        if query:
-            params["q"] = query
+        self,
+        env: Environment,
+        query: str | None = None,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Search one environment's newest runs, or list them when no query is given."""
+        if not query:
+            return self.list_runs(env, limit=limit, cursor=cursor)
+        return self._search(query, env, kind="run", limit=limit, cursor=cursor)
+
+    def _search(
+        self,
+        query: str,
+        env: Environment,
+        *,
+        kind: Literal["asset", "run"],
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        params = {**_environment_params(env), "q": query, "kind": kind, "limit": limit}
         if cursor:
             params["cursor"] = cursor
-        return self._get_json(f"{self._OBSERVATORY_PREFIX}/runs", params=params)
+        return self._get_object("/api/v1/search", params=params)
 
     def get_quality_results(
-        self, asset_key: str | None = None, run_id: str | None = None
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Fetch quality results, optionally narrowed to a single asset or run."""
-        payload = self._get_json(f"{self._OBSERVATORY_PREFIX}/quality")
-        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-            return payload
-        items = payload["items"]
+        self, env: Environment, *, asset_key: str | None = None, run_id: str | None = None
+    ) -> dict[str, Any]:
+        """Read every declared quality check, optionally narrowed to one asset or latest run.
+
+        The canonical resource is paged; this reads all pages so the filters
+        apply to the whole inventory, as the aggregate quality read did.
+        """
+        params: dict[str, Any] = {**_environment_params(env), "limit": 100}
+        items: list[dict[str, Any]] = []
+        while True:
+            page = self._get_object("/api/v1/quality-checks", params=params)
+            if "error" in page:
+                return page
+            items.extend(page["items"])
+            if not page["next_cursor"]:
+                break
+            params["cursor"] = page["next_cursor"]
         if asset_key:
-            items = [item for item in items if item.get("asset_id") == asset_key]
+            items = [item for item in items if item["asset_id"] == asset_key]
         if run_id:
-            items = [item for item in items if item.get("run_id") == run_id]
-        return {**payload, "items": items}
+            items = [item for item in items if (item.get("latest") or {}).get("run_id") == run_id]
+        return {**page, "items": items, "next_cursor": None}
 
     def get_lineage(
-        self, asset_key: str, *, direction: str = "both", depth: int = 1
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Fetch neighboring lineage edges for an asset up to the given depth."""
-        return self._get_json(
-            f"{self._OBSERVATORY_PREFIX}/asset-graph/neighbors",
-            params={"asset_key": asset_key, "direction": direction, "depth": depth},
+        self, asset_key: str, env: Environment, *, direction: str = "both", depth: int = 1
+    ) -> dict[str, Any]:
+        """Fetch the asset's lineage neighbourhood within ``depth`` dependency hops."""
+        return self._get_object(
+            f"{_asset_path(asset_key)}/neighbors",
+            params={**_environment_params(env), "direction": direction, "depth": depth},
         )
 
     def diff_schema(
-        self, asset_key: str, *, from_run: str | None = None, to_run: str | None = None
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Diff an asset's schema between two runs."""
-        return self._post_json(
-            f"{self._OBSERVATORY_PREFIX}/schemas/diff",
-            json={"asset_key": asset_key, "from_run": from_run, "to_run": to_run},
-        )
+        self, asset_key: str, env: Environment, *, from_run: str, to_run: str | None = None
+    ) -> dict[str, Any]:
+        """Diff the schema a run wrote with a later run's, or with the current schema."""
+        params = {**_environment_params(env), "from_run": from_run}
+        if to_run:
+            params["to_run"] = to_run
+        return self._get_object(f"{_asset_path(asset_key)}/schema-diff", params=params)
 
     def get_service_status(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Fetch per-service health status from the observability API."""
@@ -415,18 +454,16 @@ class PhloApiClient:
     def get_materialization_history(
         self,
         asset_key_path: str,
+        env: Environment,
         *,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Fetch recent materializations for an asset with cursor pagination."""
-        params: dict[str, Any] = {"limit": limit}
+    ) -> dict[str, Any]:
+        """Read one page of an asset's successful materializations, newest first."""
+        params: dict[str, Any] = {**_environment_params(env), "limit": limit}
         if cursor:
             params["cursor"] = cursor
-        return self._get_json(
-            f"{self._OBSERVATORY_PREFIX}/assets/{asset_key_path}/materializations",
-            params=params,
-        )
+        return self._get_object(f"{_asset_path(asset_key_path)}/materializations", params=params)
 
     def get_run_trace_spans(
         self,
@@ -491,113 +528,125 @@ class PhloApiClient:
     def materialize_asset(
         self,
         asset_key_path: str,
+        env: Environment,
         *,
+        job_name: str,
         dry_run: bool = True,
         partition_key: str | None = None,
-        job_name: str | None = None,
-        repository_location_name: str | None = None,
-        repository_name: str | None = None,
         idempotency_key: str | None = None,
-        tags: dict[str, str] | None = None,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Request a materialization of an asset, dry-run by default."""
-        payload: dict[str, Any] = {"dry_run": dry_run}
+    ) -> dict[str, Any]:
+        """Request a materialization of an asset through one of its jobs, dry-run by default."""
+        payload: dict[str, Any] = {
+            "job_name": job_name,
+            "dry_run": dry_run,
+            "idempotency_key": _idempotency_key(idempotency_key),
+        }
         if partition_key:
             payload["partition_key"] = partition_key
-        if job_name:
-            payload["job_name"] = job_name
-        if repository_location_name:
-            payload["repository_location_name"] = repository_location_name
-        if repository_name:
-            payload["repository_name"] = repository_name
-        if idempotency_key:
-            payload["idempotency_key"] = idempotency_key
-        if tags:
-            payload["tags"] = tags
-        return self._post_json(
-            f"{self._OBSERVATORY_PREFIX}/assets/{asset_key_path}/materialize", json=payload
+        return self._post_object(
+            f"{_asset_path(asset_key_path)}/materialize",
+            params=_environment_params(env),
+            json=payload,
         )
 
     def retry_run(
         self,
         run_id: str,
+        env: Environment,
         *,
         dry_run: bool = True,
-        strategy: str = "FROM_FAILURE",
+        confirmed: bool = False,
         idempotency_key: str | None = None,
-        tags: dict[str, str] | None = None,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Retry a run from its first failure, dry-run by default."""
-        payload: dict[str, Any] = {"dry_run": dry_run}
-        if strategy != "FROM_FAILURE":
-            payload["strategy"] = strategy
-        if idempotency_key:
-            payload["idempotency_key"] = idempotency_key
-        if tags:
-            payload["tags"] = tags
-        return self._post_json(f"{self._OBSERVATORY_PREFIX}/runs/{run_id}/retry", json=payload)
+    ) -> dict[str, Any]:
+        """Retry a failed run from its failure, dry-run by default."""
+        return self._run_action(
+            run_id,
+            env,
+            "retry",
+            # The API only retries a run whose status is FAILURE, so this is the
+            # only expected status that can succeed; it still rejects a run that
+            # changed state before the action.
+            {"expected_status": "FAILURE", "dry_run": dry_run, "confirmed": confirmed},
+            idempotency_key,
+        )
 
     def cancel_run(
         self,
         run_id: str,
+        env: Environment,
         *,
+        dry_run: bool = True,
+        confirmed: bool = False,
         reason: str | None = None,
         idempotency_key: str | None = None,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Cancel a run, optionally recording a reason."""
-        payload: dict[str, Any] = {}
+    ) -> dict[str, Any]:
+        """Cancel a started run, optionally recording a reason; dry-run by default."""
+        payload: dict[str, Any] = {
+            "expected_status": "STARTED",
+            "dry_run": dry_run,
+            "confirmed": confirmed,
+        }
         if reason:
             payload["reason"] = reason
-        if idempotency_key:
-            payload["idempotency_key"] = idempotency_key
-        return self._post_json(f"{self._OBSERVATORY_PREFIX}/runs/{run_id}/cancel", json=payload)
+        return self._run_action(run_id, env, "cancel", payload, idempotency_key)
+
+    def _run_action(
+        self,
+        run_id: str,
+        env: Environment,
+        action: Literal["retry", "cancel"],
+        payload: dict[str, Any],
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        return self._post_object(
+            f"/api/v1/runs/{quote(run_id, safe='')}/{action}",
+            params=_environment_params(env),
+            json={**payload, "idempotency_key": _idempotency_key(idempotency_key)},
+        )
 
     def backfill_asset(
         self,
         asset_key_path: str,
+        env: Environment,
         *,
+        job_name: str,
+        partition_set_name: str,
         dry_run: bool = True,
+        confirmed: bool = False,
+        selection: Literal["explicit", "latest", "all"] = "explicit",
         partitions: list[str] | None = None,
-        partition_range: dict[str, str] | None = None,
-        partition_set_name: str | None = None,
-        repository_location_name: str | None = None,
-        repository_name: str | None = None,
         idempotency_key: str | None = None,
-        tags: dict[str, str] | None = None,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Request a partitioned backfill of an asset, dry-run by default."""
-        payload: dict[str, Any] = {"dry_run": dry_run}
+        payload: dict[str, Any] = {
+            "job_name": job_name,
+            "partition_set_name": partition_set_name,
+            "selection": selection,
+            "dry_run": dry_run,
+            "confirmed": confirmed,
+            "idempotency_key": _idempotency_key(idempotency_key),
+        }
         if partitions:
             payload["partitions"] = partitions
-        if partition_range:
-            payload["partition_range"] = partition_range
-        if partition_set_name:
-            payload["partition_set_name"] = partition_set_name
-        if repository_location_name:
-            payload["repository_location_name"] = repository_location_name
-        if repository_name:
-            payload["repository_name"] = repository_name
-        if idempotency_key:
-            payload["idempotency_key"] = idempotency_key
-        if tags:
-            payload["tags"] = tags
-        return self._post_json(
-            f"{self._OBSERVATORY_PREFIX}/assets/{asset_key_path}/backfill", json=payload
+        return self._post_object(
+            f"{_asset_path(asset_key_path)}/backfill",
+            params=_environment_params(env),
+            json=payload,
         )
 
-    def list_partitions(self, asset_key_path: str) -> dict[str, Any] | list[dict[str, Any]]:
-        """List the partitions defined for an asset."""
-        return self._get_json(f"{self._OBSERVATORY_PREFIX}/assets/{asset_key_path}/partitions")
-
-    def get_run_status(self, run_id: str) -> dict[str, Any] | list[dict[str, Any]]:
-        """Fetch the current execution status of a run."""
-        return self._get_json(f"{self._OBSERVATORY_PREFIX}/runs/{run_id}/status")
-
-    def _observatory_items(self, path: str) -> dict[str, Any] | list[dict[str, Any]]:
-        payload = self._get_json(f"{self._OBSERVATORY_PREFIX}{path}")
-        if isinstance(payload, dict) and isinstance(payload.get("items"), list):
-            return payload["items"]
-        return payload
+    def list_partitions(
+        self,
+        asset_key_path: str,
+        env: Environment,
+        *,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List one page of an asset's partition keys, newest first."""
+        params: dict[str, Any] = {**_environment_params(env), "limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return self._get_object(f"{_asset_path(asset_key_path)}/partitions", params=params)
 
     # Transport failures are returned as {"error": ...} payloads instead of being
     # raised, so every tool call yields a structured envelope the agent can act
@@ -640,6 +689,7 @@ class PhloApiClient:
         path: str,
         *,
         json: dict[str, Any],
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         url = f"{self.api_base_url}{path}"
         with self._tracer.start_as_current_span(
@@ -650,8 +700,23 @@ class PhloApiClient:
             },
         ):
             try:
-                response = httpx.post(url, json=json, headers=self.headers, timeout=30.0)
+                response = httpx.post(
+                    url, params=params, json=json, headers=self.headers, timeout=30.0
+                )
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPError as exc:
                 return {"error": map_httpx_error(exc).to_payload()}
+
+    def _post_object(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any],
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Post to an endpoint whose response contract is a JSON object."""
+        payload = self._post_json(path, json=json, params=params)
+        if not isinstance(payload, dict):
+            raise TypeError(f"Expected JSON object from {path}, got {type(payload).__name__}")
+        return payload

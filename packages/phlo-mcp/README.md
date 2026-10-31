@@ -58,13 +58,11 @@ Resources:
 - `phlo://runtime/environments/{env}/assets/{asset_id}`
 - `phlo://runtime/environments/{env}/runs`
 - `phlo://runtime/environments/{env}/runs/{run_id}`
+- `phlo://runtime/environments/{env}/schemas/{asset_id}`
 - `phlo://runtime/config`
 - `phlo://runtime/services`
 - `phlo://runtime/services/{service_name}`
 - `phlo://runtime/plugins`
-- `phlo://runtime/assets`
-- `phlo://runtime/assets/{asset_key_path}`
-- `phlo://runtime/schemas/{asset_key_path}`
 - `phlo://runtime/contracts`
 - `phlo://runtime/contracts/{table_name}`
 - `phlo://runtime/operations/{operation_id}`
@@ -99,13 +97,33 @@ and `get_run`, with an explicit environment. Invalid environments raise
 `ValueError` before HTTP. Requests forward the configured bearer token through
 the existing client transport. The API remains responsible for authorisation.
 
-Legacy `get_assets`, `get_asset_details`, `search_assets`, and `search_runs`
-retain their unscoped routes and original payload shapes. Existing asset and
-schema resources, materialisation history, partition and status reads, and
-unscoped writes also remain available under their existing registration rules.
-Authoring, declaration contracts, aggregate quality, lineage, provider health,
-traces, Loki queries, SSE streams, and operation context are distinct capabilities,
-not replacements for these four canonical reads. No legacy URL is retired here.
+### Environment-scoped tools
+
+`phlo-mcp` calls only `/api/v1` for assets, runs, search, quality, lineage,
+schema diffs, partitions, operations, and package installation. It does not
+call the deprecated `/api/observatory` routes. The
+[HTTP API reference](../../docs/reference/http-api.md#legacy-route-replacements)
+lists each legacy route with its replacement.
+
+These tools also require `env`, and return the `/api/v1` object for that
+environment:
+
+- `search_assets` and `search_runs` call `/api/v1/search` with `kind=asset` or
+  `kind=run`. Without a `query`, `search_runs` returns the `list_runs` page.
+- `get_quality_results` reads every page of `/api/v1/quality-checks`, then
+  filters by `asset_key` and by the `run_id` of each check's latest evaluation.
+- `get_lineage` returns `/api/v1/assets/{asset_id}/neighbors` for `direction`
+  and a `depth` from 1 to 10.
+- `diff_schema` requires `from_run`. Without `to_run`, it compares with the
+  current schema.
+- `get_materialization_history`, `inspect_materialization`,
+  `get_asset_materialization_trace`, and `render_materialization_trace_tree`
+  read successful materialisations recorded in that environment.
+- `phlo://runtime/environments/{env}/schemas/{asset_id}` returns the asset's
+  columns, column lineage, and schema source.
+
+`list_operations`, `get_operation_context`, and
+`phlo://runtime/operations/{operation_id}` are project-scoped and take no `env`.
 
 Run-level and materialization tools rely on the backing `phlo-api` having access
 to Dagster asset history, Loki log queries, and ClickStack OTEL trace storage.
@@ -153,6 +171,20 @@ token. Write tools return structured `audit_context` metadata and default to
 rate limits, and API-side audit logging before dispatching live Dagster
 operations through the `phlo-dagster` capability adapter.
 
+The asset and run write tools, `list_partitions`, and `get_run_status` require
+`env`:
+
+- `materialize_asset` requires a `job_name` that contains the asset.
+- `backfill_asset` requires `job_name` and `partition_set_name`. Its
+  `selection` is `explicit` (with `partitions`), `latest`, or `all`.
+- `backfill_asset`, `retry_failed_run`, and `cancel_run` run live only with
+  `dry_run=false` and `confirmed=true`. `cancel_run` defaults to a dry run.
+- `retry_failed_run` retries from the failure. Other retry strategies are not
+  available.
+- When `idempotency_key` is omitted, the client generates a new key for each
+  call. Pass your own key so that a repeated call replays the first result.
+- `install_plugin` plans the install, then applies exactly that plan.
+
 HTTP and SSE transports accept loopback binds only (`127.0.0.1` or `::1`).
 `PHLO_MCP_API_TOKEN` authenticates outbound requests to phlo-api, not inbound
 MCP clients. For remote access, keep MCP bound to loopback and put an
@@ -183,7 +215,7 @@ Claude Code example:
 
 Example prompts once connected:
 
-- "Get the latest materializations for `silver/orders`."
+- "Get the latest materializations for `silver/orders` in prod."
 - "Fetch logs for run `abc-123`."
 - "Inspect the latest materialization for `silver/orders`."
 - "Get the latest materialization trace for `silver/orders`."
@@ -244,6 +276,8 @@ uv run python packages/phlo-mcp/tests/smoke_stack.py \
 To call guarded write tools in dry-run mode, add `--exercise-write-tools` and
 `--start-stack`, or provide `--asset-key` when testing an existing project.
 This requires the backing `phlo-api` write endpoints to be available.
+Environment-scoped checks use `--env` (default `prod`). The materialisation
+check launches `--job-name` (default `__ASSET_JOB`, the Dagster asset job).
 
 ```bash
 uv run python packages/phlo-mcp/tests/smoke_stack.py \

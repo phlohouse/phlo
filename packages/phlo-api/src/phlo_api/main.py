@@ -95,6 +95,7 @@ app.add_middleware(
 )
 
 # Auto-discover and register API routers
+_LEGACY_OBSERVATORY_PREFIX = "/api/observatory"
 _ROUTERS = [
     ("phlo_api.api.v1", "/api/v1"),
     ("phlo_api.api.v1_readiness", "/api/v1"),
@@ -130,8 +131,8 @@ _ROUTERS = [
     ("phlo_api.api.maintenance", "/api/maintenance"),
     ("phlo_api.api.observability", "/api/observability"),
     ("phlo_api.observatory_api.loki", "/api/loki"),
-    ("phlo_api.observatory_api.observatory", "/api/observatory"),
-    ("phlo_api.observatory_api.package_install", "/api/observatory"),
+    ("phlo_api.observatory_api.observatory", _LEGACY_OBSERVATORY_PREFIX),
+    ("phlo_api.observatory_api.package_install", _LEGACY_OBSERVATORY_PREFIX),
     ("phlo_api.observatory_api.run_report", ""),
 ]
 
@@ -162,7 +163,11 @@ def _register_observatory_routers() -> None:
             module = importlib.import_module(module_name)
             router = getattr(module, "router", None)
             if router:
-                if prefix is not None:
+                if prefix == _LEGACY_OBSERVATORY_PREFIX:
+                    # ADR 0053 decision 3 removes these routes before 1.0;
+                    # the HTTP API reference lists each /api/v1 replacement.
+                    app.include_router(router, prefix=prefix, deprecated=True)
+                elif prefix is not None:
                     app.include_router(router, prefix=prefix)
                 else:
                     app.include_router(router)

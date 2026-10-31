@@ -7,6 +7,7 @@
   "endpoint_count": 285,
   "endpoints": [
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "run_doctor_api_authoring_doctor_get",
       "path": "/api/authoring/doctor",
@@ -16,6 +17,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "lint_project_api_authoring_project_lint_post",
       "path": "/api/authoring/project/lint",
@@ -25,6 +27,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "validate_schema_api_authoring_schemas_validate_post",
       "path": "/api/authoring/schemas/validate",
@@ -34,6 +37,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "list_templates_api_authoring_templates_get",
       "path": "/api/authoring/templates",
@@ -43,6 +47,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "list_workflows_api_authoring_workflows_get",
       "path": "/api/authoring/workflows",
@@ -52,6 +57,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "create_workflow_api_authoring_workflows_post",
       "path": "/api/authoring/workflows",
@@ -61,6 +67,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "validate_workflow_api_authoring_workflows_validate_post",
       "path": "/api/authoring/workflows/validate",
@@ -70,6 +77,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_api_backends_api_backends_get",
       "path": "/api/backends",
@@ -77,6 +85,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_api_backend_info_api_backends__name__get",
       "path": "/api/backends/{name}",
@@ -84,6 +93,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_config_api_config_get",
       "path": "/api/config",
@@ -91,6 +101,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "post_continuity_apply_api_continuity_apply_post",
       "path": "/api/continuity/apply",
@@ -100,6 +111,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "list_continuity_operations_api_continuity_operations_get",
       "path": "/api/continuity/operations",
@@ -109,6 +121,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "post_continuity_plan_api_continuity_plan_post",
       "path": "/api/continuity/plan",
@@ -118,6 +131,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_continuity_verification_api_continuity_verifications__operation_id__get",
       "path": "/api/continuity/verifications/{operation_id}",
@@ -127,6 +141,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_contracts_api_contracts_get",
       "path": "/api/contracts",
@@ -134,6 +149,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_contract_api_contracts__table_name__get",
       "path": "/api/contracts/{table_name}",
@@ -141,6 +157,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "query_asset_logs_api_loki_assets__asset_key__get",
       "path": "/api/loki/assets/{asset_key}",
@@ -150,6 +167,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "check_connection_api_loki_connection_get",
       "path": "/api/loki/connection",
@@ -159,6 +177,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_log_labels_api_loki_labels_get",
       "path": "/api/loki/labels",
@@ -168,6 +187,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "query_logs_api_loki_query_get",
       "path": "/api/loki/query",
@@ -177,6 +197,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "query_run_logs_api_loki_runs__run_id__get",
       "path": "/api/loki/runs/{run_id}",
@@ -186,6 +207,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "stream_run_logs_api_loki_runs__run_id__stream_get",
       "path": "/api/loki/runs/{run_id}/stream",
@@ -195,6 +217,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_maintenance_metrics_api_maintenance_metrics_get",
       "path": "/api/maintenance/metrics",
@@ -204,6 +227,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_maintenance_status_api_maintenance_status_get",
       "path": "/api/maintenance/status",
@@ -213,6 +237,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_recent_alerts_api_observability_alerts_get",
       "path": "/api/observability/alerts",
@@ -222,6 +247,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_dashboard_links_api_observability_dashboards_get",
       "path": "/api/observability/dashboards",
@@ -231,6 +257,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_health_summary_api_observability_health_get",
       "path": "/api/observability/health",
@@ -240,6 +267,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_logs_query_link_api_observability_links_logs_get",
       "path": "/api/observability/links/logs",
@@ -249,6 +277,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_metrics_query_link_api_observability_links_metrics_get",
       "path": "/api/observability/links/metrics",
@@ -258,6 +287,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_platform_metrics_api_observability_metrics_get",
       "path": "/api/observability/metrics",
@@ -267,6 +297,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_service_status_api_observability_services_get",
       "path": "/api/observability/services",
@@ -276,6 +307,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_trace_spans_api_observability_traces_get",
       "path": "/api/observability/traces",
@@ -285,6 +317,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_run_trace_spans_api_observability_traces_runs__run_id__get",
       "path": "/api/observability/traces/runs/{run_id}",
@@ -294,6 +327,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_action_api_observatory_actions_post",
       "path": "/api/observatory/actions",
@@ -303,6 +337,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_apis_api_observatory_apis_get",
       "path": "/api/observatory/apis",
@@ -312,6 +347,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_asset_graph_api_observatory_asset_graph_get",
       "path": "/api/observatory/asset-graph",
@@ -321,6 +357,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_asset_impact_api_observatory_asset_graph_impact_get",
       "path": "/api/observatory/asset-graph/impact",
@@ -330,6 +367,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_asset_neighbors_api_observatory_asset_graph_neighbors_get",
       "path": "/api/observatory/asset-graph/neighbors",
@@ -339,6 +377,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_assets_api_observatory_assets_get",
       "path": "/api/observatory/assets",
@@ -348,6 +387,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_asset_detail_api_observatory_assets__asset_id__get",
       "path": "/api/observatory/assets/{asset_id}",
@@ -357,6 +397,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_asset_backfill_api_observatory_assets__asset_id__backfill_post",
       "path": "/api/observatory/assets/{asset_id}/backfill",
@@ -366,6 +407,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_asset_materializations_api_observatory_assets__asset_id__materializations_get",
       "path": "/api/observatory/assets/{asset_id}/materializations",
@@ -375,6 +417,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_asset_materialize_api_observatory_assets__asset_id__materialize_post",
       "path": "/api/observatory/assets/{asset_id}/materialize",
@@ -384,6 +427,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_asset_partitions_api_observatory_assets__asset_id__partitions_get",
       "path": "/api/observatory/assets/{asset_id}/partitions",
@@ -393,6 +437,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_bi_api_observatory_bi_get",
       "path": "/api/observatory/bi",
@@ -402,6 +447,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_branches_api_observatory_branches_get",
       "path": "/api/observatory/branches",
@@ -411,6 +457,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_branch_action_api_observatory_branches_actions_post",
       "path": "/api/observatory/branches/actions",
@@ -420,6 +467,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_branch_detail_api_observatory_branches__branch_name__get",
       "path": "/api/observatory/branches/{branch_name}",
@@ -429,6 +477,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_capabilities_api_observatory_capabilities_get",
       "path": "/api/observatory/capabilities",
@@ -438,6 +487,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_capability_inventory_api_observatory_capability_inventory_get",
       "path": "/api/observatory/capability-inventory",
@@ -447,6 +497,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_contributing_rows_page_api_observatory_contributing_rows_page_post",
       "path": "/api/observatory/contributing-rows/page",
@@ -456,6 +507,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_contributing_rows_query_api_observatory_contributing_rows_query_post",
       "path": "/api/observatory/contributing-rows/query",
@@ -465,6 +517,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_dataset_production_api_observatory_dataset_production_get",
       "path": "/api/observatory/dataset-production",
@@ -474,6 +527,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_dataset_workflow_config_api_observatory_dataset_workflow_config_get",
       "path": "/api/observatory/dataset-workflow/config",
@@ -483,6 +537,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "PUT",
       "operation_id": "put_observatory_dataset_workflow_config_api_observatory_dataset_workflow_config_put",
       "path": "/api/observatory/dataset-workflow/config",
@@ -492,6 +547,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_datasets_api_observatory_datasets_get",
       "path": "/api/observatory/datasets",
@@ -501,6 +557,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_dataset_facets_api_observatory_datasets_facets_get",
       "path": "/api/observatory/datasets/facets",
@@ -510,6 +567,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_publishing_readiness_api_observatory_datasets_publishing_readiness_get",
       "path": "/api/observatory/datasets/publishing-readiness",
@@ -519,6 +577,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_dataset_profile_api_observatory_datasets__dataset_id__get",
       "path": "/api/observatory/datasets/{dataset_id}",
@@ -528,6 +587,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_extension_manifests_api_observatory_extension_manifests_get",
       "path": "/api/observatory/extension-manifests",
@@ -537,6 +597,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_extensions_api_observatory_extensions_get",
       "path": "/api/observatory/extensions",
@@ -546,6 +607,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_extension_detail_api_observatory_extensions__extension_id__get",
       "path": "/api/observatory/extensions/{extension_id}",
@@ -555,6 +617,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_extension_asset_api_observatory_extensions__name__assets__asset_path__get",
       "path": "/api/observatory/extensions/{name}/assets/{asset_path}",
@@ -564,6 +627,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_extension_settings_api_observatory_extensions__name__settings_get",
       "path": "/api/observatory/extensions/{name}/settings",
@@ -573,6 +637,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "PUT",
       "operation_id": "put_observatory_extension_settings_api_observatory_extensions__name__settings_put",
       "path": "/api/observatory/extensions/{name}/settings",
@@ -582,6 +647,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_governance_api_observatory_governance_get",
       "path": "/api/observatory/governance",
@@ -591,6 +657,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_logs_api_observatory_logs_get",
       "path": "/api/observatory/logs",
@@ -600,6 +667,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_log_facets_api_observatory_logs_facets_get",
       "path": "/api/observatory/logs/facets",
@@ -609,6 +677,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_observability_api_observatory_observability_get",
       "path": "/api/observatory/observability",
@@ -618,6 +687,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_operations_api_observatory_operations_get",
       "path": "/api/observatory/operations",
@@ -627,6 +697,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_operation_detail_api_observatory_operations__operation_id__get",
       "path": "/api/observatory/operations/{operation_id}",
@@ -636,6 +707,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_operation_agent_context_api_observatory_operations__operation_id__agent_context_get",
       "path": "/api/observatory/operations/{operation_id}/agent-context",
@@ -645,6 +717,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_overview_api_observatory_overview_get",
       "path": "/api/observatory/overview",
@@ -654,6 +727,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_package_install_api_observatory_packages_install_post",
       "path": "/api/observatory/packages/install",
@@ -663,6 +737,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_preferences_api_observatory_preferences_get",
       "path": "/api/observatory/preferences",
@@ -672,6 +747,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "PUT",
       "operation_id": "put_observatory_preferences_api_observatory_preferences_put",
       "path": "/api/observatory/preferences",
@@ -681,6 +757,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_run_report_api_observatory_projects__project_id__runs__run_id__attempts__attempt__report_get",
       "path": "/api/observatory/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
@@ -690,6 +767,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_quality_api_observatory_quality_get",
       "path": "/api/observatory/quality",
@@ -699,6 +777,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_quality_detail_api_observatory_quality__check_id__get",
       "path": "/api/observatory/quality/{check_id}",
@@ -708,6 +787,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_query_api_observatory_query_post",
       "path": "/api/observatory/query",
@@ -717,6 +797,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_row_journey_api_observatory_row_journey__table_id___row_id__get",
       "path": "/api/observatory/row-journey/{table_id}/{row_id}",
@@ -726,6 +807,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_runs_api_observatory_runs_get",
       "path": "/api/observatory/runs",
@@ -735,6 +817,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_run_cancel_api_observatory_runs__run_id__cancel_post",
       "path": "/api/observatory/runs/{run_id}/cancel",
@@ -744,6 +827,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_run_retry_api_observatory_runs__run_id__retry_post",
       "path": "/api/observatory/runs/{run_id}/retry",
@@ -753,6 +837,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_run_status_api_observatory_runs__run_id__status_get",
       "path": "/api/observatory/runs/{run_id}/status",
@@ -762,6 +847,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_saved_queries_api_observatory_saved_queries_get",
       "path": "/api/observatory/saved-queries",
@@ -771,6 +857,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_saved_query_api_observatory_saved_queries_post",
       "path": "/api/observatory/saved-queries",
@@ -780,6 +867,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_schema_diff_api_observatory_schemas_diff_post",
       "path": "/api/observatory/schemas/diff",
@@ -789,6 +877,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_search_api_observatory_search_get",
       "path": "/api/observatory/search",
@@ -798,6 +887,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_services_api_observatory_services_get",
       "path": "/api/observatory/services",
@@ -807,6 +897,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_service_detail_api_observatory_services__service_id__get",
       "path": "/api/observatory/services/{service_id}",
@@ -816,6 +907,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_settings_api_observatory_settings_get",
       "path": "/api/observatory/settings",
@@ -825,6 +917,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_stage_diff_api_observatory_stage_diff_get",
       "path": "/api/observatory/stage-diff",
@@ -834,6 +927,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_storage_api_observatory_storage_get",
       "path": "/api/observatory/storage",
@@ -843,6 +937,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_surface_capabilities_api_observatory_surface_capabilities_get",
       "path": "/api/observatory/surface-capabilities",
@@ -852,6 +947,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_table_preview_api_observatory_table_preview__table_id__get",
       "path": "/api/observatory/table-preview/{table_id}",
@@ -861,6 +957,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_tables_api_observatory_tables_get",
       "path": "/api/observatory/tables",
@@ -870,6 +967,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "GET",
       "operation_id": "get_observatory_workflow_wizard_api_observatory_workflow_wizard_get",
       "path": "/api/observatory/workflow-wizard",
@@ -879,6 +977,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_workflow_wizard_action_api_observatory_workflow_wizard_actions_post",
       "path": "/api/observatory/workflow-wizard/actions",
@@ -888,6 +987,7 @@
       ]
     },
     {
+      "deprecated": true,
       "method": "POST",
       "operation_id": "post_observatory_workflow_wizard_proposal_api_observatory_workflow_wizard_proposals_post",
       "path": "/api/observatory/workflow-wizard/proposals",
@@ -897,6 +997,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_plugins_api_plugins_get",
       "path": "/api/plugins",
@@ -904,6 +1005,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_plugins_by_type_api_plugins__plugin_type__get",
       "path": "/api/plugins/{plugin_type}",
@@ -911,6 +1013,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_plugin_info_api_plugins__plugin_type___name__get",
       "path": "/api/plugins/{plugin_type}/{name}",
@@ -918,6 +1021,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_registry_api_registry_get",
       "path": "/api/registry",
@@ -925,6 +1029,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_services_api_services_get",
       "path": "/api/services",
@@ -932,6 +1037,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_service_info_api_services__name__get",
       "path": "/api/services/{name}",
@@ -939,6 +1045,7 @@
       "tags": []
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_action_availability_api_v1_action_availability_get",
       "path": "/api/v1/action-availability",
@@ -948,6 +1055,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "activity_api_v1_activity_get",
       "path": "/api/v1/activity",
@@ -957,6 +1065,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_audit_export_api_v1_admin_audit_export_get",
       "path": "/api/v1/admin/audit/export",
@@ -966,6 +1075,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_audit_records_api_v1_admin_audit_records_get",
       "path": "/api/v1/admin/audit/records",
@@ -975,6 +1085,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_audit_verify_api_v1_admin_audit_verify_get",
       "path": "/api/v1/admin/audit/verify",
@@ -984,6 +1095,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_invitations_api_v1_admin_invitations_get",
       "path": "/api/v1/admin/invitations",
@@ -993,6 +1105,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_admin_invitation_create_api_v1_admin_invitations_post",
       "path": "/api/v1/admin/invitations",
@@ -1002,6 +1115,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_members_api_v1_admin_members_get",
       "path": "/api/v1/admin/members",
@@ -1011,6 +1125,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PATCH",
       "operation_id": "v1_admin_member_roles_api_v1_admin_members__subject__roles_patch",
       "path": "/api/v1/admin/members/{subject}/roles",
@@ -1020,6 +1135,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_package_install_api_v1_admin_packages__package_name__install_post",
       "path": "/api/v1/admin/packages/{package_name}/install",
@@ -1029,6 +1145,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_package_install_plan_api_v1_admin_packages__package_name__install_plan_post",
       "path": "/api/v1/admin/packages/{package_name}/install-plan",
@@ -1038,6 +1155,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_permissions_api_v1_admin_permissions_get",
       "path": "/api/v1/admin/permissions",
@@ -1047,6 +1165,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_roles_api_v1_admin_roles_get",
       "path": "/api/v1/admin/roles",
@@ -1056,6 +1175,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_service_accounts_api_v1_admin_service_accounts_get",
       "path": "/api/v1/admin/service-accounts",
@@ -1065,6 +1185,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_admin_service_account_create_api_v1_admin_service_accounts_post",
       "path": "/api/v1/admin/service-accounts",
@@ -1074,6 +1195,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "DELETE",
       "operation_id": "v1_admin_service_account_revoke_api_v1_admin_service_accounts__subject__delete",
       "path": "/api/v1/admin/service-accounts/{subject}",
@@ -1083,6 +1205,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_admin_settings_get_api_v1_admin_settings_get",
       "path": "/api/v1/admin/settings",
@@ -1092,6 +1215,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "v1_admin_settings_put_api_v1_admin_settings_put",
       "path": "/api/v1/admin/settings",
@@ -1101,6 +1225,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_assets_api_v1_assets_get",
       "path": "/api/v1/assets",
@@ -1110,6 +1235,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_detail_api_v1_assets__asset_id__get",
       "path": "/api/v1/assets/{asset_id}",
@@ -1119,6 +1245,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_asset_audit_proposal_api_v1_assets__asset_id__audits_post",
       "path": "/api/v1/assets/{asset_id}/audits",
@@ -1128,6 +1255,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_audit_proposal_detail_api_v1_assets__asset_id__audits__proposal_id__get",
       "path": "/api/v1/assets/{asset_id}/audits/{proposal_id}",
@@ -1137,6 +1265,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_asset_audit_proposal_pull_request_api_v1_assets__asset_id__audits__proposal_id__pull_request_post",
       "path": "/api/v1/assets/{asset_id}/audits/{proposal_id}/pull-request",
@@ -1146,6 +1275,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_asset_audit_proposal_test_api_v1_assets__asset_id__audits__proposal_id__test_post",
       "path": "/api/v1/assets/{asset_id}/audits/{proposal_id}/test",
@@ -1155,6 +1285,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_asset_backfill_api_v1_assets__asset_id__backfill_post",
       "path": "/api/v1/assets/{asset_id}/backfill",
@@ -1164,6 +1295,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_checks_api_v1_assets__asset_id__checks_get",
       "path": "/api/v1/assets/{asset_id}/checks",
@@ -1173,6 +1305,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "get_asset_incident_policy_api_v1_assets__asset_id__incident_policy_get",
       "path": "/api/v1/assets/{asset_id}/incident-policy",
@@ -1182,6 +1315,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "put_asset_incident_policy_api_v1_assets__asset_id__incident_policy_put",
       "path": "/api/v1/assets/{asset_id}/incident-policy",
@@ -1191,6 +1325,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_materialization_estimate_api_v1_assets__asset_id__materialization_estimate_get",
       "path": "/api/v1/assets/{asset_id}/materialization-estimate",
@@ -1200,6 +1335,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_materializations_api_v1_assets__asset_id__materializations_get",
       "path": "/api/v1/assets/{asset_id}/materializations",
@@ -1209,6 +1345,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_asset_materialize_api_v1_assets__asset_id__materialize_post",
       "path": "/api/v1/assets/{asset_id}/materialize",
@@ -1218,6 +1355,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_neighbors_api_v1_assets__asset_id__neighbors_get",
       "path": "/api/v1/assets/{asset_id}/neighbors",
@@ -1227,6 +1365,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_partitions_api_v1_assets__asset_id__partitions_get",
       "path": "/api/v1/assets/{asset_id}/partitions",
@@ -1236,6 +1375,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_preview_api_v1_assets__asset_id__preview_get",
       "path": "/api/v1/assets/{asset_id}/preview",
@@ -1245,6 +1385,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_query_usage_api_v1_assets__asset_id__query_usage_get",
       "path": "/api/v1/assets/{asset_id}/query-usage",
@@ -1254,6 +1395,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_asset_exact_row_count_api_v1_assets__asset_id__row_count_post",
       "path": "/api/v1/assets/{asset_id}/row-count",
@@ -1263,6 +1405,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_runs_api_v1_assets__asset_id__runs_get",
       "path": "/api/v1/assets/{asset_id}/runs",
@@ -1272,6 +1415,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_schema_diff_api_v1_assets__asset_id__schema_diff_get",
       "path": "/api/v1/assets/{asset_id}/schema-diff",
@@ -1281,6 +1425,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_asset_usage_api_v1_assets__asset_id__usage_get",
       "path": "/api/v1/assets/{asset_id}/usage",
@@ -1290,6 +1435,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_validate_schema_api_v1_authoring_schemas_validate_post",
       "path": "/api/v1/authoring/schemas/validate",
@@ -1299,6 +1445,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_create_workflow_api_v1_authoring_workflows_post",
       "path": "/api/v1/authoring/workflows",
@@ -1308,6 +1455,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_validate_workflow_api_v1_authoring_workflows_validate_post",
       "path": "/api/v1/authoring/workflows/validate",
@@ -1317,6 +1465,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_branches_api_v1_branches_get",
       "path": "/api/v1/branches",
@@ -1326,6 +1475,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_branch_create_api_v1_branches_post",
       "path": "/api/v1/branches",
@@ -1335,6 +1485,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_branch_refs_api_v1_branches_refs_get",
       "path": "/api/v1/branches/refs",
@@ -1344,6 +1495,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "DELETE",
       "operation_id": "v1_branch_delete_api_v1_branches__branch_name__delete",
       "path": "/api/v1/branches/{branch_name}",
@@ -1353,6 +1505,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_branch_detail_api_v1_branches__branch_name__get",
       "path": "/api/v1/branches/{branch_name}",
@@ -1362,6 +1515,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_branch_checks_api_v1_branches__branch_name__checks_post",
       "path": "/api/v1/branches/{branch_name}/checks",
@@ -1371,6 +1525,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_branch_commits_api_v1_branches__branch_name__commits_get",
       "path": "/api/v1/branches/{branch_name}/commits",
@@ -1380,6 +1535,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_branch_compare_api_v1_branches__branch_name__compare_get",
       "path": "/api/v1/branches/{branch_name}/compare",
@@ -1389,6 +1545,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_branch_diff_api_v1_branches__branch_name__diff_get",
       "path": "/api/v1/branches/{branch_name}/diff",
@@ -1398,6 +1555,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_branch_merge_api_v1_branches__branch_name__merge_post",
       "path": "/api/v1/branches/{branch_name}/merge",
@@ -1407,6 +1565,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_branch_rebase_api_v1_branches__branch_name__rebase_post",
       "path": "/api/v1/branches/{branch_name}/rebase",
@@ -1416,6 +1575,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_branch_schema_diff_api_v1_branches__branch_name__schema_diff_get",
       "path": "/api/v1/branches/{branch_name}/schema-diff",
@@ -1425,6 +1585,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_branch_trial_merge_api_v1_branches__branch_name__trial_merge_post",
       "path": "/api/v1/branches/{branch_name}/trial-merge",
@@ -1434,6 +1595,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_data_products_api_v1_data_products_get",
       "path": "/api/v1/data-products",
@@ -1443,6 +1605,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_data_product_create_api_v1_data_products_post",
       "path": "/api/v1/data-products",
@@ -1452,6 +1615,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_data_product_api_v1_data_products__product_id__get",
       "path": "/api/v1/data-products/{product_id}",
@@ -1461,6 +1625,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "v1_data_product_update_api_v1_data_products__product_id__put",
       "path": "/api/v1/data-products/{product_id}",
@@ -1470,6 +1635,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_data_product_archive_api_v1_data_products__product_id__archive_post",
       "path": "/api/v1/data-products/{product_id}/archive",
@@ -1479,6 +1645,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_data_product_export_api_v1_data_products__product_id__export_get",
       "path": "/api/v1/data-products/{product_id}/export",
@@ -1488,6 +1655,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_data_product_reclaim_api_v1_data_products__product_id__reclaim_post",
       "path": "/api/v1/data-products/{product_id}/reclaim",
@@ -1497,6 +1665,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_data_product_restore_api_v1_data_products__product_id__restore_post",
       "path": "/api/v1/data-products/{product_id}/restore",
@@ -1506,6 +1675,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_datasets_api_v1_datasets_get",
       "path": "/api/v1/datasets",
@@ -1515,6 +1685,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_environments_api_v1_environments_get",
       "path": "/api/v1/environments",
@@ -1524,6 +1695,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_events_api_v1_events_get",
       "path": "/api/v1/events",
@@ -1533,6 +1705,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_extensions_api_v1_extensions_get",
       "path": "/api/v1/extensions",
@@ -1542,6 +1715,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_extension_asset_api_v1_extensions__name__assets__asset_path__get",
       "path": "/api/v1/extensions/{name}/assets/{asset_path}",
@@ -1551,6 +1725,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_extension_settings_api_v1_extensions__name__settings_get",
       "path": "/api/v1/extensions/{name}/settings",
@@ -1560,6 +1735,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "list_asset_incident_policies_api_v1_incident_policies_get",
       "path": "/api/v1/incident-policies",
@@ -1569,6 +1745,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "list_incidents_api_v1_incidents_get",
       "path": "/api/v1/incidents",
@@ -1578,6 +1755,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "create_incident_api_v1_incidents_post",
       "path": "/api/v1/incidents",
@@ -1587,6 +1765,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "incident_stats_api_v1_incidents_stats_get",
       "path": "/api/v1/incidents/stats",
@@ -1596,6 +1775,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "incident_detail_api_v1_incidents__incident_id__get",
       "path": "/api/v1/incidents/{incident_id}",
@@ -1605,6 +1785,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PATCH",
       "operation_id": "update_incident_api_v1_incidents__incident_id__patch",
       "path": "/api/v1/incidents/{incident_id}",
@@ -1614,6 +1795,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "list_follow_ups_api_v1_incidents__incident_id__follow_ups_get",
       "path": "/api/v1/incidents/{incident_id}/follow-ups",
@@ -1623,6 +1805,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "create_follow_up_api_v1_incidents__incident_id__follow_ups_post",
       "path": "/api/v1/incidents/{incident_id}/follow-ups",
@@ -1632,6 +1815,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PATCH",
       "operation_id": "update_follow_up_api_v1_incidents__incident_id__follow_ups__follow_up_id__patch",
       "path": "/api/v1/incidents/{incident_id}/follow-ups/{follow_up_id}",
@@ -1641,6 +1825,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "list_schema_decisions_api_v1_incidents__incident_id__schema_decisions_get",
       "path": "/api/v1/incidents/{incident_id}/schema-decisions",
@@ -1650,6 +1835,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "create_schema_decision_api_v1_incidents__incident_id__schema_decisions_post",
       "path": "/api/v1/incidents/{incident_id}/schema-decisions",
@@ -1659,6 +1845,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_incident_subscription_api_v1_incidents__incident_id__subscriptions_get",
       "path": "/api/v1/incidents/{incident_id}/subscriptions",
@@ -1668,6 +1855,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "subscribe_incident_api_v1_incidents__incident_id__subscriptions_put",
       "path": "/api/v1/incidents/{incident_id}/subscriptions",
@@ -1677,6 +1865,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "incident_timeline_api_v1_incidents__incident_id__timeline_get",
       "path": "/api/v1/incidents/{incident_id}/timeline",
@@ -1686,6 +1875,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_invitation_accept_api_v1_invitations_accept_post",
       "path": "/api/v1/invitations/accept",
@@ -1695,6 +1885,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_jobs_api_v1_jobs_get",
       "path": "/api/v1/jobs",
@@ -1704,6 +1895,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_job_api_v1_jobs__job_id__get",
       "path": "/api/v1/jobs/{job_id}",
@@ -1713,6 +1905,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_job_launch_api_v1_jobs__job_id__launch_post",
       "path": "/api/v1/jobs/{job_id}/launch",
@@ -1722,6 +1915,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_job_patterns_api_v1_jobs__job_id__patterns_get",
       "path": "/api/v1/jobs/{job_id}/patterns",
@@ -1731,6 +1925,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_job_schedules_api_v1_jobs__job_id__schedules_get",
       "path": "/api/v1/jobs/{job_id}/schedules",
@@ -1740,6 +1935,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_job_summary_api_v1_jobs__job_id__summary_get",
       "path": "/api/v1/jobs/{job_id}/summary",
@@ -1749,6 +1945,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_layers_api_v1_layers_get",
       "path": "/api/v1/layers",
@@ -1758,6 +1955,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_loads_api_v1_loads_get",
       "path": "/api/v1/loads",
@@ -1767,6 +1965,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_maintenance_windows_api_v1_maintenance_windows_get",
       "path": "/api/v1/maintenance-windows",
@@ -1776,6 +1975,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_me_api_v1_me_get",
       "path": "/api/v1/me",
@@ -1785,6 +1985,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_metric_models_api_v1_metric_models_get",
       "path": "/api/v1/metric-models",
@@ -1794,6 +1995,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_metric_model_create_api_v1_metric_models_post",
       "path": "/api/v1/metric-models",
@@ -1803,6 +2005,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_metric_model_api_v1_metric_models__model_id__get",
       "path": "/api/v1/metric-models/{model_id}",
@@ -1812,6 +2015,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "v1_metric_model_update_api_v1_metric_models__model_id__put",
       "path": "/api/v1/metric-models/{model_id}",
@@ -1821,6 +2025,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_metric_model_archive_api_v1_metric_models__model_id__archive_post",
       "path": "/api/v1/metric-models/{model_id}/archive",
@@ -1830,6 +2035,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_metric_model_export_api_v1_metric_models__model_id__export_get",
       "path": "/api/v1/metric-models/{model_id}/export",
@@ -1839,6 +2045,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_metric_model_preview_api_v1_metric_models__model_id__preview_sql_post",
       "path": "/api/v1/metric-models/{model_id}/preview-sql",
@@ -1848,6 +2055,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_metric_model_reclaim_api_v1_metric_models__model_id__reclaim_post",
       "path": "/api/v1/metric-models/{model_id}/reclaim",
@@ -1857,6 +2065,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_metric_model_restore_api_v1_metric_models__model_id__restore_post",
       "path": "/api/v1/metric-models/{model_id}/restore",
@@ -1866,6 +2075,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_notifications_api_v1_notifications_get",
       "path": "/api/v1/notifications",
@@ -1875,6 +2085,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "v1_notifications_read_api_v1_notifications_read_state_put",
       "path": "/api/v1/notifications/read-state",
@@ -1884,6 +2095,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_operations_api_v1_operations_get",
       "path": "/api/v1/operations",
@@ -1893,6 +2105,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_operation_agent_context_api_v1_operations__operation_id__agent_context_get",
       "path": "/api/v1/operations/{operation_id}/agent-context",
@@ -1902,6 +2115,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_overview_api_v1_overview_get",
       "path": "/api/v1/overview",
@@ -1911,6 +2125,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_run_report_api_v1_projects__project_id__runs__run_id__attempts__attempt__report_get",
       "path": "/api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report",
@@ -1920,6 +2135,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_quality_checks_api_v1_quality_checks_get",
       "path": "/api/v1/quality-checks",
@@ -1929,6 +2145,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_query_submit_api_v1_queries_post",
       "path": "/api/v1/queries",
@@ -1938,6 +2155,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_query_explain_api_v1_queries_explain_post",
       "path": "/api/v1/queries/explain",
@@ -1947,6 +2165,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_query_history_api_v1_queries_history_get",
       "path": "/api/v1/queries/history",
@@ -1956,6 +2175,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_saved_queries_api_v1_queries_saved_get",
       "path": "/api/v1/queries/saved",
@@ -1965,6 +2185,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_saved_query_create_api_v1_queries_saved_post",
       "path": "/api/v1/queries/saved",
@@ -1974,6 +2195,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "DELETE",
       "operation_id": "v1_saved_query_delete_api_v1_queries_saved__query_id__delete",
       "path": "/api/v1/queries/saved/{query_id}",
@@ -1983,6 +2205,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "v1_saved_query_update_api_v1_queries_saved__query_id__put",
       "path": "/api/v1/queries/saved/{query_id}",
@@ -1992,6 +2215,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_query_result_api_v1_queries__query_id__get",
       "path": "/api/v1/queries/{query_id}",
@@ -2001,6 +2225,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_query_cancel_api_v1_queries__query_id__cancel_post",
       "path": "/api/v1/queries/{query_id}/cancel",
@@ -2010,6 +2235,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_query_csv_api_v1_queries__query_id__csv_get",
       "path": "/api/v1/queries/{query_id}/csv",
@@ -2019,6 +2245,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_query_catalog_api_v1_query_catalog_get",
       "path": "/api/v1/query/catalog",
@@ -2028,6 +2255,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_query_engines_api_v1_query_engines_get",
       "path": "/api/v1/query/engines",
@@ -2037,6 +2265,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_query_refs_api_v1_query_refs_get",
       "path": "/api/v1/query/refs",
@@ -2046,6 +2275,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_readiness_api_v1_readiness_get",
       "path": "/api/v1/readiness",
@@ -2055,6 +2285,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_runs_api_v1_runs_get",
       "path": "/api/v1/runs",
@@ -2064,6 +2295,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_run_api_v1_runs__run_id__get",
       "path": "/api/v1/runs/{run_id}",
@@ -2073,6 +2305,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_run_cancel_api_v1_runs__run_id__cancel_post",
       "path": "/api/v1/runs/{run_id}/cancel",
@@ -2082,6 +2315,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_run_logs_api_v1_runs__run_id__logs_get",
       "path": "/api/v1/runs/{run_id}/logs",
@@ -2091,6 +2325,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_run_retry_api_v1_runs__run_id__retry_post",
       "path": "/api/v1/runs/{run_id}/retry",
@@ -2100,6 +2335,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_run_timeline_api_v1_runs__run_id__timeline_get",
       "path": "/api/v1/runs/{run_id}/timeline",
@@ -2109,6 +2345,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_schedules_api_v1_schedules_get",
       "path": "/api/v1/schedules",
@@ -2118,6 +2355,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_schedule_action_api_v1_schedules__schedule_id___action__post",
       "path": "/api/v1/schedules/{schedule_id}/{action}",
@@ -2127,6 +2365,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_search_api_v1_search_get",
       "path": "/api/v1/search",
@@ -2136,6 +2375,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_services_api_v1_services_get",
       "path": "/api/v1/services",
@@ -2145,6 +2385,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_signatures_api_v1_signatures_get",
       "path": "/api/v1/signatures",
@@ -2154,6 +2395,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_signature_create_api_v1_signatures_post",
       "path": "/api/v1/signatures",
@@ -2163,6 +2405,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_sources_api_v1_sources_get",
       "path": "/api/v1/sources",
@@ -2172,6 +2415,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_staging_promotions_api_v1_staging_promotions_get",
       "path": "/api/v1/staging/promotions",
@@ -2181,6 +2425,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_staging_promote_api_v1_staging_promotions_post",
       "path": "/api/v1/staging/promotions",
@@ -2190,6 +2435,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_staging_candidate_api_v1_staging_promotions_candidate_get",
       "path": "/api/v1/staging/promotions/candidate",
@@ -2199,6 +2445,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_staging_checks_api_v1_staging_promotions_candidate_checks_post",
       "path": "/api/v1/staging/promotions/candidate/checks",
@@ -2208,6 +2455,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_staging_resync_api_v1_staging_resync_post",
       "path": "/api/v1/staging/resync",
@@ -2217,6 +2465,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_table_rollback_api_v1_tables__table_name__rollback_post",
       "path": "/api/v1/tables/{table_name}/rollback",
@@ -2226,6 +2475,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_table_schema_history_api_v1_tables__table_name__schema_history_get",
       "path": "/api/v1/tables/{table_name}/schema-history",
@@ -2235,6 +2485,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_table_snapshots_api_v1_tables__table_name__snapshots_get",
       "path": "/api/v1/tables/{table_name}/snapshots",
@@ -2244,6 +2495,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_api_v1_transform_get",
       "path": "/api/v1/transform",
@@ -2253,6 +2505,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_drafts_api_v1_transform_models__model_id__drafts_get",
       "path": "/api/v1/transform/models/{model_id}/drafts",
@@ -2262,6 +2515,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_draft_save_api_v1_transform_models__model_id__drafts_post",
       "path": "/api/v1/transform/models/{model_id}/drafts",
@@ -2271,6 +2525,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_draft_api_v1_transform_models__model_id__drafts__draft_id___revision__get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}",
@@ -2280,6 +2535,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_draft_archive_api_v1_transform_models__model_id__drafts__draft_id___revision__archive_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/archive",
@@ -2289,6 +2545,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_draft_compare_api_v1_transform_models__model_id__drafts__draft_id___revision__compare_get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compare",
@@ -2298,6 +2555,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_compile_api_v1_transform_models__model_id__drafts__draft_id___revision__compile_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/compile",
@@ -2307,6 +2565,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_executions_api_v1_transform_models__model_id__drafts__draft_id___revision__executions_get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions",
@@ -2316,6 +2575,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_execute_api_v1_transform_models__model_id__drafts__draft_id___revision__executions_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions",
@@ -2325,6 +2585,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_execution_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}",
@@ -2334,6 +2595,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_execution_archive_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__archive_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/archive",
@@ -2343,6 +2605,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_execution_preview_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__preview_get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/preview",
@@ -2352,6 +2615,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_execution_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reclaim_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reclaim",
@@ -2361,6 +2625,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_execution_reconcile_api_v1_transform_models__model_id__drafts__draft_id___revision__executions__execution_id__reconcile_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/executions/{execution_id}/reconcile",
@@ -2370,6 +2635,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_draft_handoff_api_v1_transform_models__model_id__drafts__draft_id___revision__handoff_get",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/handoff",
@@ -2379,6 +2645,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_transform_model_draft_reclaim_api_v1_transform_models__model_id__drafts__draft_id___revision__reclaim_post",
       "path": "/api/v1/transform/models/{model_id}/drafts/{draft_id}/{revision}/reclaim",
@@ -2388,6 +2655,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_transform_model_source_api_v1_transform_models__model_id__source_get",
       "path": "/api/v1/transform/models/{model_id}/source",
@@ -2397,6 +2665,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_trino_query_completed_api_v1_trino_query_completed_post",
       "path": "/api/v1/trino/query-completed",
@@ -2406,6 +2675,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_csv_upload_list_api_v1_uploads_csv_get",
       "path": "/api/v1/uploads/csv",
@@ -2415,6 +2685,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_csv_upload_api_v1_uploads_csv_post",
       "path": "/api/v1/uploads/csv",
@@ -2424,6 +2695,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_csv_upload_detail_api_v1_uploads_csv__upload_id__get",
       "path": "/api/v1/uploads/csv/{upload_id}",
@@ -2433,6 +2705,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_csv_upload_archive_api_v1_uploads_csv__upload_id__archive_post",
       "path": "/api/v1/uploads/csv/{upload_id}/archive",
@@ -2442,6 +2715,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_csv_candidate_api_v1_uploads_csv__upload_id__candidate_get",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate",
@@ -2451,6 +2725,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_csv_candidate_handoff_api_v1_uploads_csv__upload_id__candidate_handoff_get",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate/handoff",
@@ -2460,6 +2735,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_csv_candidate_load_api_v1_uploads_csv__upload_id__candidate_load_post",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate/load",
@@ -2469,6 +2745,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_csv_candidate_plan_api_v1_uploads_csv__upload_id__candidate_plan_post",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate/plan",
@@ -2478,6 +2755,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_csv_candidate_preview_api_v1_uploads_csv__upload_id__candidate_preview_get",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate/preview",
@@ -2487,6 +2765,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_csv_candidate_reconcile_api_v1_uploads_csv__upload_id__candidate_reconcile_post",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate/reconcile",
@@ -2496,6 +2775,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_csv_candidate_review_api_v1_uploads_csv__upload_id__candidate_review_get",
       "path": "/api/v1/uploads/csv/{upload_id}/candidate/review",
@@ -2505,6 +2785,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "PUT",
       "operation_id": "v1_csv_upload_review_api_v1_uploads_csv__upload_id__columns_put",
       "path": "/api/v1/uploads/csv/{upload_id}/columns",
@@ -2514,6 +2795,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_csv_destination_api_v1_uploads_csv__upload_id__destination_post",
       "path": "/api/v1/uploads/csv/{upload_id}/destination",
@@ -2523,6 +2805,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "POST",
       "operation_id": "v1_csv_upload_reclaim_api_v1_uploads_csv__upload_id__reclaim_post",
       "path": "/api/v1/uploads/csv/{upload_id}/reclaim",
@@ -2532,6 +2815,7 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_wap_runs_api_v1_wap_runs_get",
       "path": "/api/v1/wap/runs",
@@ -2541,11 +2825,416 @@
       ]
     },
     {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "health_health_get",
       "path": "/health",
       "summary": "Health",
       "tags": []
+    }
+  ],
+  "legacy_replacements": [
+    {
+      "note": "",
+      "replacements": [],
+      "route": "POST /api/observatory/actions"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/apis"
+    },
+    {
+      "note": "`GET /api/v1/assets` returns each asset's dependencies.",
+      "replacements": [],
+      "route": "GET /api/observatory/asset-graph"
+    },
+    {
+      "note": "Use `direction=downstream`; `depth` is limited to 10. Requires `env`.",
+      "replacements": [
+        "GET /api/v1/assets/{asset_id}/neighbors"
+      ],
+      "route": "GET /api/observatory/asset-graph/impact"
+    },
+    {
+      "note": "The `asset_key` query parameter becomes the path. Requires `env`.",
+      "replacements": [
+        "GET /api/v1/assets/{asset_id}/neighbors"
+      ],
+      "route": "GET /api/observatory/asset-graph/neighbors"
+    },
+    {
+      "note": "Requires `env`.",
+      "replacements": [
+        "GET /api/v1/assets"
+      ],
+      "route": "GET /api/observatory/assets"
+    },
+    {
+      "note": "Requires `env`.",
+      "replacements": [
+        "GET /api/v1/assets/{asset_id}"
+      ],
+      "route": "GET /api/observatory/assets/{asset_id}"
+    },
+    {
+      "note": "Requires `env`, `job_name`, `partition_set_name` and an idempotency key. A live backfill requires `confirmed: true`.",
+      "replacements": [
+        "POST /api/v1/assets/{asset_id}/backfill"
+      ],
+      "route": "POST /api/observatory/assets/{asset_id}/backfill"
+    },
+    {
+      "note": "Requires `env`. Returns a page with `items` and `next_cursor`.",
+      "replacements": [
+        "GET /api/v1/assets/{asset_id}/materializations"
+      ],
+      "route": "GET /api/observatory/assets/{asset_id}/materializations"
+    },
+    {
+      "note": "Requires `env`, one of the asset's `job_name`s and an idempotency key.",
+      "replacements": [
+        "POST /api/v1/assets/{asset_id}/materialize"
+      ],
+      "route": "POST /api/observatory/assets/{asset_id}/materialize"
+    },
+    {
+      "note": "Requires `env`. Returns a page with `items` and `next_cursor`.",
+      "replacements": [
+        "GET /api/v1/assets/{asset_id}/partitions"
+      ],
+      "route": "GET /api/observatory/assets/{asset_id}/partitions"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/bi"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/branches"
+      ],
+      "route": "GET /api/observatory/branches"
+    },
+    {
+      "note": "Each branch action has its own route under `/api/v1/branches`.",
+      "replacements": [
+        "POST /api/v1/branches",
+        "POST /api/v1/branches/{branch_name}/merge"
+      ],
+      "route": "POST /api/observatory/branches/actions"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/branches/{branch_name}"
+      ],
+      "route": "GET /api/observatory/branches/{branch_name}"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/capabilities"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/capability-inventory"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "POST /api/observatory/contributing-rows/page"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "POST /api/observatory/contributing-rows/query"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/dataset-production"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/dataset-workflow/config"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "PUT /api/observatory/dataset-workflow/config"
+    },
+    {
+      "note": "Lists project Dataset declarations.",
+      "replacements": [
+        "GET /api/v1/datasets"
+      ],
+      "route": "GET /api/observatory/datasets"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/datasets/facets"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/datasets/publishing-readiness"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/datasets/{dataset_id}"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/extensions"
+      ],
+      "route": "GET /api/observatory/extension-manifests"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/extensions"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/extensions/{extension_id}"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/extensions/{name}/assets/{asset_path}"
+      ],
+      "route": "GET /api/observatory/extensions/{name}/assets/{asset_path}"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/extensions/{name}/settings"
+      ],
+      "route": "GET /api/observatory/extensions/{name}/settings"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "PUT /api/observatory/extensions/{name}/settings"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/governance"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/logs"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/logs/facets"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/observability"
+    },
+    {
+      "note": "Project-scoped; returns `next_cursor`.",
+      "replacements": [
+        "GET /api/v1/operations"
+      ],
+      "route": "GET /api/observatory/operations"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/operations/{operation_id}"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/operations/{operation_id}/agent-context"
+      ],
+      "route": "GET /api/observatory/operations/{operation_id}/agent-context"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/overview"
+      ],
+      "route": "GET /api/observatory/overview"
+    },
+    {
+      "note": "Plan first, then apply the returned `plan` with its `plan_token` as `confirmation_token` and an `idempotency_key`.",
+      "replacements": [
+        "POST /api/v1/admin/packages/{package_name}/install-plan",
+        "POST /api/v1/admin/packages/{package_name}/install"
+      ],
+      "route": "POST /api/observatory/packages/install"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/preferences"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "PUT /api/observatory/preferences"
+    },
+    {
+      "note": "Same handler and response.",
+      "replacements": [
+        "GET /api/v1/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report"
+      ],
+      "route": "GET /api/observatory/projects/{project_id}/runs/{run_id}/attempts/{attempt}/report"
+    },
+    {
+      "note": "Requires `env`. Returns pages with `items` and `next_cursor`.",
+      "replacements": [
+        "GET /api/v1/quality-checks"
+      ],
+      "route": "GET /api/observatory/quality"
+    },
+    {
+      "note": "Checks are read per asset. Requires `env`.",
+      "replacements": [
+        "GET /api/v1/assets/{asset_id}/checks"
+      ],
+      "route": "GET /api/observatory/quality/{check_id}"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "POST /api/v1/queries"
+      ],
+      "route": "POST /api/observatory/query"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/row-journey/{table_id}/{row_id}"
+    },
+    {
+      "note": "Requires `env`. For the `q` filter, use `/api/v1/search` with `kind=run`.",
+      "replacements": [
+        "GET /api/v1/runs",
+        "GET /api/v1/search"
+      ],
+      "route": "GET /api/observatory/runs"
+    },
+    {
+      "note": "Requires `env`, `expected_status` and an idempotency key. A live cancel requires `dry_run: false` and `confirmed: true`.",
+      "replacements": [
+        "POST /api/v1/runs/{run_id}/cancel"
+      ],
+      "route": "POST /api/observatory/runs/{run_id}/cancel"
+    },
+    {
+      "note": "Requires `env`, `expected_status` and an idempotency key. A live retry requires `confirmed: true`; only `FROM_FAILURE` is supported.",
+      "replacements": [
+        "POST /api/v1/runs/{run_id}/retry"
+      ],
+      "route": "POST /api/observatory/runs/{run_id}/retry"
+    },
+    {
+      "note": "Requires `env`. The run detail includes its status.",
+      "replacements": [
+        "GET /api/v1/runs/{run_id}"
+      ],
+      "route": "GET /api/observatory/runs/{run_id}/status"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/queries/saved"
+      ],
+      "route": "GET /api/observatory/saved-queries"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "POST /api/v1/queries/saved"
+      ],
+      "route": "POST /api/observatory/saved-queries"
+    },
+    {
+      "note": "Requires `env` and `from_run`; `to_run` is optional.",
+      "replacements": [
+        "GET /api/v1/assets/{asset_id}/schema-diff"
+      ],
+      "route": "POST /api/observatory/schemas/diff"
+    },
+    {
+      "note": "Requires `env`. `kind` is a subset of `asset,run`.",
+      "replacements": [
+        "GET /api/v1/search"
+      ],
+      "route": "GET /api/observatory/search"
+    },
+    {
+      "note": "",
+      "replacements": [
+        "GET /api/v1/services"
+      ],
+      "route": "GET /api/observatory/services"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/services/{service_id}"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/settings"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/stage-diff"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/storage"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/surface-capabilities"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/table-preview/{table_id}"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/tables"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "GET /api/observatory/workflow-wizard"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "POST /api/observatory/workflow-wizard/actions"
+    },
+    {
+      "note": "",
+      "replacements": [],
+      "route": "POST /api/observatory/workflow-wizard/proposals"
     }
   ],
   "schema_version": 1

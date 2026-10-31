@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
-from phlo_mcp.api_client import PhloApiClient
+from phlo_mcp.api_client import Environment, PhloApiClient
 from phlo_mcp.config import McpConfig
 from phlo_mcp.tracing import CanonicalTracer, trace_tool
 
@@ -72,39 +72,43 @@ def _register_backfill_tool(
     @trace_tool
     def backfill_asset(
         asset_key_path: str,
+        env: Environment,
+        job_name: str,
+        partition_set_name: str,
         dry_run: bool = True,
+        confirmed: bool = False,
+        selection: Literal["explicit", "latest", "all"] = "explicit",
         partitions: list[str] | None = None,
-        partition_range: dict[str, str] | None = None,
-        partition_set_name: str | None = None,
-        repository_location_name: str | None = None,
-        repository_name: str | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        """Plan or launch an asset partition backfill through phlo-api."""
+        """Plan or launch an asset partition backfill in prod or staging through phlo-api.
+
+        A live backfill needs dry_run=false and confirmed=true. An explicit
+        selection needs unique partition keys; latest and all take none.
+        """
         with tracer.start_as_current_span("phlo.orchestrator.asset.backfill"):
-            target: dict[str, Any] = {"asset_key_path": asset_key_path}
+            target: dict[str, Any] = {
+                "asset_key_path": asset_key_path,
+                "env": env,
+                "job_name": job_name,
+                "partition_set_name": partition_set_name,
+                "selection": selection,
+            }
             if partitions:
                 target["partitions"] = partitions
-            if partition_range:
-                target["partition_range"] = partition_range
-            if partition_set_name:
-                target["partition_set_name"] = partition_set_name
-            if repository_location_name:
-                target["repository_location_name"] = repository_location_name
-            if repository_name:
-                target["repository_name"] = repository_name
             if idempotency_key:
                 target["idempotency_key"] = idempotency_key
             audit_context = _write_audit_context("backfill_asset", target, dry_run)
             _append_audit_record(audit_context)
             payload = client.backfill_asset(
                 asset_key_path,
-                dry_run=dry_run,
-                partitions=partitions,
-                partition_range=partition_range,
+                env,
+                job_name=job_name,
                 partition_set_name=partition_set_name,
-                repository_location_name=repository_location_name,
-                repository_name=repository_name,
+                dry_run=dry_run,
+                confirmed=confirmed,
+                selection=selection,
+                partitions=partitions,
                 idempotency_key=idempotency_key,
             )
             return {"audit_context": audit_context, "payload": payload}
@@ -128,35 +132,27 @@ def _register_write_tools(
         @trace_tool
         def materialize_asset(
             asset_key_path: str,
+            env: Environment,
+            job_name: str,
             dry_run: bool = True,
             partition_key: str | None = None,
-            job_name: str | None = None,
-            repository_location_name: str | None = None,
-            repository_name: str | None = None,
             idempotency_key: str | None = None,
         ) -> dict[str, Any]:
-            """Materialize an asset through phlo-api when write tools are enabled."""
+            """Materialize an asset in prod or staging through one of its jobs."""
             with tracer.start_as_current_span("phlo.orchestrator.asset.materialize"):
-                target = {"asset_key_path": asset_key_path}
+                target = {"asset_key_path": asset_key_path, "env": env, "job_name": job_name}
                 if partition_key:
                     target["partition_key"] = partition_key
-                if job_name:
-                    target["job_name"] = job_name
-                if repository_location_name:
-                    target["repository_location_name"] = repository_location_name
-                if repository_name:
-                    target["repository_name"] = repository_name
                 if idempotency_key:
                     target["idempotency_key"] = idempotency_key
                 audit_context = _write_audit_context("materialize_asset", target, dry_run)
                 _append_audit_record(audit_context)
                 payload = client.materialize_asset(
                     asset_key_path,
+                    env,
+                    job_name=job_name,
                     dry_run=dry_run,
                     partition_key=partition_key,
-                    job_name=job_name,
-                    repository_location_name=repository_location_name,
-                    repository_name=repository_name,
                     idempotency_key=idempotency_key,
                 )
                 return {"audit_context": audit_context, "payload": payload}
@@ -165,11 +161,15 @@ def _register_write_tools(
         @trace_tool
         def retry_failed_run(
             run_id: str,
+            env: Environment,
             dry_run: bool = True,
-            strategy: str = "FROM_FAILURE",
+            confirmed: bool = False,
             idempotency_key: str | None = None,
         ) -> dict[str, Any]:
-            """Retry a failed orchestrator run through phlo-api when write tools are enabled."""
+            """Retry a failed run in prod or staging from its failure.
+
+            A live retry needs dry_run=false and confirmed=true.
+            """
             with tracer.start_as_current_span("phlo.orchestrator.run.retry"):
                 audit_context = _write_audit_context(
                     "retry_failed_run",
@@ -177,7 +177,7 @@ def _register_write_tools(
                         key: value
                         for key, value in {
                             "run_id": run_id,
-                            "strategy": strategy,
+                            "env": env,
                             "idempotency_key": idempotency_key,
                         }.items()
                         if value
@@ -187,8 +187,9 @@ def _register_write_tools(
                 _append_audit_record(audit_context)
                 payload = client.retry_run(
                     run_id,
+                    env,
                     dry_run=dry_run,
-                    strategy=strategy,
+                    confirmed=confirmed,
                     idempotency_key=idempotency_key,
                 )
                 return {"audit_context": audit_context, "payload": payload}
@@ -196,9 +197,17 @@ def _register_write_tools(
         @mcp.tool()
         @trace_tool
         def cancel_run(
-            run_id: str, reason: str | None = None, idempotency_key: str | None = None
+            run_id: str,
+            env: Environment,
+            dry_run: bool = True,
+            confirmed: bool = False,
+            reason: str | None = None,
+            idempotency_key: str | None = None,
         ) -> dict[str, Any]:
-            """Cancel an orchestrator run through phlo-api when write tools are enabled."""
+            """Cancel a started run in prod or staging.
+
+            A live cancel needs dry_run=false and confirmed=true.
+            """
             with tracer.start_as_current_span("phlo.orchestrator.run.cancel"):
                 audit_context = _write_audit_context(
                     "cancel_run",
@@ -206,25 +215,38 @@ def _register_write_tools(
                         key: value
                         for key, value in {
                             "run_id": run_id,
+                            "env": env,
                             "reason": reason,
                             "idempotency_key": idempotency_key,
                         }.items()
                         if value
                     },
-                    False,
+                    dry_run,
                 )
                 _append_audit_record(audit_context)
-                payload = client.cancel_run(run_id, reason=reason, idempotency_key=idempotency_key)
+                payload = client.cancel_run(
+                    run_id,
+                    env,
+                    dry_run=dry_run,
+                    confirmed=confirmed,
+                    reason=reason,
+                    idempotency_key=idempotency_key,
+                )
                 return {"audit_context": audit_context, "payload": payload}
 
         _register_backfill_tool(_write_audit_context, tracer, _append_audit_record, client, mcp)
 
         @mcp.tool()
         @trace_tool
-        def list_partitions(asset_key_path: str) -> dict[str, Any]:
-            """List partition keys for an asset through phlo-api."""
+        def list_partitions(
+            asset_key_path: str,
+            env: Environment,
+            limit: int = 100,
+            cursor: str | None = None,
+        ) -> dict[str, Any]:
+            """List partition keys for an asset in prod or staging, newest first."""
             with tracer.start_as_current_span("phlo.orchestrator.asset.partitions"):
-                payload = client.list_partitions(asset_key_path)
+                payload = client.list_partitions(asset_key_path, env, limit=limit, cursor=cursor)
                 return {
                     "api_base_url": client.api_base_url,
                     "asset_key_path": asset_key_path,
@@ -233,10 +255,10 @@ def _register_write_tools(
 
         @mcp.tool()
         @trace_tool
-        def get_run_status(run_id: str) -> dict[str, Any]:
-            """Get orchestrator run status through phlo-api for operational follow-up."""
+        def get_run_status(run_id: str, env: Environment) -> dict[str, Any]:
+            """Get canonical run detail, including status, in prod or staging."""
             with tracer.start_as_current_span("phlo.orchestrator.run.status"):
-                payload = client.get_run_status(run_id)
+                payload = client.get_run(run_id, env)
                 return {
                     "api_base_url": client.api_base_url,
                     "run_id": run_id,

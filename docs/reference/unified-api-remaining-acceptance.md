@@ -115,31 +115,31 @@ The populated job-pattern probe launches six runs through the real local Dagster
 
 The [phase-0 route decisions](../architecture/unified-api-phase-0.md) still classify every mounted legacy method and path. The inventory below updates the actual first-party callers. Documentation examples and test fixtures are not runtime consumers. No absence of an in-repository caller authorises removal of a public capability.
 
-All `O` paths below use the exact prefix `/api/observatory`. The caller is `packages/phlo-mcp/src/phlo_mcp/api_client.py`, exposed through MCP tools and resources in `server.py`.
+The caller is `packages/phlo-mcp/src/phlo_mcp/api_client.py`, exposed through MCP tools and resources in `server.py`. It no longer calls `/api/observatory`. OpenAPI marks every `/api/observatory` route as deprecated, and the [HTTP API reference](http-api.md#legacy-route-replacements) lists each one with its replacement.
 
 | MCP method | Method and path | Decision |
 | --- | --- | --- |
 | `get_platform_health` | GET `/api/observability/health` | Keep aggregate observability capability. |
 | `get_config`, `get_plugins` | GET `/api/config`, GET `/api/plugins` | Keep configuration and installed-plugin inventory. |
-| `install_plugin` | POST `O/packages/install` | Keep distinct administrator package action. Canonical replacement: POST `/api/v1/admin/packages/{package_name}/install-plan`, then POST `/api/v1/admin/packages/{package_name}/install` with the plan, its `confirmation_token` and an `idempotency_key`. |
+| `install_plugin` | POST `/api/v1/admin/packages/{package_name}/install-plan`, then POST `/api/v1/admin/packages/{package_name}/install` | Migrated. Applies the returned plan with its `plan_token` as `confirmation_token` and an `idempotency_key` derived from that token. |
 | `get_services`, `get_service_info` | GET `/api/services`, GET `/api/services/{service_name}` | Keep compatibility until registry detail and environment-scoped live health callers migrate. Shapes are not interchangeable. |
-| `get_assets`, `get_asset_details` | GET `O/assets`, GET `O/assets/{asset_key_path}` | Migrate only with an explicit MCP environment selection and response-shape contract. Keep URLs meanwhile. |
-| `list_operations`, `get_operation_context` | GET `O/operations`, GET `O/operations/{operation_id}/agent-context` | Keep distinct operation/agent-context capabilities. |
+| `list_assets`, `get_asset` | GET `/api/v1/assets?env=`, GET `/api/v1/assets/{asset_id}?env=` | Migrated. The unscoped `get_assets` and `get_asset_details` methods and their `phlo://runtime/assets*` resources were removed. `phlo://runtime/environments/{env}/schemas/{asset_id}` replaces `phlo://runtime/schemas/{asset_key_path}`. |
+| `list_operations`, `get_operation_context` | GET `/api/v1/operations`, GET `/api/v1/operations/{operation_id}/agent-context` | Migrated. Project-scoped, with no `env`. |
 | `get_contracts`, `get_contract`, `search_contracts` | GET `/api/contracts`, GET `/api/contracts/{table_name}` | Keep declaration contract reads. Dataset readiness is not a replacement for the code contract. |
 | `create_workflow`, `list_workflows` | POST and GET `/api/authoring/workflows` | Keep authoring. |
 | `validate_workflow`, `validate_schema` | POST `/api/authoring/workflows/validate`, POST `/api/authoring/schemas/validate` | Keep authoring validation. |
 | `list_templates`, `lint_project`, `run_doctor` | GET `/api/authoring/templates`, POST `/api/authoring/project/lint`, GET `/api/authoring/doctor` | Keep authoring templates and diagnostics. |
-| `search_assets`, `search_runs` | GET `O/search`, GET `O/runs` | Keep compatibility pending explicit MCP environment and search-contract migration. |
-| `get_quality_results` | GET `O/quality` | Keep aggregate quality capability; asset check reads are not a shape-compatible replacement. |
-| `get_lineage`, `diff_schema` | GET `O/asset-graph/neighbors`, POST `O/schemas/diff` | Keep graph neighbourhood and run-schema comparison capabilities. |
+| `search_assets`, `search_runs` | GET `/api/v1/search?env=&kind=asset` or `kind=run`; GET `/api/v1/runs?env=` when `search_runs` has no query | Migrated. Both require `env`. |
+| `get_quality_results` | GET `/api/v1/quality-checks?env=` | Migrated. Reads every page, then filters by asset and by the latest evaluation's run. |
+| `get_lineage`, `diff_schema` | GET `/api/v1/assets/{asset_id}/neighbors?env=`, GET `/api/v1/assets/{asset_id}/schema-diff?env=` | Migrated. `diff_schema` requires `from_run`. |
 | `get_service_status`, `get_recent_alerts`, `get_dashboard_links` | GET `/api/observability/services`, GET `/api/observability/alerts`, GET `/api/observability/dashboards` | Keep provider observability capabilities. |
 | `get_run_logs`, `search_run_logs`, `follow_run_logs` | GET `/api/loki/runs/{run_id}`, GET `/api/loki/runs/{run_id}/stream` | Keep Loki query and SSE contracts. Dagster polling is not Loki log search. |
-| `get_materialization_history` | GET `O/assets/{asset_key_path}/materializations` | Keep compatibility pending environment-aware migration. |
+| `get_materialization_history` | GET `/api/v1/assets/{asset_id}/materializations?env=` | Migrated. |
 | `get_run_trace_spans`, `get_trace_spans` | GET `/api/observability/traces/runs/{run_id}`, GET `/api/observability/traces` | Keep provider trace capability. |
 | `get_logs_query_link`, `get_metrics_query_link` | GET `/api/observability/links/logs`, GET `/api/observability/links/metrics` | Keep provider links. |
-| `materialize_asset`, `backfill_asset` | POST `O/assets/{asset_key_path}/materialize`, POST `O/assets/{asset_key_path}/backfill` | Keep compatibility until MCP adopts environment, confirmation, plan, and idempotency contracts. Canonical replacements: POST `/api/v1/assets/{asset_id}/materialize?env=` and POST `/api/v1/assets/{asset_id}/backfill?env=`; a live backfill requires `confirmed: true`. |
-| `retry_run`, `cancel_run` | POST `O/runs/{run_id}/retry`, POST `O/runs/{run_id}/cancel` | Keep compatibility until MCP adopts environment and expected-state contracts. Canonical replacements: POST `/api/v1/runs/{run_id}/retry?env=` and POST `/api/v1/runs/{run_id}/cancel?env=` with `expected_status`. |
-| `list_partitions`, `get_run_status` | GET `O/assets/{asset_key_path}/partitions`, GET `O/runs/{run_id}/status` | Keep partition capability and compatibility status read. |
+| `materialize_asset`, `backfill_asset` | POST `/api/v1/assets/{asset_id}/materialize?env=`, POST `/api/v1/assets/{asset_id}/backfill?env=` | Migrated. Both require `env`, a `job_name`, and an idempotency key, which the client generates when the caller omits it. A live backfill requires `confirmed: true`. |
+| `retry_run`, `cancel_run` | POST `/api/v1/runs/{run_id}/retry?env=`, POST `/api/v1/runs/{run_id}/cancel?env=` | Migrated. The client sends `expected_status` `FAILURE` for retry and `STARTED` for cancel, the only states each action accepts. A live action requires `confirmed: true`. |
+| `list_partitions`, `get_run` | GET `/api/v1/assets/{asset_id}/partitions?env=`, GET `/api/v1/runs/{run_id}?env=` | Migrated. The `get_run_status` tool returns the canonical run detail. |
 
 Other consumers and URL producers have these decisions:
 
@@ -152,18 +152,4 @@ Other consumers and URL producers have these decisions:
 | `observatory_api/extensions.py` | Generates `/api/v1/extensions/{name}/assets` URLs | Migrated to `/api/v1`; the legacy asset route still serves the same files. No current bundled browser consumer was found. |
 | Continuity CLI, recovery drill, and release operations | Direct Python operations/providers, not `/api/continuity` HTTP | Keep continuity routes and provider capabilities. No first-party HTTP caller was found; that does not establish that external clients are absent. |
 
-Canonical `/api/v1` resources now exist for the read capabilities above. `phlo-mcp` has not migrated to them yet:
-
-| Legacy read | Canonical resource |
-| --- | --- |
-| GET `O/extension-manifests`, GET `O/extensions/{name}/assets/{asset_path}`, GET `O/extensions/{name}/settings` | GET `/api/v1/extensions`, GET `/api/v1/extensions/{name}/assets/{asset_path}`, GET `/api/v1/extensions/{name}/settings` (project-scoped) |
-| GET `O/operations`, GET `O/operations/{operation_id}/agent-context` | GET `/api/v1/operations`, GET `/api/v1/operations/{operation_id}/agent-context` (project-scoped) |
-| GET `O/quality` | GET `/api/v1/quality-checks?env=` |
-| GET `O/assets/{asset_key_path}/partitions` | GET `/api/v1/assets/{asset_id}/partitions?env=` |
-| GET `O/assets/{asset_key_path}/materializations` | GET `/api/v1/assets/{asset_id}/materializations?env=` |
-| GET `O/asset-graph/neighbors` | GET `/api/v1/assets/{asset_id}/neighbors?env=` |
-| POST `O/schemas/diff` | GET `/api/v1/assets/{asset_id}/schema-diff?env=&from_run=` |
-| GET `O/search`, GET `O/runs` (search) | GET `/api/v1/search?env=&q=&kind=asset,run` |
-| GET `O/assets`, GET `O/assets/{asset_key_path}`, GET `O/runs`, GET `O/runs/{run_id}/status` | Existing GET `/api/v1/assets`, `/api/v1/assets/{asset_id}`, `/api/v1/runs`, `/api/v1/runs/{run_id}` |
-
-MCP now offers canonical asset and run reads with explicit environment selection, alongside the compatibility methods listed above. Search and mutation callers still need separate migration contracts. No legacy URL is deleted, and additive tools do not establish completed consumer cutover.
+`phlo-mcp` has migrated every call listed above to `/api/v1`. No legacy URL is deleted: ADR 0053 decision 3 announces each removal in a release before the route is deleted, because an in-repository caller search does not show that external clients are absent.
