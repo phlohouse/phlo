@@ -36,7 +36,6 @@ Example:
 
 import asyncio
 import json
-import os
 import re
 import subprocess
 import sys
@@ -53,6 +52,7 @@ from phlo.application.discovery import discover_capabilities
 from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
+    container_host_identity,
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
@@ -706,7 +706,9 @@ def _build_materialize_command(
 
     return selected_backend.container_exec_cmd(
         container_name=container_name,
-        user=f"{os.getuid()}:{os.getgid()}" if host_platform == "Linux" else None,
+        user=":".join(map(str, container_host_identity(selected_backend.name)))
+        if host_platform == "Linux"
+        else None,
         env=exec_env,
         workdir="/app",
         command=command,

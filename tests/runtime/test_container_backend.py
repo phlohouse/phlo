@@ -443,3 +443,52 @@ def test_compose_environment_layers_match_settings_precedence(tmp_path: Path) ->
     assert [cmd[i + 1] for i, value in enumerate(cmd) if value == "--env-file"] == [
         str(path) for path in paths
     ]
+
+
+@pytest.mark.parametrize(
+    ("backend_name", "stdout", "expected_root"),
+    [
+        ("docker", '["name=seccomp,profile=builtin","name=rootless","name=cgroupns"]\n', True),
+        ("docker", '["name=apparmor","name=seccomp,profile=builtin"]\n', False),
+        ("podman", "true\n", True),
+        ("podman", "false\n", False),
+    ],
+)
+def test_container_host_identity_follows_the_selected_engine(
+    monkeypatch: pytest.MonkeyPatch, backend_name: str, stdout: str, expected_root: bool
+) -> None:
+    container_backend.container_host_identity.cache_clear()
+    calls: list[list[str]] = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        return CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(container_backend.subprocess, "run", run)
+    monkeypatch.setattr(container_backend.os, "getuid", lambda: 1234, raising=False)
+    monkeypatch.setattr(container_backend.os, "getgid", lambda: 2345, raising=False)
+
+    identity = container_backend.container_host_identity(backend_name)
+
+    assert calls[0][0] == backend_name
+    assert identity == ((0, 0) if expected_root else (1234, 2345))
+    container_backend.container_host_identity.cache_clear()
+
+
+def test_container_host_identity_warns_when_the_engine_cannot_be_queried(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    container_backend.container_host_identity.cache_clear()
+
+    def run(command, **_kwargs):
+        raise TimeoutExpired(command, 15)
+
+    monkeypatch.setattr(container_backend.subprocess, "run", run)
+    monkeypatch.setattr(container_backend.os, "getuid", lambda: 1234, raising=False)
+    monkeypatch.setattr(container_backend.os, "getgid", lambda: 2345, raising=False)
+
+    identity = container_backend.container_host_identity("podman")
+
+    assert identity == (1234, 2345)
+    assert "could not tell whether podman runs rootless" in capsys.readouterr().err
+    container_backend.container_host_identity.cache_clear()

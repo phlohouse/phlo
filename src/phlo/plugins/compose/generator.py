@@ -60,9 +60,15 @@ def _loopback_port(port: str) -> str:
 class ComposeGenerator:
     """Generates docker-compose.yml from service definitions."""
 
-    def __init__(self, discovery: ServiceDiscovery):
-        """Initialize with a service discovery instance."""
+    def __init__(self, discovery: ServiceDiscovery, host_identity: tuple[int, int] | None = None):
+        """Initialize with a service discovery instance.
+
+        ``host_identity`` is the in-container user and group that own host
+        project files, as reported by the selected container backend; it
+        defaults to the host UID and GID.
+        """
         self.discovery = discovery
+        self.host_identity = host_identity
 
     def generate_compose(
         self,
@@ -428,20 +434,21 @@ class ComposeGenerator:
     def _apply_host_identity(self, config: dict[str, Any], service: ServiceDefinition) -> None:
         if service.name in {"dagster", "dagster-daemon"}:
             if platform.system() == "Linux":
+                uid, gid = self.host_identity or (os.getuid(), os.getgid())
                 # Start as root so the entrypoint can install the mounted project's
                 # dependencies, then drop to the host identity before Dagster starts.
                 config.pop("user", None)
                 environment = config.setdefault("environment", {})
                 if isinstance(environment, dict):
                     environment.setdefault("HOME", "/opt/dagster")
-                    environment["PHLO_RUNTIME_UID"] = str(os.getuid())
-                    environment["PHLO_RUNTIME_GID"] = str(os.getgid())
+                    environment["PHLO_RUNTIME_UID"] = str(uid)
+                    environment["PHLO_RUNTIME_GID"] = str(gid)
                 elif isinstance(environment, list) and not any(
                     item.startswith("HOME=") for item in environment if isinstance(item, str)
                 ):
                     environment.append("HOME=/opt/dagster")
-                    environment.append(f"PHLO_RUNTIME_UID={os.getuid()}")
-                    environment.append(f"PHLO_RUNTIME_GID={os.getgid()}")
+                    environment.append(f"PHLO_RUNTIME_UID={uid}")
+                    environment.append(f"PHLO_RUNTIME_GID={gid}")
             else:
                 config.pop("user", None)
 
@@ -450,7 +457,8 @@ class ComposeGenerator:
             # the read-only project mount through pydantic settings. Those files
             # are host-owned with restrictive permissions, so the
             # container must run as the generating host user to read them.
-            config["user"] = f"{os.getuid()}:{os.getgid()}"
+            uid, gid = self.host_identity or (os.getuid(), os.getgid())
+            config["user"] = f"{uid}:{gid}"
 
     def _apply_dependencies(self, config: dict[str, Any], service: ServiceDefinition) -> None:
         # Dependencies

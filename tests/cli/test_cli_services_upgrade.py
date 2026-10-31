@@ -17,6 +17,7 @@ from click.testing import CliRunner
 from phlo.cli.commands.services import upgrade as upgrade_module
 from phlo.cli.commands.services.init import init_cmd
 from phlo.cli.commands.services.upgrade import build_plan, upgrade_cmd
+from phlo.infrastructure import container_backend as container_backend_module
 from phlo.infrastructure.container_backend import PodmanBackend
 from phlo.operations.generated_stack import BASELINE, GeneratedStackPlan, generation_baseline
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
@@ -318,6 +319,12 @@ def test_upgrade_validates_resolved_personal_layers_before_mutation(tmp_path, mo
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux API host identity boundary")
 def test_unwritable_api_bind_requires_review_without_changing_custom_data(tmp_path, monkeypatch):
+    # The ownership repair applies to rootful Docker, where the host UID is used as-is.
+    monkeypatch.setattr(
+        container_backend_module,
+        "container_host_identity",
+        lambda backend_name: (os.getuid(), os.getgid()),
+    )
     monkeypatch.chdir(tmp_path)
     assert CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"]).exit_code == 0
     audit = tmp_path / ".phlo/audit"

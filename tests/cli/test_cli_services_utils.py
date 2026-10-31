@@ -211,7 +211,7 @@ def test_regenerate_compose_writes_compose_and_env_files(
             super().__init__({service.name: service}, default_names=(service.name,))
 
     class ComposeGeneratorFake:
-        def __init__(self, discovery) -> None:
+        def __init__(self, discovery, host_identity=None) -> None:
             self.discovery = discovery
 
         def generate_compose(
@@ -271,7 +271,7 @@ def test_regenerate_compose_replaces_permissive_env_local_at_0600(
             super().__init__({service.name: service}, default_names=(service.name,))
 
     class ComposeGeneratorFake:
-        def __init__(self, discovery) -> None:
+        def __init__(self, discovery, host_identity=None) -> None:
             self.discovery = discovery
 
         def generate_compose(self, services_to_install, _phlo_dir, **kwargs) -> str:

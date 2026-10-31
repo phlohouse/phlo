@@ -20,6 +20,7 @@ from phlo.cli.commands.services.utils import detect_phlo_source_path
 from phlo.cli.infrastructure.selection import select_services_to_install
 from phlo.config.env import parse_project_env_file
 from phlo.config_schema import ServiceOverride
+from phlo.infrastructure import container_backend as container_backend_module
 from phlo.plugins.compose import generator as generator_module
 from phlo.plugins.compose.env import generate_env, generate_env_local
 from phlo.plugins.compose.generator import ComposeGenerator
@@ -335,7 +336,7 @@ def test_services_init_production_selects_the_secure_compose_profile(
     captured: dict[str, object] = {}
 
     class FakeComposer:
-        def __init__(self, _discovery) -> None:
+        def __init__(self, _discovery, host_identity=None) -> None:
             pass
 
         def generate_compose(self, _services, _output_dir, **kwargs) -> str:
@@ -512,6 +513,16 @@ def test_compose_generator_dev_mode_builds_phlo_services_from_source(tmp_path) -
     assert compose["services"]["dagster"]["build"]["dockerfile"] == "dagster/Dockerfile"
 
 
+@pytest.fixture(autouse=True)
+def _rootful_docker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep host-identity tests independent of the machine's container engine."""
+    monkeypatch.setattr(
+        container_backend_module,
+        "container_host_identity",
+        lambda backend_name: (os.getuid(), os.getgid()),
+    )
+
+
 @pytest.mark.parametrize("service_name", ["dagster", "dagster-daemon"])
 @pytest.mark.parametrize(
     ("host_platform", "expected_user", "expected_environment"),
@@ -606,6 +617,34 @@ def test_compose_generator_runs_phlo_api_as_host_user_on_linux(
     # The API reads host-owned mode-0600 secrets (.phlo/.env, .phlo/.env.local)
     # from the read-only project mount, so on Linux it runs as the host user.
     assert data["services"]["phlo-api"].get("user") == expected_user
+
+
+def test_compose_generator_maps_host_user_to_container_root_under_rootless_docker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(generator_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(generator_module.os, "getuid", lambda: 1234, raising=False)
+    monkeypatch.setattr(generator_module.os, "getgid", lambda: 2345, raising=False)
+    services = [
+        ServiceDefinition(
+            name=name,
+            description=name,
+            category="orchestration",
+            default=True,
+            compose={"environment": {"EXISTING": "value"}},
+        )
+        for name in ("dagster", "phlo-api")
+    ]
+
+    # The selected rootless backend reports container root as the file owner.
+    generator = ComposeGenerator(cast(ServiceDiscovery, FakeDiscovery()), host_identity=(0, 0))
+    data = yaml.safe_load(generator.generate_compose(services, output_dir=tmp_path))
+
+    # Rootless Docker runs container root as the invoking host user; UID 1234
+    # inside the container would be an unrelated subordinate user.
+    environment = data["services"]["dagster"]["environment"]
+    assert (environment["PHLO_RUNTIME_UID"], environment["PHLO_RUNTIME_GID"]) == ("0", "0")
+    assert data["services"]["phlo-api"]["user"] == "0:0"
 
 
 def test_compose_generator_adds_home_to_list_environment_on_linux(
@@ -1215,7 +1254,7 @@ def test_services_init_excludes_profile_services_by_default(
     )
 
     class FakeComposer:
-        def __init__(self, _discovery):
+        def __init__(self, _discovery, host_identity=None):
             pass
 
         def generate_compose(self, services, output_dir, **_kwargs):
@@ -1268,7 +1307,7 @@ def test_services_init_allows_logs_only_phlo_dir(monkeypatch: pytest.MonkeyPatch
     fake_discovery = FakeDiscovery({postgres.name: postgres}, default_names=(postgres.name,))
 
     class FakeComposer:
-        def __init__(self, _discovery):
+        def __init__(self, _discovery, host_identity=None):
             pass
 
         def generate_compose(self, services, output_dir, **_kwargs):
@@ -1312,7 +1351,7 @@ def test_services_init_includes_requested_profile_services(
     generated_env: dict[str, object] = {}
 
     class FakeComposer:
-        def __init__(self, _discovery):
+        def __init__(self, _discovery, host_identity=None):
             pass
 
         def generate_compose(self, services, output_dir, **kwargs):
@@ -1358,7 +1397,7 @@ def test_services_init_uses_lifecycle_planner_for_profiles(
     copied: list[str] = []
 
     class FakeComposer:
-        def __init__(self, _discovery):
+        def __init__(self, _discovery, host_identity=None):
             pass
 
         def generate_compose(self, selected, *_args, **_kwargs):
@@ -1396,7 +1435,7 @@ def test_services_init_production_writes_env_local_at_0600(
     discovery = FakeDiscovery({postgres.name: postgres}, default_names=(postgres.name,))
 
     class _FakeComposer:
-        def __init__(self, _discovery) -> None:
+        def __init__(self, _discovery, host_identity=None) -> None:
             pass
 
         def generate_compose(self, _services, _output_dir, **_kwargs) -> str:
@@ -1439,7 +1478,7 @@ def test_services_init_replaces_permissive_env_local_at_0600(
     discovery = FakeDiscovery({postgres.name: postgres}, default_names=(postgres.name,))
 
     class _FakeComposer:
-        def __init__(self, _discovery) -> None:
+        def __init__(self, _discovery, host_identity=None) -> None:
             pass
 
         def generate_compose(self, _services, _output_dir, **_kwargs) -> str:
@@ -1571,7 +1610,7 @@ def test_services_init_stages_uv_lock_metadata_for_lock_aware_builds(
     (tmp_path / "uv.lock").write_text("version = 1\n")
     composer = _RecordingComposer.__new__(_RecordingComposer)
 
-    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery: composer)
+    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery, **_: composer)
 
     phlo_dir = tmp_path / ".phlo"
     assert (phlo_dir / "pyproject.toml").read_text().startswith("[project]")
@@ -1586,7 +1625,7 @@ def test_services_init_without_uv_metadata_keeps_default_build_path(
     """Projects without uv metadata are not flagged lock-aware and stage nothing."""
     composer = _RecordingComposer.__new__(_RecordingComposer)
 
-    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery: composer)
+    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery, **_: composer)
 
     phlo_dir = tmp_path / ".phlo"
     assert not (phlo_dir / "pyproject.toml").exists()
@@ -1606,7 +1645,7 @@ def test_services_init_respects_explicit_uv_lock_override(
     )
     composer = _RecordingComposer.__new__(_RecordingComposer)
 
-    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery: composer)
+    _run_services_init_with_composer(monkeypatch, tmp_path, lambda discovery, **_: composer)
 
     assert composer.env_overrides is not None
     assert composer.env_overrides.get("PHLO_UV_LOCKED") == "false"

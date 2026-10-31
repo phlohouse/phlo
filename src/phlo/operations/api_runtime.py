@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from phlo.infrastructure.container_backend import project_container_host_identity
+
 type DirectoryName = Literal["logs", "audit", "state", "observatory"]
 
 
@@ -41,7 +43,8 @@ def pending_directories(root: Path, service: dict) -> list[DirectoryName]:
     """Find unwritable default binds; personal mounts are not adopted."""
     if platform.system() != "Linux" or not service:
         return []
-    if service.get("user") != f"{os.getuid()}:{os.getgid()}":
+    identity = project_container_host_identity() or (os.getuid(), os.getgid())
+    if service.get("user") != ":".join(map(str, identity)):
         return []
     sources = {}
     for volume in service.get("volumes", []):

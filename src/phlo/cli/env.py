@@ -14,6 +14,7 @@ import yaml
 
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.config.layout import env_secrets_path
+from phlo.infrastructure.container_backend import project_container_host_identity
 from phlo.logging import get_logger
 from phlo.plugins.compose.generator import ComposeGenerator
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
@@ -74,7 +75,7 @@ def export_env(include_secrets: bool, output: Path | None, _format: str) -> None
         )
 
     services_to_install = _select_services(discovery, all_services, config)
-    composer = ComposeGenerator(discovery)
+    composer = ComposeGenerator(discovery, host_identity=project_container_host_identity())
 
     env_content = composer.generate_env(services_to_install, env_overrides=env_overrides)
 
