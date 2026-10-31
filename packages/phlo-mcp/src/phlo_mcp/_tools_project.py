@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
@@ -66,9 +66,11 @@ def _register_project_tools(client: PhloApiClient, mcp: FastMCP) -> None:
 
     @mcp.tool()
     @trace_tool
-    def search_assets(query: str, limit: int = 20, cursor: str | None = None) -> dict[str, Any]:
-        """Search Observatory assets."""
-        payload = client.search_assets(query, limit=limit, cursor=cursor)
+    def search_assets(
+        query: str, env: Environment, limit: int = 20, cursor: str | None = None
+    ) -> dict[str, Any]:
+        """Search assets in prod or staging by ID, description, group, owner, or source."""
+        payload = client.search_assets(query, env, limit=limit, cursor=cursor)
         return {"api_base_url": client.api_base_url, "query": query, "payload": payload}
 
     @mcp.tool()
@@ -81,10 +83,13 @@ def _register_project_tools(client: PhloApiClient, mcp: FastMCP) -> None:
     @mcp.tool()
     @trace_tool
     def search_runs(
-        query: str | None = None, limit: int = 20, cursor: str | None = None
+        env: Environment,
+        query: str | None = None,
+        limit: Annotated[int, Field(ge=1, le=100)] = 20,
+        cursor: str | None = None,
     ) -> dict[str, Any]:
-        """Search recent orchestrator runs."""
-        payload = client.search_runs(query, limit=limit, cursor=cursor)
+        """Search the newest runs in prod or staging; without a query, list them."""
+        payload = client.search_runs(env, query, limit=limit, cursor=cursor)
         return {"api_base_url": client.api_base_url, "query": query, "payload": payload}
 
     @mcp.tool()
@@ -124,24 +129,29 @@ def _register_project_tools(client: PhloApiClient, mcp: FastMCP) -> None:
     @mcp.tool()
     @trace_tool
     def get_quality_results(
-        asset_key: str | None = None, run_id: str | None = None
+        env: Environment, asset_key: str | None = None, run_id: str | None = None
     ) -> dict[str, Any]:
-        """Get quality results, optionally filtered by asset or run."""
-        payload = client.get_quality_results(asset_key=asset_key, run_id=run_id)
+        """Get quality check results in prod or staging, optionally filtered by asset or run."""
+        payload = client.get_quality_results(env, asset_key=asset_key, run_id=run_id)
         return {"api_base_url": client.api_base_url, "payload": payload}
 
     @mcp.tool()
     @trace_tool
-    def get_lineage(asset_key: str, direction: str = "both", depth: int = 1) -> dict[str, Any]:
-        """Get bounded lineage around one asset."""
-        payload = client.get_lineage(asset_key, direction=direction, depth=depth)
+    def get_lineage(
+        asset_key: str,
+        env: Environment,
+        direction: Literal["upstream", "downstream", "both"] = "both",
+        depth: Annotated[int, Field(ge=1, le=10)] = 1,
+    ) -> dict[str, Any]:
+        """Get bounded lineage around one asset in prod or staging."""
+        payload = client.get_lineage(asset_key, env, direction=direction, depth=depth)
         return {"api_base_url": client.api_base_url, "asset_key": asset_key, "payload": payload}
 
     @mcp.tool()
     @trace_tool
     def diff_schema(
-        asset_key: str, from_run: str | None = None, to_run: str | None = None
+        asset_key: str, env: Environment, from_run: str, to_run: str | None = None
     ) -> dict[str, Any]:
-        """Diff schema snapshots for an asset across two runs."""
-        payload = client.diff_schema(asset_key, from_run=from_run, to_run=to_run)
+        """Diff the schema from_run wrote with to_run's, or with the current schema."""
+        payload = client.diff_schema(asset_key, env, from_run=from_run, to_run=to_run)
         return {"api_base_url": client.api_base_url, "asset_key": asset_key, "payload": payload}

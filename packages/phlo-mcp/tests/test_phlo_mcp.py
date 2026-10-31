@@ -86,27 +86,15 @@ def test_api_client_wraps_observability_routes(monkeypatch) -> None:
             return _FakeResponse([{"name": "dagster", "profile": "orchestration"}])
         if url.endswith("/api/services/dagster"):
             return _FakeResponse({"name": "dagster", "depends_on": []})
-        if url.endswith("/api/observatory/assets"):
-            return _FakeResponse({"items": [{"id": "silver/orders", "name": "silver/orders"}]})
-        if url.endswith("/api/observatory/assets/silver/orders"):
+        if url.endswith("/api/v1/operations"):
             return _FakeResponse(
                 {
-                    "asset": {"id": "silver/orders", "name": "silver/orders"},
-                    "materializations": [{"id": "run-123", "metadata": {"run_id": "run-123"}}],
-                    "column_lineage": {"id": []},
+                    "scope": "project",
+                    "items": [{"id": "op-123", "kind": "workflow.apply", "status": "failed"}],
+                    "next_cursor": None,
                 }
             )
-        if url.endswith("/api/observatory/operations"):
-            assert params == {
-                "status": "failed",
-                "kind": "workflow.apply",
-                "q": "orders",
-                "limit": 2,
-            }
-            return _FakeResponse(
-                {"items": [{"id": "op-123", "kind": "workflow.apply", "status": "failed"}]}
-            )
-        if url.endswith("/api/observatory/operations/op-123/agent-context"):
+        if url.endswith("/api/v1/operations/package.install%3Aphlo-x/agent-context"):
             return _FakeResponse(
                 {
                     "schema_version": "phlo.operation_observability.v1",
@@ -195,8 +183,15 @@ def test_api_client_wraps_observability_routes(monkeypatch) -> None:
                     }
                 ]
             )
-        if "/api/observatory/assets/" in url and url.endswith("/materializations"):
-            return _FakeResponse([{"run_id": "run-123", "timestamp": "2026-01-01T00:00:00Z"}])
+        if url.endswith("/api/v1/assets/silver/orders/materializations"):
+            assert params == {"env": "staging", "limit": 10}
+            return _FakeResponse(
+                {
+                    "env": "staging",
+                    "items": [{"run_id": "run-123", "timestamp": "2026-01-01T00:00:00Z"}],
+                    "next_cursor": None,
+                }
+            )
         if url.endswith("/links/logs"):
             return _FakeResponse({"url": "http://logs.test"})
         if url.endswith("/links/metrics"):
@@ -210,15 +205,15 @@ def test_api_client_wraps_observability_routes(monkeypatch) -> None:
     assert client.get_plugins()["services"] == ["phlo-api"]
     assert client.get_services()[0]["name"] == "dagster"
     assert client.get_service_info("dagster")["name"] == "dagster"
-    assert client.get_assets()[0]["id"] == "silver/orders"
-    assert client.get_asset_details("silver/orders")["asset"]["id"] == "silver/orders"
     assert (
         client.list_operations(status="failed", kind="workflow.apply", query="orders", limit=2)[
             "items"
         ][0]["id"]
         == "op-123"
     )
-    assert client.get_operation_context("op-123")["identifiers"]["trace_ids"] == ["trace-123"]
+    assert client.get_operation_context("package.install:phlo-x")["identifiers"]["trace_ids"] == [
+        "trace-123"
+    ]
     assert client.get_contracts()[0]["table"] == "silver.orders"
     assert client.get_contract("silver.orders")["table"] == "silver.orders"
     assert client.get_platform_health()["overall_status"] == "healthy"
@@ -236,11 +231,14 @@ def test_api_client_wraps_observability_routes(monkeypatch) -> None:
         )[0]["status_code"]
         == "STATUS_CODE_ERROR"
     )
-    assert client.get_materialization_history("silver/orders")[0]["run_id"] == "run-123"
+    assert (
+        client.get_materialization_history("silver/orders", "staging")["items"][0]["run_id"]
+        == "run-123"
+    )
     assert client.get_logs_query_link()["url"] == "http://logs.test"
     assert client.get_metrics_query_link()["url"] == "http://metrics.test"
     assert "http://example.test/api/observability/health" in seen_urls
-    assert seen_params[seen_urls.index("http://example.test/api/observatory/operations")] == {
+    assert seen_params[seen_urls.index("http://example.test/api/v1/operations")] == {
         "status": "failed",
         "kind": "workflow.apply",
         "q": "orders",
@@ -261,7 +259,6 @@ def test_create_server_registers_resources() -> None:
         "phlo://docs/cli",
         "phlo://docs/mcp/prompts",
         "phlo://docs/mcp/tools",
-        "phlo://runtime/assets",
         "phlo://runtime/config",
         "phlo://runtime/contracts",
         "phlo://runtime/dashboards",
@@ -270,14 +267,13 @@ def test_create_server_registers_resources() -> None:
     ]
     assert template_uris == [
         "phlo://docs/packages/{package_name}",
-        "phlo://runtime/assets/{asset_key_path}",
         "phlo://runtime/contracts/{table_name}",
         "phlo://runtime/environments/{env}/assets",
         "phlo://runtime/environments/{env}/assets/{asset_id}",
         "phlo://runtime/environments/{env}/runs",
         "phlo://runtime/environments/{env}/runs/{run_id}",
+        "phlo://runtime/environments/{env}/schemas/{asset_id}",
         "phlo://runtime/operations/{operation_id}",
-        "phlo://runtime/schemas/{asset_key_path}",
         "phlo://runtime/services/{service_name}",
     ]
 
@@ -342,78 +338,233 @@ def test_api_client_adds_bearer_token_header(monkeypatch) -> None:
 
 def test_api_client_wraps_operational_routes(monkeypatch) -> None:
     seen_posts: list[dict[str, object]] = []
-    seen_gets: list[str] = []
+    seen_gets: list[tuple[str, object]] = []
 
-    def fake_post(url: str, json=None, headers=None, timeout=30.0):  # noqa: ANN001
-        seen_posts.append({"url": url, "json": json, "headers": headers or {}, "timeout": timeout})
-        return _FakeResponse({"queued": True, "dry_run": json.get("dry_run")})
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+        seen_posts.append({"url": url, "params": params, "json": json})
+        assert headers == {"Authorization": "Bearer secret"}
+        return _FakeResponse({"queued": True})
 
     def fake_get(url: str, params=None, headers=None, timeout=10.0):  # noqa: ANN001
-        seen_gets.append(url)
+        seen_gets.append((url, params))
         return _FakeResponse({"run_id": "run-123", "status": "STARTED"})
 
     monkeypatch.setattr("phlo_mcp.api_client.httpx.post", fake_post)
     monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
     client = PhloApiClient(McpConfig(api_base_url="http://example.test", api_token="secret"))
 
-    assert client.create_workflow(
-        domain="sales", table="orders", unique_key="id", provider="sling"
-    ) == {"queued": True, "dry_run": None}
-    assert client.materialize_asset("silver/orders", dry_run=True, partition_key="2026-04-26") == {
-        "queued": True,
-        "dry_run": True,
-    }
-    assert client.retry_run("run-123", dry_run=False) == {"queued": True, "dry_run": False}
-    assert client.cancel_run("run-123", reason="stuck") == {"queued": True, "dry_run": None}
-    assert client.backfill_asset("silver/orders", dry_run=True, partitions=["2026-04-26"]) == {
-        "queued": True,
-        "dry_run": True,
-    }
-    assert client.get_run_status("run-123")["status"] == "STARTED"
-    assert client.list_partitions("silver/orders")["status"] == "STARTED"
-    assert seen_posts == [
+    client.create_workflow(domain="sales", table="orders", unique_key="id", provider="sling")
+    client.materialize_asset(
+        "silver/orders",
+        "staging",
+        job_name="orders_job",
+        partition_key="2026-04-26",
+        idempotency_key="key-1",
+    )
+    client.retry_run("run-123", "prod", dry_run=False, confirmed=True, idempotency_key="key-2")
+    client.cancel_run("run-123", "prod", reason="stuck", idempotency_key="key-3")
+    client.backfill_asset(
+        "silver/orders",
+        "staging",
+        job_name="orders_job",
+        partition_set_name="orders_partitions",
+        partitions=["2026-04-26"],
+        idempotency_key="key-4",
+    )
+    client.list_partitions("silver/orders", "staging", limit=5)
+
+    assert [post["url"] for post in seen_posts] == [
+        "http://example.test/api/authoring/workflows",
+        "http://example.test/api/v1/assets/silver/orders/materialize",
+        "http://example.test/api/v1/runs/run-123/retry",
+        "http://example.test/api/v1/runs/run-123/cancel",
+        "http://example.test/api/v1/assets/silver/orders/backfill",
+    ]
+    assert [post["params"] for post in seen_posts] == [
+        None,
+        {"env": "staging"},
+        {"env": "prod"},
+        {"env": "prod"},
+        {"env": "staging"},
+    ]
+    assert [post["json"] for post in seen_posts[1:]] == [
         {
-            "url": "http://example.test/api/authoring/workflows",
-            "json": {
-                "domain": "sales",
-                "table": "orders",
-                "unique_key": "id",
-                "cron": "0 */1 * * *",
-                "fields": [],
-                "provider": "sling",
-            },
-            "headers": {"Authorization": "Bearer secret"},
-            "timeout": 30.0,
+            "job_name": "orders_job",
+            "dry_run": True,
+            "idempotency_key": "key-1",
+            "partition_key": "2026-04-26",
         },
         {
-            "url": "http://example.test/api/observatory/assets/silver/orders/materialize",
-            "json": {"dry_run": True, "partition_key": "2026-04-26"},
-            "headers": {"Authorization": "Bearer secret"},
-            "timeout": 30.0,
+            "expected_status": "FAILURE",
+            "dry_run": False,
+            "confirmed": True,
+            "idempotency_key": "key-2",
         },
         {
-            "url": "http://example.test/api/observatory/runs/run-123/retry",
-            "json": {"dry_run": False},
-            "headers": {"Authorization": "Bearer secret"},
-            "timeout": 30.0,
+            "expected_status": "STARTED",
+            "dry_run": True,
+            "confirmed": False,
+            "reason": "stuck",
+            "idempotency_key": "key-3",
         },
         {
-            "url": "http://example.test/api/observatory/runs/run-123/cancel",
-            "json": {"reason": "stuck"},
-            "headers": {"Authorization": "Bearer secret"},
-            "timeout": 30.0,
-        },
-        {
-            "url": "http://example.test/api/observatory/assets/silver/orders/backfill",
-            "json": {"dry_run": True, "partitions": ["2026-04-26"]},
-            "headers": {"Authorization": "Bearer secret"},
-            "timeout": 30.0,
+            "job_name": "orders_job",
+            "partition_set_name": "orders_partitions",
+            "selection": "explicit",
+            "dry_run": True,
+            "confirmed": False,
+            "idempotency_key": "key-4",
+            "partitions": ["2026-04-26"],
         },
     ]
     assert seen_gets == [
-        "http://example.test/api/observatory/runs/run-123/status",
-        "http://example.test/api/observatory/assets/silver/orders/partitions",
+        (
+            "http://example.test/api/v1/assets/silver/orders/partitions",
+            {"env": "staging", "limit": 5},
+        ),
     ]
+
+
+def test_actions_generate_distinct_idempotency_keys_when_caller_omits_one(monkeypatch) -> None:
+    keys: list[str] = []
+
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+        keys.append(json["idempotency_key"])
+        return _FakeResponse({"queued": True})
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.post", fake_post)
+    client = PhloApiClient(McpConfig(api_base_url="http://example.test"))
+
+    client.retry_run("run-123", "prod")
+    client.retry_run("run-123", "prod")
+
+    assert len(set(keys)) == 2
+    assert all(key.startswith("phlo-mcp-") for key in keys)
+
+
+def test_install_plugin_applies_exactly_the_planned_install(monkeypatch) -> None:
+    plan = {
+        "plan_id": "abc",
+        "registry_name": "trino",
+        "package_name": "phlo-trino",
+        "package_spec": "phlo-trino==1.0",
+        "installed_version": None,
+    }
+    seen: list[tuple[str, object]] = []
+
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+        seen.append((url, json))
+        if url.endswith("/install-plan"):
+            return _FakeResponse({"plan": plan, "plan_token": "tok", "operation_id": "op"})
+        return _FakeResponse({"status": "succeeded", "plan_token": "tok"})
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.post", fake_post)
+    client = PhloApiClient(McpConfig(api_base_url="http://example.test", api_token="secret"))
+
+    assert client.install_plugin("trino")["status"] == "succeeded"
+    assert seen == [
+        ("http://example.test/api/v1/admin/packages/trino/install-plan", {}),
+        (
+            "http://example.test/api/v1/admin/packages/trino/install",
+            {
+                "plan": plan,
+                "confirmation_token": "tok",
+                "idempotency_key": "phlo-mcp-install-tok",
+            },
+        ),
+    ]
+
+
+def test_install_plugin_does_not_apply_a_rejected_plan(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_post(url: str, params=None, json=None, headers=None, timeout=30.0):  # noqa: ANN001
+        seen.append(url)
+        return httpx.Response(400, json={"detail": "untrusted"}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.post", fake_post)
+    result = PhloApiClient(McpConfig(api_base_url="http://example.test")).install_plugin("evil")
+
+    assert result["error"]["code"] == "phlo.api.bad_request"
+    assert seen == ["http://example.test/api/v1/admin/packages/evil/install-plan"]
+
+
+def test_search_quality_lineage_and_schema_reads_use_environment_scoped_routes(
+    monkeypatch,
+) -> None:
+    seen: list[tuple[str, dict[str, object]]] = []
+    quality_pages = {
+        None: {
+            "env": "prod",
+            "items": [
+                {"asset_id": "silver/orders", "check_name": "a", "latest": {"run_id": "r1"}},
+                {"asset_id": "silver/users", "check_name": "b", "latest": {"run_id": "r1"}},
+            ],
+            "unverified_assets": [],
+            "next_cursor": "page-2",
+        },
+        "page-2": {
+            "env": "prod",
+            "items": [
+                {"asset_id": "silver/orders", "check_name": "c", "latest": {"run_id": "r2"}},
+                {"asset_id": "silver/orders", "check_name": "d", "latest": None},
+            ],
+            "unverified_assets": ["gold/kpis"],
+            "next_cursor": None,
+        },
+    }
+
+    def fake_get(url: str, params=None, headers=None, timeout=10.0):  # noqa: ANN001
+        seen.append((url, dict(params)))
+        if url.endswith("/api/v1/quality-checks"):
+            return _FakeResponse(quality_pages[params.get("cursor")])
+        return _FakeResponse({"env": params["env"], "items": [], "next_cursor": None})
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
+    client = PhloApiClient(McpConfig(api_base_url="http://example.test"))
+
+    quality = client.get_quality_results("prod", asset_key="silver/orders", run_id="r2")
+    assert [item["check_name"] for item in quality["items"]] == ["c"]
+    assert quality["unverified_assets"] == ["gold/kpis"]
+    assert quality["next_cursor"] is None
+    seen.clear()
+
+    client.search_assets("orders", "prod", limit=5)
+    client.search_runs("staging", "failed", cursor="next")
+    client.search_runs("staging")
+    client.get_lineage("silver/orders", "prod", direction="upstream", depth=2)
+    client.diff_schema("silver/orders", "prod", from_run="r1")
+
+    assert seen == [
+        (
+            "http://example.test/api/v1/search",
+            {"env": "prod", "q": "orders", "kind": "asset", "limit": 5},
+        ),
+        (
+            "http://example.test/api/v1/search",
+            {"env": "staging", "q": "failed", "kind": "run", "limit": 20, "cursor": "next"},
+        ),
+        ("http://example.test/api/v1/runs", {"env": "staging", "limit": 20}),
+        (
+            "http://example.test/api/v1/assets/silver/orders/neighbors",
+            {"env": "prod", "direction": "upstream", "depth": 2},
+        ),
+        (
+            "http://example.test/api/v1/assets/silver/orders/schema-diff",
+            {"env": "prod", "from_run": "r1"},
+        ),
+    ]
+
+
+def test_quality_results_return_the_first_page_error(monkeypatch) -> None:
+    def fake_get(url: str, params=None, headers=None, timeout=10.0):  # noqa: ANN001
+        return httpx.Response(503, json={"detail": "down"}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
+    result = PhloApiClient(McpConfig()).get_quality_results("prod", asset_key="silver/orders")
+
+    assert result["error"]["code"] == "phlo.api.unavailable"
+    assert "items" not in result
 
 
 def test_search_contracts_propagates_api_errors(monkeypatch) -> None:
@@ -531,24 +682,14 @@ def test_write_tool_returns_audit_context_without_token(monkeypatch, tmp_path: P
     def fake_materialize_asset(
         self,  # noqa: ANN001
         asset_key_path: str,
+        env: str,
         *,
+        job_name: str,
         dry_run: bool = True,
         partition_key: str | None = None,
-        job_name: str | None = None,
-        repository_location_name: str | None = None,
-        repository_name: str | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, object]:
-        return {
-            "asset_key_path": asset_key_path,
-            "dry_run": dry_run,
-            "partition_key": partition_key,
-            "job_name": job_name,
-            "repository_location_name": repository_location_name,
-            "repository_name": repository_name,
-            "idempotency_key": idempotency_key,
-            "queued": False,
-        }
+        return {"asset_key_path": asset_key_path, "env": env, "queued": False}
 
     monkeypatch.setattr(PhloApiClient, "materialize_asset", fake_materialize_asset)
     server = create_server(McpConfig(api_token="secret-token", enable_write_tools=True))
@@ -556,11 +697,19 @@ def test_write_tool_returns_audit_context_without_token(monkeypatch, tmp_path: P
         tool for tool in server._tool_manager.list_tools() if tool.name == "materialize_asset"
     )
 
-    result = tool.fn("silver/orders", dry_run=True, partition_key="2026-04-26")
+    result = tool.fn(
+        "silver/orders", "staging", "orders_job", dry_run=True, partition_key="2026-04-26"
+    )
 
+    assert result["payload"]["env"] == "staging"
     assert result["audit_context"] == {
         "operation": "materialize_asset",
-        "target": {"asset_key_path": "silver/orders", "partition_key": "2026-04-26"},
+        "target": {
+            "asset_key_path": "silver/orders",
+            "env": "staging",
+            "job_name": "orders_job",
+            "partition_key": "2026-04-26",
+        },
         "dry_run": True,
         "authenticated": True,
         "api_base_url": "http://127.0.0.1:4000",
@@ -934,4 +1083,70 @@ def test_canonical_unreachable_api_is_not_empty_inventory(monkeypatch) -> None:
     monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
     assert (
         PhloApiClient(McpConfig()).list_assets("staging")["error"]["code"] == "phlo.api.unreachable"
+    )
+
+
+@pytest.mark.parametrize(
+    "name,write_tool",
+    [
+        ("search_assets", False),
+        ("search_runs", False),
+        ("get_quality_results", False),
+        ("get_lineage", False),
+        ("diff_schema", False),
+        ("get_materialization_history", False),
+        ("inspect_materialization", False),
+        ("get_asset_materialization_trace", False),
+        ("render_materialization_trace_tree", False),
+        ("materialize_asset", True),
+        ("retry_failed_run", True),
+        ("cancel_run", True),
+        ("backfill_asset", True),
+        ("list_partitions", True),
+        ("get_run_status", True),
+    ],
+)
+def test_environment_scoped_tools_require_a_valid_env(name, write_tool) -> None:
+    server = create_server(McpConfig(api_token="secret", enable_write_tools=write_tool))
+    tool = server._tool_manager.get_tool(name)
+
+    assert "env" in tool.parameters["required"]
+    assert tool.parameters["properties"]["env"]["pattern"] == "^[a-z][a-z0-9_-]{0,62}$"
+
+
+def test_environment_schema_resource_projects_asset_columns(monkeypatch) -> None:
+    calls = []
+
+    def fake_get(url, *, params, headers, timeout):
+        calls.append((url, params))
+        if url.endswith("/missing"):
+            return httpx.Response(404, json={"detail": "nope"}, request=httpx.Request("GET", url))
+        return _FakeResponse(
+            {
+                "id": "silver/orders",
+                "columns": [{"name": "id"}],
+                "column_lineage": {"id": []},
+                "schema_source": "catalog",
+                "schema_observed_at": None,
+                "description": "not part of the schema view",
+            }
+        )
+
+    monkeypatch.setattr("phlo_mcp.api_client.httpx.get", fake_get)
+    server = create_server(McpConfig(api_base_url="http://example.test"))
+
+    def read(uri: str) -> dict[str, object]:
+        return json.loads(list(asyncio.run(server.read_resource(uri)))[0].content)
+
+    assert read("phlo://runtime/environments/staging/schemas/silver%2Forders") == {
+        "env": "staging",
+        "asset_id": "silver/orders",
+        "columns": [{"name": "id"}],
+        "column_lineage": {"id": []},
+        "schema_source": "catalog",
+        "schema_observed_at": None,
+    }
+    assert calls[-1] == ("http://example.test/api/v1/assets/silver/orders", {"env": "staging"})
+    assert read("phlo://runtime/environments/staging/schemas/missing")["error"]["code"] == (
+        "phlo.resource.not_found"
     )

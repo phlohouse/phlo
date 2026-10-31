@@ -6,7 +6,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from phlo_mcp.api_client import PhloApiClient
+from phlo_mcp.api_client import Environment, PhloApiClient
 from phlo_mcp.run_analysis import (
     render_run_trace_tree as render_log_trace_tree_text,
 )
@@ -117,12 +117,14 @@ def _register_materialization_tools(
 ) -> None:
     def _inspect_materialization_payload(
         asset_key_path: str,
+        env: Environment,
         *,
         limit: int,
         log_limit: int,
         span_limit: int = 500,
     ) -> dict[str, Any]:
-        events = client.get_materialization_history(asset_key_path, limit=limit)
+        page = client.get_materialization_history(asset_key_path, env, limit=limit)
+        events = page if "error" in page else page["items"]
         if not isinstance(events, list) or not events:
             return {
                 "api_base_url": client.api_base_url,
@@ -155,12 +157,13 @@ def _register_materialization_tools(
     @mcp.tool()
     @trace_tool
     def inspect_materialization(
-        asset_key_path: str, limit: int = 5, log_limit: int = 200
+        asset_key_path: str, env: Environment, limit: int = 5, log_limit: int = 200
     ) -> dict[str, Any]:
         """Inspect recent materializations and correlated logs for the latest run."""
         with tracer.start_as_current_span("phlo.materialization.inspect"):
             return _inspect_materialization_payload(
                 asset_key_path,
+                env,
                 limit=limit,
                 log_limit=log_limit,
             )
@@ -168,12 +171,13 @@ def _register_materialization_tools(
     @mcp.tool()
     @trace_tool
     def get_asset_materialization_trace(
-        asset_key_path: str, limit: int = 5, span_limit: int = 500
+        asset_key_path: str, env: Environment, limit: int = 5, span_limit: int = 500
     ) -> dict[str, Any]:
         """Resolve the latest materialization for an asset and return its trace payload."""
         with tracer.start_as_current_span("phlo.materialization.trace"):
             payload = _inspect_materialization_payload(
                 asset_key_path,
+                env,
                 limit=limit,
                 log_limit=50,
                 span_limit=span_limit,
@@ -192,12 +196,13 @@ def _register_materialization_tools(
     @mcp.tool()
     @trace_tool
     def render_materialization_trace_tree(
-        asset_key_path: str, limit: int = 5, span_limit: int = 500
+        asset_key_path: str, env: Environment, limit: int = 5, span_limit: int = 500
     ) -> dict[str, Any]:
         """Render the latest materialization trace tree for an asset key path."""
         with tracer.start_as_current_span("phlo.materialization.trace_tree"):
             payload = _inspect_materialization_payload(
                 asset_key_path,
+                env,
                 limit=limit,
                 log_limit=50,
                 span_limit=span_limit,

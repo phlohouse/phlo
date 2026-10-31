@@ -57,6 +57,7 @@ def _register_platform_tools(client: PhloApiClient, tracer: CanonicalTracer, mcp
         kind: str | None = None,
         query: str | None = None,
         limit: int = 20,
+        cursor: str | None = None,
     ) -> dict[str, Any]:
         """Find recent operations before fetching stable operation context."""
         with tracer.start_as_current_span("phlo.observability.operations"):
@@ -65,6 +66,7 @@ def _register_platform_tools(client: PhloApiClient, tracer: CanonicalTracer, mcp
                 kind=kind,
                 query=query,
                 limit=limit,
+                cursor=cursor,
             )
             return {
                 "api_base_url": client.api_base_url,

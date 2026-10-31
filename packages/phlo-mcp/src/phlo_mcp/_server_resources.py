@@ -71,6 +71,25 @@ def _register_environment_resources(client: PhloApiClient, mcp: FastMCP) -> None
         return client.get_asset(unquote(asset_id), env)
 
     @mcp.resource(
+        "phlo://runtime/environments/{env}/schemas/{asset_id}",
+        name="environment_asset_schema",
+        mime_type="application/json",
+    )
+    def environment_asset_schema(env: Environment, asset_id: str) -> dict[str, Any]:
+        """Read one asset's columns and column lineage in the selected environment."""
+        detail = client.get_asset(unquote(asset_id), env)
+        if "error" in detail:
+            return detail
+        return {
+            "env": env,
+            "asset_id": detail["id"],
+            "columns": detail["columns"],
+            "column_lineage": detail.get("column_lineage"),
+            "schema_source": detail.get("schema_source"),
+            "schema_observed_at": detail.get("schema_observed_at"),
+        }
+
+    @mcp.resource(
         "phlo://runtime/environments/{env}/runs",
         name="environment_runs",
         mime_type="application/json",
@@ -124,15 +143,6 @@ def _register_resources(
         return client.get_plugins()
 
     @mcp.resource(
-        "phlo://runtime/assets",
-        name="runtime_assets",
-        mime_type="application/json",
-    )
-    def runtime_assets() -> dict[str, Any] | list[dict[str, Any]]:
-        """Read asset metadata."""
-        return client.get_assets()
-
-    @mcp.resource(
         "phlo://runtime/contracts",
         name="runtime_contracts",
         mime_type="application/json",
@@ -160,37 +170,11 @@ def _register_resources(
         return client.get_service_info(service_name)
 
     @mcp.resource(
-        "phlo://runtime/assets/{asset_key_path}",
-        name="runtime_asset",
-        mime_type="application/json",
-    )
-    def runtime_asset(asset_key_path: str) -> dict[str, Any] | list[dict[str, Any]]:
-        """Read metadata for one asset."""
-        return client.get_asset_details(asset_key_path)
-
-    @mcp.resource(
-        "phlo://runtime/schemas/{asset_key_path}",
-        name="runtime_asset_schema",
-        mime_type="application/json",
-    )
-    def runtime_asset_schema(asset_key_path: str) -> dict[str, Any]:
-        """Read schema metadata for one asset."""
-        details = client.get_asset_details(asset_key_path)
-        if not isinstance(details, dict):
-            return {"asset_key_path": asset_key_path, "columns": []}
-        return {
-            "asset_key_path": asset_key_path,
-            "columns": details.get("columns") or [],
-            "column_lineage": details.get("column_lineage"),
-            "partition_definition": details.get("partition_definition"),
-        }
-
-    @mcp.resource(
         "phlo://runtime/operations/{operation_id}",
         name="runtime_operation_context",
         mime_type="application/json",
     )
-    def runtime_operation_context(operation_id: str) -> dict[str, Any] | list[dict[str, Any]]:
+    def runtime_operation_context(operation_id: str) -> dict[str, Any]:
         """Read stable observability context for one Phlo operation."""
         return client.get_operation_context(operation_id)
 

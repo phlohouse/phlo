@@ -34,15 +34,21 @@ def _register_run_tools(client: PhloApiClient, tracer: CanonicalTracer, mcp: Fas
     @mcp.tool()
     @trace_tool
     def get_materialization_history(
-        asset_key_path: str, limit: int = 10, cursor: str | None = None
+        asset_key_path: str,
+        env: Environment,
+        limit: Annotated[int, Field(ge=1, le=100)] = 10,
+        cursor: str | None = None,
     ) -> dict[str, Any]:
-        """Get recent materializations for an asset."""
+        """Get recent successful materializations for an asset in prod or staging."""
         with tracer.start_as_current_span("phlo.orchestrator.materialization_history"):
-            events = client.get_materialization_history(asset_key_path, limit=limit, cursor=cursor)
+            page = client.get_materialization_history(
+                asset_key_path, env, limit=limit, cursor=cursor
+            )
             return {
                 "api_base_url": client.api_base_url,
                 "asset_key_path": asset_key_path,
-                "events": events,
+                "events": page if "error" in page else page["items"],
+                "next_cursor": page.get("next_cursor"),
             }
 
     @mcp.tool()
