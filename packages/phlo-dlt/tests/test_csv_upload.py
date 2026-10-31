@@ -5,6 +5,7 @@ import json
 from datetime import date
 from types import SimpleNamespace
 
+import dlt
 import pytest
 
 from phlo.exceptions import PhloConfigError
@@ -152,6 +153,19 @@ def test_candidate_staging_supplies_required_provenance_to_the_real_iceberg_sche
         }
     monkeypatch.chdir(root)
     result = author_csv_upload(root, {"manifest": manifest})
+
+    def setup_pipeline(pipeline_name, dataset_name):
+        # The default /tmp/phlo/dlt is shared by every process, and both
+        # parametrisations use the same pipeline name, so stage under tmp_path.
+        pipeline = dlt.pipeline(
+            pipeline_name=pipeline_name,
+            destination=dlt.destinations.filesystem(bucket_url=str(root / "bucket")),
+            dataset_name=dataset_name,
+            pipelines_dir=str(root / "pipelines"),
+        )
+        return pipeline, root / "pipelines" / pipeline_name
+
+    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", setup_pipeline)
 
     class Store:
         support = SimpleNamespace(schema_policies=frozenset({"strict"}))

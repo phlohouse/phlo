@@ -310,9 +310,10 @@ def test_failed_health_cleanup_terminates_native_process_group(
     async def fail_after_child_starts(_self, _url: str, timeout: int = 30) -> bool:
         """Wait until the wrapper has published its child before failing health."""
         deadline = time.monotonic() + timeout
-        while not pid_file.exists() and time.monotonic() < deadline:
+        while time.monotonic() < deadline:
+            if pid_file.exists() and pid_file.read_text().strip():
+                break
             await asyncio.sleep(0.01)
-        assert pid_file.exists()
         return False
 
     monkeypatch.setattr(NativeProcessManager, "_wait_for_health", fail_after_child_starts)
@@ -333,7 +334,7 @@ def test_failed_health_cleanup_terminates_native_process_group(
         else:
             pytest.fail("failed health cleanup left the native child process running")
     finally:
-        if pid_file.exists():
+        if pid_file.exists() and pid_file.read_text().strip():
             with suppress(ProcessLookupError):
                 os.kill(int(pid_file.read_text()), signal.SIGKILL)
 
@@ -362,10 +363,12 @@ def test_stop_service_escalates_after_leader_exits_but_child_ignores_sigterm(
     leader_pid = native_process.pid
 
     try:
+        # write_text creates the file before writing, so wait for the PID itself.
         deadline = time.monotonic() + 5
-        while not pid_file.exists() and time.monotonic() < deadline:
+        while time.monotonic() < deadline:
+            if pid_file.exists() and pid_file.read_text().strip():
+                break
             time.sleep(0.01)
-        assert pid_file.exists()
         child_pid = int(pid_file.read_text())
 
         assert asyncio.run(manager.stop_service("api", timeout=0.1)) is True
@@ -379,5 +382,9 @@ def test_stop_service_escalates_after_leader_exits_but_child_ignores_sigterm(
         else:
             pytest.fail("native child ignoring SIGTERM survived group cleanup")
     finally:
+        # Reap the leader and close its log so a failure here cannot leak
+        # ResourceWarnings into a later test on the same worker.
         with suppress(ProcessLookupError):
             os.killpg(leader_pid, signal.SIGKILL)
+        native_process.process.wait(timeout=5)
+        native_process.close_log_file()
