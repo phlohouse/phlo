@@ -100,6 +100,15 @@ registered redirect URI and `OAUTH2_PROXY_REDIRECT_URL` to
 callback remains the default for API-only deployments. Cross-host cookie sharing
 is not automatic. Configure it explicitly only for trusted sibling hosts.
 
+When a TLS-terminating proxy forwards plain HTTP to Traefik, set
+`TRAEFIK_TRUSTED_IPS` to that proxy's source address as Traefik sees it, for
+example `TRAEFIK_TRUSTED_IPS=172.20.0.1/32`. Traefik then keeps the proxy's
+`X-Forwarded-Proto: https` for oauth2-proxy and the API. By default Traefik
+trusts no forwarded headers and replaces them. Traefik builds the sign-in
+return URL from its own plain HTTP connection, so also set
+`OAUTH2_PROXY_SIGN_IN_QUERY=/oauth2/sign_in`. oauth2-proxy then returns the
+browser to `/` on the original `https` origin instead of an `http` URL.
+
 Terminate HTTPS at the trusted ingress and install the issuer's CA where the
 proxy and API require it. Do not disable TLS verification. The generated
 production profile removes direct API and UI host-port mappings while retaining

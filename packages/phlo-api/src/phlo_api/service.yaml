@@ -36,7 +36,7 @@ compose:
         traefik.http.middlewares.phlo-api-login.errors.status: "401"
         traefik.http.middlewares.phlo-api-login.errors.statusRewrites.401: "302"
         traefik.http.middlewares.phlo-api-login.errors.service: "oauth2-proxy@docker"
-        traefik.http.middlewares.phlo-api-login.errors.query: "/oauth2/sign_in?rd={url}"
+        traefik.http.middlewares.phlo-api-login.errors.query: "${OAUTH2_PROXY_SIGN_IN_QUERY:-/oauth2/sign_in?rd={url}}"
         phlo.metrics.enabled: "true"
         phlo.metrics.port: "phlo-api:4000"
         phlo.metrics.path: "/api/maintenance/metrics"
@@ -170,6 +170,9 @@ env_vars:
     OAUTH2_PROXY_AUTH_COOKIES:
         default: _oauth2_proxy
         description: Comma-separated session cookie names forwarded after refresh; include all chunk names if oauth2-proxy splits a large cookie
+    OAUTH2_PROXY_SIGN_IN_QUERY:
+        default: "/oauth2/sign_in?rd={url}"
+        description: Sign-in path Traefik sends unauthenticated browsers to; use /oauth2/sign_in behind a TLS-terminating proxy, where Traefik builds {url} with http
     PHLO_AUTHENTICATION_PROVIDER:
         default: ""
         description: Explicit authentication provider selection; use jwt with issuer, audience, and JWKS for human OIDC tokens

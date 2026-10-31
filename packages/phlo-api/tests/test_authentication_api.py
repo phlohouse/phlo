@@ -164,7 +164,7 @@ def test_phlo_api_has_forward_auth_middleware() -> None:
         "oauth2-proxy@docker"
     )
     assert auth_labels["traefik.http.middlewares.phlo-api-login.errors.query"] == (
-        "/oauth2/sign_in?rd={url}"
+        "${OAUTH2_PROXY_SIGN_IN_QUERY:-/oauth2/sign_in?rd={url}}"
     )
 
 

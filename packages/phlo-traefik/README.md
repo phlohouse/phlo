@@ -22,6 +22,7 @@ open http://dagster.phlo.localhost
 |---------------------|---------|-------------|
 | `TRAEFIK_HTTP_PORT` | `80` | Host port for Traefik HTTP entrypoint |
 | `TRAEFIK_DOMAIN` | `phlo.localhost` | Base domain for service hostnames |
+| `TRAEFIK_TRUSTED_IPS` | empty | Comma-separated IPs or CIDRs whose `X-Forwarded-*` headers Traefik keeps |
 
 ## Routed Services
 
