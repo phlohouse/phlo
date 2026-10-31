@@ -317,3 +317,51 @@ services:
     clear_config_cache()
 
     assert get_authorization_backend() is backend
+
+
+def test_resolve_request_principal_applies_canonical_subject_assignments(monkeypatch) -> None:
+    from phlo.rbac.models import CanonicalRBAC, PoliciesConfig, RolesConfig
+
+    import phlo_api.api.authorization as authorization
+
+    rbac = CanonicalRBAC.from_configs(
+        RolesConfig.from_dict(
+            {"roles": {"admin": {}}, "subjects": {"users": {"oidc-subject-1": ["admin"]}}}
+        ),
+        PoliciesConfig.from_dict({"policies": []}),
+    )
+    register_capability(
+        "authorization_policy_backend",
+        AuthorizationPolicyBackendSpec(
+            name="default", provider=DefaultAuthorizationPolicyBackend(rbac=rbac)
+        ),
+    )
+    monkeypatch.delenv("PHLO_AUTHORIZATION_BACKEND", raising=False)
+    monkeypatch.setattr(
+        authorization,
+        "get_request_principal",
+        lambda request: AuthPrincipal(subject="oidc-subject-1", principal_type="user"),
+    )
+
+    principal = resolve_request_principal(_make_request(), require_auth=True)
+
+    assert principal is not None
+    assert principal.subject == "oidc-subject-1"
+    assert "admin" in principal.roles
+
+
+def test_resolve_request_principal_survives_unresolvable_backend(monkeypatch) -> None:
+    import phlo_api.api.authorization as authorization
+
+    monkeypatch.setenv("PHLO_AUTHORIZATION_BACKEND", "missing-backend")
+    monkeypatch.setattr(
+        authorization,
+        "get_request_principal",
+        lambda request: AuthPrincipal(subject="oidc-subject-1", principal_type="user"),
+    )
+
+    principal = resolve_request_principal(_make_request(), require_auth=True)
+
+    assert principal is not None
+    assert principal.subject == "oidc-subject-1"
+    assert principal.roles == ()

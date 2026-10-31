@@ -247,9 +247,20 @@ def resolve_request_principal(request: Request, require_auth: bool = False) -> P
             roles=(),
         )
 
-    from phlo.identity.bridge import canonicalize_principal
+    from phlo.identity.bridge import IdentityBridge, IdentityBridgeConfig
 
-    return canonicalize_principal(auth_principal, regulated=False)
+    # Subject assignments in .phlo/authorization/roles.yaml live on the backend's
+    # canonical RBAC; without it every OIDC user resolves with no roles.
+    # A misconfigured backend selection is reported by enforcement; resolving
+    # who the caller is must not turn it into an unhandled error.
+    try:
+        backend = get_authorization_backend()
+    except RuntimeError:
+        logger.warning("authorization_backend_unresolved_for_principal", exc_info=True)
+        backend = None
+    rbac = getattr(backend, "rbac", None)
+    bridge = IdentityBridge(IdentityBridgeConfig(canonical_rbac=rbac))
+    return bridge.canonicalize(auth_principal)
 
 
 def _enforce_or_raise(
