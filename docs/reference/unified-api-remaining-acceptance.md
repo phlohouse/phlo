@@ -149,7 +149,21 @@ Other consumers and URL producers have these decisions:
 | `packages/phlo-testing/src/phlo_testing/profile_harness.py` | GET `/api/backends` | Keep backend capability inventory. Services do not replace backend-provider information. |
 | `scripts/release_golden_path.py` | GET canonical durable report | Migrated in this change before any legacy retirement. |
 | `observatory_api/run_action_contract.py` | Generates canonical report URL | Migrated to `/api/v1`; not a separate request caller. |
-| `observatory_api/extensions.py` | Generates `O/extensions/{name}/assets` URLs | Keep Python extension asset contract. No current bundled browser consumer was found. |
+| `observatory_api/extensions.py` | Generates `/api/v1/extensions/{name}/assets` URLs | Migrated to `/api/v1`; the legacy asset route still serves the same files. No current bundled browser consumer was found. |
 | Continuity CLI, recovery drill, and release operations | Direct Python operations/providers, not `/api/continuity` HTTP | Keep continuity routes and provider capabilities. No first-party HTTP caller was found; that does not establish that external clients are absent. |
+
+Canonical `/api/v1` resources now exist for the read capabilities above. `phlo-mcp` has not migrated to them yet:
+
+| Legacy read | Canonical resource |
+| --- | --- |
+| GET `O/extension-manifests`, GET `O/extensions/{name}/assets/{asset_path}`, GET `O/extensions/{name}/settings` | GET `/api/v1/extensions`, GET `/api/v1/extensions/{name}/assets/{asset_path}`, GET `/api/v1/extensions/{name}/settings` (project-scoped) |
+| GET `O/operations`, GET `O/operations/{operation_id}/agent-context` | GET `/api/v1/operations`, GET `/api/v1/operations/{operation_id}/agent-context` (project-scoped) |
+| GET `O/quality` | GET `/api/v1/quality-checks?env=` |
+| GET `O/assets/{asset_key_path}/partitions` | GET `/api/v1/assets/{asset_id}/partitions?env=` |
+| GET `O/assets/{asset_key_path}/materializations` | GET `/api/v1/assets/{asset_id}/materializations?env=` |
+| GET `O/asset-graph/neighbors` | GET `/api/v1/assets/{asset_id}/neighbors?env=` |
+| POST `O/schemas/diff` | GET `/api/v1/assets/{asset_id}/schema-diff?env=&from_run=` |
+| GET `O/search`, GET `O/runs` (search) | GET `/api/v1/search?env=&q=&kind=asset,run` |
+| GET `O/assets`, GET `O/assets/{asset_key_path}`, GET `O/runs`, GET `O/runs/{run_id}/status` | Existing GET `/api/v1/assets`, `/api/v1/assets/{asset_id}`, `/api/v1/runs`, `/api/v1/runs/{run_id}` |
 
 MCP now offers canonical asset and run reads with explicit environment selection, alongside the compatibility methods listed above. Search and mutation callers still need separate migration contracts. No legacy URL is deleted, and additive tools do not establish completed consumer cutover.

@@ -25,7 +25,7 @@ See the exact [Pydantic models](../../src/phlo/plugins/observatory.py).
 
 ## Assets and module URLs
 
-The API advertises `/api/observatory/extensions/<plugin-metadata-name>/assets` as `assets_base_path`. Asset requests must be non-empty relative POSIX paths. Absolute paths and any `..` segment return HTTP 400; missing files return HTTP 404. The server joins the validated path to `asset_root`, extracts packaged resources when necessary, copies the selected file to a response-lifetime temporary directory, and removes that directory after the response.
+The API advertises `/api/v1/extensions/<plugin-metadata-name>/assets` as `assets_base_path`. The legacy `/api/observatory/extensions/<plugin-metadata-name>/assets` route serves the same files until its announced removal. Asset requests must be non-empty relative POSIX paths. Absolute paths and any `..` segment return HTTP 400; missing files return HTTP 404. The server joins the validated path to `asset_root`, extracts packaged resources when necessary, copies the selected file to a response-lifetime temporary directory, and removes that directory after the response.
 
 Use root-relative module names such as `/example.js` in manifests. The API serves assets but does not execute browser modules. No browser registry exists in the current Observatory UI. See the [asset endpoint](../../packages/phlo-api/src/phlo_api/observatory_api/extensions.py).
 

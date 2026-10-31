@@ -108,7 +108,13 @@ _ROUTERS = [
     ("phlo_api.api.v1_query", "/api/v1"),
     ("phlo_api.incidents", "/api/v1"),
     ("phlo_api.notifications", "/api/v1"),
+    # Registered before v1_assets: its /assets/{asset_id:path} route would
+    # otherwise capture these asset sub-resources.
+    ("phlo_api.api.v1_asset_insights", "/api/v1"),
     ("phlo_api.api.v1_assets", "/api/v1"),
+    ("phlo_api.api.v1_search", "/api/v1"),
+    ("phlo_api.api.v1_operations", "/api/v1"),
+    ("phlo_api.api.v1_extensions", "/api/v1"),
     ("phlo_api.api.v1_datasets", "/api/v1"),
     ("phlo_api.api.v1_data_products", "/api/v1"),
     ("phlo_api.api.v1_uploads", "/api/v1"),
