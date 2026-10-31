@@ -5,6 +5,10 @@ digest-pinned upstream image and an oauth2 callback-only Traefik route; the
 distroless image must not claim an in-container health check.
 """
 
+import base64
+
+from phlo.plugins.compose.env import generate_env, generate_env_local
+from phlo.plugins.discovery.services import ServiceDefinition
 from phlo_oauth2_proxy.plugin import Oauth2ProxyServicePlugin
 
 
@@ -71,3 +75,38 @@ def test_oauth2_proxy_distroless_image_does_not_claim_an_in_container_probe():
 
     assert "healthcheck" not in definition["compose"]
     assert not definition.get("files")
+
+
+def _env_values(content: str) -> dict[str, str]:
+    return dict(
+        line.split("=", 1) for line in content.splitlines() if line and not line.startswith("#")
+    )
+
+
+def test_oauth2_proxy_credentials_survive_secret_file_regeneration():
+    """Verify regeneration keeps operator-supplied credentials in the secrets file."""
+    definition = Oauth2ProxyServicePlugin().service_definition
+    service = ServiceDefinition(
+        name="oauth2-proxy",
+        description="oauth2-proxy",
+        category="auth",
+        default=False,
+        env_vars=definition["env_vars"],
+    )
+
+    generated = _env_values(generate_env_local([service]))
+    cookie_secret = generated["OAUTH2_PROXY_COOKIE_SECRET"]
+    assert len(base64.urlsafe_b64decode(cookie_secret)) == 32
+
+    regenerated = _env_values(
+        generate_env_local(
+            [service],
+            existing_values={
+                "OAUTH2_PROXY_CLIENT_SECRET": "issued-by-identity-provider",
+                "OAUTH2_PROXY_COOKIE_SECRET": cookie_secret,
+            },
+        )
+    )
+    assert regenerated["OAUTH2_PROXY_CLIENT_SECRET"] == "issued-by-identity-provider"
+    assert regenerated["OAUTH2_PROXY_COOKIE_SECRET"] == cookie_secret
+    assert "OAUTH2_PROXY_CLIENT_SECRET" not in _env_values(generate_env([service]))
