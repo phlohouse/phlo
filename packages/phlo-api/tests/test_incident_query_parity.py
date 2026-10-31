@@ -455,8 +455,7 @@ def test_pause_outbox_uses_scoped_graph_and_real_schedule_consumer(incident_db, 
                         "assetNodes": [
                             node
                             for repository in inventory["data"]["repositoriesOrError"]["nodes"]
-                            if repository["location"]["name"]
-                            == selector["repositoryLocationName"]
+                            if repository["location"]["name"] == selector["repositoryLocationName"]
                             and repository["name"] == selector["repositoryName"]
                             for node in repository["assetNodes"]
                         ],

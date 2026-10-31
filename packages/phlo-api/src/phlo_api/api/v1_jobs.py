@@ -600,6 +600,8 @@ async def _job_data(
             if not isinstance(pipeline, dict) or not isinstance(pipeline.get("name"), str):
                 raise BadGatewayError("Dagster returned an invalid job.")
             nodes = [node for node in repository_nodes if pipeline["name"] in node["jobNames"]]
+            if len(nodes) > _INVENTORY_LIMIT:
+                raise BadGatewayError("Dagster returned an invalid asset-job inventory.")
             assets[repository["name"], pipeline["name"]] = [
                 _assets([node.get("assetKey")])[0] for node in nodes
             ]
@@ -627,7 +629,7 @@ async def _repository_asset_nodes(location: str, repository: str) -> list[dict[s
     data = result.get("data")
     found = data.get("repositoryOrError") if isinstance(data, dict) else None
     nodes = found.get("assetNodes") if isinstance(found, dict) else None
-    if not isinstance(nodes, list) or len(nodes) > _INVENTORY_LIMIT:
+    if not isinstance(nodes, list):
         raise BadGatewayError("Dagster returned an invalid asset-job inventory.")
     for node in nodes:
         repo = node.get("repository") if isinstance(node, dict) else None

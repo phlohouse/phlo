@@ -133,8 +133,7 @@ def api(monkeypatch):
                             }
                             for location in ("prod_loc", "stage_loc")
                             if not variables
-                            or variables["repositorySelector"]["repositoryLocationName"]
-                            == location
+                            or variables["repositorySelector"]["repositoryLocationName"] == location
                         ],
                     }
                 }
@@ -794,6 +793,31 @@ def test_job_metadata_uses_definitions_not_repository_names(api):
     assert job["domain"] is None and job["source"] is None and job["owners"] == []
 
 
+@pytest.mark.parametrize(("extra_job", "status"), [("other", 200), ("orders", 502)])
+def test_job_asset_bound_applies_per_job_not_per_repository(api, extra_job, status):
+    client, _, monkeypatch = api
+    original = v1_jobs.graphql_request
+
+    async def large_repository(url, query, variables=None):
+        result = await original(url, query, variables)
+        if "V1AssetJobs" in query:
+            result["data"]["repositoryOrError"]["assetNodes"] += [
+                {
+                    "assetKey": {"path": ["bulk", str(index)]},
+                    "jobNames": [extra_job],
+                    "repository": {"name": "repo", "location": {"name": "prod_loc"}},
+                }
+                for index in range(v1_jobs._INVENTORY_LIMIT)
+            ]
+        return result
+
+    monkeypatch.setattr(v1_jobs, "graphql_request", large_repository)
+    response = client.get("/api/v1/jobs?env=prod")
+    assert response.status_code == status
+    if status == 200:
+        assert response.json()["items"][0]["selected_assets"] == [["prod_loc", "orders"]]
+
+
 def test_job_membership_uses_exact_repository_and_location_not_workspace_winner(api):
     client, _, monkeypatch = api
     selectors = []
@@ -1140,7 +1164,9 @@ def test_incident_preflight_resolves_inventory_aliases_without_splitting_dotted_
 
     async def graph(url, query, variables=None):
         if "V1AssetJobs" in query:
-            return {"data": {"repositoryOrError": {"__typename": "Repository", "assetNodes": nodes}}}
+            return {
+                "data": {"repositoryOrError": {"__typename": "Repository", "assetNodes": nodes}}
+            }
         return await original(url, query, variables)
 
     async def asset_graph(url, query, variables=None):
