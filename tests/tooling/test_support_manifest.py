@@ -755,6 +755,38 @@ def test_version_1_0_requires_production_ready_manifest() -> None:
     ]
 
 
+def test_blessed_core_shares_one_version_and_set_wide_bounds_from_1_0() -> None:
+    projects = {
+        "phlo": {"version": "1.1.0"},
+        "phlo-api": {
+            "version": "1.1.0",
+            "dependencies": ["phlo-postgres>=1.1.0,<1.2", "phlo-transform>=0.4.0,<0.5"],
+            "optional-dependencies": {
+                "dagster": ["phlo-dagster>=0.3.2"],
+                "dlt": ["phlo-dlt >= 1.0.0, < 1.1"],
+            },
+        },
+        "phlo-dagster": {"version": "1.1.0"},
+        "phlo-dlt": {"version": "1.0.1"},
+        "phlo-postgres": {"version": "1.1.0"},
+    }
+
+    assert VALIDATOR.lockstep_errors("1.1.0", projects) == [
+        "blessed_core package 'phlo-dlt' is versioned '1.0.1', not the lockstep release "
+        "version '1.1.0' (ADR 0053 decision 4)",
+        "blessed_core package 'phlo-api' requires 'phlo-dlt >= 1.0.0, < 1.1'; lockstep "
+        "members must use the set-wide bound phlo-dlt>=1.1.0,<1.2",
+    ]
+    # Independent versions remain valid until the 1.0.0 release itself.
+    assert VALIDATOR.lockstep_errors("0.19.0", projects) == []
+    assert VALIDATOR.lockstep_errors("1.0.0rc1", projects) == []
+    # The checked-in, independently versioned packages cannot be released as 1.0.0.
+    assert any(
+        "not the lockstep release version '1.0.0'" in error
+        for error in validate_manifest(_production_ready_manifest("1.0.0"))
+    )
+
+
 @pytest.mark.parametrize(
     ("version", "rejected"),
     [

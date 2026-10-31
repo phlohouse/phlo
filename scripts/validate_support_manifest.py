@@ -4,7 +4,8 @@
 Checks registry/support/v1.json against its schema (a minimal in-repo
 validator, not a full JSON Schema implementation), verifies that manifest
 paths, markdown anchors, and named claims bind to committed files, and that
-provider packages declare the current core compatibility epoch. Exits 0
+provider packages declare the current core compatibility epoch, and that
+blessed_core packages share one version from 1.0.0. Exits 0
 only when the boundary is internally consistent with the repository.
 """
 
@@ -795,6 +796,54 @@ def _registry_core_errors(ctx: _ManifestContext) -> list[str]:
     return errors
 
 
+_REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^]]*\])?\s*([^;]*)")
+
+
+def lockstep_errors(release_version: str, projects: dict[str, dict[str, Any]]) -> list[str]:
+    """Enforce ADR 0053 decision 4: from 1.0.0 the blessed_core set shares one version.
+
+    ``projects`` maps each blessed_core package name to its ``[project]`` table.
+    Below 1.0.0 packages keep independent conventional-commit versions.
+    """
+    if not _version_is_at_least_1_0(release_version):
+        return []
+    major, minor = re.search(r"(\d+)\.(\d+)", release_version).groups()
+    set_bound = f">={release_version},<{major}.{int(minor) + 1}"
+    errors = [
+        f"blessed_core package {name!r} is versioned {project['version']!r}, not the "
+        f"lockstep release version {release_version!r} (ADR 0053 decision 4)"
+        for name, project in sorted(projects.items())
+        if project["version"] != release_version
+    ]
+    for name, project in sorted(projects.items()):
+        requirements = list(project.get("dependencies", []))
+        for group in project.get("optional-dependencies", {}).values():
+            requirements.extend(group)
+        for requirement in requirements:
+            target, specifier = _REQUIREMENT_NAME.match(requirement).groups()
+            target = _normalise_package_name(target)
+            specifier = specifier.replace(" ", "")
+            # provider_core_compatibility_errors owns the bound on phlo itself.
+            if target == "phlo" or target not in projects or "<" not in specifier:
+                continue
+            if specifier != set_bound:
+                errors.append(
+                    f"blessed_core package {name!r} requires {requirement!r}; lockstep "
+                    f"members must use the set-wide bound {target}{set_bound}"
+                )
+    return errors
+
+
+def _lockstep_errors(ctx: _ManifestContext) -> list[str]:
+    projects = {}
+    for entry in ctx.manifest["release_set"]["packages"]:
+        path = ctx.package_inventory.get(entry["name"])
+        if path is not None:
+            with path.open("rb") as handle:
+                projects[entry["name"]] = tomllib.load(handle)["project"]
+    return lockstep_errors(ctx.manifest["current_release"]["version"], projects)
+
+
 def _published_extra_errors(ctx: _ManifestContext) -> list[str]:
     errors: list[str] = []
     if ctx.manifest["current_release"]["version"] != ctx.root_project["project"]["version"]:
@@ -1057,6 +1106,7 @@ def validate_manifest(manifest: dict[str, Any], *, repo_root: Path = ROOT) -> li
     for entry in ctx.services:
         errors.extend(_service_entry_errors(ctx, entry))
     errors.extend(_release_set_package_errors(ctx))
+    errors.extend(_lockstep_errors(ctx))
     errors.extend(_release_set_service_errors(ctx))
     errors.extend(_release_set_schema_errors(ctx))
     errors.extend(_registry_core_errors(ctx))
