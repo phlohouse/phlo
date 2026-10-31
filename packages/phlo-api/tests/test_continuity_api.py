@@ -458,35 +458,44 @@ def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
     monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ) -> None:
     executed: list[str] = []
+    revisions = iter([0, *range(101, 200)])
 
     class FakeExecutor:
+        # Compaction plans carry the snapshot revision, not a plan_token.
         def plan(self, *, table_name: str, ref: str) -> dict[str, Any]:
             return {
                 "operation": "compact",
                 "table_name": table_name,
                 "ref": ref,
-                "plan_token": "maintenance-token-1",
+                "before_revision": next(revisions),
             }
 
         def execute(self, *, table_name: str, ref: str, plan_token: str) -> dict[str, Any]:
-            if plan_token == "explode":
+            if table_name == "silver.customers":
                 raise RuntimeError("provider died after submission")
             executed.append(f"{table_name}:{ref}:{plan_token}")
             return {"status": "completed", "operation": "compact", "table": table_name}
 
-    def apply_body(key: str, table: str, token: str) -> dict[str, Any]:
+    def plan_for(table: str, ref: str = "main") -> dict[str, Any]:
+        planned = client.post(
+            "/api/continuity/plan",
+            json={
+                "operation": "maintenance.plan",
+                "maintenance_operation": "compact",
+                "table": table,
+                "ref": ref,
+            },
+        )
+        assert planned.status_code == 200, planned.text
+        return planned.json()
+
+    def apply_body(key: str, planned: dict[str, Any], **extra: Any) -> dict[str, Any]:
         return {
             "operation": "maintenance.apply",
             "idempotency_key": key,
-            "plan": {
-                "operation": "compact",
-                "table_name": table,
-                "ref": "main",
-                "plan_token": token,
-            },
-            "confirmation_token": token,
-            "table": table,
-            "ref": "main",
+            "plan": planned["plan"],
+            "confirmation_token": planned["plan_token"],
+            **extra,
         }
 
     register_capability(
@@ -494,52 +503,59 @@ def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
         MaintenanceExecutorSpec(name="compact", provider=FakeExecutor()),
     )
     try:
-        planned = client.post(
-            "/api/continuity/plan",
-            json={
-                "operation": "maintenance.plan",
-                "maintenance_operation": "compact",
-                "table": "silver.orders",
-                "ref": "main",
-            },
-        )
-        assert planned.status_code == 200, planned.text
-        plan = planned.json()["plan"]
+        # A zero snapshot revision is still a real token.
+        assert plan_for("silver.zero")["operation_id"] == "compact:silver.zero:main:0"
 
-        applied = client.post(
-            "/api/continuity/apply", json=apply_body("mt-1", "silver.orders", plan["plan_token"])
-        )
+        planned = plan_for("silver.orders")
+        # The revision becomes the token, exactly as the CLI derives it.
+        assert planned["plan_token"] == "101"
+        assert planned["operation_id"] == "compact:silver.orders:main:101"
+
+        applied = client.post("/api/continuity/apply", json=apply_body("mt-1", planned))
         assert applied.status_code == 200, applied.text
         assert applied.json()["status"] == "completed"
-        assert applied.json()["operation_id"] == planned.json()["operation_id"]
-        assert executed == ["silver.orders:main:maintenance-token-1"]
+        assert applied.json()["operation_id"] == "compact:silver.orders:main:101"
+        assert executed == ["silver.orders:main:101"]
 
         # The same table and ref can be maintained again under a fresh plan;
         # the journal id binds to the exact plan, not to the table alone.
         fresh = client.post(
-            "/api/continuity/apply", json=apply_body("mt-1b", "silver.orders", "token-2")
+            "/api/continuity/apply", json=apply_body("mt-1b", plan_for("silver.orders"))
         )
         assert fresh.status_code == 200, fresh.text
-        assert executed[-1] == "silver.orders:main:token-2"
-        assert fresh.json()["operation_id"] != applied.json()["operation_id"]
+        assert fresh.json()["operation_id"] == "compact:silver.orders:main:102"
+        assert executed[-1] == "silver.orders:main:102"
+
+        # A plan for another ref applies to that ref without repeating it, and
+        # a request ref that disagrees with the plan is refused unexecuted.
+        feature = plan_for("silver.orders", ref="feature")
+        mismatch = client.post(
+            "/api/continuity/apply", json=apply_body("mt-ref", feature, ref="main")
+        )
+        assert mismatch.status_code == 400
+        assert mismatch.json()["detail"] == {
+            "error": "ref_mismatch",
+            "identifiers": ["main", "feature"],
+        }
+        assert executed[-1] == "silver.orders:main:102"
+        on_feature = client.post("/api/continuity/apply", json=apply_body("mt-feat", feature))
+        assert on_feature.status_code == 200, on_feature.text
+        assert on_feature.json()["operation_id"] == feature["operation_id"]
+        assert executed[-1] == "silver.orders:feature:103"
 
         # A provider crash after submission records UNKNOWN; the verification
         # handle shows it and no new key can replay the operation.
-        crashing = client.post(
-            "/api/continuity/apply", json=apply_body("mt-2", "silver.customers", "explode")
-        )
+        doomed = plan_for("silver.customers")
+        crashing = client.post("/api/continuity/apply", json=apply_body("mt-2", doomed))
         assert crashing.status_code == 502
         assert crashing.json()["detail"]["error"] == "apply_outcome_unknown"
 
-        operation_id = "compact:silver.customers:main:explode"
-        verification = client.get(f"/api/continuity/verifications/{operation_id}")
+        verification = client.get(f"/api/continuity/verifications/{doomed['operation_id']}")
         assert verification.status_code == 200
         assert verification.json()["state"] == "unknown"
         assert verification.json()["replay_blocked"] is True
 
-        replay = client.post(
-            "/api/continuity/apply", json=apply_body("mt-3", "silver.customers", "explode")
-        )
+        replay = client.post("/api/continuity/apply", json=apply_body("mt-3", doomed))
         assert replay.status_code == 409
         assert replay.json()["detail"]["error"] == "conflicting_claim"
     finally:
