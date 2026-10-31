@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from phlo.config.process import RunEvidencePoolSettings, get_process_settings
 from phlo.run_evidence.models import (
@@ -351,6 +351,12 @@ class _SqlRunEvidenceStore:
 
     def close(self) -> None:
         """Release store-owned resources."""
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     def append_pipeline_run(self, run: PipelineRun) -> None:
         """Upsert a pipeline run, keyed by project and run id."""

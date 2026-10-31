@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import time
+from contextlib import closing
 from dataclasses import replace
 
 import pyarrow as pa
@@ -43,7 +44,7 @@ def test_filter_operators_execute_independent_sql(operator, expected):
     if operator not in {"is_null", "is_not_null"}:
         item["value"] = 3
     where = preview_where(preview_filters.validate_python([item]), {"value"})
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db, db:
         db.execute('CREATE TABLE sample ("value" INTEGER)')
         db.executemany("INSERT INTO sample VALUES (?)", [(None,), (-2,), (3,), (8,)])
         assert [row[0] for row in db.execute("SELECT value FROM sample" + where)] == expected
@@ -64,7 +65,7 @@ def test_filter_quotes_identifiers_and_injection_values():
         where
         == " WHERE \"odd\"\"name; DROP TABLE sample; --\" = 'O''Brien''; DROP TABLE sample; --'"
     )
-    with sqlite3.connect(":memory:") as db:
+    with closing(sqlite3.connect(":memory:")) as db, db:
         db.execute('CREATE TABLE sample ("odd""name; DROP TABLE sample; --" TEXT)')
         db.executemany("INSERT INTO sample VALUES (?)", [(value,), ("other",)])
         assert list(db.execute("SELECT * FROM sample" + where)) == [(value,)]

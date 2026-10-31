@@ -20,6 +20,7 @@ os.environ["DAGSTER_DISABLE_TELEMETRY"] = "True"
 os.environ["DO_NOT_TRACK"] = "1"  # General standard
 
 import contextlib
+import importlib
 import importlib.util
 import logging
 
@@ -108,6 +109,36 @@ def reset_discovery_caches():
     discovery = sys.modules.get("phlo.plugins.discovery")
     if discovery is not None:
         discovery.refresh()
+
+
+@pytest.fixture(autouse=True)
+def close_test_sqlite_connections(monkeypatch):
+    """Close the SQLite connections each test opens through run-evidence stores and catalogs.
+
+    Python 3.13 reports unclosed SQLite connections as ResourceWarning, which the
+    pytest configuration turns into errors. Tracking construction covers stores
+    created indirectly by hooks and catalogs created inside fixtures.
+    """
+    opened = []
+    for module_name, class_name, release in (
+        ("phlo.run_evidence.store", "SQLiteRunEvidenceStore", lambda store: store.close()),
+        ("pyiceberg.catalog.sql", "SqlCatalog", lambda catalog: catalog.engine.dispose()),
+    ):
+        # Lightweight lanes (for example the Windows contract tests) omit pyiceberg.
+        try:
+            cls = getattr(importlib.import_module(module_name), class_name)
+        except ImportError:
+            continue
+        original_init = cls.__init__
+
+        def tracking_init(self, *args, _init=original_init, _release=release, **kwargs):
+            _init(self, *args, **kwargs)
+            opened.append((self, _release))
+
+        monkeypatch.setattr(cls, "__init__", tracking_init)
+    yield
+    for resource, release in opened:
+        release(resource)
 
 
 def _minio_container_endpoint(minio_service) -> str:

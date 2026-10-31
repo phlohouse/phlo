@@ -14,6 +14,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -335,7 +336,7 @@ def test_unresolved_claim_survives_expiry_until_safe_to_retry(monkeypatch, tmp_p
         )
 
     database = tmp_path / ".phlo" / "state" / "operations.sqlite"
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("UPDATE operations SET expires_at = ?", ("2000-01-01T00:00:00+00:00",))
 
     with pytest.raises(IdempotencyConflict, match="idempotency_outcome_unknown"):
@@ -370,7 +371,7 @@ def test_unresolved_claim_survives_expiry_until_safe_to_retry(monkeypatch, tmp_p
         execute=lambda: {"ok": True},
     ) == {"ok": True}
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         resolution = connection.execute(
             "SELECT resolution, resolved_by, evidence_json FROM idempotency_resolutions"
         ).fetchone()
@@ -396,7 +397,10 @@ def test_completed_claim_expires_and_can_execute_again(monkeypatch, tmp_path: Pa
         target="run-completed",
         execute=execute,
     )
-    with sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite") as connection:
+    with (
+        closing(sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite")) as connection,
+        connection,
+    ):
         connection.execute("UPDATE operations SET expires_at = ?", ("2000-01-01T00:00:00+00:00",))
 
     assert replay_or_execute(
@@ -469,7 +473,10 @@ def test_resolution_is_idempotent_across_processes(monkeypatch, tmp_path: Path) 
     ) == {"ok": True}
     assert calls == ["ran"]
 
-    with sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite") as connection:
+    with (
+        closing(sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite")) as connection,
+        connection,
+    ):
         assert connection.execute("SELECT COUNT(*) FROM idempotency_resolutions").fetchone() == (1,)
 
 
@@ -600,7 +607,7 @@ def test_idempotency_schema_migration_is_concurrency_safe(tmp_path: Path) -> Non
         thread.join()
 
     assert errors == []
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         columns = {
             str(row[1]) for row in connection.execute("PRAGMA table_info(operations)").fetchall()
         }
