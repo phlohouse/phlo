@@ -53,6 +53,8 @@ class _FakeCursor:
     def record_batch(self, sql: str, values: tuple) -> None:
         """Receiving end of psycopg2.extras.execute_values."""
         self._driver.batches.append(_Statement(sql=sql, params=values))
+        if len(self._driver.batches) == self._driver.fail_batch:
+            raise RuntimeError("batch failed")
         self.rowcount = self._driver.next_affected()
         self._driver.affected_history.append(self.rowcount)
 
@@ -73,12 +75,19 @@ class _FakeConnection:
     def __init__(self, driver: _FakeDriver) -> None:
         self._driver = driver
         self.commits = 0
+        self.closed = False
 
     def cursor(self) -> _FakeCursor:
         return _FakeCursor(self._driver)
 
     def commit(self) -> None:
+        if sum(conn.commits for conn in self._driver.connections) + 1 == self._driver.fail_commit:
+            raise RuntimeError("commit failed")
         self.commits += 1
+        self._driver.committed_batches = list(self._driver.batches)
+
+    def close(self) -> None:
+        self.closed = True
 
     def __enter__(self):
         return self
@@ -95,6 +104,9 @@ class _FakeDriver:
         self.batches: list[_Statement] = []
         self.connections: list[_FakeConnection] = []
         self.affected_history: list[int] = []
+        self.committed_batches: list[_Statement] = []
+        self.fail_batch: int | None = None
+        self.fail_commit: int | None = None
         self.connect_error: Exception | None = None
         self._affected: deque[int] = deque()
         self._fetchone_results: deque = deque()
@@ -219,6 +231,25 @@ class TestGenerateRowId:
 
 class TestSchemaBootstrap:
     """Schema-existence branches exercised through public operations only."""
+
+    @pytest.mark.parametrize("fail", [False, True])
+    def test_schema_setup_closes_owned_connection(self, monkeypatch, fail):
+        fake_driver = _FakeDriver()
+        monkeypatch.setattr(store_module.psycopg2, "connect", fake_driver.connect)
+        store = LineageStore(LINEAGE_DSN)
+
+        if fail:
+            with (
+                patch.object(_FakeCursor, "execute", side_effect=RuntimeError("schema failed")),
+                pytest.raises(RuntimeError, match="schema failed"),
+            ):
+                store.setup_schema()
+        else:
+            store.setup_schema()
+
+        assert len(fake_driver.connections) == 1
+        assert fake_driver.connections[0].closed
+        assert fake_driver.connections[0].commits == (0 if fail else 1)
 
     def test_existing_tables_skip_migration_but_still_serve_the_operation(
         self, driver, stub_schema_setup
@@ -436,6 +467,28 @@ class TestRecordRowsBatch:
 
 
 class TestAssetEdges:
+    @pytest.mark.parametrize("method", ["record_asset_nodes", "record_asset_edges"])
+    def test_connection_failure_propagates_and_logs(self, ready_store, driver, method, caplog):
+        driver.connect_error = RuntimeError("database offline")
+        values = ["a"] if method == "record_asset_nodes" else [("a", "b")]
+
+        with pytest.raises(RuntimeError, match="database offline"):
+            getattr(ready_store, method)(values)
+
+        assert driver.connections == []
+        assert f"lineage_{method}_failed" in caplog.text
+
+    def test_cold_schema_probe_is_separate_from_owned_event_connection(self, driver):
+        driver.script_fetchone(
+            ("phlo.asset_lineage_nodes", "phlo.asset_lineage_edges", "phlo.column_lineage")
+        )
+
+        assert LineageStore(LINEAGE_DSN).record_asset_edges([("a", "b")]) == 1
+
+        assert len(driver.connections) == 2  # one schema probe, one event
+        assert all(conn.closed for conn in driver.connections)
+        assert driver.connections[1].commits == 2
+
     def test_persists_nodes_before_edges_with_exact_values(self, ready_store, driver):
         count = ready_store.record_asset_edges(
             [("raw.posts", "raw_marts.posts_mart")],
@@ -452,25 +505,35 @@ class TestAssetEdges:
         assert edges.params == (
             ("raw.posts", "raw_marts.posts_mart", '{"source": "dbt"}', '{"env": "test"}'),
         )
+        assert len(driver.connections) == 1
+        assert driver.connections[0].commits == 2
+        assert driver.connections[0].closed
+        assert driver.committed_batches == [nodes, edges]
 
     def test_deduplicates_shared_endpoints_and_preserves_edge_direction(self, ready_store, driver):
         count = ready_store.record_asset_edges(
             [
                 ("bronze.events", "silver.stg_events"),
                 ("silver.stg_events", "gold.fct_sessions"),
-            ]
+                ("bronze.events", "silver.stg_events"),
+            ],
+            asset_keys=["sandbox.isolated", "bronze.events", "sandbox.isolated"],
+            metadata={},
+            tags={},
         )
 
-        assert count == 2
+        assert count == 3
         nodes, edges = driver.batches
         assert [row[0] for row in nodes.params] == [
             "bronze.events",
             "gold.fct_sessions",
+            "sandbox.isolated",
             "silver.stg_events",
         ]
         assert edges.params == (
             ("bronze.events", "silver.stg_events", None, None),
             ("silver.stg_events", "gold.fct_sessions", None, None),
+            ("bronze.events", "silver.stg_events", None, None),
         )
 
     def test_no_edges_and_no_keys_persists_nothing(self, ready_store, driver):
@@ -484,6 +547,82 @@ class TestAssetEdges:
         assert count == 0
         assert len(driver.batches) == 1
         assert driver.batches[0].params == (("sandbox.demo", None, None, None, None, None),)
+        assert len(driver.connections) == 1
+        assert driver.connections[0].commits == 1
+        assert driver.connections[0].closed
+
+    @pytest.mark.parametrize("operation", ["batch", "commit"])
+    @pytest.mark.parametrize("phase, committed_count", [(1, 0), (2, 1)])
+    def test_failed_phase_closes_connection_and_preserves_prior_commit(
+        self, ready_store, driver, phase, committed_count, operation, caplog
+    ):
+        if operation == "batch":
+            driver.fail_batch = phase
+        else:
+            driver.fail_commit = phase
+
+        with pytest.raises(RuntimeError, match=f"{operation} failed"):
+            ready_store.record_asset_edges([("raw.posts", "marts.posts")])
+
+        assert len(driver.connections) == 1
+        assert driver.connections[0].closed
+        assert driver.connections[0].commits == committed_count
+        assert driver.committed_batches == driver.batches[:committed_count]
+        assert "lineage_record_asset_edges_failed" in caplog.text
+        assert ("lineage_record_asset_nodes_failed" in caplog.text) == (phase == 1)
+
+    def test_edge_batch_observes_metadata_changes_after_node_commit(self, ready_store, driver):
+        metadata = {"phase": "nodes"}
+        tags = {"phase": "nodes"}
+
+        def on_log(event, **kwargs):
+            if event == "lineage_record_asset_nodes_succeeded":
+                metadata["phase"] = "edges"
+                tags["phase"] = "edges"
+
+        with patch.object(store_module.logger, "info", side_effect=on_log):
+            ready_store.record_asset_edges([("a", "b")], metadata=metadata, tags=tags)
+
+        nodes, edges = driver.batches
+        assert nodes.params == (
+            ("a", None, None, None, '{"phase": "nodes"}', '{"phase": "nodes"}'),
+            ("b", None, None, None, '{"phase": "nodes"}', '{"phase": "nodes"}'),
+        )
+        assert edges.params == (("a", "b", '{"phase": "edges"}', '{"phase": "edges"}'),)
+
+
+class TestAssetNodes:
+    @pytest.mark.parametrize("fail", [False, True])
+    def test_standalone_nodes_own_connection_and_preserve_all_fields(
+        self, ready_store, driver, fail
+    ):
+        driver.fail_batch = 1 if fail else None
+        if fail:
+            with pytest.raises(RuntimeError, match="batch failed"):
+                ready_store.record_asset_nodes(["b", "a", "a"], metadata={"run": 1})
+        else:
+            assert (
+                ready_store.record_asset_nodes(
+                    ["b", "a", "a"],
+                    asset_type="transform",
+                    status="success",
+                    description="example",
+                    metadata={"run": 1},
+                    tags={"env": "test"},
+                )
+                == 2
+            )
+            assert driver.batches[0].params == (
+                ("a", "transform", "success", "example", '{"run": 1}', '{"env": "test"}'),
+                ("b", "transform", "success", "example", '{"run": 1}', '{"env": "test"}'),
+            )
+        assert len(driver.connections) == 1
+        assert driver.connections[0].closed
+        assert driver.connections[0].commits == (0 if fail else 1)
+
+    def test_empty_nodes_do_not_connect(self, ready_store, driver):
+        assert ready_store.record_asset_nodes([]) == 0
+        assert driver.connections == []
 
 
 class TestRowQueries:

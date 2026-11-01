@@ -10,10 +10,14 @@ referenced key exists in any activated project.
 from __future__ import annotations
 
 import json
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from phlo.exceptions import PhloCapabilitySetupError
+from phlo.logging import get_logger
 from phlo_dbt.assets import build_dbt_asset_specs
 from phlo_dbt.translator import DbtSpecTranslator
 
@@ -120,6 +124,121 @@ def test_multi_project_build_merges_namespaced_specs(monkeypatch, tmp_path) -> N
         "finance_domain.invoice_aging",
         "sales_domain.deal_pipeline",
     }
+
+
+def test_discovery_binds_owned_tests_and_reloads_per_project(monkeypatch, tmp_path) -> None:
+    """Federated assets, retries and reloads keep their own selectors."""
+    paths = []
+    for project in ("sales", "finance"):
+        _write_project(tmp_path, project, models=["empty", "one", "three", "seven"])
+        path = tmp_path / "workflows" / project / "transforms" / "dbt"
+        paths.append(path)
+        manifest_path = path / "target" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for model, count in (("one", 1), ("three", 3), ("seven", 7)):
+            for index in range(count):
+                manifest["nodes"][f"test.{project}.{model}_{index}"] = {
+                    "name": f"{project}_{model}_{index}",
+                    "resource_type": "test",
+                    "test_metadata": {"name": "relationships"},
+                    "attached_node": f"model.{project}.{model}",
+                    "depends_on": {"nodes": [f"model.{project}.empty"]},
+                }
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _stub_settings(monkeypatch, paths, namespaced=True)
+    monkeypatch.setattr("phlo_dbt.transformer.ensure_dbt_profile", lambda *_a, **_k: None)
+
+    def run_dbt(args, *, cwd, **kwargs):
+        manifest = json.loads((Path(cwd) / "target" / "manifest.json").read_text(encoding="utf-8"))
+        selectors = []
+        if "--select" in args:
+            for arg in args[args.index("--select") + 1 :]:
+                if arg.startswith("--"):
+                    break
+                selectors.append(arg)
+        selected = {
+            key: node
+            for key, node in manifest["nodes"].items()
+            if not selectors or node["name"] in selectors
+        }
+        if (
+            "--indirect-selection" not in args
+            or args[args.index("--indirect-selection") + 1] != "empty"
+        ):
+            selected.update(
+                (key, node)
+                for key, node in manifest["nodes"].items()
+                if any(dep in selected for dep in node.get("depends_on", {}).get("nodes", []))
+            )
+        artifact_path = Path(args[args.index("--target-path") + 1])
+        artifact_path.mkdir(parents=True, exist_ok=True)
+        (artifact_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (artifact_path / "run_results.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            "unique_id": key,
+                            "status": "pass" if key.startswith("test.") else "success",
+                        }
+                        for key in selected
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("phlo_dbt.transformer.subprocess.run", run_dbt)
+    monkeypatch.setattr("phlo_dbt.assets.resolve_dbt_target_name", lambda _: "dev")
+    runtime = SimpleNamespace(
+        partition_key="2026-11-01",
+        tags={"phlo/full_refresh_asset": "sales.three"},
+        logger=get_logger("federated-runners"),
+        run_id="retry",
+    )
+    specs = build_dbt_asset_specs()
+    for spec in reversed(specs):
+        assert spec.run is not None
+        assert (
+            len(spec.checks)
+            == {"empty": 0, "one": 1, "three": 3, "seven": 7}[spec.key.split(".")[1]]
+        )
+        for _ in range(2):
+            *checks, materialization = spec.run.fn(runtime)
+            project, model = spec.key.split(".")
+            assert {check.metadata["test_unique_id"] for check in checks} == {
+                f"test.{project}.{model}_{i}" for i in range(len(spec.checks))
+            }
+            assert all(check.asset_key == spec.key and check.passed for check in checks)
+            assert all(check.metadata["partition_key"] == "2026-11-01" for check in checks)
+            assert materialization.status == "success"
+            assert materialization.metadata["transform_counts"] == {
+                "passed": len(spec.checks),
+                "failed": 0,
+            }
+
+    manifest_path = paths[0] / "target" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["nodes"]["test.sales.one_1"] = {
+        **manifest["nodes"]["test.sales.one_0"],
+        "name": "replacement",
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    reloaded = {spec.key: spec for spec in build_dbt_asset_specs()}
+    reloaded_run = reloaded["sales.one"].run
+    assert reloaded_run is not None
+    *checks, materialization = reloaded_run.fn(runtime)
+    assert {check.metadata["test_unique_id"] for check in checks} == {
+        "test.sales.one_0",
+        "test.sales.one_1",
+    }
+    assert materialization.metadata["transform_counts"] == {"passed": 2, "failed": 0}
+    original = next(spec for spec in specs if spec.key == "sales.one")
+    assert original.run is not None
+    *checks, materialization = original.run.fn(runtime)
+    assert [check.metadata["test_unique_id"] for check in checks] == ["test.sales.one_0"]
+    assert materialization.metadata["transform_counts"] == {"passed": 1, "failed": 0}
 
 
 def test_multi_project_cross_reference_resolves_to_foreign_model(monkeypatch, tmp_path) -> None:

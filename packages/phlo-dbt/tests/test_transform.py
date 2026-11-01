@@ -12,7 +12,7 @@ from phlo.hooks.events import TelemetryEvent, TransformEvent
 from phlo.logging import get_logger
 from phlo_dbt.assets import _dbt_transform_metadata
 from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
-from phlo_dbt.translator import DbtSpecTranslator
+from phlo_dbt.translator import DbtSpecTranslator, get_compiled_sql_from_resource_props
 
 
 def test_custom_dbt_translator_asset_key_model() -> None:
@@ -224,6 +224,43 @@ def test_custom_dbt_translator_metadata_compiled_sql_is_capped(
     assert "phlo/compiled_sql" in metadata
     assert metadata["phlo/compiled_sql_truncated"] is True
     assert "TRUNCATED compiled SQL" in metadata["phlo/compiled_sql"]
+
+
+@pytest.mark.parametrize(
+    ("text", "limit", "prefix", "original_bytes", "truncated"),
+    [
+        ("α🙂\r\n尾", 5, "α", 10, True),
+        ("α🙂\r\n尾", 10, "α🙂\n尾", 10, False),
+        ("α🙂\r\n尾", 0, "", 10, True),
+        ("α🙂\r\n尾", -1, "α🙂\n", 10, True),
+        ("a" * 16383 + "🙂\r\n" + "z" * 15, 16385, "a" * 16383, 16403, True),
+    ],
+)
+def test_compiled_sql_file_preserves_utf8_prefix_and_normalized_size(
+    tmp_path: Path,
+    text: str,
+    limit: int,
+    prefix: str,
+    original_bytes: int,
+    truncated: bool,
+) -> None:
+    (tmp_path / "compiled.sql").write_bytes(text.encode("utf-8"))
+    sql, was_truncated, size, source = get_compiled_sql_from_resource_props(
+        {"compiled_path": "compiled.sql", "raw_sql": "SELECT 'fallback'"},
+        max_bytes=limit,
+        project_dir=tmp_path,
+    )
+    marker = (
+        f"\n\n-- [phlo] TRUNCATED compiled SQL: {original_bytes} bytes (limit {limit} bytes)"
+        if truncated
+        else ""
+    )
+    assert (sql, was_truncated, size, source) == (
+        prefix + marker,
+        truncated,
+        original_bytes,
+        "compiled_file",
+    )
 
 
 def test_run_transform_skip_build_returns_success(tmp_path: Path) -> None:

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from phlo.capabilities import (
+    AssetCheckSpec,
     AssetSpec,
     CheckResult,
     MaterializeResult,
@@ -36,8 +37,7 @@ from phlo_dbt.runtime_config import ensure_dbt_profile, resolve_dbt_target_name
 from phlo_dbt.settings import get_settings
 
 from phlo_dbt.asset_checks import (
-    dbt_asset_check_specs,
-    dbt_asset_check_names,
+    dbt_asset_check_index,
     extract_dbt_asset_checks,
 )
 from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
@@ -161,13 +161,13 @@ def _run_dbt_model(
     runtime: RuntimeContext,
     manifest: Mapping[str, Any],
     translator: DbtSpecTranslator,
+    test_names: tuple[str, ...],
     key_prefix: str | None = None,
 ) -> list[MaterializeResult | CheckResult]:
     """Execute a single dbt model and return its materialization result plus
     test-check results."""
     target = resolve_dbt_target_name(runtime)
     partition_key = runtime.partition_key
-    test_names = dbt_asset_check_names(manifest, asset_key=asset_key, translator=translator)
 
     transformer = DbtTransformer(
         context=runtime,
@@ -346,7 +346,10 @@ def _build_project_asset_specs(
     asset_keys = _build_asset_key_map(translator, nodes, sources)
 
     specs: list[AssetSpec] = []
-    check_specs = dbt_asset_check_specs(manifest, translator=translator)
+    check_specs, test_names_by_asset = dbt_asset_check_index(manifest, translator=translator)
+    checks_by_asset: dict[str, list[AssetCheckSpec]] = {}
+    for check in check_specs:
+        checks_by_asset.setdefault(check.asset_key, []).append(check)
     for unique_id, props in nodes.items():
         if not isinstance(props, Mapping):
             continue
@@ -366,7 +369,7 @@ def _build_project_asset_specs(
         if key_prefix:
             metadata = {**metadata, "dbt_project": project_name}
 
-        checks = [check for check in check_specs if check.asset_key == asset_key]
+        checks = checks_by_asset.get(asset_key, [])
         if resource_type == "model":
             metadata.update(
                 _dbt_transform_metadata(
@@ -382,7 +385,10 @@ def _build_project_asset_specs(
         # closure would capture the loop variable by reference and every spec
         # would end up running whichever node was processed last.
         def _runner(
-            runtime: RuntimeContext, model=model_name, key=asset_key
+            runtime: RuntimeContext,
+            model=model_name,
+            key=asset_key,
+            test_names=test_names_by_asset.get(asset_key, ()),
         ) -> list[MaterializeResult | CheckResult]:
             """Execute one dbt-backed asset run and return materialization and
             check results for the bound model."""
@@ -395,6 +401,7 @@ def _build_project_asset_specs(
                 manifest=manifest,
                 translator=translator,
                 key_prefix=key_prefix,
+                test_names=test_names,
             )
 
         specs.append(

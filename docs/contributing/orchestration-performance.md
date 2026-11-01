@@ -127,12 +127,83 @@ No new Trino JVM was started for this comparison because the VPS memory budget
 was already constrained. The existing opt-in real Trino check remains available
 for release validation. No live Nightscout data or services were changed.
 
+### Manifest ownership and SQL allocation
+
+Discovery now builds one manifest-scoped index of test ownership, check specs
+and selectable names. Each asset runner retains its own immutable selector
+tuple, including an empty tuple for assets without tests. Retries no longer
+scan every manifest test. Reloading definitions builds a new index, and
+federated projects keep separate indexes. Check identities still deduplicate
+independently of selectable test names.
+
+A disposable comparison against `d8194686648` discovered 100 assets with 724
+tests, then called every production asset runner with a recording transformer
+instead of invoking dbt. Across three rounds, runtime ownership resolutions
+fell from 72,400 to zero. Discovery retained 724 resolutions. Runner CPU time
+ranged from 0.552 to 0.601 seconds before and 0.011 to 0.014 seconds after.
+This isolates Python orchestration overhead. It does not measure dbt execution,
+Trino queries or whole-stack CPU savings.
+
+Compiled-SQL excerpts now retain a bounded UTF-8 prefix while reading files in
+16 Ki-character chunks. The reader still scans the complete file to report its
+normalised original byte length and reject invalid UTF-8. Source precedence,
+newline normalisation, truncation markers and path confinement are unchanged.
+Manifest strings use the same chunked encoding. Negative byte limits retain
+the existing slicing behaviour and do not provide a bounded-memory guarantee.
+
+With a 256-byte excerpt limit, `tracemalloc` measured peak allocations of
+2,102,639 bytes before and 88,147 bytes after for a 1 MiB compiled file.
+For an 8 MiB file, peaks were 16,782,566 and 88,010 bytes. Imports were warmed
+before tracing, and file creation was outside the measured interval. These
+are Python allocation peaks for the reader, not process RSS or reduced file
+I/O. Each size has one sample per variant.
+
+A disposable public-API comparison matched 436 results against the baseline,
+including Unicode, newline, limit, manifest fallback, missing-file and traversal
+cases. Both versions rejected invalid UTF-8 after the retained prefix.
+
+### Lineage persistence work
+
+`record_asset_edges()` now owns one short-lived PostgreSQL connection for its
+node and edge batches. Nodes still commit before edges, so a failed edge write
+does not roll back successful nodes. The operation explicitly closes its
+connection on success and failure. Standalone node writes and schema bootstrap
+also close their owned connections. No global pool or database migration is
+introduced, and lineage events retain their complete payloads.
+
+Metadata and tags encode once per SQL batch rather than once per row. Edge
+encoding remains after the node commit and success log, preserving changes to
+the dictionaries between phases.
+
+A recording-driver comparison against `d8194686648` submitted five events,
+each containing five nodes and four edges with nonempty metadata and tags.
+Event connections fell from ten to five, and JSON encodings fell from ninety
+to twenty. Both versions made ten explicit commits and returned four edges
+per event. Complete SQL and bound values matched for all ten batches. With a
+cold schema cache, both versions added one separate existence-probe connection.
+The candidate explicitly closed all six connections in that case.
+
+This comparison measures driver calls and payload parity, not PostgreSQL CPU,
+connection latency or transaction durability. The recording driver does not
+simulate implicit transaction-context commits or eventual garbage collection
+of the baseline's connections. Missing-schema migrations were not benchmarked.
+
+The deeper pass passed 265 combined package, adapter and benchmark tests, with
+one optional dbt-CLI test skipped and two integration tests deselected. After
+review strengthened the federation regression and removed the private runner's
+scan fallback, all 139 dbt package tests passed with the CLI on `PATH`, including
+the disposable real DuckDB full-refresh check. Focused production typing, Ruff
+lint, complexity, formatting, import contracts and Markdown links passed.
+These local checks do not replace full CI or a deployed before-and-after sample.
+
 ## Repeat the contract checks
 
 Run from the repository root after `make setup`:
 
 ```bash
 uv run --locked pytest packages/phlo-dbt/tests/test_transform.py
+uv run --locked pytest packages/phlo-dbt/tests/test_asset_checks.py packages/phlo-dbt/tests/test_federation.py
+uv run --locked pytest -m "not integration" packages/phlo-lineage/tests
 uv run --locked pytest -m integration packages/phlo-dbt/tests/test_integration_dbt.py
 uv run --locked pytest -m integration packages/phlo-dagster/tests/test_code_server_lifecycle.py
 uv run --locked pytest packages/phlo-observe-plugin/tests tests/observability/test_observe_shim.py tests/observability/test_observe_pretty_drain.py
