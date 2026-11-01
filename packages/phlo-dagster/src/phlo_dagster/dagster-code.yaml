@@ -34,7 +34,23 @@ compose:
   command:
     ["dagster", "code-server", "start", "-h", "dagster-code-private", "-p", "4000", "-m", "phlo_dagster.framework.definitions", "-d", "/app"]
   healthcheck:
-    test: ["CMD", "dagster", "api", "grpc-health-check", "-h", "dagster-code-private", "-p", "4000"]
+    # The image's sitecustomize imports Dagster. Probe the same standard gRPC
+    # health service without that application startup on every health tick.
+    test:
+      - CMD
+      - python
+      - -S
+      - -c
+      - |
+        import sys
+        from pathlib import Path
+        sys.path.append(str(Path(sys.executable).parent.parent / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"))
+        import grpc
+        from grpc_health.v1 import health_pb2, health_pb2_grpc
+        with grpc.insecure_channel(sys.argv[1]) as channel:
+            response = health_pb2_grpc.HealthStub(channel).Check(health_pb2.HealthCheckRequest(service="DagsterApi"))
+        raise SystemExit(response.status != health_pb2.HealthCheckResponse.SERVING)
+      - dagster-code-private:4000
     interval: 30s
     timeout: 10s
     retries: 3

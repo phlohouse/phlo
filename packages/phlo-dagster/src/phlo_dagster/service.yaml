@@ -38,6 +38,7 @@ compose:
       [
         "CMD",
         "python",
+        "-S",
         "-c",
         "import urllib.request; raise SystemExit(urllib.request.urlopen('http://127.0.0.1:3000/server_info', timeout=3).status != 200)",
       ]

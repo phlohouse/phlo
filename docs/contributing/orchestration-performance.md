@@ -31,6 +31,14 @@ orchestration credentials and host UID handling. Reload the code location in
 Dagster after editing workflows. Periodic workspace refresh no longer imports
 the project again; it is not a substitute for deliberate code reload.
 
+Webserver and code-server health probes bypass Python's `sitecustomize`, which
+otherwise imports Dagster on every probe. The webserver still checks
+`/server_info`. The code probe loads the installed gRPC health client directly
+and still requires the `DagsterApi` service to report `SERVING`. The probe
+finds dependencies relative to its Python executable in both locked-venv and
+system installations. Check intervals, container timeouts, retries and normal
+application startup are unchanged.
+
 The daemon owns its instance and calls Dagster's existing storage optimisation
 API. Workers and code servers reconstruct independent instances, so they do not
 inherit its pools. Polling intervals, transaction isolation and run launcher
@@ -196,11 +204,29 @@ the disposable real DuckDB full-refresh check. Focused production typing, Ruff
 lint, complexity, formatting, import contracts and Markdown links passed.
 These local checks do not replace full CI or a deployed before-and-after sample.
 
+### Deployed health-probe measurements
+
+Five alternating invocations per variant against the running services measured
+median child-process CPU of 1.213 seconds before and 0.147 seconds after for
+the code probe. The webserver probe fell from 0.925 to 0.076 seconds. An empty
+Python invocation used about one CPU-second with the image's startup hook,
+versus 0.013 seconds with `-S`. These are process measurements, not RPC latency
+or projected whole-stack savings.
+
+Three-minute samples on a 1.75-CPU, 6-GiB development account measured total
+idle project CPU of 38.622% before this branch, 15.918% with `0f7c1f92cd5`,
+and 9.773% with the health-probe changes. Here 100% means one logical CPU.
+Each variant has one idle window, with automation enabled and no active runs.
+This is short-window deployment evidence, not long-duration soak qualification.
+The health regression executes the packaged command against a real gRPC health
+service and checks serving, unready, unknown and disconnected outcomes.
+
 ## Repeat the contract checks
 
 Run from the repository root after `make setup`:
 
 ```bash
+uv run --locked pytest packages/phlo-dagster/tests/test_dagster_plugin.py
 uv run --locked pytest packages/phlo-dbt/tests/test_transform.py
 uv run --locked pytest packages/phlo-dbt/tests/test_asset_checks.py packages/phlo-dbt/tests/test_federation.py
 uv run --locked pytest -m "not integration" packages/phlo-lineage/tests

@@ -1,14 +1,19 @@
 """Tests for the Dagster service plugin.
 
 Checks the exposed service metadata and asserts the packaged service
-definitions (service.yaml, dagster-daemon.yaml) structurally: project
-discovery mounts, container policy, and run-evidence database wiring.
+definitions structurally, and executes the code-server health probe against
+a real gRPC health service through serving, unready and disconnected states.
 """
 
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
 from typing import Any
 
+import grpc
 import yaml
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
 from phlo.plugins.compose.generator import ComposeGenerator
 from phlo.plugins.discovery import ServiceDiscovery
@@ -114,3 +119,28 @@ def test_generated_code_service_is_private_and_uses_the_orchestration_identity(t
         document["services"]["dagster"]["depends_on"]["dagster-code"]["condition"]
         == "service_healthy"
     )
+
+
+def test_code_healthcheck_requires_the_dagster_service_to_be_serving():
+    command = _load_packaged_yaml("dagster-code.yaml")["compose"]["healthcheck"]["test"][1:]
+    command[0] = sys.executable
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        server = grpc.server(workers)
+        service = health.HealthServicer()
+        health_pb2_grpc.add_HealthServicer_to_server(service, server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        command[-1] = f"127.0.0.1:{port}"
+        server.start()
+        try:
+            for status, expected in (
+                (health_pb2.HealthCheckResponse.SERVING, 0),
+                (health_pb2.HealthCheckResponse.NOT_SERVING, 1),
+                (health_pb2.HealthCheckResponse.UNKNOWN, 1),
+            ):
+                service.set("DagsterApi", status)
+                result = subprocess.run(command, capture_output=True, timeout=15)
+                assert result.returncode == expected, result.stderr.decode()
+        finally:
+            server.stop(grace=0).wait(timeout=5)
+        disconnected = subprocess.run(command, capture_output=True, timeout=15)
+        assert disconnected.returncode != 0
