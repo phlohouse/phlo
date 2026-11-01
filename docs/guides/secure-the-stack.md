@@ -74,6 +74,14 @@ selections must agree; conflicts fail startup. For a private issuer CA, mount it
 certificate and set `PHLO_AUTH_JWT_CA_FILE` to the container path. Configure the
 same issuer, client, and trusted CA on oauth2-proxy.
 
+Set `PHLO_AUTH_JWT_AUDIENCE` to the exact `aud` claim that the issuer puts in
+the forwarded access token. This is often the client ID, but not always. Cloudflare
+Access, for example, sets `aud` to the OAuth callback URL, such as
+`https://observatory.example.com/oauth2/callback`. If the audience does not match,
+sign-in through oauth2-proxy succeeds but phlo-api returns `401 Unauthorized`,
+for example on `GET /api/v1/me`.
+phlo-api logs the rejection as `oidc_token_rejected` only at debug level.
+
 The API verifies authentication before authorising the route and environment.
 Use the `jwt` provider for forwarded OIDC bearer tokens. The `static` provider
 and the signed-header `proxy` provider have different credential contracts;
