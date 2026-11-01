@@ -123,16 +123,19 @@ def api(monkeypatch):
         if "V1AssetJobs" in query:
             return {
                 "data": {
-                    "assetNodes": [
-                        {
-                            "assetKey": {"path": [location, "orders"]},
-                            "jobNames": ["orders"],
-                            "repository": {"name": "repo", "location": {"name": location}},
-                        }
-                        for location in ("prod_loc", "stage_loc")
-                        if not variables
-                        or variables["pipeline"]["repositoryLocationName"] == location
-                    ]
+                    "repositoryOrError": {
+                        "__typename": "Repository",
+                        "assetNodes": [
+                            {
+                                "assetKey": {"path": [location, "orders"]},
+                                "jobNames": ["orders"],
+                                "repository": {"name": "repo", "location": {"name": location}},
+                            }
+                            for location in ("prod_loc", "stage_loc")
+                            if not variables
+                            or variables["repositorySelector"]["repositoryLocationName"] == location
+                        ],
+                    }
                 }
             }
         if "V1ScheduleStop" in query:
@@ -766,7 +769,7 @@ def test_job_metadata_uses_definitions_not_repository_names(api):
     async def metadata(url, query, variables=None):
         result = await original(url, query, variables)
         if "V1AssetJobs" in query:
-            for node in result["data"]["assetNodes"]:
+            for node in result["data"]["repositoryOrError"]["assetNodes"]:
                 node.update(
                     groupName="telemetry",
                     metadataEntries=[
@@ -788,6 +791,31 @@ def test_job_metadata_uses_definitions_not_repository_names(api):
     monkeypatch.setattr(v1_jobs, "graphql_request", original)
     job = client.get("/api/v1/jobs?env=prod").json()["items"][0]
     assert job["domain"] is None and job["source"] is None and job["owners"] == []
+
+
+@pytest.mark.parametrize(("extra_job", "status"), [("other", 200), ("orders", 502)])
+def test_job_asset_bound_applies_per_job_not_per_repository(api, extra_job, status):
+    client, _, monkeypatch = api
+    original = v1_jobs.graphql_request
+
+    async def large_repository(url, query, variables=None):
+        result = await original(url, query, variables)
+        if "V1AssetJobs" in query:
+            result["data"]["repositoryOrError"]["assetNodes"] += [
+                {
+                    "assetKey": {"path": ["bulk", str(index)]},
+                    "jobNames": [extra_job],
+                    "repository": {"name": "repo", "location": {"name": "prod_loc"}},
+                }
+                for index in range(v1_jobs._INVENTORY_LIMIT)
+            ]
+        return result
+
+    monkeypatch.setattr(v1_jobs, "graphql_request", large_repository)
+    response = client.get("/api/v1/jobs?env=prod")
+    assert response.status_code == status
+    if status == 200:
+        assert response.json()["items"][0]["selected_assets"] == [["prod_loc", "orders"]]
 
 
 def test_job_membership_uses_exact_repository_and_location_not_workspace_winner(api):
@@ -819,27 +847,26 @@ def test_job_membership_uses_exact_repository_and_location_not_workspace_winner(
                     }
                 }
             }
-        selector = (variables or {}).get("pipeline")
-        if selector:
-            selectors.append(selector)
-            repo = selector["repositoryName"]
-            location = selector["repositoryLocationName"]
-            paths = [[repo, "orders"]]
-            if selector["pipelineName"] == "__ASSET_JOB":
-                paths.append([repo, "other"])
-        else:
-            # Global inventory chose the other environment's copy of the same key.
-            repo, location, paths = "first", "stage_loc", [["first", "orders"]]
+        selector = variables["repositorySelector"]
+        selectors.append(selector)
+        repo = selector["repositoryName"]
+        location = selector["repositoryLocationName"]
         return {
             "data": {
-                "assetNodes": [
-                    {
-                        "assetKey": {"path": path},
-                        "jobNames": [],
-                        "repository": {"name": repo, "location": {"name": location}},
-                    }
-                    for path in paths
-                ]
+                "repositoryOrError": {
+                    "__typename": "Repository",
+                    "assetNodes": [
+                        {
+                            "assetKey": {"path": [repo, name]},
+                            "jobNames": jobs,
+                            "repository": {"name": repo, "location": {"name": location}},
+                        }
+                        for name, jobs in (
+                            ("orders", ["orders", "__ASSET_JOB"]),
+                            ("other", ["__ASSET_JOB"]),
+                        )
+                    ],
+                }
             }
         }
 
@@ -860,7 +887,9 @@ def test_job_membership_uses_exact_repository_and_location_not_workspace_winner(
         async def out_of_scope(url, query, variables=None):
             result = await graphql(url, query, variables)
             if "V1AssetJobs" in query:
-                result["data"]["assetNodes"][0]["repository"].update(wrong_origin)
+                result["data"]["repositoryOrError"]["assetNodes"][0]["repository"].update(
+                    wrong_origin
+                )
             return result
 
         monkeypatch.setattr(v1_jobs, "graphql_request", out_of_scope)
@@ -873,8 +902,11 @@ def test_real_dagster_job_membership_survives_overlapping_location_asset_keys(
     import dagster as dg
     from dagster._core.workspace.context import WorkspaceProcessContext
     from dagster._core.workspace.load_target import WorkspaceFileTarget
-    from dagster_graphql.test.utils import async_execute_dagster_graphql
+    from dagster_graphql.test.utils import SCHEMA
+    from phlo.capabilities import AuthPrincipal
+    from phlo.security.adapters import EnforcementResult
     from phlo_api.api import operation_controls, v1_assets
+    from phlo_dagster import authorization_middleware
 
     definitions = tmp_path / "definitions.py"
     definitions.write_text("""
@@ -926,9 +958,26 @@ def definitions():
             instance, WorkspaceFileTarget(paths=[str(workspace)])
         ) as process:
             with process.create_request_context() as context:
+                # Run the queries through Phlo's Dagster authorization middleware so
+                # every root field must yield an authoritative resource identity.
+                middleware = authorization_middleware.DagsterGraphQLAuthorizationMiddleware()
+                monkeypatch.setattr(
+                    middleware,
+                    "_extract_principal",
+                    lambda info: AuthPrincipal(subject="phlo-api", principal_type="service"),
+                )
+                monkeypatch.setattr(
+                    authorization_middleware, "enforce", lambda **_: EnforcementResult.allow()
+                )
 
                 async def graphql(url, query, variables=None):
-                    result = await async_execute_dagster_graphql(context, query, variables or {})
+                    result = await SCHEMA.execute_async(
+                        query,
+                        context_value=context,
+                        variable_values=variables or {},
+                        middleware=[middleware],
+                    )
+                    context.loaders.clear()
                     assert not result.errors, result.errors
                     return result.formatted
 
@@ -996,7 +1045,7 @@ def test_incident_pause_uses_explicit_gold_graph_and_preserves_actor_scope(api, 
     async def graph(url, query, variables=None):
         result = await original(url, query, variables)
         if "V1AssetJobs" in query:
-            result["data"]["assetNodes"] = [
+            result["data"]["repositoryOrError"]["assetNodes"] = [
                 {
                     "assetKey": {"path": [key]},
                     "dependencyKeys": [{"path": [dep]} for dep in deps],
@@ -1013,16 +1062,13 @@ def test_incident_pause_uses_explicit_gold_graph_and_preserves_actor_scope(api, 
                     ("unrelated", [], "other", "gold"),
                 )
                 if not variables
-                or (
-                    variables["pipeline"]["repositoryLocationName"] == location
-                    and variables["pipeline"]["pipelineName"] == job
-                )
+                or variables["repositorySelector"]["repositoryLocationName"] == location
             ]
         return result
 
     async def asset_graph(url, query, variables=None):
         result = await graph(url, v1_jobs.ASSET_JOBS_QUERY)
-        return _repository_asset_response(result["data"]["assetNodes"])
+        return _repository_asset_response(result["data"]["repositoryOrError"]["assetNodes"])
 
     monkeypatch.setattr(v1_jobs, "graphql_request", graph)
     monkeypatch.setattr(v1_assets, "graphql_request", asset_graph)
@@ -1118,7 +1164,9 @@ def test_incident_preflight_resolves_inventory_aliases_without_splitting_dotted_
 
     async def graph(url, query, variables=None):
         if "V1AssetJobs" in query:
-            return {"data": {"assetNodes": nodes}}
+            return {
+                "data": {"repositoryOrError": {"__typename": "Repository", "assetNodes": nodes}}
+            }
         return await original(url, query, variables)
 
     async def asset_graph(url, query, variables=None):

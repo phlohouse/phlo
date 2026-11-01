@@ -46,16 +46,24 @@ JOBS_QUERY = """query V1Jobs {
     }
   }
 }"""
-ASSET_JOBS_QUERY = """query V1AssetJobs($pipeline: PipelineSelector) {
-  assetNodes(pipeline: $pipeline) {
-    assetKey { path }
-    jobNames
-    groupName
-    dependencyKeys { path }
-    owners { ... on UserAssetOwner { email } ... on TeamAssetOwner { team } }
-    tags { key value }
-    metadataEntries { label ... on TextMetadataEntry { text } ... on JsonMetadataEntry { jsonString } }
-    repository { name location { name } }
+# Read asset nodes through their repository: Phlo's Dagster authorization
+# authorizes repositoryOrError as a catalog read of that repository, while a
+# root assetNodes query must name explicit asset keys.
+ASSET_JOBS_QUERY = """query V1AssetJobs($repositorySelector: RepositorySelector!) {
+  repositoryOrError(repositorySelector: $repositorySelector) {
+    __typename
+    ... on Repository {
+      assetNodes {
+        assetKey { path }
+        jobNames
+        groupName
+        dependencyKeys { path }
+        owners { ... on UserAssetOwner { email } ... on TeamAssetOwner { team } }
+        tags { key value }
+        metadataEntries { label ... on TextMetadataEntry { text } ... on JsonMetadataEntry { jsonString } }
+        repository { name location { name } }
+      }
+    }
   }
 }"""
 LAUNCH_JOB_MUTATION = """mutation V1LaunchJob($executionParams: ExecutionParams!) {
@@ -585,12 +593,15 @@ async def _job_data(
         pipelines = repository.get("pipelines")
         if not isinstance(repository.get("name"), str) or not isinstance(pipelines, list):
             raise BadGatewayError("Dagster returned an invalid job inventory.")
+        repository_nodes = await _repository_asset_nodes(
+            target.dagster_location, repository["name"]
+        )
         for pipeline in pipelines:
             if not isinstance(pipeline, dict) or not isinstance(pipeline.get("name"), str):
                 raise BadGatewayError("Dagster returned an invalid job.")
-            nodes = await _job_asset_nodes(
-                target.dagster_location, repository["name"], pipeline["name"]
-            )
+            nodes = [node for node in repository_nodes if pipeline["name"] in node["jobNames"]]
+            if len(nodes) > _INVENTORY_LIMIT:
+                raise BadGatewayError("Dagster returned an invalid asset-job inventory.")
             assets[repository["name"], pipeline["name"]] = [
                 _assets([node.get("assetKey")])[0] for node in nodes
             ]
@@ -610,20 +621,15 @@ async def _job_data(
     return target, repositories, assets
 
 
-async def _job_asset_nodes(location: str, repository: str, job: str) -> list[dict[str, Any]]:
+async def _repository_asset_nodes(location: str, repository: str) -> list[dict[str, Any]]:
     result = await _graphql(
         ASSET_JOBS_QUERY,
-        {
-            "pipeline": {
-                "repositoryLocationName": location,
-                "repositoryName": repository,
-                "pipelineName": job,
-            }
-        },
+        {"repositorySelector": {"repositoryLocationName": location, "repositoryName": repository}},
     )
     data = result.get("data")
-    nodes = data.get("assetNodes") if isinstance(data, dict) else None
-    if not isinstance(nodes, list) or len(nodes) > _INVENTORY_LIMIT:
+    found = data.get("repositoryOrError") if isinstance(data, dict) else None
+    nodes = found.get("assetNodes") if isinstance(found, dict) else None
+    if not isinstance(nodes, list):
         raise BadGatewayError("Dagster returned an invalid asset-job inventory.")
     for node in nodes:
         repo = node.get("repository") if isinstance(node, dict) else None
@@ -635,6 +641,8 @@ async def _job_asset_nodes(location: str, repository: str, job: str) -> list[dic
             or origin.get("name") != location
         ):
             raise BadGatewayError("Dagster returned an asset outside the selected job scope.")
+        if not isinstance(node.get("jobNames"), list):
+            raise BadGatewayError("Dagster returned an invalid asset-job inventory.")
     return nodes
 
 
