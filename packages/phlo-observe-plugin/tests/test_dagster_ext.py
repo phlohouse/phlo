@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -9,6 +11,20 @@ from unittest.mock import MagicMock
 import pytest
 
 import phlo.telemetry as phlo_observe
+
+
+@pytest.fixture(autouse=True)
+def _reset_telemetry(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    for name in (
+        "PHLO_OBSERVE_ENABLED",
+        "PHLO_OBSERVE_PRETTY",
+        "OBSERVE_HTTP_ENDPOINT",
+        "OBSERVE_DRAINS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    phlo_observe.reset_for_tests()
+    yield
+    phlo_observe.reset_for_tests()
 
 
 @pytest.fixture
@@ -154,20 +170,65 @@ def test_context_failure_is_contained(captured: list) -> None:
     _emit_pipeline_run(MagicMock(dagster_run=_RaisingRun()), "SUCCESS")
 
 
-def test_extension_registers_sensors() -> None:
+@pytest.mark.parametrize(
+    ("env", "requested"),
+    [
+        ({}, False),
+        ({"OBSERVE_DRAINS": " , "}, False),
+        ({"PHLO_OBSERVE_ENABLED": "false", "OBSERVE_DRAINS": "console"}, False),
+        ({"OBSERVE_HTTP_ENDPOINT": "http://unused.invalid"}, True),
+        ({"OBSERVE_DRAINS": "console"}, True),
+        ({"OBSERVE_DRAINS": "pretty"}, True),
+        ({"PHLO_OBSERVE_PRETTY": "1"}, True),
+        ({"PHLO_OBSERVE_ENABLED": "true"}, True),
+    ],
+)
+@pytest.mark.parametrize("worker_thread", [False, True])
+def test_extension_registers_only_requested_sensors_without_sdk_initialization(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str], requested: bool, worker_thread: bool
+) -> None:
     pytest.importorskip("dagster")
     from phlo_observe_plugin.dagster_ext import ObserveDagsterExtension
 
-    defs = ObserveDagsterExtension().get_definitions()
-    sensor_names = {s.name for s in defs.sensors}
-    assert sensor_names == {
-        "observe_run_success",
-        "observe_run_failure",
-        "observe_run_canceled",
-    }
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    sdk = MagicMock(side_effect=AssertionError("registration must not initialize the SDK"))
+    monkeypatch.setattr(phlo_observe, "_sdk_module", sdk)
+    extension = ObserveDagsterExtension()
+    if worker_thread:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            defs = executor.submit(extension.get_definitions).result()
+    else:
+        defs = extension.get_definitions()
+    sensor_names = {s.name for s in defs.sensors or []}
+    expected = {"observe_run_success", "observe_run_failure", "observe_run_canceled"}
+    assert sensor_names == (expected if requested else set())
+    sdk.assert_not_called()
 
 
-def test_sensors_default_to_running() -> None:
+@pytest.mark.parametrize("sdk_missing", [False, True])
+@pytest.mark.parametrize("explicit_enabled", [False, True, None])
+def test_registration_preserves_intent_after_runtime_failure(
+    monkeypatch: pytest.MonkeyPatch, sdk_missing: bool, explicit_enabled: bool | None
+) -> None:
+    dg = pytest.importorskip("dagster")
+    from phlo_observe_plugin.dagster_ext import ObserveDagsterExtension
+
+    # Programmatic overrides take precedence over the environment, as in configure().
+    monkeypatch.setenv("PHLO_OBSERVE_ENABLED", "false" if explicit_enabled else "true")
+    sdk = SimpleNamespace(configure_phlo=MagicMock(side_effect=RuntimeError("drain unavailable")))
+    monkeypatch.setattr(phlo_observe, "_sdk_module", lambda: None if sdk_missing else sdk)
+    overrides = {} if explicit_enabled is None else {"enabled": explicit_enabled}
+    assert phlo_observe.configure(**overrides) is False
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        defs = executor.submit(ObserveDagsterExtension().get_definitions).result()
+    sensors = list(defs.sensors or [])
+    assert len(sensors) == (0 if explicit_enabled is False else 3)
+    assert all(sensor.default_status == dg.DefaultSensorStatus.RUNNING for sensor in sensors)
+
+
+def test_sensors_default_to_running(monkeypatch: pytest.MonkeyPatch) -> None:
     """run_status_sensor defaults to STOPPED; these sensors must auto-start.
 
     If they registered STOPPED the daemon would never evaluate them and no
@@ -176,6 +237,8 @@ def test_sensors_default_to_running() -> None:
     dg = pytest.importorskip("dagster")
     from phlo_observe_plugin.dagster_ext import ObserveDagsterExtension
 
+    monkeypatch.setenv("PHLO_OBSERVE_ENABLED", "true")
     defs = ObserveDagsterExtension().get_definitions()
+    assert len(defs.sensors) == 3
     for sensor in defs.sensors:
         assert sensor.default_status == dg.DefaultSensorStatus.RUNNING

@@ -42,6 +42,22 @@ and replaces dead sessions without retrying application writes. This adds one
 `SELECT 1` per checkout. Without it, a dropped idle connection could fail the
 first scheduled run even after heartbeat recovery.
 
+The observe extension omits its three run-status sensors when telemetry is
+unconfigured or explicitly disabled. Dagster queries storage before invoking
+the sensor callback, so an emission-only guard cannot avoid those queries.
+Registration uses configuration intent rather than SDK or drain health.
+Configured sensors retain their names, RUNNING defaults and Dagster cursor
+semantics even when the SDK cannot initialise. Telemetry configuration changes
+require a code-location reload. Container environment changes also require
+recreating the code service through the normal configuration rollout.
+
+Pandera quality groups share row count and built-in null counts in one SQL
+aggregate query. Uniqueness and range queries remain separate. Failure samples
+remain bounded to twenty rows, and custom subclasses still execute their own
+checks. The schema probe remains because column-count metadata and floating-point
+NaN handling depend on it, including for count-only groups. This changes query
+counts, not the number of declared checks or their severity thresholds.
+
 For an existing project, review `phlo services upgrade --dry-run` using the
 [upgrade procedure](../guides/upgrade-phlo.md), including generated workspace,
 new companion service and restart order. Do not use `services init --force`
@@ -89,6 +105,28 @@ Raw logs, JSON samples and disposable experiment drivers are retained as review
 artifacts in the implementation thread. The checks below retain the behavioural
 contracts in the repository rather than asserting host-specific timings.
 
+### Further query reductions
+
+An ephemeral Dagster instance performed six run-status storage fetches over
+two evaluation rounds with the prior disabled sensors, and none with the new
+registration gate. Explicitly enabled sensors still performed six fetches.
+After disabling and re-enabling definitions, saved cursors delivered success,
+failure and cancellation events recorded during the gap. This verifies sensor
+evaluation against isolated storage, not daemon CPU or a deployed reload.
+
+Against `dd1312f67ab`, a disposable real DuckDB comparison produced identical
+complete result metadata across eight cases: passing checks, missing columns,
+multiple null checks, a custom subclass, count-only checks, all-missing columns,
+empty input and bounded failure samples. A passing Unique + Null + Count group
+used three statements instead of four. Two null checks plus a failing range
+check used five instead of seven, including their failure-sample queries.
+Count-only and empty-input cases retained two statements.
+
+These are query counts, not Trino latency or whole-stack CPU measurements.
+No new Trino JVM was started for this comparison because the VPS memory budget
+was already constrained. The existing opt-in real Trino check remains available
+for release validation. No live Nightscout data or services were changed.
+
 ## Repeat the contract checks
 
 Run from the repository root after `make setup`:
@@ -97,6 +135,9 @@ Run from the repository root after `make setup`:
 uv run --locked pytest packages/phlo-dbt/tests/test_transform.py
 uv run --locked pytest -m integration packages/phlo-dbt/tests/test_integration_dbt.py
 uv run --locked pytest -m integration packages/phlo-dagster/tests/test_code_server_lifecycle.py
+uv run --locked pytest packages/phlo-observe-plugin/tests tests/observability/test_observe_shim.py tests/observability/test_observe_pretty_drain.py
+uv run --locked pytest packages/phlo-pandera/tests
+uv run --locked pytest -m integration packages/phlo-pandera/tests/test_quality_decorator.py::test_aggregate_results_against_real_trino_nan_and_nulls
 ```
 
 The dbt integration checks verify real output values, compatible reuse, changed

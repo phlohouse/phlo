@@ -43,9 +43,13 @@ from phlo.hooks.emitters import (
 from phlo.hooks.events import HookCorrelation
 from phlo.logging import get_logger
 
-from phlo_pandera.checks import QualityCheck, QualityCheckResult
+from phlo_pandera.checks import NullCheck, QualityCheck, QualityCheckResult
 from phlo_pandera.contract import QualityCheckContract
-from phlo_pandera.aggregate_checks import execute_aggregate_check, supports_aggregation
+from phlo_pandera.aggregate_checks import (
+    execute_aggregate_check,
+    fetch_counts,
+    supports_aggregation,
+)
 from phlo_pandera.dataset_constraints import DatasetConstraintCheck
 from phlo_pandera.partitioning import PartitionScope
 
@@ -60,9 +64,10 @@ class QueryCheckRunner:
         runtime: RuntimeContext,
         query: str,
         backend: str,
+        checks: list[QualityCheck],
         scope: PartitionScope | None = None,
     ) -> None:
-        """Resolve one connection and obtain only the schema and row count."""
+        """Read schema, then share one row/null count query across built-in checks."""
         self.query = query.rstrip().rstrip(";")
         self.backend = backend
         self.scope = scope or PartitionScope(None, "_phlo_partition_date", None, True)
@@ -79,8 +84,21 @@ class QueryCheckRunner:
         schema = self.fetch(f"SELECT * FROM ({self.query}) AS phlo_schema LIMIT 0")
         self.columns = list(schema.columns)
         self.floating_columns = schema.attrs["floating_columns"]
-        self.row_count = int(
-            self.fetch(f"SELECT COUNT(*) FROM ({self.query}) AS phlo_count").iloc[0, 0]
+        null_columns = list(
+            dict.fromkeys(
+                column
+                for check in checks
+                if type(check) is NullCheck
+                for column in check.columns
+                if column in self.columns
+            )
+        )
+        self.row_count, self.null_counts = fetch_counts(
+            query=self.query,
+            null_columns=null_columns,
+            floating_columns=self.floating_columns,
+            backend=self.backend,
+            fetch=self.fetch,
         )
 
     def __len__(self) -> int:
@@ -103,6 +121,7 @@ class QueryCheckRunner:
                 columns=self.columns,
                 floating_columns=self.floating_columns,
                 row_count=self.row_count,
+                null_counts=self.null_counts,
                 backend=self.backend,
                 fetch=self.fetch,
             )

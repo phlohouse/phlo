@@ -841,6 +841,60 @@ def test_registered_quality_check_execution_error_is_a_failed_result() -> None:
     assert "check unavailable" in result.metadata["failures"]
 
 
+@pytest.mark.parametrize("separate_null_checks", [False, True])
+def test_quality_checks_share_count_and_null_scan(separate_null_checks) -> None:
+    statements: list[str] = []
+    with duckdb.connect(config={"threads": 1}) as connection:
+        connection.execute(
+            "CREATE TABLE readings AS SELECT * FROM "
+            "(VALUES (1, 3e0), (2, 'NaN'::DOUBLE), (3, NULL), (4, 7e0), (5, 9e0)) "
+            't(id, "a""mount")'
+        )
+
+        class RecordingConnection:
+            def execute(self, sql):
+                statements.append(sql)
+                return connection.execute(sql)
+
+        @phlo_pandera(
+            table="readings",
+            checks=[
+                UniqueCheck(columns=["id"]),
+                *(
+                    [NullCheck(columns=["id"]), NullCheck(columns=['a"mount'], allow_threshold=0.4)]
+                    if separate_null_checks
+                    else [NullCheck(columns=["id", 'a"mount'], allow_threshold=0.4)]
+                ),
+                CountCheck(min_rows=5, max_rows=5),
+            ],
+            backend="duckdb",
+            full_table=True,
+        )
+        def reading_quality():
+            pass
+
+        result = get_quality_checks()[0].fn(
+            SimpleNamespace(
+                run_id="combined-counts",
+                partition_key=None,
+                resources={"duckdb": RecordingConnection()},
+            )
+        )
+    assert result.passed
+    assert result.metadata["rows_validated"] == 5
+    assert result.metadata["columns_validated"] == 2
+    assert result.metadata["checks_executed"] == (4 if separate_null_checks else 3)
+    assert result.metadata["null_check_null_counts"] == (
+        {'a"mount': 2} if separate_null_checks else {"id": 0, 'a"mount': 2}
+    )
+    assert result.metadata["null_check_null_percentages"] == (
+        {'a"mount': 0.4} if separate_null_checks else {"id": 0.0, 'a"mount': 0.4}
+    )
+    assert result.metadata["count_check_row_count"] == 5
+    assert result.metadata["unique_check_duplicate_count"] == 0
+    assert len(statements) == 3
+
+
 def test_decorator_pushes_builtin_checks_into_real_duckdb() -> None:
     checks = [
         CountCheck(min_rows=7),
