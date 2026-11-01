@@ -866,6 +866,7 @@ def test_quality_checks_share_count_and_null_scan(separate_null_checks) -> None:
                     else [NullCheck(columns=["id", 'a"mount'], allow_threshold=0.4)]
                 ),
                 CountCheck(min_rows=5, max_rows=5),
+                RangeCheck(column='a"mount', min_value=3, max_value=9),
             ],
             backend="duckdb",
             full_table=True,
@@ -883,7 +884,7 @@ def test_quality_checks_share_count_and_null_scan(separate_null_checks) -> None:
     assert result.passed
     assert result.metadata["rows_validated"] == 5
     assert result.metadata["columns_validated"] == 2
-    assert result.metadata["checks_executed"] == (4 if separate_null_checks else 3)
+    assert result.metadata["checks_executed"] == (5 if separate_null_checks else 4)
     assert result.metadata["null_check_null_counts"] == (
         {'a"mount': 2} if separate_null_checks else {"id": 0, 'a"mount': 2}
     )
@@ -892,7 +893,47 @@ def test_quality_checks_share_count_and_null_scan(separate_null_checks) -> None:
     )
     assert result.metadata["count_check_row_count"] == 5
     assert result.metadata["unique_check_duplicate_count"] == 0
+    assert result.metadata["range_check_actual_min"] == 3.0
+    assert result.metadata["range_check_actual_max"] == 9.0
+    assert result.metadata["range_check_out_of_range"] == 0
     assert len(statements) == 3
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_shared_range_statistics_keep_bounds_and_null_denominators_independent(empty):
+    from phlo_pandera.decorator_helpers import QueryCheckRunner
+
+    checks = [
+        RangeCheck(column="value", min_value=0, max_value=10, allow_threshold=0.5),
+        RangeCheck(column="value", min_value=2, max_value=4, allow_threshold=0.5),
+        RangeCheck(column="missing", min_value=0),
+        RangeCheck(column="nulls", min_value=0),
+    ]
+    with duckdb.connect(config={"threads": 1}) as connection:
+        runtime = SimpleNamespace(resources={"duckdb": connection})
+        runner = QueryCheckRunner(
+            runtime,
+            "SELECT * FROM (VALUES (-1e0, NULL::DOUBLE), (2e0, NULL), "
+            "(5e0, NULL), (12e0, NULL), ('NaN'::DOUBLE, NULL), (NULL, NULL)) t(value, nulls)"
+            + (" WHERE FALSE" if empty else ""),
+            "duckdb",
+            checks,
+        )
+        results = [runner.execute(check, runtime) for check in checks]
+    if empty:
+        assert [result.passed for result in results] == [False, False, False, False]
+        assert results[0].metadata["note"] == "Column is entirely null; cannot verify range"
+    else:
+        assert [result.passed for result in results] == [True, False, False, False]
+        assert [result.metadata["violation_count"] for result in results[:2]] == [2, 3]
+        assert [result.metadata["violation_percentage"] for result in results[:2]] == [0.5, 0.75]
+        assert results[0].metadata["actual_min"] == -1.0
+        assert results[0].metadata["actual_max"] == 12.0
+        assert results[1].metadata["sample_rows"] == [
+            {"row_index": 0, "value": -1.0},
+            {"row_index": 2, "value": 5.0},
+            {"row_index": 3, "value": 12.0},
+        ]
 
 
 def test_decorator_pushes_builtin_checks_into_real_duckdb() -> None:

@@ -65,8 +65,8 @@ semantics even when the SDK cannot initialise. Telemetry configuration changes
 require a code-location reload. Container environment changes also require
 recreating the code service through the normal configuration rollout.
 
-Pandera quality groups share row count and built-in null counts in one SQL
-aggregate query. Uniqueness and range queries remain separate. Failure samples
+Pandera quality groups share row count, built-in null counts and range statistics
+in one SQL aggregate query. Uniqueness queries remain separate. Failure samples
 remain bounded to twenty rows, and custom subclasses still execute their own
 checks. The schema probe remains because column-count metadata and floating-point
 NaN handling depend on it, including for count-only groups. This changes query
@@ -258,6 +258,22 @@ Those validation timings are not included in the three-pair medians.
 The startup regression executes the packaged hook in a fresh interpreter and
 requires ordinary Python startup not to load Dagster. It then imports Dagster's
 warning category and checks that only supersession warnings are suppressed.
+
+### Shared range statistics
+
+Three alternating baseline/candidate comparisons against the running Trino
+service used 721 retained glucose readings with count, null and range checks.
+The candidate reduced queries from three to two, including the schema probe.
+Median client time was 294 versus 222 milliseconds. Trino reported only four
+versus three milliseconds of median query CPU, so this small workload does not
+establish a whole-stack CPU saving.
+
+All serialised check results matched across baseline and candidate runs.
+Additional SELECT-only cases covered NULL, NaN, empty inputs and different bounds
+on the same column. Failure counts, inclusive thresholds, extrema and bounded
+failure samples matched. Scheduling and running services were unchanged.
+This comparison loaded candidate modules in a disposable Python process, not
+the service processes. The shared-range change was not deployed by this test.
 
 ## Repeat the contract checks
 

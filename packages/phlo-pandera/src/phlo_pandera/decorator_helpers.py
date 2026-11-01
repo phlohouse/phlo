@@ -43,7 +43,7 @@ from phlo.hooks.emitters import (
 from phlo.hooks.events import HookCorrelation
 from phlo.logging import get_logger
 
-from phlo_pandera.checks import NullCheck, QualityCheck, QualityCheckResult
+from phlo_pandera.checks import NullCheck, QualityCheck, QualityCheckResult, RangeCheck
 from phlo_pandera.contract import QualityCheckContract
 from phlo_pandera.aggregate_checks import (
     execute_aggregate_check,
@@ -67,7 +67,7 @@ class QueryCheckRunner:
         checks: list[QualityCheck],
         scope: PartitionScope | None = None,
     ) -> None:
-        """Read schema, then share one row/null count query across built-in checks."""
+        """Read schema, then share row, null and range statistics across built-ins."""
         self.query = query.rstrip().rstrip(";")
         self.backend = backend
         self.scope = scope or PartitionScope(None, "_phlo_partition_date", None, True)
@@ -93,9 +93,14 @@ class QueryCheckRunner:
                 if column in self.columns
             )
         )
-        self.row_count, self.null_counts = fetch_counts(
+        self.row_count, self.null_counts, self.range_values = fetch_counts(
             query=self.query,
             null_columns=null_columns,
+            range_checks=[
+                check
+                for check in checks
+                if type(check) is RangeCheck and check.column in self.columns
+            ],
             floating_columns=self.floating_columns,
             backend=self.backend,
             fetch=self.fetch,
@@ -122,6 +127,7 @@ class QueryCheckRunner:
                 floating_columns=self.floating_columns,
                 row_count=self.row_count,
                 null_counts=self.null_counts,
+                range_values=self.range_values,
                 backend=self.backend,
                 fetch=self.fetch,
             )

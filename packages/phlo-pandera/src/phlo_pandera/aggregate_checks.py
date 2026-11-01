@@ -39,22 +39,45 @@ def fetch_counts(
     *,
     query: str,
     null_columns: list[str],
+    range_checks: list[RangeCheck],
     floating_columns: set[str],
     backend: str,
     fetch: Callable[[str], pd.DataFrame],
-) -> tuple[int, dict[str, int]]:
-    """Measure row count and all requested null counts in one query."""
+) -> tuple[int, dict[str, int], dict[int, list[Any]]]:
+    """Measure row, null and range statistics in one scan per runner.
+
+    Range results use check identity so different bounds on one column remain
+    independent. These identities never leave the runner's lifetime.
+    """
     expressions = ["COUNT(*)"] + [
         f"COALESCE(SUM(CASE WHEN {_null_condition(column, floating_columns, backend)} "
         "THEN 1 ELSE 0 END), 0)"
         for column in null_columns
     ]
+    for check in range_checks:
+        valid = f"NOT ({_null_condition(check.column, floating_columns, backend)})"
+        value = f"CASE WHEN {valid} THEN {_quoted(check.column)} END"
+        condition = _range_condition(check, floating_columns, backend)
+        expressions.extend(
+            [
+                f"COUNT({value})",
+                f"MIN({value})",
+                f"MAX({value})",
+                f"COALESCE(SUM(CASE WHEN {condition} THEN 1 ELSE 0 END), 0)",
+            ]
+        )
     frame = fetch(
         f"SELECT {', '.join(expressions)} FROM ({query.rstrip().rstrip(';')}) AS phlo_quality"
     )
-    return int(frame.iloc[0, 0]), {
-        column: int(frame.iloc[0, index]) for index, column in enumerate(null_columns, start=1)
-    }
+    offset = 1 + len(null_columns)
+    return (
+        int(frame.iloc[0, 0]),
+        {column: int(frame.iloc[0, index]) for index, column in enumerate(null_columns, start=1)},
+        {
+            id(check): frame.iloc[0, offset + index * 4 : offset + (index + 1) * 4].tolist()
+            for index, check in enumerate(range_checks)
+        },
+    )
 
 
 def _bound_condition(column: str, operator: str, value: float) -> str:
@@ -65,6 +88,17 @@ def _bound_condition(column: str, operator: str, value: float) -> str:
     return f"{column} {operator} CAST('{literal}' AS DOUBLE)"
 
 
+def _range_condition(check: RangeCheck, floating_columns: set[str], backend: str) -> str:
+    name = _quoted(check.column)
+    bounds = []
+    if check.min_value is not None:
+        bounds.append(_bound_condition(name, "<", check.min_value))
+    if check.max_value is not None:
+        bounds.append(_bound_condition(name, ">", check.max_value))
+    null = _null_condition(check.column, floating_columns, backend)
+    return f"NOT ({null}) AND ({' OR '.join(bounds) or 'FALSE'})"
+
+
 def execute_aggregate_check(
     check: QualityCheck,
     *,
@@ -73,6 +107,7 @@ def execute_aggregate_check(
     floating_columns: set[str],
     row_count: int,
     null_counts: dict[str, int],
+    range_values: dict[int, list[Any]],
     backend: str,
     fetch: Callable[[str], pd.DataFrame],
 ) -> QualityCheckResult:
@@ -108,23 +143,8 @@ def execute_aggregate_check(
     if isinstance(check, RangeCheck):
         if check.column not in columns:
             return check.execute(pd.DataFrame(columns=columns), None)
-        name = _quoted(check.column)
-        bounds = []
-        if check.min_value is not None:
-            bounds.append(_bound_condition(name, "<", check.min_value))
-        if check.max_value is not None:
-            bounds.append(_bound_condition(name, ">", check.max_value))
-        condition = f"NOT ({null(check.column)}) AND ({' OR '.join(bounds) or 'FALSE'})"
-        values = (
-            fetch(
-                f"SELECT COUNT(*), MIN({name}), MAX({name}), "
-                f"COALESCE(SUM(CASE WHEN {condition} THEN 1 ELSE 0 END), 0) "
-                f"FROM {source} WHERE NOT ({null(check.column)})"
-            )
-            .iloc[0]
-            .tolist()
-        )
-        valid, minimum, maximum, violations = values
+        condition = _range_condition(check, floating_columns, backend)
+        valid, minimum, maximum, violations = range_values[id(check)]
         return check.result_from_counts(
             int(valid),
             int(violations),
