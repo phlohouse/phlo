@@ -1,15 +1,17 @@
 """Contract tests for the Dagster runtime image.
 
 Text mirroring of the Dockerfile and entrypoint is deliberately avoided:
-behavioral guarantees are exercised by building an image and running the
-real entrypoint, and structural facts are asserted against parsed
-instructions or the parsed service definition.
+behavioral guarantees execute the packaged startup hook or build an image
+and run the real entrypoint. Structural facts use parsed instructions or
+the parsed service definition.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 from importlib import resources
 from pathlib import Path
 
@@ -40,6 +42,39 @@ def test_dagster_service_uses_the_image_bootstrap_script() -> None:
     """The DAGSTER_HOME bind mount must not hide the image bootstrap script."""
     definition = yaml.safe_load(_runtime_resource("service.yaml"))
     assert definition["compose"]["entrypoint"] == ["/usr/local/bin/phlo-dagster-entrypoint.sh"]
+
+
+def test_startup_suppresses_only_supersession_warnings_without_loading_dagster(
+    tmp_path: Path,
+) -> None:
+    entrypoint = _runtime_resource("entrypoint.sh")
+    hook = entrypoint[entrypoint.index('cat > "${SITE_PACKAGES}/sitecustomize.py"') :]
+    hook = hook.split("\nEOF", 1)[0] + "\nEOF\n"
+    subprocess.run(
+        ["bash", "-c", hook],
+        env={**os.environ, "SITE_PACKAGES": str(tmp_path)},
+        check=True,
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, warnings; "
+            "assert 'dagster' not in sys.modules; "
+            "from dagster import SupersessionWarning; "
+            "warnings.warn('supersession', SupersessionWarning); "
+            "warnings.warn('ordinary', UserWarning); "
+            "warnings.warn('future', FutureWarning)",
+        ],
+        env={**os.environ, "PYTHONPATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "supersession" not in result.stderr
+    assert "UserWarning: ordinary" in result.stderr
+    assert "FutureWarning: future" in result.stderr
 
 
 def test_dagster_runtime_entrypoint_gives_an_unmapped_uid_an_isolated_writable_home(

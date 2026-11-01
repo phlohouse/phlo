@@ -96,14 +96,14 @@ PY
     echo "Mounted Phlo project installed"
 fi
 
-# Create sitecustomize.py to suppress Dagster SupersessionWarning at Python startup
-# This runs before any Python script and filters out deprecated CLI warnings
+# Suppress the same warning class without loading Dagster in every Python
+# subprocess, including dbt. Dagster 1.13 re-exports it from dagster_shared.
 SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
 cat > "${SITE_PACKAGES}/sitecustomize.py" << 'EOF'
 # Phlo: Suppress Dagster deprecation warnings for deprecated CLI commands
 import warnings
 try:
-    from dagster import SupersessionWarning
+    from dagster_shared.utils.warnings import SupersessionWarning
     warnings.filterwarnings("ignore", category=SupersessionWarning)
 except ImportError:
     pass

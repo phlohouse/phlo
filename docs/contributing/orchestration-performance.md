@@ -31,13 +31,19 @@ orchestration credentials and host UID handling. Reload the code location in
 Dagster after editing workflows. Periodic workspace refresh no longer imports
 the project again; it is not a substitute for deliberate code reload.
 
-Webserver and code-server health probes bypass Python's `sitecustomize`, which
-otherwise imports Dagster on every probe. The webserver still checks
-`/server_info`. The code probe loads the installed gRPC health client directly
-and still requires the `DagsterApi` service to report `SERVING`. The probe
+Webserver and code-server health probes bypass Python's startup hooks.
+The webserver still checks `/server_info`. The code probe loads the installed
+gRPC health client directly and still requires the `DagsterApi` service to
+report `SERVING`. The probe
 finds dependencies relative to its Python executable in both locked-venv and
 system installations. Check intervals, container timeouts, retries and normal
 application startup are unchanged.
+
+The normal Python startup hook imports `SupersessionWarning` from
+`dagster_shared.utils.warnings`, where Dagster 1.13 defines the class it
+re-exports. The same category remains suppressed, but unrelated Python commands
+such as dbt no longer initialise Dagster just to install the warning filter.
+Ordinary warnings and other `FutureWarning` categories remain visible.
 
 The daemon owns its instance and calls Dagster's existing storage optimisation
 API. Workers and code servers reconstruct independent instances, so they do not
@@ -221,12 +227,45 @@ This is short-window deployment evidence, not long-duration soak qualification.
 The health regression executes the packaged command against a real gRPC health
 service and checks serving, unready, unknown and disconnected outcomes.
 
+### Normal Python startup measurements
+
+Five alternating isolated imports inside the deployed container measured
+median process CPU of 0.654 seconds through `dagster`, versus 0.054 seconds
+through `dagster_shared.utils.warnings`. The latter did not load `dagster`.
+Both variants installed the same category filter. This measures startup work,
+not a projected reduction in whole-stack CPU.
+
+Three alternating `dbt --version` probes measured median process CPU of
+2.850 versus 2.058 seconds and peak RSS of 147.2 versus 116.3 MiB. These are
+command-startup measurements, not peak memory for a dbt build or the lakehouse.
+
+Three alternating pairs of real Nightscout mart replays measured median
+RUN_START-to-RUN_SUCCESS time of 37.882 seconds before this import change and
+30.785 seconds after it. Median project-container CPU per replay fell from
+51.582 to 38.401 CPU-seconds. The replay CPU interval includes Python startup,
+definition discovery and adjacent container work. Scheduling was paused and
+restored around the comparison. Both variants used the same retained sources,
+partition label and five separate dbt invocations. All six runs retained five
+materialisations and eleven passing checks.
+
+The initial before-to-after mart checksum comparison failed because the first
+replay refreshed marts that lagged the ingested source. Source-table fingerprints
+were unchanged. A separate fresh baseline/candidate pair compared fingerprints
+after each rebuild and matched all seven table schemas, counts and stable-field
+checksums. Only clock-dependent device evaluation fields were excluded.
+Those validation timings are not included in the three-pair medians.
+
+The startup regression executes the packaged hook in a fresh interpreter and
+requires ordinary Python startup not to load Dagster. It then imports Dagster's
+warning category and checks that only supersession warnings are suppressed.
+
 ## Repeat the contract checks
 
 Run from the repository root after `make setup`:
 
 ```bash
 uv run --locked pytest packages/phlo-dagster/tests/test_dagster_plugin.py
+uv run --locked pytest packages/phlo-dagster/tests/test_runtime_image_contract.py
 uv run --locked pytest packages/phlo-dbt/tests/test_transform.py
 uv run --locked pytest packages/phlo-dbt/tests/test_asset_checks.py packages/phlo-dbt/tests/test_federation.py
 uv run --locked pytest -m "not integration" packages/phlo-lineage/tests
