@@ -113,7 +113,7 @@ The populated job-pattern probe launches six runs through the real local Dagster
 
 ## Remaining legacy consumers
 
-The [phase-0 route decisions](../architecture/unified-api-phase-0.md) still classify every mounted legacy method and path. The inventory below updates the actual first-party callers. Documentation examples and test fixtures are not runtime consumers. No absence of an in-repository caller authorises removal of a public capability.
+The [phase-0 route decisions](../architecture/unified-api-phase-0.md) still classify every mounted legacy method and path. The inventory below updates the actual first-party callers. Documentation examples and test fixtures are not runtime consumers. The phase-0 rule that no absence of an in-repository caller authorises removing a public capability was superseded on 2026-10-31 by [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3: legacy routes with no first-party caller and no `/api/v1` resource are removed in `0.20.0` without a replacement. The table below is the phase-0 inventory of `phlo-mcp` calls before its migration.
 
 The caller is `packages/phlo-mcp/src/phlo_mcp/api_client.py`, exposed through MCP tools and resources in `server.py`. It no longer calls `/api/observatory`. OpenAPI marks every `/api/observatory` route as deprecated, and the [HTTP API reference](http-api.md#legacy-route-replacements) lists each one with its replacement.
 

@@ -4,6 +4,8 @@
 
 **Accepted (back-filled 2026-10-30)**
 
+Amended (2026-11-01): decision 2 applies to releases below `1.0.0`. From `1.0.0`, every distribution in the release set shares one version under [ADR 0053](0053-what-1-0-promises.md) decision 4, resolved by `scripts/release_lockstep_version.py` and checked by `scripts/validate_support_manifest.py` ([#1231](https://github.com/phlohouse/phlo/pull/1231)). Each `pyproject.toml` remains its distribution's only version authority.
+
 - Original decision: March 2026 (ReleaseX adoption), extended August–October 2026
 - Evidence: [#300](https://github.com/phlohouse/phlo/pull/300) (2026-03-26),
   commit `8f8247e2` (2026-03-28, "adopt ReleaseX release_set mode"),
@@ -88,8 +90,9 @@ root is 0.18.0 and the 39 workspace packages range from 0.1.0 to 0.18.0.
   required three configuration files and a bespoke script for the monorepo.
 - **ReleaseX `unified` mode:** used for two days; replaced by `release_set`.
   The reason for the switch is not recoverable from the repository or issues.
-- **Lockstep versioning of every distribution:** not adopted. Packages keep
-  independent versions, and the core-minor range carries compatibility instead.
+- **Lockstep versioning of every distribution:** not adopted below `1.0.0`.
+  Packages keep independent versions, and the core-minor range carries
+  compatibility instead. ADR 0053 decision 4 adopts it from `1.0.0`.
 - **Publishing from ReleaseX:** disabled in favour of the build-once promotion
   path in ADR 0050.
 
