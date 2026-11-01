@@ -137,7 +137,7 @@ Precedence is `env vars` -> `services.phlo-api.authorization` -> `api.authorizat
 
 For browser SSO, run the `api` and `proxy` profiles with Traefik and oauth2-proxy, backed by an OIDC provider such as Authentik. Phlo routes `/oauth2/*` to oauth2-proxy, redirects unauthenticated browser requests to its sign-in page, and protects the API route with forward-auth. oauth2-proxy owns the browser session; `phlo-api` validates the signed access token itself. Forwarded user, email, and group headers are not authentication credentials and are not trusted by the API. Phlo does not install or configure an Authentik server; operators provision the OIDC provider and client.
 
-Configure the same issuer and audience at both layers. For Authentik, use the provider's exact issuer URL and configure the token audience accepted by `phlo-api` (commonly the OIDC client ID). Publish the groups claim in the access token if Phlo RBAC is mapped to identity-provider groups.
+Configure the same issuer and audience at both layers. For Authentik, use the provider's exact issuer URL and configure the token audience accepted by `phlo-api` (commonly the OIDC client ID; it must be one of the access token's `aud` values, and some issuers, such as a Cloudflare Access OIDC SaaS application, have been observed to use the OAuth callback URL instead). Publish the groups claim in the access token if Phlo RBAC is mapped to identity-provider groups.
 
 Set these values in the deployment environment (keep client and cookie secrets in the deployment's secret store):
 
