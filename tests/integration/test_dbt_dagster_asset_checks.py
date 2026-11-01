@@ -103,6 +103,7 @@ def test_dbt_asset_runner_emits_dagster_check_events(
                 "dbt_project_path": project_path,
                 "dbt_project_paths": [project_path],
                 "dbt_namespaced_asset_keys": False,
+                "dbt_group_execution": True,
                 "dbt_profiles_path_for": lambda _s, p: p / "profiles",
             },
         )(),

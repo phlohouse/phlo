@@ -25,6 +25,8 @@ from phlo.capabilities import (
     CheckResult,
     MaterializeResult,
     PartitionSpec,
+    RunGroupResult,
+    RunGroupSpec,
     RunSpec,
 )
 from phlo.capabilities.external_refs import EXTERNAL_DEPS_METADATA_KEY
@@ -35,6 +37,7 @@ from phlo.logging import get_logger
 from phlo_dbt.discovery import read_dbt_project_name
 from phlo_dbt.runtime_config import ensure_dbt_profile, resolve_dbt_target_name
 from phlo_dbt.settings import get_settings
+from phlo_dbt.grouped import run_dbt_group
 
 from phlo_dbt.asset_checks import (
     dbt_asset_check_index,
@@ -347,6 +350,25 @@ def _build_project_asset_specs(
 
     specs: list[AssetSpec] = []
     check_specs, test_names_by_asset = dbt_asset_check_index(manifest, translator=translator)
+
+    def _group_runner(runtime: RuntimeContext, selected: frozenset[str]) -> RunGroupResult:
+        return run_dbt_group(
+            runtime,
+            selected,
+            project_dir=project_path,
+            profiles_dir=profiles_path,
+            manifest=manifest,
+            asset_keys=asset_keys,
+            tests=test_names_by_asset,
+            translator=translator,
+            key_prefix=key_prefix,
+        )
+
+    run_group = (
+        RunGroupSpec(name=f"dbt_{project_name}", fn=_group_runner)
+        if settings.dbt_group_execution
+        else None
+    )
     checks_by_asset: dict[str, list[AssetCheckSpec]] = {}
     for check in check_specs:
         checks_by_asset.setdefault(check.asset_key, []).append(check)
@@ -415,7 +437,7 @@ def _build_project_asset_specs(
                 partitions=PartitionSpec(kind="daily"),
                 deps=deps,
                 checks=checks,
-                run=RunSpec(fn=_runner),
+                run=RunSpec(fn=_runner, group=run_group),
             )
         )
 

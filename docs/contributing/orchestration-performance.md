@@ -314,8 +314,9 @@ changes. They are short windows, not sustained capacity guarantees.
 The measured 38.401 CPU-seconds per mart replay corresponds to about 0.61% of
 the CPU allowance at Nightscout's hourly mart cadence. This is an amortised
 estimate, not a measurement over an hour. Removing startup can save only part
-of that work. The remaining startup does not justify changing execution
-boundaries for this workload.
+of that work. This small amortised cost does not establish that five separate
+dbt invocations are optimal. The grouped-build experiment below measures that
+choice separately from a persistent-worker design.
 
 Reusing `dbtRunner` does not retain an adapter session: dbt 1.12 resets adapters
 at invocation entry and cleans connections at exit. It also changes global
@@ -323,6 +324,43 @@ flags and logging. A shared worker would need explicit lifecycle, cancellation,
 IPC and configuration isolation across execution processes. One batched build
 changes independent retry and blocking-check boundaries. Neither is a
 transparent replacement for the current per-asset subprocesses.
+
+### Grouped dbt builds
+
+An isolated comparison used Nightscout's five actual models and nine tests on
+27,244 synthetic source documents covering 90 days. Five separate builds used
+19.850 child CPU-seconds; one combined build used 4.576, a 76.95% reduction in
+that single paired comparison. Outputs matched across all five models, including
+25,470 deduplicated readings. This used DuckDB and a frozen clock in copied
+models, not Trino or a running soak. It does not establish sustained deployment
+savings, and repeated measurements are still needed for a stable estimate.
+
+The production candidate exposes provider-owned `RunGroupSpec` execution through
+the capability contract. Dagster retains individual keys and reports each
+model's results in dependency order. dbt selects the requested models and their
+owned tests in one build, with isolated artifacts per run and selected group.
+Invocation failures remain separate from successful model outcomes.
+
+Compatible assets share a project, partitions, resources, and capability
+overrides. Explicit execution policies retain individual runners. A cycle in the
+contracted execution graph also retains individual runners. Targeted full refresh
+uses individual builds, skips descendants of failures, and continues independent
+branches. Group retries can repeat successful siblings. Legacy per-op run
+configuration can opt out with `DBT_GROUP_EXECUTION=false`.
+
+A follow-up executed the actual Phlo adapter with Nightscout's unchanged
+`cgm_marts_job` and schedule definitions on disposable copies. Five
+materialisations and nine passing checks shared one dbt invocation ID. Every
+model output matched a direct dbt baseline. The candidate used 6.708 child
+CPU-seconds in this separate validation run; it is not a matched timing
+comparison with the prototype above. No running service was changed.
+
+The existing phlo-transform provider also starts one run process per model.
+Its upstream engine supports multiple selectors in one invocation, so a provider
+could adopt the same grouped contract. Thirty-two existing Python provider tests
+passed with fake engine reports. No installed engine binary was available, so
+no real-engine timing or migration comparison is claimed. The dbt change does
+not alter phlo-transform execution.
 
 ## Repeat the contract checks
 
@@ -333,6 +371,7 @@ uv run --locked pytest packages/phlo-dagster/tests/test_dagster_plugin.py
 uv run --locked pytest packages/phlo-dagster/tests/test_runtime_image_contract.py
 uv run --locked pytest packages/phlo-dbt/tests/test_transform.py
 uv run --locked pytest packages/phlo-dbt/tests/test_asset_checks.py packages/phlo-dbt/tests/test_federation.py
+uv run --locked pytest tests/operations/test_grouped_dbt.py packages/phlo-dagster/tests/test_adapter_assets.py
 uv run --locked pytest -m "not integration" packages/phlo-lineage/tests
 uv run --locked pytest -m integration packages/phlo-dbt/tests/test_integration_dbt.py
 uv run --locked pytest -m integration packages/phlo-dagster/tests/test_code_server_lifecycle.py

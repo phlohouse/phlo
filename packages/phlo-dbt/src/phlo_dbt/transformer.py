@@ -458,7 +458,11 @@ class DbtTransformer(BaseTransformer):
         artifact_path = self.project_dir / "target"
         if run_id:
             safe_run_id = re.sub(r"[^A-Za-z0-9_.-]", "_", str(run_id))
-            safe_asset_key = re.sub(r"[^A-Za-z0-9_.-]", "_", resolved_asset_key or "run")
+            safe_asset_key = re.sub(
+                r"[^A-Za-z0-9_.-]",
+                "_",
+                str(parameters.get("execution_key") or resolved_asset_key or "run"),
+            )
             artifact_path = artifact_path / "runs" / safe_run_id / safe_asset_key
             build_args.extend(
                 ["--target-path", str(artifact_path), "--log-path", str(artifact_path / "logs")]

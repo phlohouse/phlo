@@ -70,6 +70,7 @@ def _stub_settings(monkeypatch, project_paths, *, namespaced: bool) -> None:
                 "dbt_project_path": project_paths[0],
                 "dbt_project_paths": list(project_paths),
                 "dbt_namespaced_asset_keys": namespaced,
+                "dbt_group_execution": True,
                 "dbt_profiles_path_for": lambda _s, p: p / "profiles",
             },
         )(),
@@ -449,3 +450,47 @@ def test_plain_source_binding_is_recorded_as_external(monkeypatch, tmp_path) -> 
     finally:
         logging.getLogger("phlo.capabilities.external_refs").removeHandler(handler)
     assert any("upstream.deals" in message for message in warnings)
+
+
+@pytest.mark.parametrize("test_status", ["pass", "fail", "skipped", None])
+def test_grouped_results_require_owned_test_evidence(monkeypatch, tmp_path, test_status):
+    from phlo.capabilities import CheckResult, MaterializeResult
+    from phlo_dbt.transformer import DbtTransformer
+
+    _write_project(tmp_path, "sales", models=["orders", "customers"])
+    project = tmp_path / "workflows/sales/transforms/dbt"
+    manifest_path = project / "target/manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["nodes"]["test.sales.not_null_orders_id"] = {
+        "name": "not_null_orders_id",
+        "resource_type": "test",
+        "test_metadata": {"name": "not_null"},
+        "depends_on": {"nodes": ["model.sales.orders"]},
+    }
+    manifest_path.write_text(json.dumps(manifest))
+    _stub_settings(monkeypatch, [project], namespaced=True)
+    monkeypatch.setattr("phlo_dbt.transformer.ensure_dbt_profile", lambda *a, **kw: None)
+    monkeypatch.setattr("phlo.hooks.bus.HookBus.emit", lambda *a, **kw: None)
+
+    def command(self, args):
+        target = Path(args[args.index("--target-path") + 1])
+        target.mkdir(parents=True, exist_ok=True)
+        results = [{"unique_id": "model.sales.orders", "status": "success"}]
+        if test_status is not None:
+            results.append({"unique_id": "test.sales.not_null_orders_id", "status": test_status})
+        (target / "run_results.json").write_text(json.dumps({"results": results}))
+        (target / "manifest.json").write_text(json.dumps(manifest))
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(DbtTransformer, "_run_command", command)
+    specs = {spec.key: spec for spec in build_dbt_asset_specs()}
+    runtime = SimpleNamespace(
+        run_id="group-run", partition_key=None, tags={}, resources={}, logger=get_logger(__name__)
+    )
+    result = specs["sales.orders"].run.group.fn(runtime, frozenset({"sales.orders"}))
+    assert set(result.outcomes) == {"sales.orders"}
+    checks = [item for item in result.outcomes["sales.orders"] if isinstance(item, CheckResult)]
+    mats = [item for item in result.outcomes["sales.orders"] if isinstance(item, MaterializeResult)]
+    assert len(mats) == 1
+    assert mats[0].status == ("failure" if test_status in {None, "fail"} else "success")
+    assert len(checks) == (0 if test_status in {None, "skipped"} else 1)

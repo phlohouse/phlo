@@ -143,6 +143,10 @@ class DbtSettings(BaseConfig):
 
     """
 
+    dbt_group_execution: bool = Field(
+        default=True,
+        description="Build compatible assets together; disable for legacy per-model Dagster op configuration",
+    )
     dbt_query_engine_type: str = Field(
         default="trino",
         description="Query engine adapter used by dbt profiles",

@@ -22,6 +22,29 @@ phlo plugin install dbt
 | `DBT_PROFILES_DIR`  | `workflows/transforms/dbt/profiles`             | Path to dbt profiles          |
 | `DBT_MANIFEST_PATH` | `workflows/transforms/dbt/target/manifest.json` | Path to dbt manifest          |
 | `DBT_CATALOG_PATH`  | `workflows/transforms/dbt/target/catalog.json`  | Path to dbt catalog           |
+| `DBT_GROUP_EXECUTION` | `true` | Build compatible assets in one dbt invocation |
+
+### Grouped execution
+
+With matching `phlo`, `phlo-dbt`, and `phlo-dagster` versions, compatible models
+from one project share a `dbt build` invocation. Existing asset keys, dependency
+selections, partitions, and schedules remain unchanged. Each selected model
+retains its materialisation and owned test results. Skipped models and tests
+do not report success. Successful siblings remain visible when a model fails.
+
+Assets with explicit retry, runtime, cron, freshness, or isolated-write policies
+keep their individual runners. Different resources, partitions, or capability
+overrides form separate groups. If grouping would create an execution cycle,
+the graph keeps individual runners. A targeted full refresh also uses individual
+runners so that `--full-refresh` cannot apply to sibling models.
+
+A group is one Dagster step, so step-level retries repeat its selected models.
+The group's Dagster op name differs from the old per-model op names. Set
+`DBT_GROUP_EXECUTION=false` to retain legacy per-op run configuration. Ordinary
+asset selections and schedules need no changes.
+
+Attached checks execute with their owning assets, as on the individual path.
+Check-only selections are rejected before provider execution.
 
 ## Auto-Configuration
 
