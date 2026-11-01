@@ -23,7 +23,9 @@ from phlo.plugins.discovery.registry import get_global_registry
 
 
 def _is_service_yaml(filename: str) -> bool:
-    return filename == "service.yaml" or filename.endswith(("-setup.yaml", "-daemon.yaml"))
+    return filename == "service.yaml" or filename.endswith(
+        ("-setup.yaml", "-daemon.yaml", "-code.yaml")
+    )
 
 
 def get_registered_service_plugins() -> dict[str, Any]:
@@ -47,7 +49,7 @@ def _companion_manifests(
     for yaml_path in service_manifest_paths(source_path):
         if yaml_path.name == "service.yaml":
             continue
-        if not yaml_path.name.endswith(("-setup.yaml", "-daemon.yaml")):
+        if not _is_service_yaml(yaml_path.name):
             continue
         definition = ServiceDefinition.from_yaml(yaml_path)
         if definition.name in existing_names:

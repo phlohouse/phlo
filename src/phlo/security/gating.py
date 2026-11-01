@@ -81,6 +81,7 @@ APPROVED_SERVICES: frozenset[str] = frozenset(
         "phlo-api",
         "cli",
         "dagster-webserver",
+        "dagster-code",
         "dagster-daemon",
         "postgres",
         "minio",

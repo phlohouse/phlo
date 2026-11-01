@@ -121,7 +121,7 @@ def split_host_compose(compose: dict) -> tuple[dict, dict]:
         changes: dict = {}
         environment = config.get("environment", {})
         keys = {"PHLO_DEV_MODE"}
-        if name in {"dagster", "dagster-daemon"}:
+        if name in {"dagster", "dagster-daemon", "dagster-code"}:
             keys.update({"PHLO_RUNTIME_UID", "PHLO_RUNTIME_GID"})
         if isinstance(environment, dict):
             identities = {key: environment.pop(key) for key in keys if key in environment}

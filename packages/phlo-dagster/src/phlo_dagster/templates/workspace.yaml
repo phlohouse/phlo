@@ -1,4 +1,5 @@
 load_from:
-  - python_module:
-      module_name: phlo_dagster.framework.definitions
-      working_directory: /app
+  - grpc_server:
+      host: dagster-code-private
+      port: 4000
+      location_name: phlo_dagster.framework.definitions

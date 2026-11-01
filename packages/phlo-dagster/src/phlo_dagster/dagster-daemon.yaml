@@ -21,6 +21,7 @@ depends_on:
 
 compose:
   restart: unless-stopped
+  networks: [default, dagster-code]
   environment:
     DAGSTER_HOME: /opt/dagster
     PYTHONPATH: /opt/dagster:/app
@@ -64,7 +65,7 @@ compose:
       OBSERVE_HTTP_ENDPOINT: "http://phlo-observer:8080/v1/events"
       OBSERVE_HTTP_TOKEN: "${OBSERVE_HTTP_TOKEN:-}"
       OBSERVE_HTTP_API_KEY: "${OBSERVE_HTTP_API_KEY:-}"
-  command: ["dagster-daemon", "run", "-w", "/opt/dagster/workspace.yaml"]
+  command: ["python", "-m", "phlo_dagster.daemon", "-w", "/opt/dagster/workspace.yaml"]
   volumes:
     - ./dagster:/opt/dagster
     - ../:/app

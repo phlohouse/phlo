@@ -57,11 +57,12 @@ files = ["registry/support/v1.json", "src/phlo/support_data/v1.json"]
 packages = ["phlo-dagster"]
 search = "\"image_reference\": \"ghcr.io/phlohouse/{name}:{current_version}\""
 replace = "\"image_reference\": \"ghcr.io/phlohouse/{name}:{next_version}\""
-expected_matches = 2
+expected_matches = 3
 
 [[release.replacements]]
 files = [
     "packages/phlo-dagster/src/phlo_dagster/service.yaml",
+    "packages/phlo-dagster/src/phlo_dagster/dagster-code.yaml",
     "packages/phlo-dagster/src/phlo_dagster/dagster-daemon.yaml",
 ]
 packages = ["phlo-dagster"]

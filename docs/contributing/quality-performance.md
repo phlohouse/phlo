@@ -48,8 +48,50 @@ Durable run-evidence reconciliation separately indexes stages and event statuses
 Its empty stage-ID regression preserves single-stage attribution and multi-stage rejection.
 
 Iceberg detects duplicate keys with Arrow uniqueness rather than Python lists and sets.
-The aligned merge keys convert to Python once before additive-schema retries, retaining the existing 1,000-key delete batches.
+The aligned merge keys convert to Python once before additive-schema retries.
+Merge now uses one delete predicate, with operation-local reuse of its bound keys, as measured below.
 This remains proportional to the number of distinct merge keys; it is not a bounded-memory merge implementation.
+
+## Historical merge replay
+
+Historical ingestion exposed work that the earlier no-I/O key benchmark did not cover.
+The former 1,000-key deletes repeatedly planned files and created intermediate snapshots.
+Replacing them with one ordinary `In` predicate reduced snapshots but did not reliably reduce CPU.
+PyIceberg 0.11.1 binds the same predicate repeatedly during file planning, converting its literals on each bind.
+
+The merge-owned predicate now retains its last binding for one schema and case-sensitivity mode.
+The cache lives only on that predicate, not in a process-wide registry.
+Its literal sets remain unchanged, and each additive-schema retry constructs a fresh predicate.
+Deletes and append still publish in one transaction. Validation, key casting, schema policy and conflict handling remain unchanged.
+One delete can create both a DELETE and an OVERWRITE snapshot when it encounters fully matched and partially matched files.
+
+An isolated Nightscout backfill read 25,019 entries over ninety days through the real REST API, Phlo DLT executor, Pandera contract and Iceberg provider.
+The destination was a disposable filesystem warehouse with a SQLite catalogue, not the running Nessie and MinIO services.
+Each process had a 0.30-CPU limit and a one-GiB memory limit on a shared development VPS.
+These are single before-and-after executions, not latency distributions.
+
+| Operation | Before CPU seconds | After CPU seconds | Before wall seconds | After wall seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Repeat ninety-day ingestion | 22.042 | 3.429 | 102.396 | 39.007 |
+| Overlapping final-week ingestion | 3.272 | 1.231 | 12.209 | 5.507 |
+
+Both variants retained 25,019 distinct stored IDs and 89 data files after initial, repeated and overlapping loads.
+The first load did not improve: CPU measured 4.305 versus 4.726 seconds.
+Peak process RSS was 419.2 versus 405.3 MiB; these single peaks are not a memory-sizing guarantee.
+Nightscout extraction still took about thirty seconds for ninety days, mostly outside client CPU.
+Downstream dbt materialisation and deployed object-store latency are not included.
+
+A separate real-Iceberg fixture started with 25,019 random-looking IDs across 87 daily partitions.
+It updated 25,018 rows, retained one row and inserted a new row on a later day.
+Two unprofiled observations per variant measured median merge CPU of 16.012 versus 1.019 seconds and wall time of 53.421 versus 3.403 seconds.
+The baseline ran before the candidate rather than in alternating pairs.
+All 25,020 expected IDs and values matched, and snapshot growth fell from 27 to 2.
+Separate profiled runs reduced recorded calls from about 121 million to 2.9 million. Profiled timings were excluded from those medians.
+
+A no-I/O control bound 500,000 keys using 415.9 MiB peak RSS, including imports.
+Its first binding used 1.454 CPU-seconds; one hundred repeated bindings used 0.000348 CPU-seconds.
+That control does not qualify a 500,000-key provider write.
+Concurrent differential checks against ordinary `In` matched across field types, field IDs and case modes.
 
 ## Million-row measurements
 

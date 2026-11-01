@@ -254,11 +254,23 @@ def dbt_asset_check_specs(
     manifest payload and ``translator`` resolves target asset keys from dbt nodes.
     Returns check specifications for dbt tests with resolvable target assets.
     """
+    specs, _ = dbt_asset_check_index(manifest, translator=translator)
+    return specs
+
+
+def dbt_asset_check_index(
+    manifest: Mapping[str, Any], *, translator: DbtSpecTranslator
+) -> tuple[list[AssetCheckSpec], dict[str, tuple[str, ...]]]:
+    """Resolve manifest tests once for discovery specs and owned build selectors.
+
+    Specs deduplicate asset/check identities in manifest order. Selectable names
+    retain duplicates and their original spelling and order, independently of
+    spec deduplication. The index belongs to this discovery, never a global cache.
+    """
     nodes = _manifest_nodes(manifest)
-    if not isinstance(nodes, Mapping):
-        return []
 
     specs: list[AssetCheckSpec] = []
+    names: dict[str, list[str]] = {}
     seen: set[tuple[str, str]] = set()
     for unique_id, test_props in nodes.items():
         if not isinstance(unique_id, str) or not unique_id.startswith("test."):
@@ -269,6 +281,9 @@ def dbt_asset_check_specs(
         resolved = _resolve_dbt_test(manifest, unique_id, test_props, translator)
         if resolved is None:
             continue
+        name = test_props.get("name")
+        if isinstance(name, str) and name:
+            names.setdefault(resolved.asset_key, []).append(name)
         identity = (resolved.asset_key, resolved.check_name)
         if identity in seen:
             logger.warning(
@@ -289,7 +304,7 @@ def dbt_asset_check_specs(
             )
         )
 
-    return specs
+    return specs, {key: tuple(values) for key, values in names.items()}
 
 
 def dbt_asset_check_names(

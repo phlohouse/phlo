@@ -7295,7 +7295,7 @@
   "counts": {
     "cli_commands": 135,
     "entry_point_groups": 14,
-    "entry_points": 46,
+    "entry_points": 47,
     "hook_event_types": 11,
     "http_routes": 179,
     "python_api_names": 59
@@ -7353,6 +7353,7 @@
     "phlo.plugins.services": [
       "phlo-api: phlo-api = phlo_api.plugin:PhloApiServicePlugin",
       "phlo-dagster: dagster = phlo_dagster.plugin:DagsterServicePlugin",
+      "phlo-dagster: dagster-code = phlo_dagster.plugin:DagsterCodeServicePlugin",
       "phlo-dagster: dagster-daemon = phlo_dagster.plugin:DagsterDaemonServicePlugin",
       "phlo-minio: minio = phlo_minio.plugin:MinioServicePlugin",
       "phlo-minio: minio-setup = phlo_minio.plugin:MinioSetupServicePlugin",

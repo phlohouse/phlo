@@ -25,7 +25,7 @@ Example:
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -33,6 +33,7 @@ from phlo.logging import get_logger
 from phlo_dbt.settings import DbtDescriptionSettings, DbtTranslatorSettings, get_settings
 
 logger = get_logger(__name__)
+_SQL_READ_CHARS = 16 * 1024
 
 
 def _first_matching_layer(segments: Sequence[str]) -> str | None:
@@ -70,13 +71,19 @@ def _fqn_segments_from_props(dbt_resource_props: Mapping[str, Any]) -> list[str]
     return [str(segment) for segment in fqn]
 
 
-def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int]:
-    raw = text.encode("utf-8")
-    if len(raw) <= max_bytes:
-        return text, False, len(raw)
-
-    truncated = raw[:max_bytes].decode("utf-8", errors="ignore")
-    return truncated, True, len(raw)
+def _truncate_utf8_bytes(chunks: Iterable[str], max_bytes: int) -> tuple[str, bool, int]:
+    # Negative limits retain the legacy slice semantics and an unbounded output.
+    if max_bytes < 0:
+        raw = "".join(chunks).encode("utf-8")
+        return raw[:max_bytes].decode("utf-8", errors="ignore"), True, len(raw)
+    prefix = bytearray()
+    original_bytes = 0
+    for chunk in chunks:
+        raw = chunk.encode("utf-8")
+        original_bytes += len(raw)
+        if len(prefix) < max_bytes:
+            prefix.extend(raw[: max_bytes - len(prefix)])
+    return prefix.decode("utf-8", errors="ignore"), original_bytes > max_bytes, original_bytes
 
 
 def get_compiled_sql_from_resource_props(
@@ -94,7 +101,7 @@ def get_compiled_sql_from_resource_props(
     "manifest", or "none"). ``project_dir`` confines reads for multi-project
     federation; it defaults to the globally activated project.
     """
-    compiled_sql = ""
+    resolved: tuple[str, bool, int] | None = None
     source = "none"
 
     compiled_path = dbt_resource_props.get("compiled_path")
@@ -113,7 +120,10 @@ def get_compiled_sql_from_resource_props(
     if compiled_path:
         try:
             if compiled_file.exists():
-                compiled_sql = compiled_file.read_text()
+                with compiled_file.open(encoding="utf-8") as stream:
+                    resolved = _truncate_utf8_bytes(
+                        iter(lambda: stream.read(_SQL_READ_CHARS), ""), max_bytes
+                    )
                 source = "compiled_file"
         except OSError:
             logger.warning(
@@ -121,7 +131,7 @@ def get_compiled_sql_from_resource_props(
                 compiled_file=str(compiled_file),
             )
 
-    if not compiled_sql:
+    if resolved is None or resolved[2] == 0:
         compiled_sql = str(
             dbt_resource_props.get("compiled_code")
             or dbt_resource_props.get("raw_code")
@@ -129,12 +139,19 @@ def get_compiled_sql_from_resource_props(
             or ""
         )
         if compiled_sql:
+            resolved = _truncate_utf8_bytes(
+                (
+                    compiled_sql[start : start + _SQL_READ_CHARS]
+                    for start in range(0, len(compiled_sql), _SQL_READ_CHARS)
+                ),
+                max_bytes,
+            )
             source = "manifest"
 
-    if not compiled_sql:
+    if resolved is None or resolved[2] == 0:
         return "", False, 0, source
 
-    truncated_sql, was_truncated, original_bytes = _truncate_utf8_bytes(compiled_sql, max_bytes)
+    truncated_sql, was_truncated, original_bytes = resolved
     if was_truncated:
         logger.info(
             "dbt_translator_compiled_sql_truncated",

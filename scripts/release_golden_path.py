@@ -66,6 +66,7 @@ WAP_PROMOTION_TIMEOUT_SECONDS = 180
 RUN_REPORT_TIMEOUT_SECONDS = 60
 RUNTIME_DIAGNOSTIC_SERVICES = (
     "dagster",
+    "dagster-code",
     "dagster-daemon",
     "nessie",
     "minio",

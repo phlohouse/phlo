@@ -5,6 +5,21 @@ waivers: []
 
 # Runtime exceptions are separate from vulnerability waivers. They do not waive CVEs.
 runtime_waivers:
+  - id: trino-catalog-bootstrap
+    service: trino
+    image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
+    exception: root-bootstrap
+    rationale: >-
+      Rootless bind mounts initially belong to container root. The bootstrap must
+      grant Trino ownership of its dynamic catalog directory before launching it.
+    compensating_control: >-
+      Only the catalog directory owner and mode change, without recursion. The
+      bootstrap then execs the launcher as trino:trino with supplementary groups
+      reset. The bootstrap itself remains outside the writable catalog directory.
+      Rootless-container integration coverage verifies the runtime identity.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/pull/1255
+    review_by: 2026-12-01
   - id: clickstack-root-entrypoint
     service: clickstack
     image: docker.io/hyperdx/hyperdx-all-in-one:2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1

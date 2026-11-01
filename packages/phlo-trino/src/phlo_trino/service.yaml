@@ -11,6 +11,9 @@ depends_on:
 
 compose:
   restart: unless-stopped
+  user: "0:0"
+  entrypoint: ["/bin/sh", "/etc/trino/entrypoint.sh"]
+  command: ["/usr/lib/trino/bin/run-trino"]
   labels:
     phlo.metrics.enabled: "false" # Trino doesn't expose /metrics natively; use JMX exporter for metrics
     phlo.grafana.datasource: "true"
@@ -96,6 +99,8 @@ env_vars:
     description: Time-to-live for cached query results
 
 files:
+  - source: entrypoint.sh
+    dest: trino/entrypoint.sh
   - source: jvm.config
     dest: trino/jvm.config
   - source: config.properties

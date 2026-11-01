@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_python_implementation != 'PyPy' and sys_platform == 'win32'",
@@ -1123,6 +1123,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/4b/0f/4b967be83e19a6308742750e7de32d586e620de1a8fdbdfcb935a10f760f/dagster_pipes-1.13.26.tar.gz", hash = "sha256:4b73ebc5d4427cc639290877b9f1b14aefa634ca44ac373fa013831d3e75931b", size = 151208, upload-time = "2026-10-09T21:27:53.337Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d5/31/736aa47cd68226acf3111c56f0fa6c9c51e2dea754df9357d468d90f7def/dagster_pipes-1.13.26-py3-none-any.whl", hash = "sha256:dfff7f4ba8e930fa93d4cffbd73fab71dd4302c32cd745186e489e0cb15ee6f9", size = 21184, upload-time = "2026-10-09T21:27:52.138Z" },
+]
+
+[[package]]
+name = "dagster-postgres"
+version = "0.29.26"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dagster" },
+    { name = "psycopg2-binary" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/af/03/80610c5b56308092e5ae88d54a5339a8435efd687fdead850fc035bd7ca1/dagster_postgres-0.29.26.tar.gz", hash = "sha256:9ffb83194662a2eefb77785c783f25292069fb312d69c35d3b3d2e2c07812e50", size = 406626, upload-time = "2026-10-09T21:41:10.48Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/27/2c/863f8a642c70d468dd4d946727f1a2344197c8c3afd9e5c5801bd6e9638e/dagster_postgres-0.29.26-py3-none-any.whl", hash = "sha256:27c2fcee3cc808c0d1e8d9a18a27f21e124b969ed18c39e1e12460ff6a7c8461", size = 25562, upload-time = "2026-10-09T21:41:08.536Z" },
 ]
 
 [[package]]
@@ -3201,6 +3214,7 @@ coverage-report = [
 dev = [
     { name = "asyncpg" },
     { name = "dagster" },
+    { name = "dagster-postgres" },
     { name = "dagster-webserver" },
     { name = "dbt-duckdb" },
     { name = "duckdb" },
@@ -3312,6 +3326,7 @@ coverage-report = [{ name = "coverage", specifier = "==7.13.5" }]
 dev = [
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "dagster", specifier = ">=1.13,<1.14" },
+    { name = "dagster-postgres", specifier = ">=0.29,<0.30" },
     { name = "dagster-webserver", specifier = ">=1.13,<1.14" },
     { name = "dbt-duckdb", specifier = ">=1.9,<1.12" },
     { name = "duckdb", specifier = ">=0.9.0" },

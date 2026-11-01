@@ -775,6 +775,92 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
         assert result.metadata[f"{prefix}_reason"] == reason
 
 
+@pytest.mark.parametrize("timestamp_type", ["TIMESTAMP", "TIMESTAMPTZ"])
+@pytest.mark.parametrize("state", ["fresh", "stale", "null", "empty"])
+def test_native_freshness_returns_only_bounded_aggregate_rows(timestamp_type, state):
+    frames = []
+    reference = datetime(2025, 1, 15, 12, tzinfo=timezone.utc)
+    with duckdb.connect() as connection:
+        connection.execute(
+            f'CREATE TABLE readings ("event""time" {timestamp_type}, payload VARCHAR)'
+        )
+        if state != "empty":
+            connection.executemany(
+                "INSERT INTO readings VALUES (?, ?)",
+                [
+                    ("2025-01-14T06:00:00Z" if state != "null" else None, "old"),
+                    ("2025-01-15T11:00:00Z" if state == "fresh" else None, "new"),
+                    (None, "missing"),
+                ],
+            )
+
+        class RecordingConnection:
+            def execute(self, sql):
+                connection.execute(sql)
+                return self
+
+            @property
+            def description(self):
+                return connection.description
+
+            def fetchdf(self):
+                frame = connection.fetchdf()
+                frames.append(frame)
+                return frame
+
+        @phlo_pandera(
+            table="readings",
+            checks=[],
+            backend="duckdb",
+            full_table=True,
+            sla=SLA(2, freshness_column='event"time', freshness_reference_time=reference),
+        )
+        def native_freshness():
+            pass
+
+        result = get_quality_checks()[0].fn(
+            SimpleNamespace(
+                run_id="native-freshness",
+                partition_key=None,
+                resources={"duckdb": RecordingConnection()},
+            )
+        )
+    assert result.passed is (state == "fresh")
+    assert result.metadata["rows_validated"] == (0 if state == "empty" else 3)
+    assert result.metadata["columns_validated"] == 2
+    prefix = 'freshness_check_event"time'
+    if state in {"null", "empty"}:
+        assert result.metadata[f"{prefix}_reason"] == "no_usable_timestamps"
+    else:
+        assert result.metadata[f"{prefix}_age_hours"] == (1.0 if state == "fresh" else 30.0)
+    assert all(len(frame) <= 1 for frame in frames)
+
+
+def test_native_freshness_preserves_pandas_timestamp_coercion():
+    from phlo_pandera.decorator_helpers import QueryCheckRunner
+
+    check = FreshnessCheck(
+        timestamp_column="event_time",
+        max_age_hours=2,
+        reference_time=datetime(2025, 1, 15, 12, tzinfo=timezone.utc),
+        require_timestamps=True,
+    )
+    # Pandas 2 coerces year 9999 in DB-API object results to NaT. Pandas 3
+    # retains it at microsecond resolution. SQL MAX must preserve both paths.
+    values = [datetime(2025, 1, 15, 11), datetime(9999, 1, 1)]
+    expected = check.execute(pd.DataFrame({"event_time": values}), None)
+    with duckdb.connect() as connection:
+        runtime = SimpleNamespace(resources={"trino": connection})
+        runner = QueryCheckRunner(
+            runtime,
+            "SELECT * FROM (VALUES (TIMESTAMP '2025-01-15 11:00:00'), "
+            "(TIMESTAMP '9999-01-01 00:00:00')) t(event_time)",
+            "trino",
+            [check],
+        )
+        assert runner.execute(check, runtime) == expected
+
+
 def test_explicit_sla_without_reference_uses_wall_clock() -> None:
     import phlo
 
@@ -839,6 +925,101 @@ def test_registered_quality_check_execution_error_is_a_failed_result() -> None:
     assert result.severity == "error"
     assert result.metadata["summary"] == "0/1 quality checks passed"
     assert "check unavailable" in result.metadata["failures"]
+
+
+@pytest.mark.parametrize("separate_null_checks", [False, True])
+def test_quality_checks_share_count_and_null_scan(separate_null_checks) -> None:
+    statements: list[str] = []
+    with duckdb.connect(config={"threads": 1}) as connection:
+        connection.execute(
+            "CREATE TABLE readings AS SELECT * FROM "
+            "(VALUES (1, 3e0), (2, 'NaN'::DOUBLE), (3, NULL), (4, 7e0), (5, 9e0)) "
+            't(id, "a""mount")'
+        )
+
+        class RecordingConnection:
+            def execute(self, sql):
+                statements.append(sql)
+                return connection.execute(sql)
+
+        @phlo_pandera(
+            table="readings",
+            checks=[
+                UniqueCheck(columns=["id"]),
+                *(
+                    [NullCheck(columns=["id"]), NullCheck(columns=['a"mount'], allow_threshold=0.4)]
+                    if separate_null_checks
+                    else [NullCheck(columns=["id", 'a"mount'], allow_threshold=0.4)]
+                ),
+                CountCheck(min_rows=5, max_rows=5),
+                RangeCheck(column='a"mount', min_value=3, max_value=9),
+            ],
+            backend="duckdb",
+            full_table=True,
+        )
+        def reading_quality():
+            pass
+
+        result = get_quality_checks()[0].fn(
+            SimpleNamespace(
+                run_id="combined-counts",
+                partition_key=None,
+                resources={"duckdb": RecordingConnection()},
+            )
+        )
+    assert result.passed
+    assert result.metadata["rows_validated"] == 5
+    assert result.metadata["columns_validated"] == 2
+    assert result.metadata["checks_executed"] == (5 if separate_null_checks else 4)
+    assert result.metadata["null_check_null_counts"] == (
+        {'a"mount': 2} if separate_null_checks else {"id": 0, 'a"mount': 2}
+    )
+    assert result.metadata["null_check_null_percentages"] == (
+        {'a"mount': 0.4} if separate_null_checks else {"id": 0.0, 'a"mount': 0.4}
+    )
+    assert result.metadata["count_check_row_count"] == 5
+    assert result.metadata["unique_check_duplicate_count"] == 0
+    assert result.metadata["range_check_actual_min"] == 3.0
+    assert result.metadata["range_check_actual_max"] == 9.0
+    assert result.metadata["range_check_out_of_range"] == 0
+    assert len(statements) == 3
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_shared_range_statistics_keep_bounds_and_null_denominators_independent(empty):
+    from phlo_pandera.decorator_helpers import QueryCheckRunner
+
+    checks = [
+        RangeCheck(column="value", min_value=0, max_value=10, allow_threshold=0.5),
+        RangeCheck(column="value", min_value=2, max_value=4, allow_threshold=0.5),
+        RangeCheck(column="missing", min_value=0),
+        RangeCheck(column="nulls", min_value=0),
+    ]
+    with duckdb.connect(config={"threads": 1}) as connection:
+        runtime = SimpleNamespace(resources={"duckdb": connection})
+        runner = QueryCheckRunner(
+            runtime,
+            "SELECT * FROM (VALUES (-1e0, NULL::DOUBLE), (2e0, NULL), "
+            "(5e0, NULL), (12e0, NULL), ('NaN'::DOUBLE, NULL), (NULL, NULL)) t(value, nulls)"
+            + (" WHERE FALSE" if empty else ""),
+            "duckdb",
+            checks,
+        )
+        results = [runner.execute(check, runtime) for check in checks]
+    if empty:
+        assert [result.passed for result in results] == [False, False, False, False]
+        assert results[0].metadata["note"] == "Column is entirely null; cannot verify range"
+    else:
+        assert [result.passed for result in results] == [True, False, False, False]
+        assert [result.metadata["violation_count"] for result in results[:2]] == [2, 3]
+        assert [result.metadata["violation_percentage"] for result in results[:2]] == [0.5, 0.75]
+        assert results[0].metadata["actual_min"] == -1.0
+        assert results[0].metadata["actual_max"] == 12.0
+        assert results[1].metadata["sample_rows"] == [
+            {"row_index": 0, "value": -1.0},
+            {"row_index": 2, "value": 5.0},
+            {"row_index": 3, "value": 12.0},
+        ]
 
 
 def test_decorator_pushes_builtin_checks_into_real_duckdb() -> None:
