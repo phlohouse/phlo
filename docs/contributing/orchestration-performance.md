@@ -37,6 +37,10 @@ inherit its pools. Polling intervals, transaction isolation and run launcher
 selection are unchanged. Statement timeout remains unlimited. This entrypoint
 uses Dagster's internal CLI runner within the package's pinned 1.13 minor range;
 upgrading that range requires the lifecycle check below.
+SQLAlchemy's checkout hook checks the daemon's psycopg2 connections before use
+and replaces dead sessions without retrying application writes. This adds one
+`SELECT 1` per checkout. Without it, a dropped idle connection could fail the
+first scheduled run even after heartbeat recovery.
 
 For an existing project, review `phlo services upgrade --dry-run` using the
 [upgrade procedure](../guides/upgrade-phlo.md), including generated workspace,
@@ -60,8 +64,8 @@ No deployed application was changed or instrumented.
 | Two workspace refreshes, 60 seconds apart, project imports including startup | 3 | 1 |
 | Same idle workspace interval, process-tree CPU seconds after startup | 5.561 | 2.077 |
 | Five immediate workspace refreshes, process-tree CPU seconds after startup | 19.771 | 0.231 |
-| Six idle daemon loops, new PostgreSQL sessions over 65 seconds | 134 | 0 |
-| Same interval, PostgreSQL container CPU seconds | 2.795 | 0.207 |
+| Six idle daemon loops, new PostgreSQL sessions over 65 seconds | 136 | 1 |
+| Same interval, PostgreSQL container CPU seconds | 2.761 | 0.390 |
 
 The workspace experiment uses a real minimal Dagster definitions file, the
 daemon's gRPC registry and real workspace refreshes. It compares managed
@@ -71,8 +75,8 @@ managed refreshes also waited for replacement servers. These are component
 measurements, not whole-stack CPU percentages. Each workspace and PostgreSQL
 comparison has one sample per variant. The PostgreSQL workload has an empty
 workspace and all six heartbeat kinds, isolating the daemon as a connection
-source without changing its polls. The webserver and workers are not attributed
-by that experiment.
+source without changing its polls. The candidate includes the connection
+checkout check. The webserver and workers are not attributed by that experiment.
 
 The five dbt wall-time samples ranged from 34.40 to 49.61 seconds before and
 15.78 to 56.72 seconds after, with medians of 36.12 and 21.26 seconds. Host load
@@ -103,9 +107,15 @@ The Dagster lifecycle check owns a bounded disposable PostgreSQL container.
 `PHLO_TEST_POSTGRES_DSN`, if supplied, must name an empty disposable database;
 the test deliberately terminates its idle sessions. It exercises sensor-triggered
 execution, queued successful and failed jobs, code reload, code-server restart,
-connection-loss recovery and low idle connection counts. It uses real gRPC and
+cron execution after connection loss and low idle connection counts. It uses real gRPC and
 the default run launcher, not a mocked launch path. The storage integration CI
 group runs both real-provider modules.
+
+The capped local lifecycle check uses `DAGSTER_GRPC_TIMEOUT_SECONDS=180` for
+slow subprocess imports. An earlier attempt at 0.2 CPU hit the default launch
+timeout. Production RPC timeouts are unchanged. Full local type checking exceeded
+its memory budget and was stopped; focused types passed, with the full check
+left to remote CI.
 
 A separate bounded Docker experiment verified that the code listener was
 reachable on its private interface and refused connections on its shared data

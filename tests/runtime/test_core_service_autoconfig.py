@@ -84,7 +84,7 @@ def _collect_required_service_placeholders(definition: Mapping[str, Any]) -> set
 def test_core_service_dependencies_are_declared() -> None:
     """Verify core service dependency declarations match expected topology."""
     expected = {
-        "dagster": {"postgres", "minio", "nessie", "trino"},
+        "dagster": {"dagster-code", "postgres", "minio", "nessie", "trino"},
         "nessie": {"postgres", "minio"},
         "trino": {"nessie", "minio"},
         "postgres": {"postgres-volume-setup"},
