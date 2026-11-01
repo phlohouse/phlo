@@ -41,9 +41,16 @@ from phlo.hooks.emitters import (
     TelemetryEventEmitter,
 )
 from phlo.hooks.events import HookCorrelation
+from phlo.helpers.sql import quote_identifier
 from phlo.logging import get_logger
 
-from phlo_pandera.checks import NullCheck, QualityCheck, QualityCheckResult, RangeCheck
+from phlo_pandera.checks import (
+    FreshnessCheck,
+    NullCheck,
+    QualityCheck,
+    QualityCheckResult,
+    RangeCheck,
+)
 from phlo_pandera.contract import QualityCheckContract
 from phlo_pandera.aggregate_checks import (
     execute_aggregate_check,
@@ -84,6 +91,16 @@ class QueryCheckRunner:
         schema = self.fetch(f"SELECT * FROM ({self.query}) AS phlo_schema LIMIT 0")
         self.columns = list(schema.columns)
         self.floating_columns = schema.attrs["floating_columns"]
+        self._freshness_columns = list(
+            dict.fromkeys(
+                check.timestamp_column
+                for check in checks
+                if type(check) is FreshnessCheck
+                and check.require_timestamps
+                and check.timestamp_column in schema.attrs["timestamp_columns"]
+            )
+        )
+        self._freshness_frame: pd.DataFrame | None = None
         null_columns = list(
             dict.fromkeys(
                 column
@@ -119,6 +136,28 @@ class QueryCheckRunner:
         """Push built-ins down, sharing one frame only for unsupported checks."""
         if isinstance(check, DatasetConstraintCheck):
             return check.execute_query(query=self.query, scope=self.scope, fetch=self.fetch)
+        if (
+            type(check) is FreshnessCheck
+            and check.require_timestamps
+            and check.timestamp_column in self._freshness_columns
+            and self._frame is None
+        ):
+            if self._freshness_frame is None:
+                projection = ", ".join(
+                    f"MAX({name}) AS {name}"
+                    for name in map(quote_identifier, self._freshness_columns)
+                )
+                self._freshness_frame = self.fetch(
+                    f"SELECT {projection} FROM ({self.query}) AS phlo_freshness"
+                )
+            result = check.execute(self._freshness_frame, runtime)
+            # Older pandas can coerce a valid database timestamp to NaT. An
+            # unparseable maximum must not hide an earlier usable timestamp.
+            if (
+                result.metadata.get("reason") != "no_usable_timestamps"
+                or not self._freshness_frame[check.timestamp_column].notna().any()
+            ):
+                return result
         if supports_aggregation(check):
             return execute_aggregate_check(
                 check,
@@ -254,10 +293,14 @@ def _load_data_trino(context: RuntimeContext, query: str, trino: Any) -> Any:
             for desc in cursor.description
             if str(desc[1]).lower() in {"real", "double", "float"}
         }
+        timestamp_columns = {
+            desc[0] for desc in cursor.description if str(desc[1]).lower().startswith("timestamp")
+        }
 
     # Convert to DataFrame
     df = pd.DataFrame(rows, columns=columns)
     df.attrs["floating_columns"] = floating_columns
+    df.attrs["timestamp_columns"] = timestamp_columns
 
     logger.info("loaded_rows_from_trino", row_count=len(df))
 
@@ -356,8 +399,12 @@ def _load_data_duckdb(context: RuntimeContext, query: str, duckdb_conn: Any) -> 
         for desc in result.description
         if str(desc[1]).lower() in {"real", "double", "float"}
     }
+    timestamp_columns = {
+        desc[0] for desc in result.description if str(desc[1]).lower().startswith("timestamp")
+    }
     df = result.fetchdf()
     df.attrs["floating_columns"] = floating_columns
+    df.attrs["timestamp_columns"] = timestamp_columns
 
     logger.info("loaded_rows_from_duckdb", row_count=len(df))
 

@@ -775,6 +775,92 @@ def test_explicit_freshness_public_declarations_execute_against_duckdb(
         assert result.metadata[f"{prefix}_reason"] == reason
 
 
+@pytest.mark.parametrize("timestamp_type", ["TIMESTAMP", "TIMESTAMPTZ"])
+@pytest.mark.parametrize("state", ["fresh", "stale", "null", "empty"])
+def test_native_freshness_returns_only_bounded_aggregate_rows(timestamp_type, state):
+    frames = []
+    reference = datetime(2025, 1, 15, 12, tzinfo=timezone.utc)
+    with duckdb.connect() as connection:
+        connection.execute(
+            f'CREATE TABLE readings ("event""time" {timestamp_type}, payload VARCHAR)'
+        )
+        if state != "empty":
+            connection.executemany(
+                "INSERT INTO readings VALUES (?, ?)",
+                [
+                    ("2025-01-14T06:00:00Z" if state != "null" else None, "old"),
+                    ("2025-01-15T11:00:00Z" if state == "fresh" else None, "new"),
+                    (None, "missing"),
+                ],
+            )
+
+        class RecordingConnection:
+            def execute(self, sql):
+                connection.execute(sql)
+                return self
+
+            @property
+            def description(self):
+                return connection.description
+
+            def fetchdf(self):
+                frame = connection.fetchdf()
+                frames.append(frame)
+                return frame
+
+        @phlo_pandera(
+            table="readings",
+            checks=[],
+            backend="duckdb",
+            full_table=True,
+            sla=SLA(2, freshness_column='event"time', freshness_reference_time=reference),
+        )
+        def native_freshness():
+            pass
+
+        result = get_quality_checks()[0].fn(
+            SimpleNamespace(
+                run_id="native-freshness",
+                partition_key=None,
+                resources={"duckdb": RecordingConnection()},
+            )
+        )
+    assert result.passed is (state == "fresh")
+    assert result.metadata["rows_validated"] == (0 if state == "empty" else 3)
+    assert result.metadata["columns_validated"] == 2
+    prefix = 'freshness_check_event"time'
+    if state in {"null", "empty"}:
+        assert result.metadata[f"{prefix}_reason"] == "no_usable_timestamps"
+    else:
+        assert result.metadata[f"{prefix}_age_hours"] == (1.0 if state == "fresh" else 30.0)
+    assert all(len(frame) <= 1 for frame in frames)
+
+
+def test_native_freshness_preserves_pandas_timestamp_coercion():
+    from phlo_pandera.decorator_helpers import QueryCheckRunner
+
+    check = FreshnessCheck(
+        timestamp_column="event_time",
+        max_age_hours=2,
+        reference_time=datetime(2025, 1, 15, 12, tzinfo=timezone.utc),
+        require_timestamps=True,
+    )
+    # Pandas 2 coerces year 9999 in DB-API object results to NaT. Pandas 3
+    # retains it at microsecond resolution. SQL MAX must preserve both paths.
+    values = [datetime(2025, 1, 15, 11), datetime(9999, 1, 1)]
+    expected = check.execute(pd.DataFrame({"event_time": values}), None)
+    with duckdb.connect() as connection:
+        runtime = SimpleNamespace(resources={"trino": connection})
+        runner = QueryCheckRunner(
+            runtime,
+            "SELECT * FROM (VALUES (TIMESTAMP '2025-01-15 11:00:00'), "
+            "(TIMESTAMP '9999-01-01 00:00:00')) t(event_time)",
+            "trino",
+            [check],
+        )
+        assert runner.execute(check, runtime) == expected
+
+
 def test_explicit_sla_without_reference_uses_wall_clock() -> None:
     import phlo
 

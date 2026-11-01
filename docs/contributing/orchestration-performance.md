@@ -72,6 +72,13 @@ checks. The schema probe remains because column-count metadata and floating-poin
 NaN handling depend on it, including for count-only groups. This changes query
 counts, not the number of declared checks or their severity thresholds.
 
+Explicit freshness checks on native timestamp columns use a shared SQL `MAX`
+query instead of downloading all rows. The existing freshness evaluator still
+owns UTC conversion, reference clocks, thresholds and missing-data failures.
+String columns, legacy freshness checks and custom subclasses retain their
+dataframe execution. If pandas cannot parse a non-null maximum, execution falls
+back to the full result so an earlier usable timestamp remains visible.
+
 For an existing project, review `phlo services upgrade --dry-run` using the
 [upgrade procedure](../guides/upgrade-phlo.md), including generated workspace,
 new companion service and restart order. Do not use `services init --force`
@@ -274,6 +281,48 @@ on the same column. Failure counts, inclusive thresholds, extrema and bounded
 failure samples matched. Scheduling and running services were unchanged.
 This comparison loaded candidate modules in a disposable Python process, not
 the service processes. The shared-range change was not deployed by this test.
+
+### Bounded freshness results
+
+Three alternating comparisons against 721 retained glucose readings reduced
+the freshness result from 721 rows to one timestamp. Median client CPU fell
+from 44 to 33 milliseconds. Elapsed time was 130 versus 118 milliseconds.
+All check results and metadata matched, with the same three SQL queries.
+
+A separate 20,000-row SELECT-only fixture included a timestamp and 128-character
+hash payload. Median client CPU was 232 versus 39 milliseconds, elapsed time was
+518 versus 153 milliseconds, and Trino query CPU was 23 versus 8 milliseconds.
+The candidate returned one timestamp rather than 20,000 complete rows.
+This demonstrates bounded transfer, not production throughput or peak memory.
+NULL, empty and mixed-timezone cases retained identical results.
+
+The public regression covers native timestamps with and without timezones,
+fresh and stale data, NULL and empty inputs, and quoted column names. A separate
+compatibility check covers pandas 2.3 timestamp coercion and pandas 3's wider
+timestamp range. These measurements used disposable comparison processes.
+No running service or schedule was changed.
+
+### Diminishing returns at the current cadence
+
+A five-minute passive cgroup observation from 18:46:36 to 18:51:36 UTC on
+1 November 2026 measured 0.173 CPU across the deployed project, or 9.9% of the
+1.75-CPU account allowance. A scheduled ingestion completed successfully within
+that window. The first three quiet minutes averaged 0.098 CPU. These observations
+use the deployed startup optimisation, without the later range or freshness
+changes. They are short windows, not sustained capacity guarantees.
+
+The measured 38.401 CPU-seconds per mart replay corresponds to about 0.61% of
+the CPU allowance at Nightscout's hourly mart cadence. This is an amortised
+estimate, not a measurement over an hour. Removing startup can save only part
+of that work. The remaining startup does not justify changing execution
+boundaries for this workload.
+
+Reusing `dbtRunner` does not retain an adapter session: dbt 1.12 resets adapters
+at invocation entry and cleans connections at exit. It also changes global
+flags and logging. A shared worker would need explicit lifecycle, cancellation,
+IPC and configuration isolation across execution processes. One batched build
+changes independent retry and blocking-check boundaries. Neither is a
+transparent replacement for the current per-asset subprocesses.
 
 ## Repeat the contract checks
 
