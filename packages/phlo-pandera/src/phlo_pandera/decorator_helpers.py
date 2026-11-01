@@ -152,7 +152,7 @@ class QueryCheckRunner:
                 )
             result = check.execute(self._freshness_frame, runtime)
             # Older pandas can coerce a valid database timestamp to NaT. An
-            # unparseable maximum must not hide an earlier usable timestamp.
+            # unparsable maximum must not hide an earlier usable timestamp.
             if (
                 result.metadata.get("reason") != "no_usable_timestamps"
                 or not self._freshness_frame[check.timestamp_column].notna().any()

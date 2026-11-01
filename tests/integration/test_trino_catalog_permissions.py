@@ -25,9 +25,11 @@ pytestmark = pytest.mark.integration
 def test_generated_trino_catalog_permissions(tmp_path: Path, catalog_mode: int):
     """Trino can persist catalogs as UID 1000 without changing existing files."""
     if shutil.which("docker") is None:
+        # reason: Bind-mount ownership requires a real Docker runtime.
         pytest.skip("Docker is required")
     info = subprocess.run(["docker", "info"], capture_output=True, timeout=30)
     if info.returncode:
+        # reason: The container regression cannot run without a reachable daemon.
         pytest.skip("Docker daemon is unavailable")
 
     discovery = ServiceDiscovery()
@@ -43,6 +45,7 @@ def test_generated_trino_catalog_permissions(tmp_path: Path, catalog_mode: int):
         timeout=30,
     )
     if image.returncode:
+        # reason: Keep this regression offline and bounded to an already cached image.
         pytest.skip(f"Pull {service['image']} before running this container regression")
 
     # Isolate catalog ownership from the checkout/account's config-directory umask.

@@ -1,4 +1,5 @@
 #!/bin/sh
+# Prepare persistent catalog permissions, then run the command as Trino's user.
 set -eu
 
 if [ "$(id -u)" = 0 ]; then
