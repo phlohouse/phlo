@@ -4,7 +4,7 @@
 
 **Accepted (back-filled 2026-10-30)**
 
-Amended (2026-10-31): decision 2 applies to releases below `1.0.0`. From `1.0.0`, every distribution in the release set shares one version under [ADR 0053](0053-what-1-0-promises.md) decision 4, resolved by `scripts/release_lockstep_version.py` and checked by `scripts/validate_support_manifest.py` ([#1231](https://github.com/phlohouse/phlo/pull/1231)). Each `pyproject.toml` remains its distribution's only version authority.
+Amended (2026-11-01): decision 2 applies to releases below `1.0.0`. From `1.0.0`, every distribution in the release set shares one version under [ADR 0053](0053-what-1-0-promises.md) decision 4, resolved by `scripts/release_lockstep_version.py` and checked by `scripts/validate_support_manifest.py` ([#1231](https://github.com/phlohouse/phlo/pull/1231)). Each `pyproject.toml` remains its distribution's only version authority.
 
 - Original decision: March 2026 (ReleaseX adoption), extended August–October 2026
 - Evidence: [#300](https://github.com/phlohouse/phlo/pull/300) (2026-03-26),

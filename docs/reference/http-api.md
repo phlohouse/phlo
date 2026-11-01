@@ -8,7 +8,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 `/health` is public. The security manifest classifies every other route as protected. `/api/v1` always requires identity and authorization; legacy authorization can be optional outside regulated and production modes. See [Authentication and access](auth-and-access.md) for configuration.
 
-OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3 removes them at the `1.0.0` release commit. [Legacy route replacements](#legacy-route-replacements) lists each one with its `/api/v1` replacement, or `None` for the routes that are removed without one.
+OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3 removes them in `0.20.0`. [Legacy route replacements](#legacy-route-replacements) lists each one with its `/api/v1` replacement, or `None` for the routes that are removed without one.
 
 ## Endpoints (285)
 
@@ -302,7 +302,7 @@ OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../arch
 
 ## Legacy route replacements
 
-Each deprecated route and the `/api/v1` route that replaces it. A route whose replacement is `None` has no first-party caller and is removed at the `1.0.0` release commit without a replacement (ADR 0053 decision 3, maintainer decision of 2026-10-31); a `/api/v1` resource for that capability can be added later as an additive change. Unlike the legacy routes, most `/api/v1` resources require an explicit `env` query parameter.
+Each deprecated route and the `/api/v1` route that replaces it. A route whose replacement is `None` has no first-party caller and is removed in `0.20.0` without a replacement (ADR 0053 decision 3, maintainer decision of 2026-10-31); a `/api/v1` resource for that capability can be added later as an additive change. Unlike the legacy routes, most `/api/v1` resources require an explicit `env` query parameter.
 
 | Deprecated route | Replacement | Notes |
 | --- | --- | --- |

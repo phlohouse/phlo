@@ -4,7 +4,7 @@
 
 **Accepted**
 
-Amended (2026-10-31): the exit criteria in decision 7 are reduced to the evidence that protects Phlo's one real deployment and freezes the surfaces it depends on. Phlo has a single maintainer who is also its only user, so criteria written for an audience that does not exist yet (a required macOS CI lane, `blessed_core`-only lockstep versioning, external-consumer evidence) are deferred until a second user appears. Decisions 1, 3, 4 and 5 are amended to match: decision 1 names the maintainer's deployment as the live deployment, decision 3 lets the route deletion ship in the `1.0.0` release commit, decision 4 applies the shared version to the whole workspace, and decision 5 replaces the macOS CI lane with a recorded manual run. Decisions 2 and 6 are unchanged. ADR 0054 is amended in the same change to scope its per-package versioning to releases below `1.0.0`.
+Amended (2026-11-01): `0.19.0` is the last alpha release and is not a `1.0.0` candidate. The legacy route deletion ships in `0.20.0`, and the candidate is a build at or after it. Decision 7 is cut to five exit criteria. Phlo has a single maintainer who is also its only user, so criteria written for an audience that does not exist yet (a required macOS CI lane, `blessed_core`-only lockstep versioning, external-consumer evidence) are deferred until a second user appears. Decisions 1, 3, 4 and 5 are amended to match: decision 1 names the maintainer's deployment as the live deployment and defines the candidate, decision 3 moves the route deletion to `0.20.0`, decision 4 applies the shared version to the whole workspace, and decision 5 replaces the macOS CI lane with a recorded manual run. Decisions 2 and 6 are unchanged. ADR 0054 is amended in the same change to scope its per-package versioning to releases below `1.0.0`.
 
 - Date: 2026-10-30
 - Decision owner: iamgp
@@ -39,6 +39,8 @@ Without a decision, "1.0" could mean an API freeze while production remains bloc
 - Each gate's evidence was produced on a live, production-shaped deployment of the exact candidate, as defined by ADRs 0047–0050. Fixture or disposable-service evidence does not pass a gate. The maintainer's own deployment, the Nightscout CGM lakehouse, is that live deployment; it is the only one that exists.
 - Every `blessed_core` component in `gates.components` reports `passed` or `not_required`, with evidence.
 - The candidate is promoted under ADR 0050 with the full production qualification scope: production preflight and a real supported upgrade and recovery path are included. ADR 0050's artifact-only scope for alpha and beta candidates cannot produce `1.0.0`.
+
+Amended 2026-11-01. The candidate is a build of a commit at or after the `0.20.0` release (decision 3). `0.19.0` is the last alpha: it completes the scheduled removals and ships the compatibility inventory, the readiness guard and the lockstep tooling, but no build of `0.19.0` or of an earlier commit can be the candidate, however long it runs. The gate evidence and the 7-day run in decision 7 are produced by the candidate build on the maintainer's deployment.
 
 A `1.0.0` version string does not by itself mean 1.0. A release that does not meet these conditions keeps a `0.x` version or an explicit pre-release suffix.
 
@@ -76,7 +78,7 @@ The 1.0 promise does not cover:
 
 ### 3. Legacy `/api/observatory` routes
 
-All 68 `/api/observatory` endpoints are removed by the `1.0.0` release commit. Amended 2026-10-31: the deletion may ship in `1.0.0` itself, provided that the preceding release announced every route with its replacement; the exit criterion is then evaluated at the release commit rather than before it. The routes are not frozen under the promise.
+All remaining `/api/observatory` endpoints (67 at `d1529bd6`) are removed in `0.20.0`, after `0.19.0` has announced every route with its replacement. Amended 2026-11-01: the deletion does not ship in `1.0.0` itself. It ships in the release that starts the candidate line, so the build that runs the maintainer's deployment for 7 days under decision 7 is a build without the routes. The routes are not frozen under the promise.
 
 Removal follows the [phase-0 classification](../unified-api-phase-0.md) and the ["Remaining legacy consumers"](../../reference/unified-api-remaining-acceptance.md#remaining-legacy-consumers) inventory:
 
@@ -86,11 +88,11 @@ Removal follows the [phase-0 classification](../unified-api-phase-0.md) and the 
 
 An in-repository caller search does not show that external clients are absent. Each removal is therefore announced in a release before the route is deleted, with the replacement and the existing usage counters where they exist. The `/api/observatory/pipelines` removal already scheduled for 0.19.0 proceeds as published.
 
-Maintainer decision, 2026-10-31: after #1233, #1232 and #1236, every capability with a first-party caller has a `/api/v1` resource and every first-party caller uses it. The 35 legacy routes that remain without a `/api/v1` resource (listed as "None" in the [legacy route replacements](../../reference/http-api.md#legacy-route-replacements) table: settings, preferences, logs, tables and table preview, row journey, stage diff, workflow wizard, dataset and governance reads, contributing rows, storage, observability, API and BI integrations, capability discovery, generic actions, and the remaining extension and operation detail reads) have no caller in the bundled Observatory, in `phlo-mcp`, or in any other package. They are removed at the `1.0.0` release commit without a replacement, and the release notes say so for each route. Adding a `/api/v1` resource for one of these capabilities later is an additive change that decision 4 permits; it does not need to happen before 1.0. This supersedes the phase-0 statement that no absence of an in-repository caller authorises removing a public capability: for a project with one user, the maintainer's own inventory is the complete inventory.
+Maintainer decision, 2026-10-31: after #1233, #1232 and #1236, every capability with a first-party caller has a `/api/v1` resource and every first-party caller uses it. The 35 legacy routes that remain without a `/api/v1` resource (listed as "None" in the [legacy route replacements](../../reference/http-api.md#legacy-route-replacements) table: settings, preferences, logs, tables and table preview, row journey, stage diff, workflow wizard, dataset and governance reads, contributing rows, storage, observability, API and BI integrations, capability discovery, generic actions, and the remaining extension and operation detail reads) have no caller in the bundled Observatory, in `phlo-mcp`, or in any other package. They are removed in `0.20.0` without a replacement, and the release notes say so for each route. Adding a `/api/v1` resource for one of these capabilities later is an additive change that decision 4 permits; it does not need to happen before 1.0. This supersedes the phase-0 statement that no absence of an in-repository caller authorises removing a public capability: for a project with one user, the maintainer's own inventory is the complete inventory.
 
 ### 4. Versioning and deprecation after 1.0
 
-From `1.0.0`, every package in the release set shares one version. Amended 2026-10-31: the shared version applies to the whole workspace, not only to `blessed_core`, because the release tooling applies one `--next-version` to every package in the release set (#1231) and a `blessed_core`-only group would need release-tool support that has no consumer yet. ADR 0054's per-package versioning applies to releases below `1.0.0` only. The version number does not extend the promise to `preview`, `development_only`, or `supported_optional` packages; the support manifest profiles define coverage. The `blessed_core` packages follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) across the covered surfaces:
+From `1.0.0`, every package in the release set shares one version. Amended 2026-11-01: the shared version applies to the whole workspace, not only to `blessed_core`, because the release tooling applies one `--next-version` to every package in the release set (#1231) and a `blessed_core`-only group would need release-tool support that has no consumer yet. ADR 0054's per-package versioning applies to releases below `1.0.0` only. The version number does not extend the promise to `preview`, `development_only`, or `supported_optional` packages; the support manifest profiles define coverage. The `blessed_core` packages follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) across the covered surfaces:
 
 - A **patch** release fixes defects without changing a covered surface.
 - A **minor** release may add to a covered surface and may deprecate a name. It never removes or incompatibly changes one.
@@ -104,7 +106,7 @@ A covered public name is removed only after a documented deprecation that meets 
 
 A change to the run-evidence or configuration schema version ships with a supported forward migration (`phlo migrate`, `phlo config upgrade`, or the ADR 0049 upgrade path) in the same release. A schema change that 1.x cannot read is a major-release change.
 
-The deprecations already scheduled for 0.19.0 complete before `1.0.0`, so `1.0.0` carries no name with a pre-1.0 removal deadline.
+The deprecations already scheduled for 0.19.0 complete before `1.0.0`, so `1.0.0` carries no name with a pre-1.0 removal deadline. The `/api/observatory` removal in `0.20.0` is a pre-1.0 removal of routes outside the promise; the major-only rule above applies to covered surfaces from `1.0.0`.
 
 ### 5. Platform matrix
 
@@ -112,7 +114,7 @@ The deprecations already scheduled for 0.19.0 complete before `1.0.0`, so `1.0.0
 | --- | --- | --- |
 | Python | 3.12 and 3.13 | Core and package test lanes run on both versions in required CI. |
 | Linux | Supported for the full stack and the quickstart path | The existing `ubuntu-latest` lanes, plus the clean-host qualifying runs under ADR 0050. |
-| macOS | Supported for the quickstart path with Docker Desktop or another Compose v2 provider | Amended 2026-10-31: a recorded manual quickstart run on the maintainer's Apple-silicon Mac for the `1.0.0` candidate and for each later minor release, from `phlo init` through a materialised table viewed in Observatory, noting the architecture and Compose provider. A required CI lane is deferred until a second user depends on macOS. |
+| macOS | Supported for the quickstart path with Docker Desktop or another Compose v2 provider | Amended 2026-11-01: a recorded manual quickstart run on the maintainer's Apple-silicon Mac, from `phlo init` through a materialised table viewed in Observatory, noting the architecture and Compose provider. A required CI lane is deferred until a second user depends on macOS. |
 | Windows | Supported only through WSL 2, as the install guide documents | The existing Windows Compose portability lane, unchanged. |
 
 `runtime` in the support manifest moves Python 3.13 and macOS from `unverified` to `supported` only when that evidence exists. The `pyproject.toml` classifiers then list 3.13.
@@ -131,30 +133,15 @@ The freeze does not apply to `preview`, `development_only`, or `supported_option
 
 ### 7. Exit criteria
 
-Amended 2026-10-31. Phlo has one maintainer who is also its only user. The criteria are therefore the evidence that protects that one deployment and freezes the surfaces it depends on. Criteria that exist to satisfy an audience that does not exist yet are deferred, and the tooling already built for them stays in place to record what happened rather than to add steps. Items are checked as they are met, with the merged change in brackets.
+Amended 2026-11-01. Phlo has one maintainer who is also its only user, so the exit criteria are the few facts that protect that one deployment. `0.19.0` is the last alpha. The groundwork already shipped and is not repeated here: the compatibility inventory (#1222), the completed 0.19.0 removal schedule (#1216, #1223, #1224), required Python 3.12 and 3.13 lanes (#1227), the manifest schema and the release-tooling guard for `production_ready` (#1221), and lockstep versioning from `1.0.0` (#1231). The five gates and the macOS recording are reached through the manifest, because `production_ready` and `runtime` change only with their evidence (decisions 1 and 5), so the list does not repeat them either.
 
-`1.0.0` may be promoted when every item below is checked, with evidence linked from the release evidence bundle.
+`1.0.0` may be promoted when every item below is checked:
 
-Operate it:
-
-- [ ] The maintainer's deployment has run the release line for at least 7 consecutive days of scheduled Nightscout ingestion and downstream materialisations, with Observatory run evidence for every scheduled run, no manual intervention, and no platform patch, and the run-evidence export for that period is in the evidence bundle.
-- [ ] The five gates (`security`, `run_evidence`, `maintenance`, `upgrade_restore`, `golden_path`) report `passed` on that deployment, with the evidence that ADRs 0047–0050 define. In particular, `services start --production` passes Stage A and Stage B there; one supported upgrade from the previous minor release to the candidate kept the maintainer's data intact; and one backup was restored to a fresh host and verified.
-- [ ] The candidate is promoted under ADR 0050 in production scope. The qualifying runs are automated and may execute on one host on one day (ADR 0050, amended 2026-10-15).
-
-Freeze it:
-
-- [x] The compatibility surface in decision 2 has a checked inventory: generated CLI and HTTP references, `phlo.__all__`, the entry-point families, and the two schema versions (#1222).
-- [x] The 0.19.0 removal schedule is complete, and `phlo.__all__` contains no deprecated name (#1216, #1223, #1224).
-- [ ] All 68 `/api/observatory` routes are removed, and every first-party consumer uses `/api/v1` (decision 3). The 0.19.0 release notes announce each route and its replacement; the deletion ships in the following release, which may be `1.0.0`, and this item is evaluated at the release commit.
-- [x] Python 3.12 and 3.13 lanes are green and required, and `runtime` in the manifest reflects them (#1227).
-- [ ] The macOS quickstart is recorded on the maintainer's Mac for the `1.0.0` candidate (decision 5).
-
-Declare it:
-
-- [x] The support manifest schema permits `production_ready: true`, a non-alpha maturity, published artifact pinning, and `production.status: passed`, and the validator ties each to the gates (#1221).
-- [x] A release-tooling check rejects a version >= 1.0.0 unless the manifest reports `production_ready: true`, with a test (#1221).
-- [x] The release tooling versions the release set in lockstep from `1.0.0` (#1231).
-- [ ] One reviewed readiness commit on `main` before the release PR sets `production_ready: true`, maturity `supported`, `artifact_pinning: published` and `production.status: passed`, regenerates the references, and removes the alpha wording from the README, the documentation home page, and the `Development Status` classifier.
+- [ ] `0.20.0` ships with every remaining `/api/observatory` route removed, after the `0.19.0` release notes announced each removal with its replacement or `None` from the [legacy route replacements](../../reference/http-api.md#legacy-route-replacements) table (decision 3).
+- [ ] The candidate build has run the maintainer's deployment for 7 consecutive days of scheduled Nightscout ingestion and downstream materialisations with no manual intervention and no redeploy. A change to a Phlo container restarts the clock. Days run on `0.19.0` or on an unreleased `main` build do not count.
+- [ ] The generated references, including `generated/compatibility-surface.json`, are current at the release commit, so decision 2 describes the candidate.
+- [ ] `registry/support/v1.json` reports `production_ready: true`, maturity `supported`, `artifact_pinning: published` and `production.status: passed`, which the validator permits only with the five gates `passed` on the evidence that decision 1 requires, and the README, the documentation home page and the `Development Status` classifier no longer say alpha.
+- [ ] The candidate is promoted under ADR 0050 in production scope as `1.0.0`.
 
 Deferred until a second user exists, and not exit criteria: a required macOS CI lane; `blessed_core`-only lockstep versioning, which needs a ReleaseX version group; and external-consumer usage evidence for the legacy routes. Adding any of them back is an amendment to this ADR.
 
@@ -166,7 +153,7 @@ Deferred until a second user exists, and not exit criteria: a required macOS CI 
 - `phlo-mcp` must migrate before 1.0 even though it is a `preview` package, because it is a first-party consumer of the removed routes.
 - Lockstep versioning replaces per-package conventional-commit versions for the whole release set from `1.0.0` (#1231). Decisions 4 and 5 take effect at 1.0; until then, ADR 0054 and ADR 0059 describe the current baseline.
 - The macOS quickstart evidence is a recorded manual run on the maintainer's Mac. A CI lane would need a host that can run a Compose v2 engine, which GitHub-hosted macOS runners do not provide by default; it is deferred until a second user depends on macOS.
-- The 7-day operation criterion makes `1.0.0` wait on calendar time on the maintainer's deployment, not only on work. Seven days covers a full week of the maintainer's own CGM schedule, the shortest period over which a scheduled 5–15 minute feed shows its weekly pattern and any day-boundary defect.
+- `1.0.0` waits on two releases and on calendar time: `0.19.0`, then `0.20.0` with the route deletion, then at least 7 days of the candidate build on the maintainer's deployment. Seven days covers a full week of the maintainer's own CGM schedule, the shortest period over which a scheduled 5–15 minute feed shows its weekly pattern and any day-boundary defect. The 7-day run that started on 2026-11-01 on a `main` build equivalent to `0.19.0` is pre-release evidence for `0.19.0`; it does not count toward `1.0.0`.
 - The deferred criteria return by amendment when a second user appears. Until then, the project does not spend effort proving properties that nobody consumes.
 - Python 3.13 support depends on upstream dependency compatibility. A blocking upstream defect delays 1.0. It does not drop 3.13 silently.
 - Contributors cannot add `blessed_core` features until 1.0 ships. Preview work continues.
@@ -191,7 +178,11 @@ Rejected. A shorter deprecation cycle would let names retire faster. However, re
 
 ### Keep the exit criteria as accepted on 2026-10-30
 
-Rejected on 2026-10-31. The original list required a macOS CI lane, `blessed_core`-only lockstep versioning, and external-consumer evidence for legacy routes. Each proves a property to an audience that does not exist: Phlo has one maintainer and one user, and no external consumer has been observed. Keeping them would have delayed `1.0.0` without making the one real deployment safer. The gates, the inventory, and the readiness guard stay, because they protect that deployment and the surfaces it depends on.
+Rejected on 2026-11-01. The original list required a macOS CI lane, `blessed_core`-only lockstep versioning, and external-consumer evidence for legacy routes. Each proves a property to an audience that does not exist: Phlo has one maintainer and one user, and no external consumer has been observed. Keeping them would have delayed `1.0.0` without making the one real deployment safer. The gates, the inventory, and the readiness guard stay, because they protect that deployment and the surfaces it depends on.
+
+### Treat `0.19.0` as the `1.0.0` candidate
+
+Rejected on 2026-11-01. A draft of this amendment kept the route deletion for the `1.0.0` release commit and let the 7-day run count for the release line rather than for the candidate. Most of its criteria were already met by commits that ship in `0.19.0`, and the `1.0.0` release commit would still have carried the route deletion, so the build that ran for 7 days could never have been the exact candidate that decision 1 requires. `1.0.0` would have been `0.19.0` plus a week. Requiring a distinct candidate line costs one more release and a second 7-day run, and in return the production claim is about the code that is released. A fuller draft of the same date, with seventeen criteria, a `beta` manifest maturity and a frozen compatibility inventory through the candidate line, was also rejected: for one maintainer and one user the extra items added process without protecting anything.
 
 ### Continue feature work on `blessed_core` in parallel with gate closure
 
