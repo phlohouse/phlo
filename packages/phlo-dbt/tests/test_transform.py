@@ -2,7 +2,9 @@
 
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from types import SimpleNamespace
 
 import pytest
@@ -282,6 +284,7 @@ def test_run_transform_selection_and_docs_artifacts(monkeypatch, tmp_path, full_
             "exclude": ["legacy"],
             "indirect_selection": "empty",
             "full_refresh": full_refresh,
+            "generate_docs": True,
         },
     )
     artifact_path = tmp_path / "target" / "runs" / "run_1" / "mart_orders"
@@ -475,7 +478,9 @@ def test_run_transform_preserves_build_results_before_docs_overwrites_them(tmp_p
 
     transformer._run_command = fake_run_command  # type: ignore[method-assign]
 
-    result = transformer.run_transform(parameters={"indirect_selection": "cautious"})
+    result = transformer.run_transform(
+        parameters={"indirect_selection": "cautious", "generate_docs": True}
+    )
 
     assert result.tests_passed == 1
     assert transformer.build_run_results == build_results
@@ -678,3 +683,48 @@ def test_run_command_strips_colliding_project_dir_env(tmp_path, monkeypatch) -> 
     assert result.returncode == 0
     assert "DBT_PROJECT_DIR" not in captured["env"]
     assert captured["env"]["PATH"] == "/custom/test-bin"  # explicit env values are preserved
+
+
+def test_concurrent_builds_share_only_complete_parsing_state(tmp_path, monkeypatch):
+    cache = tmp_path / "target" / ".phlo" / "partial_parse.msgpack"
+    cache.parent.mkdir(parents=True)
+    cache.write_bytes(b"saved" * 65536)
+    ready = Barrier(2)
+
+    def run_command(command, **kwargs):
+        assert command[1] == "build", "Default execution must not generate a catalog"
+        target = Path(command[command.index("--target-path") + 1])
+        assert (target / "partial_parse.msgpack").read_bytes() == b"saved" * 65536
+        assert not (target / "manifest.json").exists()
+        assert not (target / "run_results.json").exists()
+        ready.wait(timeout=30)
+        run = target.parent.name
+        (target / "partial_parse.msgpack").write_bytes(run.encode() * 65536)
+        (target / "run_results.json").write_text(
+            json.dumps({"results": [{"unique_id": f"model.project.{run}", "status": "success"}]})
+        )
+        return subprocess.CompletedProcess(command, int(run == "failed"), "", "")
+
+    monkeypatch.setattr("phlo_dbt.transformer.subprocess.run", run_command)
+
+    def build(run):
+        transformer = DbtTransformer(
+            context=SimpleNamespace(run_id=run, asset_key="model"),
+            logger=get_logger("cache"),
+            project_dir=tmp_path,
+            profiles_dir=tmp_path,
+        )
+        result = transformer.run_transform()
+        return result.status, transformer.build_run_results
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(build, ["success", "failed"]))
+    assert [result[0] for result in results] == ["success", "failure"]
+    assert results[0][1] == {
+        "results": [{"unique_id": "model.project.success", "status": "success"}]
+    }
+    assert results[1][1] == {
+        "results": [{"unique_id": "model.project.failed", "status": "success"}]
+    }
+    assert cache.read_bytes() in (b"success" * 65536, b"failed" * 65536)
+    assert sorted(path.name for path in cache.parent.iterdir()) == ["partial_parse.msgpack"]

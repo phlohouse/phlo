@@ -2,18 +2,20 @@
 
 import subprocess
 
+import pytest
 import yaml
 
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
 
 
-def test_host_generation_preserves_shared_compose_on_second_checkout(tmp_path):
+@pytest.mark.parametrize("service", ["dagster", "dagster-code", "dagster-daemon"])
+def test_host_generation_preserves_shared_compose_on_second_checkout(tmp_path, service):
     state = tmp_path / ".phlo"
     state.mkdir()
     (state / ".gitignore").write_text(render_shared_gitignore([]))
     first = {
         "services": {
-            "dagster": {
+            service: {
                 "environment": {
                     "TEAM": "yes",
                     "PHLO_RUNTIME_UID": "1000",
@@ -27,7 +29,7 @@ def test_host_generation_preserves_shared_compose_on_second_checkout(tmp_path):
     original = shared.read_bytes()
     second = {
         "services": {
-            "dagster": {
+            service: {
                 "environment": {
                     "TEAM": "yes",
                     "PHLO_RUNTIME_UID": "2000",
@@ -38,12 +40,10 @@ def test_host_generation_preserves_shared_compose_on_second_checkout(tmp_path):
     }
     write_compose_layers(state, yaml.safe_dump(second), preserve_shared=True)
     assert shared.read_bytes() == original
-    assert yaml.safe_load(shared.read_text())["services"]["dagster"]["environment"] == {
-        "TEAM": "yes"
-    }
-    assert yaml.safe_load((state / "overrides/compose.host.yaml").read_text())["services"][
-        "dagster"
-    ]["environment"] == {
+    assert yaml.safe_load(shared.read_text())["services"][service]["environment"] == {"TEAM": "yes"}
+    assert yaml.safe_load((state / "overrides/compose.host.yaml").read_text())["services"][service][
+        "environment"
+    ] == {
         "PHLO_RUNTIME_UID": "2000",
         "PHLO_RUNTIME_GID": "2000",
     }

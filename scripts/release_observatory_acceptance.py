@@ -1078,7 +1078,10 @@ def transition(
             previous.project_dir / ".phlo/retained-provider-note.txt",
         )
     }
-    compose(previous, "stop", "phlo-api", "observatory", "dagster", "dagster-daemon")
+    services = ["phlo-api", "observatory", "dagster", "dagster-daemon"]
+    if "dagster-code" in golden.compose_config_json(previous)["services"]:
+        services.append("dagster-code")
+    compose(previous, "stop", *services)
     backup = previous.project_dir.parent / "postgres-before.dump"
     dump_command = golden.compose_command(
         previous,

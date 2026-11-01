@@ -118,3 +118,14 @@ DagsterDaemonServicePlugin = service_plugin_class(
     tags=["orchestration", "core"],
     service_definition_file="dagster-daemon.yaml",
 )
+
+
+DagsterCodeServicePlugin = service_plugin_class(
+    "DagsterCodeServicePlugin",
+    name="dagster-code",
+    version="0.1.0",
+    description="Dagster workflow code server",
+    author="Phlo Team",
+    tags=["orchestration", "core"],
+    service_definition_file="dagster-code.yaml",
+)

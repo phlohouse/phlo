@@ -42,6 +42,8 @@ def select_suites(group: str) -> dict[str, list[str]]:
     suites = {
         "iceberg": ["packages/phlo-iceberg/tests/test_integration_iceberg.py"],
         "dagster": ["packages/phlo-dagster/tests/test_integration_dagster.py"],
+        "dagster-lifecycle": ["packages/phlo-dagster/tests/test_code_server_lifecycle.py"],
+        "dbt-build": ["packages/phlo-dbt/tests/test_integration_dbt.py"],
         "api": [
             "packages/phlo-api/tests",
             "tests/integration/test_issue1035_dataset_journey.py",

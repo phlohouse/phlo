@@ -28,6 +28,7 @@
     ],
     "services": [
       {"name": "dagster", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.18.0"},
+      {"name": "dagster-code", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.18.0"},
       {"name": "dagster-daemon", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.18.0"},
       {"name": "postgres", "image_reference": "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"},
       {"name": "postgres-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
@@ -69,6 +70,7 @@
         "package:phlo-postgres",
         "package:phlo-trino",
         "service:dagster",
+        "service:dagster-code",
         "service:dagster-daemon",
         "service:postgres",
         "service:postgres-volume-setup",
@@ -635,6 +637,18 @@
       "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
       "evidence": [
         "packages/phlo-dagster/src/phlo_dagster/service.yaml"
+      ]
+    },
+    {
+      "name": "dagster-code",
+      "package": "phlo-dagster",
+      "source": "packages/phlo-dagster/src/phlo_dagster/dagster-code.yaml",
+      "scope": "blessed_core",
+      "target_status": "supported",
+      "current_maturity": "alpha",
+      "reason": "Persistent code location for the existing orchestration workload; identity and production gates still apply.",
+      "evidence": [
+        "packages/phlo-dagster/src/phlo_dagster/dagster-code.yaml"
       ]
     },
     {
@@ -1575,6 +1589,24 @@
       },
       {
         "name": "service:dagster",
+        "status": "blocked",
+        "applicable_gates": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ],
+        "blocked_by": [
+          "security",
+          "upgrade_restore",
+          "golden_path",
+          "run_evidence",
+          "maintenance"
+        ]
+      },
+      {
+        "name": "service:dagster-code",
         "status": "blocked",
         "applicable_gates": [
           "security",

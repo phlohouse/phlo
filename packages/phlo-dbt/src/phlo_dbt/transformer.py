@@ -32,9 +32,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +132,26 @@ def _read_run_results(path: Path) -> Mapping[str, Any] | None:
     except (OSError, ValueError):
         return None
     return payload if isinstance(payload, Mapping) else None
+
+
+def _copy_parse_cache(source: Path, destination: Path, logger: Any) -> None:
+    """Copy only parsing state atomically; an unavailable cache must not fail a build."""
+    temporary_path = None
+    try:
+        if not source.is_file():
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            with source.open("rb") as saved:
+                shutil.copyfileobj(saved, temporary)
+        os.replace(temporary_path, destination)
+    except OSError as exc:
+        log_event(logger, "debug", "dbt_parse_cache_unavailable", error=str(exc))
+    finally:
+        if temporary_path is not None:
+            with suppress(OSError):
+                temporary_path.unlink(missing_ok=True)
 
 
 def _latest_project_mtime(dbt_project_path: Path) -> float:
@@ -392,10 +415,22 @@ class DbtTransformer(BaseTransformer):
             )
         return build_args
 
+    def _run_build(self, args: list[str], artifact_path: Path) -> subprocess.CompletedProcess:
+        """Seed isolated builds with parsing state and atomically publish their new cache."""
+        if artifact_path == self.project_dir / "target":
+            return self._run_command(args)
+        parse_cache = self.project_dir / "target" / ".phlo" / "partial_parse.msgpack"
+        # dbt validates compatibility with project/profile/target/vars.
+        # Never seed manifests or results: those belong to this build.
+        _copy_parse_cache(parse_cache, artifact_path / "partial_parse.msgpack", self.logger)
+        result = self._run_command(args)
+        _copy_parse_cache(artifact_path / "partial_parse.msgpack", parse_cache, self.logger)
+        return result
+
     def run_transform(
         self, partition_key: str | None = None, parameters: dict[str, Any] | None = None
     ) -> TransformationResult:
-        """Execute dbt build/docs flow and emit transform telemetry events."""
+        """Build models and emit events; generate docs only with generate_docs=True."""
         parameters = parameters or {}
         self.build_run_results = None
         select_args = parameters.get("select", [])
@@ -469,7 +504,7 @@ class DbtTransformer(BaseTransformer):
         try:
             # 1. Run dbt build (unless skipped)
             if not skip_build:
-                result = self._run_command(build_args)
+                result = self._run_build(build_args, artifact_path)
                 result_stdout = result.stdout
                 self.build_run_results = _read_run_results(artifact_path / "run_results.json")
                 # Emit the dbt invocation + per-node events before the
@@ -509,9 +544,9 @@ class DbtTransformer(BaseTransformer):
                 reader=json.loads,
             )
 
-            # 4. Generate Docs. On by default to preserve legacy behavior;
-            # a docs failure must not fail the transform, so its result is ignored.
-            if parameters.get("generate_docs", True):
+            # Catalog introspection is explicit, not part of every model build.
+            # A docs failure must not fail the transform, so its result is ignored.
+            if parameters.get("generate_docs", False):
                 docs_args = [
                     "docs",
                     "generate",

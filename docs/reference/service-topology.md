@@ -15,7 +15,8 @@
 | `clickhouse` | [phlo-clickhouse](../../packages/phlo-clickhouse/src/phlo_clickhouse/service.yaml) | none | 8123 → 8123/tcp (CLICKHOUSE_HTTP_PORT); 19000 → 9000/tcp (CLICKHOUSE_NATIVE_PORT); 9363 → 9363/tcp (CLICKHOUSE_METRICS_PORT) | none | false |
 | `clickhouse-setup` | [phlo-clickhouse](../../packages/phlo-clickhouse/src/phlo_clickhouse/clickhouse-setup.yaml) | `clickhouse` | none | none | false |
 | `clickstack` | [phlo-clickstack](../../packages/phlo-clickstack/src/phlo_clickstack/service.yaml) | none | 18080 → 8080/tcp (CLICKSTACK_PORT); 18123 → 8123/tcp (CLICKSTACK_HTTP_PORT); 19002 → 9000/tcp (CLICKSTACK_NATIVE_PORT) | observability | false |
-| `dagster` | [phlo-dagster](../../packages/phlo-dagster/src/phlo_dagster/service.yaml) | `minio`, `nessie`, `postgres`, `trino` | 10006 → 3000/tcp (DAGSTER_PORT) | none | true |
+| `dagster` | [phlo-dagster](../../packages/phlo-dagster/src/phlo_dagster/service.yaml) | `dagster-code`, `minio`, `nessie`, `postgres`, `trino` | 10006 → 3000/tcp (DAGSTER_PORT) | none | true |
+| `dagster-code` | [phlo-dagster](../../packages/phlo-dagster/src/phlo_dagster/dagster-code.yaml) | `minio`, `nessie`, `postgres`, `trino` | none | none | true |
 | `dagster-daemon` | [phlo-dagster](../../packages/phlo-dagster/src/phlo_dagster/dagster-daemon.yaml) | `dagster` | none | none | true |
 | `grafana` | [phlo-grafana](../../packages/phlo-grafana/src/phlo_grafana/service.yaml) | `loki`, `prometheus` | 3003 → 3000/tcp (GRAFANA_PORT) | observability | false |
 | `hasura` | [phlo-hasura](../../packages/phlo-hasura/src/phlo_hasura/service.yaml) | `postgres` | 8082 → 8080/tcp (HASURA_PORT) | api | false |

@@ -10,7 +10,9 @@ from typing import Any
 
 import yaml
 
-from phlo_dagster.plugin import DagsterServicePlugin
+from phlo.plugins.compose.generator import ComposeGenerator
+from phlo.plugins.discovery import ServiceDiscovery
+from phlo_dagster.plugin import DagsterCodeServicePlugin, DagsterServicePlugin
 
 
 def _load_packaged_yaml(filename: str) -> dict[str, Any]:
@@ -64,7 +66,7 @@ def test_daemon_shares_the_webserver_project_discovery_contract() -> None:
 
 
 def test_webserver_and_daemon_share_the_postgres_run_evidence_store() -> None:
-    for filename in ("service.yaml", "dagster-daemon.yaml"):
+    for filename in ("service.yaml", "dagster-daemon.yaml", "dagster-code.yaml"):
         definition = _load_packaged_yaml(filename)
 
         build_args = definition["build"]["args"]
@@ -79,3 +81,36 @@ def test_webserver_and_daemon_share_the_postgres_run_evidence_store() -> None:
         assert "postgres:5432" in dsn, filename
         for placeholder in ("${POSTGRES_USER", "${POSTGRES_PASSWORD", "${POSTGRES_DB"):
             assert placeholder in dsn, f"{filename}: {placeholder} missing from DSN"
+
+
+def test_generated_code_service_is_private_and_uses_the_orchestration_identity(tmp_path):
+    discovery = ServiceDiscovery()
+    discovery.discover()
+    service = discovery.get_service("dagster")
+    assert service is not None
+    document = yaml.safe_load(
+        ComposeGenerator(discovery, host_identity=(1234, 2345)).generate_compose(
+            [
+                service,
+                discovery.get_service("dagster-daemon"),
+                discovery.get_service("dagster-code"),
+            ],
+            output_dir=tmp_path,
+        )
+    )
+    code = document["services"]["dagster-code"]
+    assert DagsterCodeServicePlugin().metadata.name == "dagster-code"
+    assert "ports" not in code
+    assert document["networks"]["dagster-code"]["internal"] is True
+    assert code["networks"]["dagster-code"]["aliases"] == ["dagster-code-private"]
+    assert code["command"][code["command"].index("-h") + 1] == "dagster-code-private"
+    assert code["environment"]["PHLO_RUNTIME_UID"] == "1234"
+    assert code["environment"]["POSTGRES_USER"].startswith("${DAGSTER_POSTGRES_USER")
+    assert code["environment"]["TRINO_USER"] == "${DAGSTER_TRINO_USER:-phlo-dagster}"
+    assert code["environment"]["AWS_ACCESS_KEY_ID"].startswith("${DAGSTER_MINIO_ACCESS_KEY")
+    for name in ("dagster", "dagster-daemon"):
+        assert "dagster-code" in document["services"][name]["networks"]
+    assert (
+        document["services"]["dagster"]["depends_on"]["dagster-code"]["condition"]
+        == "service_healthy"
+    )
