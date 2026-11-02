@@ -108,6 +108,8 @@ def _missing(history, path):
     [
         ("ci.yml", "python-quality", 0),
         ("pr.yml", "security", 0),
+        ("release.yml", "release-pr", 0),
+        ("release-merge.yml", "coordinate", 0),
         (
             "container-security.yml",
             "checks",

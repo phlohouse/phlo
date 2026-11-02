@@ -146,11 +146,12 @@ event base and head commits before comparing their trees; it does not assume the
 event base is the test merge's first parent. Queue and full-fallback runs select
 the complete contract without fetching comparison commits. Core tests and coverage
 also use shallow checkouts; their Git-history tests create isolated repositories.
-Quality and dependency checks retain the history needed for the pinned header
-baseline, release versions and reviewed dependency exceptions. Those checkouts
-and PR container selection use `filter: blob:none`: they retain commit ancestry
-and tags while fetching historical file contents only when needed. Container
-selection still uses a full history for its PR merge-base comparison.
+Quality, dependency and release jobs retain the history needed for the pinned
+header baseline, release versions, ancestry and reviewed dependency exceptions.
+Those checkouts and PR container selection use `filter: blob:none`: they retain
+commit ancestry and tags while fetching historical file contents only when
+needed. Container selection still uses a full history for its PR merge-base
+comparison.
 
 The checked-in [ruleset](../../security/release-candidate-ruleset.json) sets build
 concurrency to two, with one pull request merged at a time. GitHub can validate a
