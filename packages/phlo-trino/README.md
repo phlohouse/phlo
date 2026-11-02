@@ -23,6 +23,22 @@ phlo plugin install trino
 | `TRINO_HOST`    | `trino`   | Trino hostname  |
 | `TRINO_CATALOG` | `iceberg` | Default catalog |
 
+The generated container starts with a short root bootstrap, then runs Trino as
+`trino:trino`. The bootstrap grants that group read access to the six bundled
+configuration files and traversal of their parent directory. This supports host
+`umask 077` without making private configuration world-readable. Host file owners
+remain unchanged so configuration can be regenerated. Trino cannot write to the
+parent directory or replace the root-executed bootstrap.
+
+Before changing permissions, the bootstrap rejects symlinks and nonregular files
+at all six configuration paths. This prevents a substituted catalog file from
+redirecting a privileged permission change during restart.
+
+The dynamic catalog directory remains writable by Trino and retains its host
+group. Other catalog files and the bootstrap file keep their existing permissions.
+Custom files, including certificates and additional catalogs, require explicit
+runtime access permissions; the bootstrap does not change them recursively.
+
 ## Auto-Configuration
 
 This package is **fully auto-configured**:
