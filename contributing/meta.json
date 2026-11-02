@@ -4,6 +4,7 @@
     "engineering-map",
     "verification-matrix",
     "quality-performance",
+    "orchestration-performance",
     "ci"
   ]
 }
