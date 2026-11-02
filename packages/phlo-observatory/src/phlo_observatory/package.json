@@ -7,7 +7,8 @@
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts",
+    "postinstall": "node scripts/patch-eslint-minimatch.mjs",
+    "test": "node --test scripts/eslint-compat.test.mjs && vitest run --config vitest.config.ts",
     "test:cache": "node --test scripts/cache-headers.test.mjs",
     "lint": "eslint src --ext .ts,.tsx",
     "knip": "knip --no-progress",
@@ -65,6 +66,7 @@
     "vitest-axe": "^0.1.0"
   },
   "overrides": {
+    "minimatch": "11.0.4",
     "eslint-plugin-import-x": "4.16.1",
     "typescript-eslint": "8.71.1",
     "ts-api-utils": "2.5.0"
