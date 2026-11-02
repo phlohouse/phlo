@@ -1,14 +1,15 @@
 """Asset specifications backed by a Phlo Transform workspace.
 
 Each compiled model becomes one asset whose dependencies come from the
-engine's own graph report. Materialisation shells out to
-``phlo-transform run --select <model>`` and translates the run report into a
-materialisation plus one asset check per workspace test, so orchestrator
-adapters see the same contract they receive from the dbt provider.
+engine's own graph report. Compatible assets share one engine run, with
+per-model materialisations and owned test results. Extra dependency models
+in the engine plan do not emit unrequested asset results.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+from graphlib import TopologicalSorter
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,8 @@ from phlo.capabilities import (
     AssetSpec,
     CheckResult,
     MaterializeResult,
+    RunGroupResult,
+    RunGroupSpec,
     RunSpec,
     RuntimeContext,
     resolve_capability,
@@ -270,11 +273,42 @@ def _run_model(
     settings: TransformSettings,
     runtime: RuntimeContext | None,
 ) -> list[MaterializeResult | CheckResult]:
-    """Execute one model and translate its run report into Phlo results."""
+    """Execute one model through the same report contract as a grouped run."""
+    result = _run_models(workspace, {key: model}, settings, runtime)
+    outcomes = list(result.outcomes[key])
+    if result.error:
+        outcomes = [
+            replace(outcome, status="failure")
+            if isinstance(outcome, MaterializeResult)
+            else outcome
+            for outcome in outcomes
+        ]
+    return outcomes
 
+
+def _run_models(
+    workspace: TransformWorkspace,
+    models: dict[str, WorkspaceModel],
+    settings: TransformSettings,
+    runtime: RuntimeContext | None,
+) -> RunGroupResult:
+    """Run selected models once, preserving node outcomes and invocation errors."""
+    if runtime is not None and runtime.tags.get("phlo/full_refresh_asset") in models:
+        raise PhloCapabilitySetupError(
+            capability="transform",
+            required=True,
+            message="Native full refresh is unsupported: --force does not replace incremental data",
+            suggestions=[
+                "Use an engine-supported replacement plan instead of phlo/full_refresh_asset"
+            ],
+        )
+    args = ["run"]
+    for model in models.values():
+        args.extend(["--select", model.name])
+    args.extend(["--jobs", str(settings.jobs), *adapter_args(runtime, settings)])
     payload, invocation = run_json(
         workspace.binary,
-        ["run", "--select", model.name, *adapter_args(runtime, settings)],
+        args,
         settings=settings,
         root=workspace.root,
     )
@@ -284,14 +318,33 @@ def _run_model(
             capability="transform",
             required=True,
             message=(
-                f"phlo-transform produced no run report for '{model.name}'"
-                + (f": {detail[-1]}" if detail else "")
+                "phlo-transform produced no run report" + (f": {detail[-1]}" if detail else "")
             ),
             suggestions=["Run the same command with --json to inspect the failure"],
         )
 
-    status = str(payload.get("status") or ("passed" if invocation.ok else "failed"))
-    counts = payload.get("counts") or {}
+    status = payload.get("status")
+    return RunGroupResult(
+        outcomes={
+            key: _model_results(workspace, model, key, settings, payload)
+            for key, model in models.items()
+        },
+        error=(
+            f"phlo-transform run failed (exit {invocation.returncode}, status {status})"
+            if not invocation.ok or status != "passed"
+            else None
+        ),
+    )
+
+
+def _model_results(
+    workspace: TransformWorkspace,
+    model: WorkspaceModel,
+    key: str,
+    settings: TransformSettings,
+    payload: dict,
+) -> list[MaterializeResult | CheckResult]:
+    """Attribute model and owned-test evidence without inheriting sibling failures."""
     model_report = next(
         (
             item
@@ -300,6 +353,7 @@ def _run_model(
         ),
         {},
     )
+    status = str(model_report.get("status") or "not_reported")
     test_results = {
         str(item.get("test")): item
         for item in payload.get("tests") or []
@@ -321,14 +375,23 @@ def _run_model(
                     "test": test.name,
                     "status": str(outcome.get("status")) if outcome else "not_reported",
                     "row_count": outcome.get("row_count") if outcome else None,
-                    "error": outcome.get("error") if outcome else "test did not report a result",
+                    "error": (
+                        outcome.get("failure") or outcome.get("error")
+                        if outcome
+                        else "test did not report a result"
+                    ),
                 },
             )
         )
 
     results.append(
         MaterializeResult(
-            status="success" if status == "passed" and invocation.ok else "failure",
+            status=(
+                "success"
+                if status in {"passed", "skipped", "cached"}
+                and all(result.passed for result in results if isinstance(result, CheckResult))
+                else "failure"
+            ),
             metadata={
                 "transform_model": model.name,
                 "transform_target": model.target,
@@ -343,7 +406,8 @@ def _run_model(
                 "transform_previous_version": model_report.get("previous_version"),
                 "transform_desired_version": model_report.get("desired_version"),
                 "transform_sql_hash": model_report.get("sql_hash"),
-                "transform_counts": counts,
+                "transform_counts": payload.get("counts") or {},
+                "transform_failure": model_report.get("failure"),
                 "transform_duration_ms": model_report.get("duration_ms"),
                 "transform_query_id": model_report.get("query_id"),
                 "transform_tests": len(workspace.tests_for(model.name)),
@@ -365,6 +429,31 @@ def build_workspace_asset_specs(
         return []
     mode = settings.asset_key_mode
     keys = _key_map(workspace, mode)
+    models = {keys[model.name]: model for model in workspace.models}
+
+    def _group_runner(runtime: RuntimeContext, selected: frozenset[str]) -> RunGroupResult:
+        return _run_models(
+            workspace,
+            {key: model for key, model in models.items() if key in selected},
+            settings,
+            runtime,
+        )
+
+    # Native tests run after all builds, so a checked parent must finish in
+    # an earlier Dagster step before its descendants can execute.
+    graph = {
+        key: {keys[dep] for dep in model.depends_on if dep in keys} for key, model in models.items()
+    }
+    stages: dict[str, int] = {}
+    for key in TopologicalSorter(graph).static_order():
+        stages[key] = max(
+            (stages[dep] + bool(workspace.tests_for(models[dep].name)) for dep in graph[key]),
+            default=0,
+        )
+    run_groups = {
+        stage: RunGroupSpec(name=f"transform_{stage}", fn=_group_runner)
+        for stage in set(stages.values())
+    }
     specs: list[AssetSpec] = []
     for model in workspace.models:
         key = keys[model.name]
@@ -418,7 +507,10 @@ def build_workspace_asset_specs(
                 },
                 deps=deps,
                 checks=_check_specs(workspace, model, key),
-                run=RunSpec(fn=_runner),
+                run=RunSpec(
+                    fn=_runner,
+                    group=run_groups[stages[key]] if settings.group_execution else None,
+                ),
             )
         )
     logger.info(

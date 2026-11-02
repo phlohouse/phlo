@@ -162,6 +162,7 @@ def test_run_translates_materialization_and_only_own_tests(
         "models": [
             {
                 "model": "analytics.orders",
+                "status": "passed",
                 "action": "build",
                 "reasons": ["SQL changed"],
                 "previous_version": "old-version",
@@ -213,7 +214,7 @@ def test_failed_run_materialises_as_failure(
     payload = {
         "status": "failed",
         "counts": {"passed": 0, "failed": 1},
-        "models": [{"model": "analytics.orders", "duration_ms": 2}],
+        "models": [{"model": "analytics.orders", "status": "failed", "duration_ms": 2}],
         "tests": [
             {"test": "analytics.orders.generated.not_null_id", "status": "failed", "row_count": 4}
         ],
@@ -246,6 +247,88 @@ def test_missing_test_report_is_a_failure(
     check = next(result for result in results if isinstance(result, CheckResult))
     assert check.passed is False
     assert check.metadata["error"] == "test did not report a result"
+
+
+@pytest.mark.parametrize(
+    ("model_status", "test_status", "expected"),
+    [
+        ("passed", "passed", "success"),
+        ("cached", "passed", "success"),
+        ("skipped", "passed", "success"),
+        ("failed", "blocked", "failure"),
+        ("blocked", "blocked", "failure"),
+        ("cancelled", "cancelled", "failure"),
+        (None, "passed", "failure"),
+        ("passed", "failed", "failure"),
+        ("passed", None, "failure"),
+    ],
+)
+def test_grouped_runs_attribute_model_and_test_evidence(
+    tmp_path, monkeypatch, transform_settings, fake_workspace, model_status, test_status, expected
+):
+    def report(binary, args, **kwargs):
+        if args[0] == "explain":
+            return {}, _invocation()
+        models = [{"model": "analytics.stg_orders", "status": "passed"}]
+        if model_status is not None:
+            models.append({"model": "analytics.orders", "status": model_status})
+        tests = (
+            [{"test": "analytics.orders.generated.not_null_id", "status": test_status}]
+            if test_status is not None
+            else []
+        )
+        return {"status": "failed", "models": models, "tests": tests}, _invocation(1)
+
+    monkeypatch.setattr(assets_module, "run_json", report)
+    specs = build_workspace_asset_specs(tmp_path, transform_settings)
+    group = specs[0].run.group
+    result = group.fn(FakeRuntimeContext(), frozenset({"stg_orders", "orders"}))
+    assert result.error is not None
+    assert set(result.outcomes) == {"stg_orders", "orders"}
+    mats = {
+        key: next(item for item in items if isinstance(item, MaterializeResult))
+        for key, items in result.outcomes.items()
+    }
+    assert mats["stg_orders"].status == "success"
+    assert mats["orders"].status == expected
+    assert not any(isinstance(item, CheckResult) for item in result.outcomes["stg_orders"])
+    checks = [item for item in result.outcomes["orders"] if isinstance(item, CheckResult)]
+    assert len(checks) == 1 and checks[0].asset_key == "orders"
+    assert checks[0].passed == (test_status == "passed")
+
+
+def test_grouped_subset_ignores_extra_dependency_reports(
+    tmp_path, monkeypatch, transform_settings, fake_workspace
+):
+    def report(binary, args, **kwargs):
+        if args[0] == "explain":
+            return {}, _invocation()
+        selected = [args[i + 1] for i, arg in enumerate(args) if arg == "--select"]
+        return {
+            "run_id": ",".join(selected),
+            "status": "passed",
+            "models": [
+                {"model": "analytics.stg_orders", "status": "skipped"},
+                {"model": "analytics.orders", "status": "passed"},
+            ],
+            "tests": [{"test": "analytics.orders.generated.not_null_id", "status": "passed"}],
+        }, _invocation()
+
+    monkeypatch.setattr(assets_module, "run_json", report)
+    specs = build_workspace_asset_specs(tmp_path, transform_settings)
+    result = specs[0].run.group.fn(FakeRuntimeContext(), frozenset({"orders"}))
+    assert result.error is None
+    assert set(result.outcomes) == {"orders"}
+    mat = next(item for item in result.outcomes["orders"] if isinstance(item, MaterializeResult))
+    assert mat.metadata["transform_run_id"] == "analytics.orders"
+
+
+def test_grouping_can_retain_legacy_asset_execution(tmp_path, monkeypatch, fake_workspace):
+    monkeypatch.setenv("PHLO_TRANSFORM_GROUP_EXECUTION", "false")
+    settings = assets_module.get_settings(tmp_path)
+    specs = build_workspace_asset_specs(tmp_path, settings)
+    assert not settings.group_execution
+    assert all(spec.run.group is None for spec in specs)
 
 
 def test_activation_follows_dbt_default_then_marker(

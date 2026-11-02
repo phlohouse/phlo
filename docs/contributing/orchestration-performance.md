@@ -355,12 +355,33 @@ model output matched a direct dbt baseline. The candidate used 6.708 child
 CPU-seconds in this separate validation run; it is not a matched timing
 comparison with the prototype above. No running service was changed.
 
-The existing phlo-transform provider also starts one run process per model.
-Its upstream engine supports multiple selectors in one invocation, so a provider
-could adopt the same grouped contract. Thirty-two existing Python provider tests
-passed with fake engine reports. No installed engine binary was available, so
-no real-engine timing or migration comparison is claimed. The dbt change does
-not alter phlo-transform execution.
+### Grouped native Transform runs
+
+The phlo-transform provider now uses the same grouped execution contract.
+Compatible selections share an engine `run` with repeated `--select` flags.
+Individual asset keys, owned checks, runtime routing, and per-model results
+remain intact. A model with blocking checks finishes in an earlier group than
+its descendants. The native engine runs tests after builds, so combining those
+groups would allow downstream writes before upstream checks finish. A chain
+with checks on every model therefore keeps separate invocations.
+
+An isolated comparison used the checksum-verified Linux x86-64 release binary
+`v0.1.0`, DuckDB, five independent one-row table models, and five not-null checks.
+Three repetitions per mode alternated execution order on fresh workspaces.
+Median child CPU time fell from 0.374196 seconds to 0.130421 seconds, a 65.15%
+reduction. All five outputs and checks matched in every repetition. This
+includes the five per-model `explain` subprocesses retained for lineage, but
+excludes discovery and Dagster orchestration. Engine `run` invocations fell
+from five to one. The experiment used one engine job under a 25% CPU quota and
+512 MiB memory limit. These tiny models measure execution overhead, not
+Nightscout workload performance or sustained Trino CPU savings.
+
+The real-engine Dagster regression also covers subset selection, unchanged
+models, a failed model retaining healthy siblings, and an upstream blocking
+check preventing downstream writes. Native `phlo/full_refresh_asset` requests
+fail explicitly because the engine's `--force` does not replace incremental
+data. `PHLO_TRANSFORM_GROUP_EXECUTION=false` retains legacy per-model Dagster
+op configuration. No existing workspace or running service was changed.
 
 ## Repeat the contract checks
 
@@ -372,6 +393,7 @@ uv run --locked pytest packages/phlo-dagster/tests/test_runtime_image_contract.p
 uv run --locked pytest packages/phlo-dbt/tests/test_transform.py
 uv run --locked pytest packages/phlo-dbt/tests/test_asset_checks.py packages/phlo-dbt/tests/test_federation.py
 uv run --locked pytest tests/operations/test_grouped_dbt.py packages/phlo-dagster/tests/test_adapter_assets.py
+PHLO_TRANSFORM_BIN=/path/to/phlo-transform uv run --locked pytest packages/phlo-transform/tests
 uv run --locked pytest -m "not integration" packages/phlo-lineage/tests
 uv run --locked pytest -m integration packages/phlo-dbt/tests/test_integration_dbt.py
 uv run --locked pytest -m integration packages/phlo-dagster/tests/test_code_server_lifecycle.py

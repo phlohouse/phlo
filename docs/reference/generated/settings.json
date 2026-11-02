@@ -1,5 +1,5 @@
 {
-  "field_count": 335,
+  "field_count": 336,
   "model_count": 52,
   "models": [
     {
@@ -4050,6 +4050,17 @@
             "PHLO_TRANSFORM_DUCKDB_PATH"
           ],
           "name": "duckdb_path",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_GROUP_EXECUTION'])",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Run compatible workspace assets together; disable for legacy per-model Dagster op configuration.",
+          "environment_names": [
+            "PHLO_TRANSFORM_GROUP_EXECUTION"
+          ],
+          "name": "group_execution",
           "required": false
         },
         {
