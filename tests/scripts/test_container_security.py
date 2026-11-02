@@ -166,7 +166,7 @@ def test_published_fleet_is_derived_from_source_with_required_shared_mapping() -
         },
         {
             "image": images["dagster"],
-            "services": ["dagster", "dagster-daemon"],
+            "services": ["dagster", "dagster-code", "dagster-daemon"],
         },
         {
             "image": images["minio"],
@@ -185,7 +185,7 @@ def test_rescan_manifest_assembly_sorts_and_validates_complete_fleet() -> None:
     manifest = container_security.assemble_rescan_manifest(records, REPO_ROOT)
 
     assert [entry["image"] for entry in manifest] == sorted(entry["image"] for entry in records)
-    assert manifest[1]["services"] == ["dagster", "dagster-daemon"]
+    assert manifest[1]["services"] == ["dagster", "dagster-code", "dagster-daemon"]
 
 
 def test_rescan_manifest_rejects_incomplete_duplicate_unexpected_and_malformed_records() -> None:

@@ -202,7 +202,9 @@ class ServiceDiscovery:
     @staticmethod
     def _is_service_yaml(filename: str) -> bool:
         """Check if filename is a recognized service YAML pattern."""
-        return filename == "service.yaml" or filename.endswith(("-setup.yaml", "-daemon.yaml"))
+        return filename == "service.yaml" or filename.endswith(
+            ("-setup.yaml", "-daemon.yaml", "-code.yaml")
+        )
 
     def _load_companion_service_files(self, source_path: Path | None) -> int:
         """Load companion service YAMLs (e.g., *-setup.yaml, *-daemon.yaml) from a package."""
@@ -214,7 +216,7 @@ class ServiceDiscovery:
             filename = yaml_path.name
             if filename == "service.yaml":
                 continue
-            if not filename.endswith(("-setup.yaml", "-daemon.yaml")):
+            if not self._is_service_yaml(filename):
                 continue
 
             try:

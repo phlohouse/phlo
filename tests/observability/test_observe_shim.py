@@ -17,6 +17,8 @@ def _reset_shim(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OBSERVE_HTTP_ENDPOINT", raising=False)
     monkeypatch.delenv("OBSERVE_DRAINS", raising=False)
     monkeypatch.delenv("PHLO_OBSERVE_ENABLED", raising=False)
+    monkeypatch.delenv("PHLO_OBSERVE_PRETTY", raising=False)
+    monkeypatch.delenv("PHLO_OBSERVE_PRETTY_VERBOSE", raising=False)
     monkeypatch.delenv("OBSERVE_HTTP_TOKEN", raising=False)
     monkeypatch.delenv("OBSERVE_HTTP_API_KEY", raising=False)
     phlo_observe.reset_for_tests()
@@ -388,6 +390,41 @@ def test_configure_defaults_disabled_without_destination() -> None:
     assert phlo_observe.configure(service_name="test") is True
     assert phlo_observe.enabled() is False
     assert observe_core.runtime.get_runtime().settings.service_name == "test"
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({}, False),
+        ({"PHLO_OBSERVE_ENABLED": "false", "PHLO_OBSERVE_PRETTY": "1"}, False),
+        ({"PHLO_OBSERVE_ENABLED": "true"}, True),
+        ({"OBSERVE_DRAINS": "console"}, True),
+        ({"PHLO_OBSERVE_PRETTY": "1"}, True),
+    ],
+)
+def test_requested_matches_configured_enablement(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str], expected: bool
+) -> None:
+    pytest.importorskip("observe_core", reason="SDK not installed")
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert phlo_observe.requested() is expected
+    assert phlo_observe.configure(drains=[]) is True
+    assert phlo_observe.enabled() is expected
+    assert phlo_observe.requested() is expected
+
+
+@pytest.mark.parametrize("explicit_enabled", [False, True])
+def test_requested_preserves_first_programmatic_configuration(
+    monkeypatch: pytest.MonkeyPatch, explicit_enabled: bool
+) -> None:
+    pytest.importorskip("observe_core", reason="SDK not installed")
+    monkeypatch.setenv("PHLO_OBSERVE_ENABLED", "false" if explicit_enabled else "true")
+    assert phlo_observe.configure(enabled=explicit_enabled, drains=[]) is True
+    assert phlo_observe.enabled() is explicit_enabled
+    assert phlo_observe.requested() is explicit_enabled
+    assert phlo_observe.configure(enabled=not explicit_enabled) is True
+    assert phlo_observe.requested() is explicit_enabled
 
 
 def test_configure_endpoint_enables_and_replaces_console(

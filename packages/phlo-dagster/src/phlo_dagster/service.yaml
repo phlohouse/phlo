@@ -21,6 +21,7 @@ build:
     PHLO_UV_LOCKED: ${PHLO_UV_LOCKED:-}
 
 depends_on:
+  - dagster-code
   - postgres
   - minio
   - nessie
@@ -28,6 +29,7 @@ depends_on:
 
 compose:
   restart: unless-stopped
+  networks: [default, dagster-code]
   # Keep the image entrypoint outside the bind-mounted DAGSTER_HOME directory.
   # That lets both development and released stacks use the same bootstrap script.
   entrypoint: ["/usr/local/bin/phlo-dagster-entrypoint.sh"]
@@ -36,6 +38,7 @@ compose:
       [
         "CMD",
         "python",
+        "-S",
         "-c",
         "import urllib.request; raise SystemExit(urllib.request.urlopen('http://127.0.0.1:3000/server_info', timeout=3).status != 200)",
       ]

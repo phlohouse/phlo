@@ -1,6 +1,7 @@
 """Asset policies, scoped execution, and deferred failures without external services."""
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -15,6 +16,8 @@ from phlo.capabilities.specs import (
     MaterializeResult,
     PartitionSpec,
     ResourceSpec,
+    RunGroupResult,
+    RunGroupSpec,
     RunSpec,
 )
 
@@ -419,3 +422,173 @@ def test_project_automation_sensor_keeps_the_cron_assets_it_targets(
         assert cron_sensor.default_status == dg.DefaultSensorStatus.RUNNING
         graph = final.resolve_asset_graph()
         assert cron_sensor.asset_selection.resolve(graph) == expected_cron_keys
+
+
+def test_grouped_assets_keep_subset_results_and_failures():
+    """A provider group retains asset identities and successful siblings on failure."""
+
+    def run(runtime, selected):
+        assert runtime.asset_key is None
+        assert selected == frozenset({"raw.first", "raw.second"})
+        return RunGroupResult(
+            {
+                "raw.first": [MaterializeResult(status="success", metadata={"rows": 7})],
+                "raw.second": [
+                    CheckResult("valid", "raw.second", passed=False, severity="error"),
+                    MaterializeResult(status="failure"),
+                ],
+            }
+        )
+
+    group = RunGroupSpec(name="provider_project", fn=run)
+    assets = [
+        AssetSpec(
+            key=key,
+            group="raw",
+            description=key,
+            run=RunSpec(fn=lambda runtime: pytest.fail("Individual runner used"), group=group),
+            checks=[AssetCheckSpec("valid", key)] if key == "raw.second" else [],
+        )
+        for key in ("raw.first", "raw.second", "raw.unselected")
+    ]
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=assets, checks=[], resources=[]
+    )
+    assert len(definitions.assets) == 1
+    result = definitions.resolve_implicit_global_asset_job_def().execute_in_process(
+        asset_selection=[dg.AssetKey(["raw", "first"]), dg.AssetKey(["raw", "second"])],
+        raise_on_error=False,
+    )
+    assert not result.success
+    assert [e.asset_key for e in result.get_asset_materialization_events()] == [
+        dg.AssetKey(["raw", "first"])
+    ]
+    (check,) = result.get_asset_check_evaluations()
+    assert check.asset_key == dg.AssetKey(["raw", "second"]) and not check.passed
+
+
+def test_groups_preserve_external_dependencies_and_individual_policies():
+    """Grouping cannot introduce a cycle through a non-group asset or erase retries."""
+    group = RunGroupSpec(name="project", fn=lambda runtime, selected: RunGroupResult({}))
+    first = AssetSpec(
+        key="first", group=None, description=None, run=RunSpec(fn=lambda runtime: [], group=group)
+    )
+    bridge = AssetSpec(
+        key="bridge",
+        group=None,
+        description=None,
+        deps=["first"],
+        run=RunSpec(fn=lambda runtime: []),
+    )
+    last = replace(first, key="last", deps=["bridge"])
+    builder = adapter.DagsterOrchestratorAdapter()
+    definitions = builder.build_definitions(assets=[first, bridge, last], checks=[], resources=[])
+    definitions.get_repository_def()
+    assert len(definitions.assets) == 3
+    last = replace(last, deps=[], run=replace(last.run, max_retries=2))
+    definitions = builder.build_definitions(assets=[first, last], checks=[], resources=[])
+    assert len(definitions.assets) == 2
+    assert definitions.resolve_assets_def("last").op.retry_policy.max_retries == 2
+
+
+def test_cross_project_groups_do_not_contract_an_acyclic_graph_into_a_cycle():
+    groups = [
+        RunGroupSpec(name=name, fn=lambda runtime, selected: RunGroupResult({}))
+        for name in ("a", "b")
+    ]
+    specs = [
+        AssetSpec(
+            key=key,
+            group=None,
+            description=None,
+            deps=deps,
+            run=RunSpec(fn=lambda runtime: [], group=groups[group]),
+        )
+        for key, deps, group in (("a1", [], 0), ("a2", ["b2"], 0), ("b1", ["a1"], 1), ("b2", [], 1))
+    ]
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=specs, checks=[], resources=[]
+    )
+    definitions.get_repository_def()
+    assert len(definitions.assets) == 4
+
+
+def test_full_refresh_keeps_independent_branches_after_failure():
+    def runner(runtime):
+        if runtime.asset_key == "first":
+            return [MaterializeResult(status="failure")]
+        assert runtime.asset_key == "refresh"
+        assert runtime.tags["phlo/full_refresh_asset"] == "refresh"
+        return [MaterializeResult(status="success")]
+
+    group = RunGroupSpec(name="project", fn=lambda *a: pytest.fail("Grouped full refresh"))
+    specs = [
+        AssetSpec(
+            key=key, group=None, description=None, deps=deps, run=RunSpec(fn=runner, group=group)
+        )
+        for key, deps in (("first", []), ("dependent", ["first"]), ("refresh", []))
+    ]
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=specs, checks=[], resources=[]
+    )
+    result = definitions.resolve_implicit_global_asset_job_def().execute_in_process(
+        tags={"phlo/full_refresh_asset": "refresh"}, raise_on_error=False
+    )
+    assert not result.success
+    assert [e.asset_key.to_user_string() for e in result.get_asset_materialization_events()] == [
+        "refresh"
+    ]
+
+
+def test_invocation_failure_keeps_all_successful_asset_outcomes():
+    group = RunGroupSpec(
+        name="project",
+        fn=lambda runtime, selected: RunGroupResult(
+            {key: [MaterializeResult(status="success")] for key in selected},
+            error="End hook failed",
+        ),
+    )
+    specs = [
+        AssetSpec(
+            key=key, group=None, description=None, run=RunSpec(fn=lambda runtime: [], group=group)
+        )
+        for key in ("first", "second")
+    ]
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=specs, checks=[], resources=[]
+    )
+    result = definitions.resolve_implicit_global_asset_job_def().execute_in_process(
+        raise_on_error=False
+    )
+    assert not result.success
+    assert {e.asset_key.to_user_string() for e in result.get_asset_materialization_events()} == {
+        "first",
+        "second",
+    }
+
+
+def test_check_only_selection_is_rejected_before_provider_execution():
+    group = RunGroupSpec(name="project", fn=lambda *a: pytest.fail("Unexpected provider execution"))
+    specs = [
+        AssetSpec(
+            key=key,
+            group=None,
+            description=None,
+            checks=[AssetCheckSpec("valid", key)],
+            run=RunSpec(fn=lambda runtime: [], group=group),
+        )
+        for key in ("first", "second")
+    ]
+    definitions = adapter.DagsterOrchestratorAdapter().build_definitions(
+        assets=specs, checks=[], resources=[]
+    )
+    job = dg.define_asset_job("checks", selection=dg.AssetSelection.checks_for_assets("first"))
+    definitions = dg.Definitions.merge(definitions, dg.Definitions(jobs=[job]))
+    result = definitions.resolve_job_def("checks").execute_in_process(raise_on_error=False)
+    assert not result.success
+    assert result.get_asset_check_evaluations() == []
+    failure = result.get_step_failure_events()[0].event_specific_data.user_failure_data
+    assert (
+        failure.description
+        == "Select each check's asset too; attached checks execute with their asset"
+    )

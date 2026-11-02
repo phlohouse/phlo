@@ -91,6 +91,10 @@ def test_resolver_loads_plugin_manifest_and_companion_files(
         "name: worker-setup\ndescription: Worker setup\nimage: busybox\ndefault: false\n",
         encoding="utf-8",
     )
+    (package_dir / "worker-code.yaml").write_text(
+        "name: worker-code\ndescription: Workflow code\nimage: busybox\ndefault: true\n",
+        encoding="utf-8",
+    )
 
     class FakePlugin(DummyServicePlugin):
         service_definition = {
@@ -119,7 +123,7 @@ def test_resolver_loads_plugin_manifest_and_companion_files(
 
     manifests = resolver.resolve_plugin_manifests()
 
-    assert [manifest.name for manifest in manifests] == ["worker", "worker-setup"]
+    assert [manifest.name for manifest in manifests] == ["worker", "worker-code", "worker-setup"]
 
 
 def test_resolver_skips_companion_duplicate_names(

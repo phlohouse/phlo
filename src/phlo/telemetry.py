@@ -62,6 +62,7 @@ _sdk: Any | None = None
 _sdk_checked = False
 _configured = False
 _configure_failed = False
+_enabled_override: bool | None = None
 _pretty_drain_attached = False
 _pretty_attach_attempted = False
 _logging_context_tokens: ContextVar[tuple[Any, ...]] = ContextVar(
@@ -100,6 +101,23 @@ def _observe_core() -> Any | None:
 def available() -> bool:
     """Return whether the phlo-observe SDK is importable in this environment."""
     return _sdk_module() is not None
+
+
+def requested() -> bool:
+    """Return enablement intent without SDK initialization, even after runtime failure.
+
+    Explicit configure(enabled=...) overrides win; otherwise read the environment afresh.
+    """
+    if _enabled_override is not None:
+        return _enabled_override
+    enabled_override = TelemetryProcessSettings().enabled
+    if enabled_override is not None:
+        return enabled_override
+    return bool(
+        os.environ.get("OBSERVE_HTTP_ENDPOINT")
+        or any(name.strip() for name in os.environ.get("OBSERVE_DRAINS", "").split(","))
+        or _want_pretty()
+    )
 
 
 def enabled() -> bool:
@@ -199,16 +217,18 @@ def configure(**overrides: Any) -> bool:
     Idempotent: subsequent calls are no-ops. A configuration failure is
     logged and contained so emission sites never need error handling.
     """
-    global _configured, _configure_failed
+    global _configured, _configure_failed, _enabled_override
     if _configured:
         return not _configure_failed
+    _enabled_override = overrides.get("enabled")
     _configured = True
     sdk = _sdk_module()
     if sdk is None:
         _configure_failed = True
         return False
     try:
-        enabled_override = TelemetryProcessSettings().enabled
+        if not requested():
+            overrides.setdefault("enabled", False)
         # ``pretty`` is Phlo's human-readable drain, not an observe-core drain
         # name — the SDK's OBSERVE_DRAINS env source rejects unknown names
         # outright, before init values can take precedence. The name is
@@ -219,16 +239,6 @@ def configure(**overrides: Any) -> bool:
         drains_env = os.environ.get("OBSERVE_DRAINS")
         drain_names = {n.strip() for n in (drains_env or "").split(",") if n.strip()}
         want_pretty = _want_pretty(drain_names)
-        if enabled_override is False:
-            overrides.setdefault("enabled", False)
-        elif enabled_override is not True and not (
-            os.environ.get("OBSERVE_HTTP_ENDPOINT") or drain_names or want_pretty
-        ):
-            # No endpoint and no explicit drains: stay silent rather than
-            # defaulting to console output in every Phlo process. The pretty
-            # flag counts as a configured drain — a drain appended to a
-            # disabled runtime never receives events.
-            overrides.setdefault("enabled", False)
         if "pretty" in drain_names:
             # An empty remainder suppresses the SDK's console-drain default:
             # the pretty drain replaces it.
@@ -281,10 +291,11 @@ def _attach_pretty_drain(runtime: Any) -> None:
 
 def reset_for_tests() -> None:
     """Reset cached SDK/config state and the process runtime. Intended for tests only."""
-    global _configured, _configure_failed, _sdk_checked
+    global _configured, _configure_failed, _sdk_checked, _enabled_override
     global _pretty_drain_attached, _pretty_attach_attempted
     _configured = False
     _configure_failed = False
+    _enabled_override = None
     _sdk_checked = False
     _pretty_drain_attached = False
     _pretty_attach_attempted = False

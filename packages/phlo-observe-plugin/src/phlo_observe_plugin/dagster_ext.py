@@ -134,8 +134,13 @@ class ObserveDagsterExtension(DagsterExtensionPlugin):
         )
 
     def get_definitions(self) -> Any:
-        """Return the run-status sensors as Dagster definitions."""
+        """Register sensors only when requested; reload the code location after config changes."""
         import dagster as dg
+
+        # Dagster polls storage before invoking our enabled() guard. Omitting
+        # sensors also avoids persisted RUNNING state overriding STOPPED defaults.
+        if not phlo_observe.requested():
+            return dg.Definitions()
 
         def _sensor(status: dg.DagsterRunStatus, suffix: str) -> Any:
             @dg.run_status_sensor(

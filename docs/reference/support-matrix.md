@@ -455,6 +455,13 @@ Run `make docs-reference-generate` to regenerate it with the other references. `
 - Applicable gates: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
 - Blockers: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
 
+### `dagster-code`
+
+- Target profile: `blessed_core`; target status: `supported`.
+- Current maturity: `alpha`; readiness: `blocked`.
+- Applicable gates: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
+- Blockers: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
+
 ### `dagster-daemon`
 
 - Target profile: `blessed_core`; target status: `supported`.

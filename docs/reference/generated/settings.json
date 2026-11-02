@@ -1,5 +1,5 @@
 {
-  "field_count": 334,
+  "field_count": 336,
   "model_count": 52,
   "models": [
     {
@@ -2413,6 +2413,17 @@
           "required": false
         },
         {
+          "alias": "dbt_group_execution",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Build compatible assets together; disable for legacy per-model Dagster op configuration",
+          "environment_names": [
+            "DBT_GROUP_EXECUTION"
+          ],
+          "name": "dbt_group_execution",
+          "required": false
+        },
+        {
           "alias": "dbt_manifest_path",
           "annotation": "<class 'str'>",
           "default": "",
@@ -4039,6 +4050,17 @@
             "PHLO_TRANSFORM_DUCKDB_PATH"
           ],
           "name": "duckdb_path",
+          "required": false
+        },
+        {
+          "alias": "AliasChoices(choices=['PHLO_TRANSFORM_GROUP_EXECUTION'])",
+          "annotation": "<class 'bool'>",
+          "default": true,
+          "description": "Run compatible workspace assets together; disable for legacy per-model Dagster op configuration.",
+          "environment_names": [
+            "PHLO_TRANSFORM_GROUP_EXECUTION"
+          ],
+          "name": "group_execution",
           "required": false
         },
         {

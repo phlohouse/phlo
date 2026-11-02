@@ -432,7 +432,7 @@ class ComposeGenerator:
             del config["env_file"]
 
     def _apply_host_identity(self, config: dict[str, Any], service: ServiceDefinition) -> None:
-        if service.name in {"dagster", "dagster-daemon"}:
+        if service.name in {"dagster", "dagster-daemon", "dagster-code"}:
             if platform.system() == "Linux":
                 uid, gid = self.host_identity or (os.getuid(), os.getgid())
                 # Start as root so the entrypoint can install the mounted project's

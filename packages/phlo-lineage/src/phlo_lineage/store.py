@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -248,7 +249,7 @@ class LineageStore:
         rather than propagating.
         """
         try:
-            with psycopg2.connect(self.connection_string) as conn:
+            with closing(psycopg2.connect(self.connection_string)) as conn, conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
@@ -283,7 +284,7 @@ class LineageStore:
         sql_dir = Path(__file__).parent / "sql"
         sql_files = sorted(sql_dir.glob("*.sql"))
 
-        with psycopg2.connect(self.connection_string) as conn:
+        with closing(psycopg2.connect(self.connection_string)) as conn, conn:
             with conn.cursor() as cur:
                 for sql_file in sql_files:
                     cur.execute(sql_file.read_text())
@@ -508,14 +509,16 @@ class LineageStore:
             return 0
 
         unique_keys = sorted(set(asset_keys))
+        encoded_metadata = json.dumps(metadata) if metadata else None
+        encoded_tags = json.dumps(tags) if tags else None
         values = [
             (
                 asset_key,
                 asset_type,
                 status,
                 description,
-                json.dumps(metadata) if metadata else None,
-                json.dumps(tags) if tags else None,
+                encoded_metadata,
+                encoded_tags,
             )
             for asset_key in unique_keys
         ]
@@ -529,28 +532,9 @@ class LineageStore:
         )
         try:
             self._ensure_schema()
-            with psycopg2.connect(self.connection_string) as conn:
+            with closing(psycopg2.connect(self.connection_string)) as conn:
                 with conn.cursor() as cur:
-                    from psycopg2.extras import execute_values
-
-                    execute_values(
-                        cur,
-                        """
-                        INSERT INTO phlo.asset_lineage_nodes
-                        (asset_key, asset_type, status, description, metadata, tags)
-                        VALUES %s
-                        ON CONFLICT (asset_key) DO UPDATE SET
-                            asset_type = COALESCE(EXCLUDED.asset_type, phlo.asset_lineage_nodes.asset_type),
-                            status = COALESCE(EXCLUDED.status, phlo.asset_lineage_nodes.status),
-                            description = COALESCE(
-                                EXCLUDED.description, phlo.asset_lineage_nodes.description
-                            ),
-                            metadata = COALESCE(EXCLUDED.metadata, phlo.asset_lineage_nodes.metadata),
-                            tags = COALESCE(EXCLUDED.tags, phlo.asset_lineage_nodes.tags),
-                            updated_at = NOW()
-                        """,
-                        values,
-                    )
+                    self._upsert_asset_nodes(cur, values)
                 conn.commit()
             logger.info(
                 "lineage_record_asset_nodes_succeeded",
@@ -567,6 +551,30 @@ class LineageStore:
             raise
 
         return len(values)
+
+    @staticmethod
+    def _upsert_asset_nodes(cur: Any, values: list[tuple]) -> None:
+        """Submit node values on the caller's cursor without committing."""
+        from psycopg2.extras import execute_values
+
+        execute_values(
+            cur,
+            """
+            INSERT INTO phlo.asset_lineage_nodes
+            (asset_key, asset_type, status, description, metadata, tags)
+            VALUES %s
+            ON CONFLICT (asset_key) DO UPDATE SET
+                asset_type = COALESCE(EXCLUDED.asset_type, phlo.asset_lineage_nodes.asset_type),
+                status = COALESCE(EXCLUDED.status, phlo.asset_lineage_nodes.status),
+                description = COALESCE(
+                    EXCLUDED.description, phlo.asset_lineage_nodes.description
+                ),
+                metadata = COALESCE(EXCLUDED.metadata, phlo.asset_lineage_nodes.metadata),
+                tags = COALESCE(EXCLUDED.tags, phlo.asset_lineage_nodes.tags),
+                updated_at = NOW()
+            """,
+            values,
+        )
 
     def record_asset_edges(
         self,
@@ -585,7 +593,7 @@ class LineageStore:
         edges in the batch as JSON-serializable dictionaries. Returns the number of
         edges successfully persisted and re-raises Exception after logging on
         database failure. Nodes persist before edges in the same logical operation,
-        but there is no atomic transaction guarantee across the two calls; edge
+        with a separate commit on the same owned connection; edge
         records use UPSERT semantics with updated_at refresh. Edge persistence is
         skipped when ``edges`` is empty, though node creation still occurs when
         ``asset_keys`` is provided.
@@ -616,43 +624,64 @@ class LineageStore:
         persisted_node_count = 0
         persisted_edge_count = 0
         try:
-            if node_keys:
-                persisted_node_count = self.record_asset_nodes(
-                    list(node_keys),
-                    metadata=metadata,
-                    tags=tags,
-                )
-
-            if edges:
-                values = [
-                    (
-                        source,
-                        target,
-                        json.dumps(metadata) if metadata else None,
-                        json.dumps(tags) if tags else None,
-                    )
-                    for source, target in edges
-                ]
-                persisted_edge_count = len(values)
+            encoded_metadata = json.dumps(metadata) if metadata else None
+            encoded_tags = json.dumps(tags) if tags else None
+            node_values = [
+                (key, None, None, None, encoded_metadata, encoded_tags) for key in sorted(node_keys)
+            ]
+            logger.info(
+                "lineage_record_asset_nodes_started",
+                requested_count=len(node_keys),
+                upsert_count=len(node_values),
+            )
+            try:
                 self._ensure_schema()
-                with psycopg2.connect(self.connection_string) as conn:
+                with closing(psycopg2.connect(self.connection_string)) as conn:
                     with conn.cursor() as cur:
-                        from psycopg2.extras import execute_values
-
-                        execute_values(
-                            cur,
-                            """
-                            INSERT INTO phlo.asset_lineage_edges
-                            (source_asset, target_asset, metadata, tags)
-                            VALUES %s
-                            ON CONFLICT (source_asset, target_asset) DO UPDATE SET
-                                metadata = COALESCE(EXCLUDED.metadata, phlo.asset_lineage_edges.metadata),
-                                tags = COALESCE(EXCLUDED.tags, phlo.asset_lineage_edges.tags),
-                                updated_at = NOW()
-                            """,
-                            values,
-                        )
+                        self._upsert_asset_nodes(cur, node_values)
                     conn.commit()
+                    persisted_node_count = len(node_values)
+                    logger.info(
+                        "lineage_record_asset_nodes_succeeded",
+                        requested_count=len(node_keys),
+                        upsert_count=len(node_values),
+                    )
+
+                    if edges:
+                        # Preserve changes made during the node commit or its success log.
+                        encoded_metadata = json.dumps(metadata) if metadata else None
+                        encoded_tags = json.dumps(tags) if tags else None
+                        values = [
+                            (source, target, encoded_metadata, encoded_tags)
+                            for source, target in edges
+                        ]
+                        persisted_edge_count = len(values)
+                        with conn.cursor() as cur:
+                            from psycopg2.extras import execute_values
+
+                            execute_values(
+                                cur,
+                                """
+                                INSERT INTO phlo.asset_lineage_edges
+                                (source_asset, target_asset, metadata, tags)
+                                VALUES %s
+                                ON CONFLICT (source_asset, target_asset) DO UPDATE SET
+                                    metadata = COALESCE(EXCLUDED.metadata, phlo.asset_lineage_edges.metadata),
+                                    tags = COALESCE(EXCLUDED.tags, phlo.asset_lineage_edges.tags),
+                                    updated_at = NOW()
+                                """,
+                                values,
+                            )
+                        conn.commit()
+            except Exception:
+                if not persisted_node_count:
+                    logger.warning(
+                        "lineage_record_asset_nodes_failed",
+                        requested_count=len(node_keys),
+                        upsert_count=len(node_values),
+                        exc_info=True,
+                    )
+                raise
             logger.info(
                 "lineage_record_asset_edges_succeeded",
                 edge_count=edge_count,

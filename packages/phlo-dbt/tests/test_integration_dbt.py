@@ -9,7 +9,9 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
+import duckdb
 import pytest
 import yaml
 
@@ -134,11 +136,73 @@ def test_dbt_transformer_execution(dbt_project_dir):
     )
 
     # Run transformation
-    result = transformer.run_transform(
-        partition_key=None,
-        parameters={"generate_docs": False},  # Skip docs for speed
-    )
+    result = transformer.run_transform()
 
     # Verify result
     assert result.status == "success", f"DbtTransformer failed: {result.error}"
     assert "dbt_output" in result.metadata
+    assert not (project_dir / "target" / "catalog.json").exists()
+
+
+def test_isolated_builds_reuse_parsing_and_validate_changed_inputs(dbt_project_dir):
+    """Real dbt owns cache invalidation; Phlo must never reuse build outputs."""
+    import json
+
+    from phlo_dbt.transformer import DbtTransformer
+
+    project, executable = dbt_project_dir
+    _skip_if_duckdb_adapter_missing(executable, project, os.environ.copy())
+    model = project / "models" / "example" / "my_first_dbt_model.sql"
+    model.write_text("select {{ var('partition_date_str', '3') }} as id")
+    snapshots = []
+
+    def build(run, partition=None, target_name="dev", schema="main", **parameters):
+        transformer = DbtTransformer(
+            context=SimpleNamespace(run_id=run, asset_key="my_first_dbt_model"),
+            logger=get_logger("test_parse_cache"),
+            project_dir=project,
+            profiles_dir=project,
+            dbt_executable=executable,
+            target=target_name,
+        )
+        result = transformer.run_transform(partition_key=partition, parameters=parameters)
+        assert result.status == "success", result.error
+        target = project / "target" / "runs" / run / "my_first_dbt_model"
+        results = json.loads((target / "run_results.json").read_text())
+        manifest = json.loads((target / "manifest.json").read_text())
+        assert results["metadata"]["invocation_id"] == manifest["metadata"]["invocation_id"]
+        snapshots.append((target, (target / "run_results.json").read_bytes()))
+        with duckdb.connect(str(project / "test.duckdb")) as conn:
+            value = conn.execute(f'select id from "{schema}".my_first_dbt_model').fetchone()[0]
+        return target, value
+
+    cold, value = build("cold")
+    assert value == 3
+    assert not (cold / "catalog.json").exists()
+    assert "Unable to do partial parsing" in (cold / "logs" / "dbt.log").read_text()
+    warm, value = build("warm")
+    assert value == 3
+    assert "Partial parsing enabled, no changes found" in (warm / "logs" / "dbt.log").read_text()
+    changed_vars, value = build("vars", partition="7")
+    assert value == 7
+    assert "Unable to do partial parsing" in (changed_vars / "logs" / "dbt.log").read_text()
+    model.write_text("select 11 as id")
+    _, value = build("model")
+    assert value == 11
+    profiles = yaml.safe_load((project / "profiles.yml").read_text())
+    profiles["test_profile"]["outputs"]["dev"]["schema"] = "changed"
+    profiles["test_profile"]["outputs"]["wap"] = {
+        **profiles["test_profile"]["outputs"]["dev"],
+        "schema": "staged",
+    }
+    (project / "profiles.yml").write_text(yaml.safe_dump(profiles))
+    model.write_text("select 17 as id")
+    changed_profile, value = build("profile", schema="changed", generate_docs=True)
+    assert value == 17
+    assert "Unable to do partial parsing" in (changed_profile / "logs" / "dbt.log").read_text()
+    assert (changed_profile / "catalog.json").exists()
+    changed_target, value = build("target", target_name="wap", schema="staged")
+    assert value == 17
+    assert "Unable to do partial parsing" in (changed_target / "logs" / "dbt.log").read_text()
+    for target, snapshot in snapshots:
+        assert (target / "run_results.json").read_bytes() == snapshot

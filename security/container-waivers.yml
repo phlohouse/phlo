@@ -5,6 +5,27 @@ waivers: []
 
 # Runtime exceptions are separate from vulnerability waivers. They do not waive CVEs.
 runtime_waivers:
+  - id: trino-catalog-bootstrap
+    service: trino
+    image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
+    exception: root-bootstrap
+    rationale: >-
+      Rootless bind mounts initially belong to container root. The bootstrap must
+      grant Trino ownership of its dynamic catalog directory and read access to
+      declared static configuration before launching it.
+    compensating_control: >-
+      Permission changes are nonrecursive. The config parent and six declared
+      static config files grant the Trino group read access without group write
+      access or new world permissions; their host owners remain unchanged. The
+      catalog directory retains its host group, with Trino as owner. Other catalog
+      files and the bootstrap file are untouched. The config parent is not writable
+      by Trino, so Trino cannot replace the root-executed bootstrap. The bootstrap
+      rejects symlink and nonregular config paths before any permission changes,
+      then execs the launcher as trino:trino with supplementary groups reset.
+      Rootless-container integration coverage verifies identity and permissions.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/pull/1255
+    review_by: 2026-12-01
   - id: clickstack-root-entrypoint
     service: clickstack
     image: docker.io/hyperdx/hyperdx-all-in-one:2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1

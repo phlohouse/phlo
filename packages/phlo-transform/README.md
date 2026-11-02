@@ -75,19 +75,42 @@ last dotted name segment, which matches a dbt model name and keeps asset keys
 stable when a project switches engines. Set
 `PHLO_TRANSFORM_ASSET_KEY=logical` to keep the namespace prefix instead.
 
-Materializing an asset runs:
+Compatible workspace assets share one engine run through the Phlo grouped
+execution contract. A selection of two models runs:
 
 ```bash
-phlo-transform --root <workspace> run --select <model> --json
+phlo-transform --root <workspace> --json run --select <first-model> --select <second-model>
 ```
 
-The run report becomes a `MaterializeResult` (status, action, reasons, run and
-plan ids, previous and desired versions, SQL hash, query id, counts, timings)
-and one asset check per workspace test. The engine's `explain` report supplies
-column-level lineage metadata for the asset. A failed model or test is
-reported as a failure, not a silent skip. Unchanged models are reported as
-skipped by the engine and succeed. Set the orchestrator tag
-`phlo/full_refresh_asset=<asset key>` or pass `--force` to rebuild anyway.
+Each requested model retains its asset key, dependencies, checks, and
+`MaterializeResult` from its own report entry. Metadata includes status, action,
+reasons, run and plan IDs, versions, SQL hash, query ID, counts, and timings.
+A failed model or owned test fails that asset, not
+healthy siblings. Missing model or test evidence also fails the asset. An
+invocation failure fails the Dagster step after it emits successful outcomes.
+Unchanged and cached models succeed when their owned tests pass.
+
+The engine can include upstream dependencies in its plan, even for a subset
+selection. Phlo emits materialisations and checks only for requested assets.
+Per-model `explain` commands still supply column-lineage metadata; grouping
+reduces run commands, not every engine subprocess.
+
+Assets with different partitions, resources, or capability overrides form
+separate groups. A model with blocking checks finishes in an earlier group than
+its descendants, so failed checks still prevent downstream execution. A chain
+with checks on every model therefore retains separate invocations. Explicit
+execution policies keep individual runners, as does a graph that would become
+cyclic after grouping.
+
+Native `phlo/full_refresh_asset` requests fail explicitly. The engine's `--force`
+rebuilds a plan but does not replace existing incremental data. Use an
+engine-supported replacement plan for that operation, not a forced append.
+
+A group is one Dagster step, so its retries repeat the selected models.
+Existing asset selections and schedules need no changes. Set
+`PHLO_TRANSFORM_GROUP_EXECUTION=false` to keep legacy per-model Dagster op
+configuration. Attached checks execute with their owning assets; check-only
+selections are rejected before provider execution.
 
 In orchestrated runs the adapter comes from the resolved Phlo query engine:
 the Trino endpoint and catalog come from the query-engine capability, and a
@@ -205,6 +228,7 @@ collide.
 | `PHLO_TRANSFORM_TRINO_ENDPOINT` | Trino endpoint override. |
 | `PHLO_TRANSFORM_TRINO_USER` / `_PASSWORD` / `_CATALOG` / `_SCHEMA` | Trino connection overrides. |
 | `PHLO_TRANSFORM_JOBS` | Maximum concurrent model builds. |
+| `PHLO_TRANSFORM_GROUP_EXECUTION` | Group compatible workspace assets, `true` by default; `false` retains legacy per-model Dagster ops. |
 | `PHLO_TRANSFORM_ASSET_KEY` | `leaf` (default) or `logical`. |
 | `PHLO_TRANSFORM_RELEASE_VERSION` | Release installed by `phlo transform install`. |
 | `PHLO_TRANSFORM_TIMEOUT_SECONDS` | Per-command timeout. |

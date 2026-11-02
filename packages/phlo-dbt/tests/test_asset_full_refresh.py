@@ -59,6 +59,7 @@ def test_dbt_asset_full_refresh_replaces_disposable_incremental_table(tmp_path):
             runtime=runtime,
             manifest={"nodes": {}, "sources": {}},
             translator=DbtSpecTranslator(),
+            test_names=(),
         )
         materialization = result[-1]
         assert materialization.status == "success"

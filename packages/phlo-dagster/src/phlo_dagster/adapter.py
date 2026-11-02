@@ -44,8 +44,10 @@ Example:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from graphlib import TopologicalSorter
+from hashlib import sha256
 from typing import Any, Iterable, Mapping
 
 import dagster as dg
@@ -68,6 +70,8 @@ from phlo.capabilities.specs import (
     EvidenceProfileContributionSpec,
     MaterializeResult,
     ResourceSpec,
+    RunGroupResult,
+    RunGroupSpec,
 )
 from phlo.logging import get_logger, setup_logging
 from phlo.plugins.base import OrchestratorAdapterPlugin, PluginMetadata
@@ -162,6 +166,8 @@ class DagsterRuntime(RuntimeContext):
 
     context: dg.AssetExecutionContext
     asset_capability_overrides: dict[str, str] = field(default_factory=dict)
+    asset_key_override: str | None = None
+    group_execution: bool = False
 
     @property
     def run_id(self) -> str | None:
@@ -185,9 +191,15 @@ class DagsterRuntime(RuntimeContext):
         return DataInterval(start=window.start, end=window.end)
 
     @property
-    def asset_key(self) -> str:
-        """Return the active asset's user-facing key."""
-        return self.context.asset_key.to_user_string()
+    def asset_key(self) -> str | None:
+        """Return the active asset key, or no key for a provider group invocation."""
+        if self.group_execution:
+            return None
+        return (
+            self.asset_key_override
+            if self.asset_key_override is not None
+            else self.context.asset_key.to_user_string()
+        )
 
     @property
     def job_name(self) -> str:
@@ -342,7 +354,17 @@ class DagsterOrchestratorAdapter(OrchestratorAdapterPlugin):
             else:
                 resources_map[resource.name] = dg.ResourceDefinition.hardcoded_resource(value)
 
-        asset_defs = [self._build_asset(spec) for spec in assets_list if spec.run is not None]
+        from phlo_dagster.grouped_assets import group_asset_specs
+
+        asset_defs = []
+        for members in group_asset_specs(assets_list):
+            run = members[0].run
+            assert run is not None
+            asset_defs.append(
+                _build_group(run.group, members)
+                if len(members) > 1 and run.group is not None
+                else self._build_asset(members[0])
+            )
         check_defs = [self._build_check(check) for check in checks_list if check.fn is not None]
 
         logger.info(
@@ -545,6 +567,93 @@ def _asset_policies(spec: AssetSpec) -> dict[str, Any]:
     }
 
 
+def _build_group(group: RunGroupSpec, members: list[AssetSpec]) -> dg.AssetsDefinition:
+    """Translate a provider group into a subsettable step with per-asset results."""
+    keys = {spec.key for spec in members}
+    specs = [
+        dg.AssetSpec(
+            key=_asset_key_from_string(spec.key),
+            deps=[_asset_key_from_string(dep) for dep in spec.deps],
+            description=spec.description,
+            group_name=spec.group,
+            kinds=spec.kinds,
+            tags=spec.tags,
+            metadata=_convert_metadata(spec.metadata),
+            skippable=True,
+        )
+        for spec in members
+    ]
+    checks = [
+        dg.AssetCheckSpec(
+            name=check.name,
+            asset=_asset_key_from_string(check.asset_key),
+            blocking=check.blocking,
+            description=check.description,
+        )
+        for spec in members
+        for check in spec.checks
+        if check.fn is None
+    ]
+    suffix = sha256("\n".join(sorted(keys)).encode()).hexdigest()[:10]
+
+    @dg.multi_asset(
+        name=f"phlo_group_{group.name}_{suffix}",
+        specs=specs,
+        check_specs=checks,
+        can_subset=True,
+        partitions_def=_asset_policies(members[0])["partitions_def"],
+        required_resource_keys=members[0].resources,
+    )
+    def execute(context):
+        if any(
+            check.asset_key not in context.selected_asset_keys
+            for check in context.selected_asset_check_keys
+        ):
+            raise dg.Failure(
+                "Select each check's asset too; attached checks execute with their asset"
+            )
+        selected = {
+            spec.key: spec
+            for spec in members
+            if _asset_key_from_string(spec.key) in context.selected_asset_keys
+        }
+        runtimes = {key: _asset_runtime(context, spec) for key, spec in selected.items()}
+        runtime = replace(next(iter(runtimes.values())), group_execution=True)
+        graph = {key: set(spec.deps) & selected.keys() for key, spec in selected.items()}
+        ordered = tuple(TopologicalSorter(graph).static_order())
+        individual = runtime.tags.get("phlo/full_refresh_asset") in selected
+        result = RunGroupResult({})
+        if not individual:
+            with phlo_observe.dagster_run_scope(context):
+                result = group.fn(runtime, frozenset(selected))
+        if result.outcomes.keys() - selected.keys():
+            raise dg.Failure("Run group returned outcomes for unselected assets")
+        failures = []
+        blocked = set()
+        for key in ordered:
+            if individual and graph[key] & blocked:
+                blocked.add(key)
+                continue
+            if not individual and key not in result.outcomes:
+                continue
+            try:
+                yield from _execute_asset(
+                    context,
+                    selected[key],
+                    runtime=runtimes[key],
+                    run_results=None if individual else result.outcomes[key],
+                )
+            except Exception as error:
+                blocked.add(key)
+                failures.append(f"{key}: {error}")
+        if result.error:
+            failures.append(result.error)
+        if failures:
+            raise dg.Failure("; ".join(failures))
+
+    return execute
+
+
 def _verify_isolated_write(runtime: DagsterRuntime, spec: AssetSpec) -> bool:
     """Validate the source-owned contract before bypassing promotion-only WAP checks."""
     isolation = spec.run.isolated_write if spec.run else None
@@ -571,14 +680,18 @@ def _verify_isolated_write(runtime: DagsterRuntime, spec: AssetSpec) -> bool:
     return True
 
 
-def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterable[Any]:
-    """Collect scoped results, then yield checks before propagating a deferred failure."""
+def _asset_runtime(context: dg.AssetExecutionContext, spec: AssetSpec) -> DagsterRuntime:
+    """Validate asset-specific routing and WAP before any provider execution."""
     # Dagster's multiprocess worker replaces root handlers after module
     # import. Reattach Phlo's router in the worker so provider and user
     # logs join the canonical run history instead of remaining only in
     # Dagster's local event log.
     setup_logging(force=True)
-    runtime = DagsterRuntime(context, asset_capability_overrides=dict(spec.capability_overrides))
+    runtime = DagsterRuntime(
+        context,
+        asset_capability_overrides=dict(spec.capability_overrides),
+        asset_key_override=spec.key,
+    )
     from phlo.infrastructure import load_wap_config
 
     if not _verify_isolated_write(runtime, spec) and (
@@ -589,6 +702,18 @@ def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterab
         from phlo_dagster.wap_launch import verify_wap_execution
 
         verify_wap_execution(context.run, capability_overrides=dict(spec.capability_overrides))
+    return runtime
+
+
+def _execute_asset(
+    context: dg.AssetExecutionContext,
+    spec: AssetSpec,
+    *,
+    runtime: DagsterRuntime | None = None,
+    run_results: Iterable[Any] | None = None,
+) -> Iterable[Any]:
+    """Collect scoped results, then yield checks before propagating a deferred failure."""
+    runtime = runtime or _asset_runtime(context, spec)
     results: list[Any] = []
     deferred_failure: dg.Failure | None = None
     # Bind the physical Dagster run id so nested emissions (ingestion,
@@ -601,7 +726,13 @@ def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterab
         try:
             with phlo_observe.dagster_step(context):
                 # None means nothing to report, not a failed step on list(None).
-                raw_results = spec.run.fn(runtime) if spec.run else None
+                raw_results = (
+                    run_results
+                    if run_results is not None
+                    else spec.run.fn(runtime)
+                    if spec.run
+                    else None
+                )
                 results = list(raw_results) if raw_results is not None else []
                 _report_asset_results(context, spec, runtime, results)
         except dg.Failure as exc:
@@ -621,7 +752,9 @@ def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterab
             ):
                 pass
             materialized = True
-            yield dg.MaterializeResult(metadata=metadata)
+            yield dg.MaterializeResult(
+                asset_key=_asset_key_from_string(spec.key), metadata=metadata
+            )
         elif isinstance(result, CheckResult):
             severity = _severity_from_string(result.severity) or dg.AssetCheckSeverity.ERROR
             asset_check_key = _asset_key_from_string(result.asset_key)
@@ -639,7 +772,7 @@ def _execute_asset(context: dg.AssetExecutionContext, spec: AssetSpec) -> Iterab
         # Dagster requires an output even when the run reported nothing.
         with phlo_observe.emit_materialization(context, asset_key=spec.key):
             pass
-        yield dg.MaterializeResult()
+        yield dg.MaterializeResult(asset_key=_asset_key_from_string(spec.key))
 
 
 def _report_asset_results(

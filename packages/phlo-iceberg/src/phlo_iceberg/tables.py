@@ -47,7 +47,9 @@ from typing import Any, Literal
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from pydantic import PrivateAttr
 from pyiceberg.exceptions import CommitFailedException, TableAlreadyExistsError
+from pyiceberg.expressions import BoundSetPredicate, In
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 from pyiceberg.schema import Schema
 from pyiceberg.table import Table
@@ -140,6 +142,24 @@ def _finish_iceberg_commit(scope, table) -> None:
         pass
 
 
+class _MergeKeyPredicate(In):
+    """Reuse typed merge keys when PyIceberg binds the filter for each file.
+
+    This operation-local predicate and its bound literal sets are never mutated.
+    """
+
+    _binding: tuple[Schema, bool, BoundSetPredicate] | None = PrivateAttr(default=None)
+
+    def bind(self, schema: Schema, case_sensitive: bool = True) -> BoundSetPredicate:
+        """Bind once per schema and case mode, retaining no process-wide cache."""
+        binding = self._binding
+        if binding is not None and binding[0] == schema and binding[1] == case_sensitive:
+            return binding[2]
+        bound = super().bind(schema, case_sensitive)
+        self._binding = (schema, case_sensitive, bound)
+        return bound
+
+
 def _write_arrow_table(
     table: Table,
     arrow_table: pa.Table,
@@ -150,7 +170,7 @@ def _write_arrow_table(
     unique_key: str | None = None,
 ) -> int:
     """Publish staged schema and data together; reconcile competing additions."""
-    from pyiceberg.expressions import In, Reference
+    from pyiceberg.expressions import Reference
 
     transaction, aligned, additions = prepare_arrow_write(
         table, arrow_table, table_name=table_name, schema_policy=schema_policy
@@ -168,18 +188,20 @@ def _write_arrow_table(
                 if operation == "overwrite":
                     writer.overwrite(aligned)
                 else:
-                    if operation == "merge":
+                    if operation == "merge" and keys:
                         assert unique_key is not None
-                        for start in range(0, len(keys), 1000):
-                            batch = keys[start : start + 1000]
-                            with warnings.catch_warnings():
-                                warnings.filterwarnings(
-                                    "ignore",
-                                    message=r"^Delete operation did not match any records$",
-                                    category=UserWarning,
-                                )
-                                writer.delete(In(term=Reference(unique_key), values=set(batch)))
-                            rows_deleted += len(batch)
+                        # Each delete can scan and rewrite matching files. One
+                        # predicate avoids repeating that work for every key batch.
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings(
+                                "ignore",
+                                message=r"^Delete operation did not match any records$",
+                                category=UserWarning,
+                            )
+                            writer.delete(
+                                _MergeKeyPredicate(term=Reference(unique_key), values=set(keys))
+                            )
+                        rows_deleted = len(keys)
                     writer.append(aligned)
             return rows_deleted
         except CommitFailedException as exc:

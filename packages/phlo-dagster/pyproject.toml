@@ -37,6 +37,7 @@ dagster = "phlo_dagster.adapter:DagsterOrchestratorAdapter"
 
 [project.entry-points."phlo.plugins.services"]
 dagster = "phlo_dagster.plugin:DagsterServicePlugin"
+dagster-code = "phlo_dagster.plugin:DagsterCodeServicePlugin"
 dagster-daemon = "phlo_dagster.plugin:DagsterDaemonServicePlugin"
 
 [project.license]
@@ -66,6 +67,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_dagster = [
     "service.yaml",
+    "dagster-code.yaml",
     "dagster-daemon.yaml",
     "Dockerfile",
     "entrypoint.sh",

@@ -12,7 +12,7 @@ plugins such as phlo-clickhouse, phlo-dbt, phlo-dlt, plus delta/iceberg migrator
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
@@ -116,6 +116,27 @@ class IsolatedWriteSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class RunGroupResult:
+    """Keep asset outcomes separate from an invocation-level failure."""
+
+    outcomes: Mapping[str, Iterable[RunResult]]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RunGroupSpec:
+    """Provider-owned execution of a selected subset of compatible assets.
+
+    Results are keyed by asset identity. Missing keys represent skipped assets;
+    failed assets return their checks and a failed MaterializeResult. Adapters
+    retain individual runners for incompatible policies and execution graphs.
+    """
+
+    name: str
+    fn: Callable[[RuntimeContext, frozenset[str]], RunGroupResult]
+
+
+@dataclass(frozen=True, slots=True)
 class RunSpec:
     """Execution details for an asset."""
 
@@ -126,6 +147,7 @@ class RunSpec:
     cron: str | None = None
     freshness_hours: tuple[int, int] | None = None
     isolated_write: IsolatedWriteSpec | None = None
+    group: RunGroupSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)

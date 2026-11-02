@@ -195,7 +195,7 @@ def _register_quality_checks(
                 logger.info("validating_partition", partition_key=partition_key)
 
             try:
-                df = QueryCheckRunner(runtime, final_query, backend, scope=scope)
+                df = QueryCheckRunner(runtime, final_query, backend, non_schema_checks, scope=scope)
             except Exception as exc:
                 logger.error(
                     "quality_data_load_failed",

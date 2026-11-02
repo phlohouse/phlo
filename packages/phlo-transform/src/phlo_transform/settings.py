@@ -68,6 +68,11 @@ class TransformSettings(BaseConfig):
         validation_alias=AliasChoices("PHLO_TRANSFORM_JOBS"),
         description="Maximum concurrent model builds.",
     )
+    group_execution: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("PHLO_TRANSFORM_GROUP_EXECUTION"),
+        description="Run compatible workspace assets together; disable for legacy per-model Dagster op configuration.",
+    )
     asset_key: str = Field(
         default="leaf",
         validation_alias=AliasChoices("PHLO_TRANSFORM_ASSET_KEY"),
@@ -110,6 +115,7 @@ _ENV_KEYS = (
     "PHLO_TRANSFORM_TRINO_CATALOG",
     "PHLO_TRANSFORM_TRINO_SCHEMA",
     "PHLO_TRANSFORM_JOBS",
+    "PHLO_TRANSFORM_GROUP_EXECUTION",
     "PHLO_TRANSFORM_ASSET_KEY",
     "PHLO_TRANSFORM_RELEASE_VERSION",
     "PHLO_TRANSFORM_TIMEOUT_SECONDS",

@@ -59,6 +59,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_trino = [
     "service.yaml",
+    "entrypoint.sh",
     "jvm.config",
     "config.properties",
     "node.properties",

@@ -217,9 +217,10 @@ path=root/'phlo.yaml'; document=yaml.safe_load(path.read_text())
 document['authentication']={'provider':'jwt','jwt':{'enabled':True,'issuer':issuer,
     'audience':'phlo-acceptance','jwks_url':issuer+'/protocol/openid-connect/certs','ca_file':'/acceptance-ca/ca.pem'}}
 workspace=yaml.safe_load((root/'.phlo/dagster/workspace.yaml').read_text())
-definition=dict(workspace['load_from'][0]['python_module'])
+kind,original=next(iter(workspace['load_from'][0].items()))
+definition=dict(original)
 definition['location_name']=private_ref
-workspace['load_from'].append({'python_module':definition})
+workspace['load_from'].append({kind:definition})
 fixture=Path(ca).parent
 (fixture/'workspace.yaml').write_text(yaml.safe_dump(workspace))
 document['environments']['denied']={**document['environments'][env],

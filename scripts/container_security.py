@@ -40,6 +40,7 @@ BLOCKING_SEVERITIES = {"CRITICAL", "HIGH"}
 PUBLISHED_SERVICE_REPOSITORIES = {
     "phlo-api": "ghcr.io/phlohouse/phlo-api:",
     "dagster": "ghcr.io/phlohouse/phlo-dagster:",
+    "dagster-code": "ghcr.io/phlohouse/phlo-dagster:",
     "dagster-daemon": "ghcr.io/phlohouse/phlo-dagster:",
     "minio": "ghcr.io/phlohouse/phlo-minio:",
     "minio-setup": "ghcr.io/phlohouse/phlo-minio:",
@@ -276,8 +277,8 @@ def published_fleet(root: Path) -> list[dict[str, Any]]:
             raise ValueError(
                 f"published service {service_name!r} must use a versioned {repository!r} image"
             )
-    if by_service["dagster"] != by_service["dagster-daemon"]:
-        raise ValueError("dagster and dagster-daemon must share one published image")
+    if len({by_service[name] for name in ("dagster", "dagster-code", "dagster-daemon")}) != 1:
+        raise ValueError("dagster, dagster-code and dagster-daemon must share one published image")
     if by_service["minio"] != by_service["minio-setup"]:
         raise ValueError("minio and minio-setup must share one published image")
 

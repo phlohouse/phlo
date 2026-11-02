@@ -64,10 +64,17 @@ def _snapshot(catalog):
     return catalog.load_table(TABLE).current_snapshot().snapshot_id
 
 
-def test_multiple_delete_batches_publish_once_and_replay_without_duplicates(
-    local_catalog, batch, monkeypatch
+@pytest.mark.parametrize("split_files", [False, True])
+def test_large_merge_publishes_once_and_replays_without_duplicates(
+    local_catalog, batch, monkeypatch, split_files
 ):
+    if split_files:
+        table = local_catalog.load_table(TABLE)
+        original = table.scan().to_arrow()
+        table.overwrite(original.slice(0, 501))
+        table.append(original.slice(501))
     before = _rows(local_catalog)
+    snapshots_before = len(local_catalog.load_table(TABLE).snapshots())
     expected = [{"id": i, "status": "new"} for i in range(1003)] + [{"id": 1003, "status": "old"}]
     commit = local_catalog.commit_table
     publications = []
@@ -83,6 +90,11 @@ def test_multiple_delete_batches_publish_once_and_replay_without_duplicates(
     result = merge_to_table(TABLE, batch, "id")
     assert result == {"rows_deleted": 1003, "rows_inserted": 1003}
     assert publications == [expected]
+    # A partial file needs an overwrite; mixed files also need a delete snapshot.
+    # Both layouts need the final append, not extra snapshots per key batch.
+    assert len(local_catalog.load_table(TABLE).snapshots()) <= snapshots_before + (
+        3 if split_files else 2
+    )
 
     before = expected
     assert merge_to_table(TABLE, batch, "id") == result
@@ -90,7 +102,7 @@ def test_multiple_delete_batches_publish_once_and_replay_without_duplicates(
     assert _rows(local_catalog) == expected
 
 
-@pytest.mark.parametrize("failure_stage", ["second_delete", "append", "commit"])
+@pytest.mark.parametrize("failure_stage", ["delete", "append", "commit"])
 def test_precommit_failure_preserves_rows_and_snapshot(
     local_catalog, batch, monkeypatch, failure_stage
 ):
@@ -101,21 +113,13 @@ def test_precommit_failure_preserves_rows_and_snapshot(
     if failure_stage == "commit":
         commit.side_effect = RuntimeError("injected precommit failure")
     else:
-        method = getattr(Transaction, "delete" if failure_stage == "second_delete" else "append")
-        calls = 0
+        method = getattr(Transaction, failure_stage)
 
         def fail_after_staging(self, *args, **kwargs):
-            nonlocal calls
             method(self, *args, **kwargs)
-            calls += 1
-            if failure_stage == "append" or calls == 2:
-                raise RuntimeError("injected precommit failure")
+            raise RuntimeError("injected precommit failure")
 
-        monkeypatch.setattr(
-            Transaction,
-            "delete" if failure_stage == "second_delete" else "append",
-            fail_after_staging,
-        )
+        monkeypatch.setattr(Transaction, failure_stage, fail_after_staging)
 
     with pytest.raises(RuntimeError, match="injected precommit failure"):
         merge_to_table(TABLE, batch, "id")

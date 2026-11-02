@@ -7,6 +7,7 @@ stable asset check names so specs and run results refer to the same identity.
 from __future__ import annotations
 
 from phlo_dbt.asset_checks import (
+    dbt_asset_check_index,
     dbt_asset_check_names,
     dbt_asset_check_specs,
     extract_dbt_asset_checks,
@@ -82,3 +83,57 @@ def test_dbt_test_specs_and_results_share_unique_attached_node_identity() -> Non
     assert (
         dbt_asset_check_names(manifest, asset_key="product_dimension", translator=translator) == []
     )
+
+
+def test_check_index_keeps_selector_duplicates_and_spec_order() -> None:
+    """Invalid owners are skipped; fallback ownership and spec dedup stay independent."""
+    manifest = {
+        "nodes": {
+            "model.p.a": {"resource_type": "model", "name": "a"},
+            "seed.p.b": {"resource_type": "seed", "name": "b"},
+            "snapshot.p.c": {"resource_type": "snapshot", "name": "c"},
+            "test.p.first": {
+                "name": " repeated ",
+                "test_metadata": {"name": "unique"},
+                "depends_on": {"nodes": ["seed.p.b", "model.p.a"]},
+            },
+            "test.p.seed": {
+                "name": "seed_test",
+                "tags": ["warn"],
+                "test_metadata": {"name": "unique"},
+                "depends_on": {"nodes": ["seed.p.b"]},
+            },
+            "test.p.duplicate": {
+                "name": " repeated ",
+                "tags": ["warn"],
+                "test_metadata": {"name": "unique"},
+                "attached_node": "model.p.a",
+            },
+            "test.p.unnamed": {"attached_node": "snapshot.p.c"},
+            "test.p.empty": {"name": "", "attached_node": "model.p.a"},
+            "test.p.whitespace": {"name": " ", "attached_node": "seed.p.b"},
+            "test.p.fallback": {
+                "name": "fallback",
+                "attached_node": "model.p.missing",
+                "depends_on": {"nodes": ["snapshot.p.c"]},
+            },
+            "test.p.missing": {"name": "missing", "attached_node": "model.p.missing"},
+            "test.p.invalid": [],
+            "test.p.bad_deps": {"depends_on": []},
+        }
+    }
+    translator = DbtSpecTranslator(key_prefix="p")
+    specs, names = dbt_asset_check_index(manifest, translator=translator)
+    assert names == {
+        "p.a": (" repeated ", " repeated "),
+        "p.b": ("seed_test", " "),
+        "p.c": ("fallback",),
+    }
+    assert [spec.asset_key for spec in specs] == ["p.a", "p.b", "p.c", "p.a", "p.b", "p.c"]
+    assert specs[0].blocking is True
+    assert specs[1].blocking is False
+    for key, selectors in names.items():
+        assert list(selectors) == dbt_asset_check_names(
+            manifest, asset_key=key, translator=translator
+        )
+    assert specs == dbt_asset_check_specs(manifest, translator=translator)

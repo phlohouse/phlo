@@ -140,6 +140,16 @@
       "verified": true,
       "core": true
     },
+    "dagster-code": {
+      "type": "service",
+      "package": "phlo-dagster",
+      "description": "Dagster workflow code server",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-dagster",
+      "tags": ["orchestration", "core"],
+      "verified": true,
+      "core": true
+    },
     "dagster-daemon": {
       "type": "service",
       "package": "phlo-dagster",

@@ -235,7 +235,7 @@ def _package_owner_for_path(path: Path, packages: dict[str, Path]) -> str | None
 
 def _is_companion_service_yaml(filename: str) -> bool:
     """Mirror the runtime predicate for recursively loaded companion definitions."""
-    return filename.endswith(("-setup.yaml", "-daemon.yaml"))
+    return filename.endswith(("-setup.yaml", "-daemon.yaml", "-code.yaml"))
 
 
 def _top_level_yaml_name(path: Path) -> str | None:

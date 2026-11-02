@@ -110,7 +110,7 @@ def aggregates(paths: list[Path], optimized: bool, rows: int, _batch_size: int) 
     if optimized:
         from phlo_pandera.decorator_helpers import QueryCheckRunner
 
-        runner = QueryCheckRunner(runtime, "SELECT * FROM fixture", "duckdb")
+        runner = QueryCheckRunner(runtime, "SELECT * FROM fixture", "duckdb", checks)
         results = [runner.execute(check, runtime) for check in checks]
     else:
         frame = _load_data(runtime, "SELECT * FROM fixture", "duckdb")
