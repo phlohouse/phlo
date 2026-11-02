@@ -135,6 +135,8 @@ The path to 1.0 is set out in [ADR 0053](docs/architecture/decisions/0053-what-1
 - **0.20.0** removes the legacy `/api/observatory` routes and starts the 1.0 candidate line.
 - **1.0.0** ships only when the five release gates (security, run evidence, maintenance, upgrade and restore, golden path) pass on a live deployment, and the candidate has run that deployment for seven days without intervention.
 
+### Deployment support boundary
+
 Scope for 1.0 is one project and one tenant on Docker Compose, on Linux (macOS for local use, Windows via WSL 2). Kubernetes, high availability and multi-region are out of scope.
 
 Phlo is not validated for GxP or other regulated use. Regulated mode and evidence packs exist, but no part of Phlo has been qualified against a regulatory standard.
