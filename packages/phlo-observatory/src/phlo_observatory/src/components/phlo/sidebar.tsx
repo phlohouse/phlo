@@ -32,15 +32,13 @@ import { cn } from '@/lib/utils'
 
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <span
+    <img
+      src="/phlo-mark.svg"
+      alt=""
       aria-hidden
-      className={cn(
-        'inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground text-[13px] font-semibold text-background',
-        className,
-      )}
-    >
-      φ
-    </span>
+      draggable={false}
+      className={cn('size-6 shrink-0 object-contain', className)}
+    />
   )
 }
 

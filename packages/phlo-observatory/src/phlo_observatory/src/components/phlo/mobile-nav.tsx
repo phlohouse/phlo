@@ -25,7 +25,7 @@ export function MobileTopBar({ env }: { env: Env }) {
         search={{ env }}
         className="flex items-center gap-2.5 text-foreground"
       >
-        <BrandMark className="size-7 text-sm" />
+        <BrandMark className="size-7" />
         <span className="text-[17px] font-semibold">phlo</span>
       </Link>
       <EnvSwitcher env={env} compact />

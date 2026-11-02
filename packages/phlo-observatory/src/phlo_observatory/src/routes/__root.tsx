@@ -24,7 +24,11 @@ export const Route = createRootRoute({
         content: 'Mission control for the phlo lakehouse',
       },
     ],
-    links: [{ rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' }],
+    links: [
+      { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+      { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
+      { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
+    ],
     scripts: [{ children: themeInitScript }],
   }),
   component: RootComponent,
