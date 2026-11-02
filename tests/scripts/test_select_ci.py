@@ -1,12 +1,7 @@
 """Check PR selection against asymmetric workspace changes."""
 
 import importlib.util
-import os
-import subprocess
 from pathlib import Path
-
-import pytest
-import yaml
 
 SPEC = importlib.util.spec_from_file_location(
     "select_ci", Path(__file__).resolve().parents[2] / "scripts/select_ci.py"
@@ -112,41 +107,3 @@ def test_api_shards_cover_both_supported_python_versions() -> None:
         assert sorted(
             (entry["python-version"], entry["shard"], entry["shard-count"]) for entry in entries
         ) == [("3.12", 0, 2), ("3.12", 1, 2), ("3.13", 0, 2), ("3.13", 1, 2)]
-
-
-@pytest.mark.parametrize(
-    ("code", "ci", "docs", "changes", "succeeds"),
-    [
-        ("false", "skipped", "success", "success", True),
-        ("false", "skipped", "failure", "success", False),
-        ("false", "skipped", "success", "failure", False),
-        ("true", "success", "success", "success", True),
-        ("true", "skipped", "success", "success", False),
-        ("true", "cancelled", "success", "success", False),
-    ],
-)
-def test_required_gate_accepts_only_deliberate_docs_skips(code, ci, docs, changes, succeeds):
-    workflow = yaml.safe_load((select_ci.ROOT / ".github/workflows/pr.yml").read_text())
-    gate = workflow["jobs"]["required"]["steps"][0]
-    result = subprocess.run(
-        ["bash", "-c", gate["run"]],
-        env=os.environ
-        | {
-            "CHANGES": changes,
-            "CODE_SELECTED": code,
-            "CI": ci,
-            "CONTAINERS": ci,
-            "SECURITY": ci,
-            "INTEGRATION_SELECTED": code,
-            "PYTHON_SELECTED": code,
-            "INTEGRATION": "success" if code == "true" else "skipped",
-            "DOCS_SELECTED": "true",
-            "DOCS": docs,
-            "MUTATION_SELECTED": code,
-            "MUTATION": "success" if code == "true" else "skipped",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert (result.returncode == 0) is succeeds, result.stdout + result.stderr

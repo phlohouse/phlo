@@ -163,6 +163,7 @@ def test_required_gate_executes_fail_closed(bad_result) -> None:
         "MUTATION",
     ):
         env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
+        env["CODE_SELECTED"] = "true"
         env["INTEGRATION_SELECTED"] = "true"
         env["PYTHON_SELECTED"] = "false"
         env["DOCS_SELECTED"] = "true"
@@ -193,6 +194,7 @@ def test_python_only_changes_require_the_complete_integration_result(result) -> 
     assert step["env"]["INTEGRATION"] == "${{ needs.integration.result }}"
     env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
     env.update(
+        CODE_SELECTED="true",
         INTEGRATION=result,
         INTEGRATION_SELECTED="false",
         PYTHON_SELECTED="true",
@@ -252,6 +254,7 @@ def test_merge_queue_executes_full_selection(tmp_path) -> None:
     )
     subprocess.run(["bash", "-c", step["run"]], cwd=ROOT, env=env, check=True)
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values["code"] == "true"
     selection = json.loads(values["selection"])
     assert {entry["group"] for entry in selection["groups"]} == {
         "platform",
@@ -359,6 +362,7 @@ def test_pr_selection_fetches_exact_endpoints_from_a_shallow_merge(tmp_path, mis
     else:
         assert actual.returncode == 0, actual.stderr
         values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        assert values["code"] == "false"
         assert json.loads(values["selection"]) == expected
 
 
@@ -421,7 +425,7 @@ def test_independent_jobs_preserve_named_checks_and_single_setup():
             "Run tests",
             "Smoke the built Node app against the controlled authenticated API",
         },
-        "writer": {"Type check writer", "Run writer tests", "Build writer"},
+        "writer": {"Build, type check and test writer"},
         "plugin": {"Run plugin behavior tests", "Upload plugin results"},
     }.items():
         assert checks <= {step.get("name") for step in jobs[name]["steps"]}
@@ -438,6 +442,9 @@ def test_independent_jobs_preserve_named_checks_and_single_setup():
     } <= quality_names
     assert "pre-commit" not in jobs and "phlo-github-writer" not in jobs
     assert "plugin" not in workflow("pr.yml")["jobs"]
+    writer = json.loads((ROOT / "apps/phlo-github-writer/package.json").read_text())
+    assert writer["scripts"]["test"].startswith("npm run build && ")
+    assert writer["scripts"]["build"] == "tsc"
 
 
 @pytest.mark.parametrize("chrome_available", [False, True])
@@ -479,18 +486,48 @@ def test_browser_setup_uses_runner_chrome_without_installing_browser_or_os(
         assert not output.exists()
 
 
-def test_required_result_collects_coverage_after_service_and_python_contracts():
+def test_required_result_waits_for_service_and_authoritative_coverage_contracts():
     required = workflow("pr.yml")["jobs"]["required"]
     assert {"ci", "integration"} <= set(required["needs"])
     steps = required["steps"]
-    downloads = [step["with"] for step in steps if "download-artifact@" in step.get("uses", "")]
-    assert {item.get("pattern") for item in downloads} >= {"core-tests-*", "package-results-*"}
-    assert any(item.get("name") == "quickstart-smoke" for item in downloads)
-    combine = next(step for step in steps if "coverage combine" in step.get("run", ""))
-    assert combine["if"] == "needs.changes.outputs.python == 'true'"
     emit = next(step for step in steps if "ci_evidence.py emit" in step.get("run", ""))
-    assert steps.index(combine) < steps.index(emit)
-    assert "coverage" not in workflow("ci.yml")["jobs"]
+    assert emit["if"] == "github.event_name == 'merge_group'"
+    assert "python-coverage" in workflow("ci.yml")["jobs"]["ci-status"]["needs"]
+
+
+@pytest.mark.parametrize(
+    ("ci", "docs", "changes", "succeeds"),
+    [
+        ("skipped", "success", "success", True),
+        ("skipped", "failure", "success", False),
+        ("skipped", "success", "failure", False),
+        ("cancelled", "success", "success", False),
+    ],
+)
+def test_required_gate_accepts_only_deliberate_docs_skips(ci, docs, changes, succeeds):
+    gate = workflow("pr.yml")["jobs"]["required"]["steps"][0]
+    result = subprocess.run(
+        ["bash", "-c", gate["run"]],
+        env=dict(
+            os.environ,
+            CHANGES=changes,
+            CODE_SELECTED="false",
+            CI=ci,
+            CONTAINERS=ci,
+            SECURITY=ci,
+            INTEGRATION_SELECTED="false",
+            PYTHON_SELECTED="false",
+            INTEGRATION="skipped",
+            DOCS_SELECTED="true",
+            DOCS=docs,
+            MUTATION_SELECTED="false",
+            MUTATION="skipped",
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is succeeds, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("producer", ["WORKSPACE", "POSTGRES"])
