@@ -66,9 +66,16 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     if broad:
         return {
             "groups": [
-                {"group": group, "packages": " ".join(packages), "python-version": version}
+                {
+                    "group": group,
+                    "packages": " ".join(packages),
+                    "python-version": version,
+                    "shard": shard,
+                    "shard-count": 2 if group == "api" else 1,
+                }
                 for version in PYTHON_VERSIONS
                 for group, packages in groups.items()
+                for shard in range(2 if group == "api" else 1)
             ],
             "python": True,
             "frontend": True,
@@ -100,10 +107,17 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
             affected.add(dependent)
             pending.append(dependent)
     selected = [
-        {"group": group, "packages": " ".join(packages), "python-version": version}
+        {
+            "group": group,
+            "packages": " ".join(packages),
+            "python-version": version,
+            "shard": shard,
+            "shard-count": 2 if group == "api" else 1,
+        }
         for version in PYTHON_VERSIONS
         for group, packages in groups.items()
         if affected.intersection(packages)
+        for shard in range(2 if group == "api" else 1)
     ]
     frontend = "phlo-api" in affected or any(
         path.startswith("packages/phlo-observatory/") for path in paths

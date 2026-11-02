@@ -274,7 +274,7 @@ jobs:
           include-hidden-files: true
 
   python-package-tests:
-    name: python / package tests (${{ matrix.group }}, ${{ matrix.python-version }})
+    name: python / package tests (${{ matrix.group }}, ${{ matrix.python-version }}, shard ${{ matrix.shard }})
     needs: ci-config
     if: needs.ci-config.outputs.groups != '[]'
     timeout-minutes: 20
@@ -320,7 +320,8 @@ jobs:
             set +e
             COVERAGE_FILE="test-results/.coverage.${package}" \
               uv run --python ${{ matrix.python-version }} --locked --package "${package}" --with-editable ./packages/phlo-testing --with pytest --with pytest-xdist --with pytest-timeout --with pytest-cov==7.1.0 \
-              pytest -m "not integration" -n "${PYTEST_WORKERS}" --dist worksteal --timeout=300 --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
+              python -m pytest -p scripts.ci_shard --ci-shard-index=${{ matrix.shard }} --ci-shard-count=${{ matrix.shard-count }} \
+              -m "not integration" -n "${PYTEST_WORKERS}" --dist worksteal --timeout=300 --tb=short "${test_dir}" --junitxml="test-results/${package}.xml" --cov="${package//-/_}" --cov-report=
             exit_code=$?
             set -e
             echo "::endgroup::"
@@ -339,7 +340,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: package-results-${{ matrix.group }}-${{ matrix.python-version }}
+          name: package-results-${{ matrix.group }}-${{ matrix.python-version }}-${{ matrix.shard }}
           path: test-results/
           if-no-files-found: error
           include-hidden-files: true
@@ -557,17 +558,10 @@ jobs:
         id: writer_install
         run: npm ci
 
-      - name: Type check writer
-        if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
-        run: npm run typecheck
-
-      - name: Run writer tests
+      # npm test first compiles with tsc, including its type checks.
+      - name: Build, type check and test writer
         if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
         run: npm test
-
-      - name: Build writer
-        if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
-        run: npm run build
 
   plugin:
     name: behaviour / GitHub plugin

@@ -118,7 +118,11 @@ def test_package_cache_tracks_the_installed_group_and_python():
     job = ("ci.yml", "python-package-tests")
     groups = SELECTOR.select(set())["groups"]
     keys = {_pr_consumers(matrix=group)[job] for group in groups}
-    assert len(keys) == len(groups)
+    assert len(keys) == len({(group["group"], group["python-version"]) for group in groups})
+    api = [
+        group for group in groups if group["group"] == "api" and group["python-version"] == "3.12"
+    ]
+    assert len({_pr_consumers(matrix=group)[job] for group in api}) == 1
     group = groups[0]
     original = _pr_consumers(matrix=group)[job]
     # Group membership can change without changing a pyproject or uv.lock.

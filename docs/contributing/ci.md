@@ -10,6 +10,13 @@ affected package groups and reverse dependencies. Unknown inputs select full
 validation; only explicitly inert documentation omits executable lanes. Every
 merge group runs the full contract on its prospective merge SHA.
 
+Documentation-only PRs run the change detector, documentation build and
+`pr / required`, without starting CI, container or dependency-risk jobs. The
+workflow itself has no path filter because GitHub would leave its required
+check pending. Unknown files under `docs/` still select full validation.
+Obsolete PR revisions cancel automatically. Main and beta source-health runs
+use per-commit concurrency groups and never cancel an in-progress run.
+
 Required lanes cover Python quality and behaviour, installed provider artifacts,
 PostgreSQL concurrency, quickstart and recovery, Windows portability,
 Observatory, GitHub writer and webhook plugin behaviour, documentation,
@@ -39,17 +46,23 @@ environments.
 | Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
 | Release acceptance and promotion | Exercise staged bytes on required platforms and repeated runs, then publish through the authenticated promotion dispatch. Release merges coordinate these dispatches automatically. |
 
-`pr / required` collects combined core, package and quickstart coverage after
-both Python and service contracts finish, then records queue evidence. The
-authoritative line and branch coverage gate runs the complete workspace in four
+`pr / required` checks lane results, then records queue evidence on merge groups.
+It does not repeat coverage aggregation. The authoritative line and branch
+coverage gate runs the complete workspace in four
 module-preserving shards, alongside a required PostgreSQL coverage job. A final
 job verifies every producer and combines their data before enforcing the existing
-per-source floors. Both reporting jobs install only the locked `coverage-report`
-dependency group. Their commands retain that group when running, so report
+per-source floors. The reporting job installs only the locked `coverage-report`
+dependency group. Its commands retain that group when running, so report
 generation does not trigger a full workspace installation. See
 [test and contract gates](testing-gates.md) for the source scope and local
 commands. Standalone Windows dispatch builds its own wheels; ordinary validation
 reuses the preparation artifact.
+
+API package tests use two module-preserving shards on each supported Python
+version. Other package groups use one shard. Shards share their package group's
+dependency cache but upload separate result artifacts. Core, package and
+quickstart coverage remains available in the producer artifacts. The combined
+report is `workspace-line-branch-coverage`, not the former `combined-coverage`.
 
 Python dependency caches use separate keys for each environment purpose. Full
 workspace jobs share a cache; wheel preparation, provider installation and

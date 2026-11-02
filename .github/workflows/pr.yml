@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       selection: ${{ steps.select.outputs.selection }}
+      code: ${{ steps.select.outputs.code }}
       python: ${{ steps.select.outputs.python }}
       integration: ${{ steps.select.outputs.integration }}
       docs: ${{ steps.select.outputs.docs }}
@@ -53,6 +54,7 @@ jobs:
           fi
           {
             echo "selection=$selection"
+            echo "code=$(jq '[.python, .frontend, .writer, .plugin, .integration, .mutation] | any' <<< "$selection")"
             echo "python=$(jq -r .python <<< "$selection")"
             echo "integration=$(jq -r .integration <<< "$selection")"
             echo "docs=$(jq -r .docs <<< "$selection")"
@@ -62,6 +64,7 @@ jobs:
 
   ci:
     needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/ci.yml
     with:
       selection: ${{ needs.changes.outputs.selection }}
@@ -72,6 +75,8 @@ jobs:
     uses: ./.github/workflows/integration.yml
 
   containers:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/container-security.yml
 
   docs:
@@ -86,6 +91,8 @@ jobs:
 
   security:
     name: security / introduced dependency risk
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -160,6 +167,7 @@ jobs:
         env:
           CI: ${{ needs.ci.result }}
           CHANGES: ${{ needs.changes.result }}
+          CODE_SELECTED: ${{ needs.changes.outputs.code }}
           INTEGRATION: ${{ needs.integration.result }}
           INTEGRATION_SELECTED: ${{ needs.changes.outputs.integration }}
           PYTHON_SELECTED: ${{ needs.changes.outputs.python }}
@@ -171,9 +179,12 @@ jobs:
           MUTATION_SELECTED: ${{ needs.changes.outputs.mutation }}
         run: |
           set -euo pipefail
-          for result in "$CHANGES" "$CI" "$CONTAINERS" "$SECURITY"; do
-            if [ "$result" != success ]; then
-              echo "::error::Required PR lane did not succeed: $result"
+          test "$CHANGES" = success
+          expected_code=skipped
+          if [ "$CODE_SELECTED" = true ]; then expected_code=success; fi
+          for result in "$CI" "$CONTAINERS" "$SECURITY"; do
+            if [ "$result" != "$expected_code" ]; then
+              echo "::error::Required PR lane expected $expected_code, got $result"
               exit 1
             fi
           done
@@ -193,52 +204,14 @@ jobs:
             test "$MUTATION" = skipped
           fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        if: needs.changes.outputs.python == 'true' || github.event_name == 'merge_group'
+        if: github.event_name == 'merge_group'
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        if: needs.changes.outputs.python == 'true' || github.event_name == 'merge_group'
+        if: github.event_name == 'merge_group'
         with:
           version: "0.12.1"
           enable-cache: false
-      - name: Install locked coverage tools
-        if: needs.changes.outputs.python == 'true'
-        run: |
-          uv python install 3.12
-          uv sync --locked --only-group coverage-report
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        if: needs.changes.outputs.python == 'true'
-        with:
-          pattern: core-tests-*
-          path: coverage-data/core
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        if: needs.changes.outputs.python == 'true' && fromJSON(needs.changes.outputs.selection).groups[0] != null
-        with:
-          pattern: package-results-*
-          path: coverage-data/packages
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        if: needs.changes.outputs.python == 'true'
-        with:
-          name: quickstart-smoke
-          path: coverage-data/quickstart
-      - name: Combine measured regression, core, package and quickstart coverage
-        if: needs.changes.outputs.python == 'true'
-        run: |
-          set -euo pipefail
-          mapfile -t directories < <(find coverage-data -name '.coverage.*' -printf '%h\n' | sort -u)
-          test "${#directories[@]}" -gt 0
-          uv run --locked --only-group coverage-report coverage combine "${directories[@]}"
-          uv run --locked --only-group coverage-report coverage xml -o coverage.xml
-          uv run --locked --only-group coverage-report coverage json -o coverage.json
-          uv run --locked --only-group coverage-report coverage report >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        if: needs.changes.outputs.python == 'true'
-        with:
-          name: combined-coverage
-          path: |
-            coverage.xml
-            coverage.json
-          if-no-files-found: error
       - name: Record authenticated full-queue evidence and job timings
         if: github.event_name == 'merge_group'
         env:
