@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY scripts/patch-eslint-minimatch.mjs ./scripts/patch-eslint-minimatch.mjs
 
 # Install dependencies
 RUN npm ci

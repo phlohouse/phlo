@@ -727,7 +727,7 @@ def _readiness_errors(manifest: dict[str, object]) -> list[str]:
 
 
 def test_gate_backed_production_ready_manifest_validates() -> None:
-    manifest = _production_ready_manifest("0.18.0")
+    manifest = _production_ready_manifest(_manifest()["current_release"]["version"])
     assert validate_manifest(manifest) == []
 
     not_required = manifest["gates"]["components"][0]
@@ -888,7 +888,7 @@ def test_release_vocabularies_stay_closed(path: tuple[str, ...], value: str) -> 
 
 
 def test_supported_component_maturity_requires_production_ready_blessed_core() -> None:
-    manifest = _production_ready_manifest("0.18.0")
+    manifest = _production_ready_manifest(_manifest()["current_release"]["version"])
     _package(manifest, "phlo")["current_maturity"] = "supported"
     assert validate_manifest(manifest) == []
 
