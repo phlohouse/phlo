@@ -1,3 +1,4 @@
+/** Exercise lint plugin rules against the patched minimatch 11 dependency. */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ESLint } from 'eslint'

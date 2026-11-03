@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync } from 'node:fs'
-
 // Remove once these plugins support minimatch 11. Keep matching on its bounded
 // matcher rather than restoring the removed regular-expression compiler.
+import { readFileSync, writeFileSync } from 'node:fs'
+
 const patches = [
   ...['mayContainChildComponent', 'mayHaveAccessibleLabel'].map((name) => [
     `eslint-plugin-jsx-a11y/lib/util/${name}.js`,
