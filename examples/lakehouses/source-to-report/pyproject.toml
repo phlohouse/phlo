@@ -8,13 +8,13 @@ version = "0.1.0"
 description = "Reference Phlo lakehouse: source to evidence, insight, analysis and a report"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "phlo[defaults]==0.18.0",
-    "phlo-dagster==0.18.0",
-    "phlo-dlt==0.17.0",
-    "phlo-dbt==0.17.0",
-    "phlo-iceberg==0.17.0",
-    "phlo-pandera==0.16.1",
-    "phlo-trino==0.17.0",
+    "phlo[defaults]==0.19.0",
+    "phlo-dagster==0.19.0",
+    "phlo-dlt==0.18.0",
+    "phlo-dbt==0.18.0",
+    "phlo-iceberg==0.18.0",
+    "phlo-pandera==0.17.0",
+    "phlo-trino==0.18.0",
     "dlt>=1.20,<2",
     "dbt-duckdb>=1.9,<2",
     "duckdb>=1.4,<1.6",
