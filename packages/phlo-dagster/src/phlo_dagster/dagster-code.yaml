@@ -32,10 +32,10 @@ compose:
     dagster-code:
       aliases: [dagster-code-private]
   command:
-    ["dagster", "code-server", "start", "-h", "dagster-code-private", "-p", "4000", "-m", "phlo_dagster.framework.definitions", "-d", "/app"]
+    ["python", "-m", "phlo_dagster.code_server", "-h", "dagster-code-private", "-p", "4000", "-m", "phlo_dagster.framework.definitions", "-d", "/app"]
   healthcheck:
-    # The image's sitecustomize imports Dagster. Probe the same standard gRPC
-    # health service without that application startup on every health tick.
+    # Avoid importing Dagster on every tick, but require the proxy to reach its
+    # worker. The standard health service alone stays SERVING after worker death.
     test:
       - CMD
       - python
@@ -48,7 +48,11 @@ compose:
         import grpc
         from grpc_health.v1 import health_pb2, health_pb2_grpc
         with grpc.insecure_channel(sys.argv[1]) as channel:
-            response = health_pb2_grpc.HealthStub(channel).Check(health_pb2.HealthCheckRequest(service="DagsterApi"))
+            response = health_pb2_grpc.HealthStub(channel).Check(health_pb2.HealthCheckRequest(service="DagsterApi"), timeout=3)
+            if response.status == health_pb2.HealthCheckResponse.SERVING:
+                # An empty PingRequest is valid protobuf. Ping is forwarded to
+                # the active worker, unlike the proxy-local Heartbeat method.
+                channel.unary_unary("/api.DagsterApi/Ping")(b"", timeout=3)
         raise SystemExit(response.status != health_pb2.HealthCheckResponse.SERVING)
       - dagster-code-private:4000
     interval: 30s

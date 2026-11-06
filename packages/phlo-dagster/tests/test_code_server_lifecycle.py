@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
+from importlib import resources
+from threading import Event, Thread
 
+import grpc
 import psycopg2
 import pytest
 import yaml
@@ -22,6 +27,8 @@ from dagster._core.workspace.load_target import WorkspaceFileTarget
 from dagster._grpc.client import DagsterGrpcClient
 from dagster_graphql.schema import create_schema
 from dagster_graphql.test.utils import execute_dagster_graphql
+
+from phlo_dagster.code_server import client_heartbeat_thread
 
 pytestmark = pytest.mark.integration
 
@@ -38,6 +45,123 @@ def _wait(predicate, timeout=180):
 def _stop(process):
     process.terminate()
     process.wait(timeout=90)
+
+
+def test_stalled_heartbeat_rpc_retries_before_the_worker_ttl():
+    entered, release, recovered, shutdown = Event(), Event(), Event(), Event()
+    attempts = 0
+
+    def heartbeat(request, context):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            entered.set()
+            release.wait(timeout=45)
+        else:
+            recovered.set()
+        return request
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        server = grpc.server(workers)
+        server.add_generic_rpc_handlers(
+            (
+                grpc.method_handlers_generic_handler(
+                    "api.DagsterApi", {"Heartbeat": grpc.unary_unary_rpc_method_handler(heartbeat)}
+                ),
+            )
+        )
+        port = server.add_insecure_port("127.0.0.1:0")
+        server.start()
+        thread = Thread(
+            target=client_heartbeat_thread,
+            args=(DagsterGrpcClient(port=port), shutdown),
+        )
+        thread.start()
+        try:
+            assert entered.wait(timeout=20)
+            # A general 60s RPC deadline would miss the 30s worker TTL. The
+            # bounded heartbeat must retry even while the first RPC is stuck.
+            assert recovered.wait(timeout=20)
+            assert thread.is_alive()
+        finally:
+            shutdown.set()
+            release.set()
+            thread.join(timeout=10)
+            server.stop(grace=0).wait(timeout=5)
+        assert not thread.is_alive()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix sockets and process suspension")
+@pytest.mark.parametrize("failure", ["heartbeat_expiry", "worker_killed"])
+def test_active_worker_loss_exits_proxy_but_reload_does_not(tmp_path, failure):
+    """A dead worker must release PID 1 for the configured Docker restart policy."""
+    definition = yaml.safe_load(
+        resources.files("phlo_dagster").joinpath("dagster-code.yaml").read_text()
+    )["compose"]
+    command = definition["command"][:3]
+    command[0] = sys.executable
+    assert definition["restart"] == "unless-stopped"
+    # Application log routing may call arbitrary plugins. Proxy control-plane
+    # logs must remain on Dagster's stdout handler, independent of those hooks.
+    launcher = tmp_path / "launch.py"
+    launcher.write_text(
+        f"from {command[2]} import main\n"
+        "import logging\n"
+        "class RejectRootRouting(logging.Handler):\n"
+        "    def emit(self, record):\n"
+        "        raise RuntimeError('Proxy control plane reached application logging')\n"
+        "logging.getLogger().addHandler(RejectRootRouting())\n"
+        "main()\n"
+    )
+    command = [sys.executable, str(launcher)]
+    worker_pid = tmp_path / "worker.pid"
+    definitions = tmp_path / "definitions.py"
+    definitions.write_text(
+        "import os\nfrom pathlib import Path\nfrom dagster import Definitions\n"
+        f"Path({str(worker_pid)!r}).write_text(str(os.getpid()))\n"
+        "defs = Definitions()\n"
+    )
+    socket = str(tmp_path / "code.sock")
+    command += ["-s", socket, "-f", str(definitions), "-d", str(tmp_path)]
+    # Shorten only this disposable worker's TTL to exercise actual heartbeat
+    # expiry without imposing a 30+ second delay on each regression run.
+    command += ["--heartbeat-ttl", "2"]
+    with (tmp_path / "code.log").open("w") as log:
+        process = subprocess.Popen(command, stdout=log, stderr=log)
+        try:
+            client = DagsterGrpcClient(socket=socket)
+
+            def ready():
+                assert process.poll() is None, (tmp_path / "code.log").read_text()
+                try:
+                    return client.ping("ready")["echo"] == "ready"
+                except Exception:
+                    return False
+
+            _wait(ready)
+            original = client.get_server_id()
+            client.reload_code(timeout=90)
+            assert client.get_server_id() != original
+            assert process.poll() is None
+            assert client.ping("after-reload")["echo"] == "after-reload"
+            if failure == "worker_killed":
+                os.kill(int(worker_pid.read_text()), signal.SIGKILL)
+            else:
+                os.kill(process.pid, signal.SIGSTOP)
+                # The worker keeps running while only its heartbeat sender is
+                # suspended. Wait for the real expiry, not a mocked clock.
+                deadline = time.monotonic() + 30
+                while "No heartbeat received" not in (tmp_path / "code.log").read_text():
+                    assert time.monotonic() < deadline
+                    time.sleep(0.1)
+                os.kill(process.pid, signal.SIGCONT)
+            _wait(lambda: process.poll() is not None, timeout=30)
+            assert process.returncode == 0
+            assert "Active Dagster worker exited" in (tmp_path / "code.log").read_text()
+        finally:
+            if process.poll() is None:
+                os.kill(process.pid, signal.SIGCONT)
+                _stop(process)
 
 
 def test_persistent_location_reload_restart_launch_and_pooled_daemon(tmp_path, monkeypatch):
@@ -88,9 +212,7 @@ defs = Definitions(jobs=[proof_job], sensors=[proof_sensor], schedules=[proof_sc
         command = [
             sys.executable,
             "-m",
-            "dagster",
-            "code-server",
-            "start",
+            "phlo_dagster.code_server",
             "-s",
             socket,
             "-f",
