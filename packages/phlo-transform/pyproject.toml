@@ -6,13 +6,11 @@ requires = [
 ]
 
 [project]
-dependencies = [
-    "phlo>=0.18.0,<0.19",
-]
+dependencies = ["phlo>=0.19.0,<0.20"]
 description = "SQL transformation capability provider for Phlo, backed by the Phlo Transform engine"
 name = "phlo-transform"
 requires-python = ">=3.12"
-version = "0.1.0"
+version = "0.2.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
