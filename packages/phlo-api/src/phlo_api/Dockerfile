@@ -32,8 +32,10 @@ ENV PHLO_API_EXTRAS=${PHLO_API_EXTRAS}
 RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"].split(","))); unknown = extras - {"dagster", "dlt", "iceberg", "lineage", "transform", "trino"}; assert not unknown, f"Unsupported API provider extras: {sorted(unknown)}"'
 
 # Match the existing GNU-native provider runtime rather than relying on musl shims.
+# Apply Debian fixes even when the digest-pinned base predates them.
 # hadolint ignore=DL3008
 RUN apt-get update \
+    && apt-get upgrade --no-install-recommends --yes \
     && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir \
