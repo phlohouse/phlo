@@ -128,6 +128,20 @@ def test_code_healthcheck_requires_the_dagster_service_to_be_serving():
         server = grpc.server(workers)
         service = health.HealthServicer()
         health_pb2_grpc.add_HealthServicer_to_server(service, server)
+        worker_available = True
+
+        def ping(request, context):
+            if not worker_available:
+                context.abort(grpc.StatusCode.UNAVAILABLE, "worker is dead")
+            return b""
+
+        server.add_generic_rpc_handlers(
+            (
+                grpc.method_handlers_generic_handler(
+                    "api.DagsterApi", {"Ping": grpc.unary_unary_rpc_method_handler(ping)}
+                ),
+            )
+        )
         port = server.add_insecure_port("127.0.0.1:0")
         command[-1] = f"127.0.0.1:{port}"
         server.start()
@@ -140,6 +154,11 @@ def test_code_healthcheck_requires_the_dagster_service_to_be_serving():
                 service.set("DagsterApi", status)
                 result = subprocess.run(command, capture_output=True, timeout=15)
                 assert result.returncode == expected, result.stderr.decode()
+            # A healthy proxy with no worker must not satisfy Compose readiness.
+            service.set("DagsterApi", health_pb2.HealthCheckResponse.SERVING)
+            worker_available = False
+            result = subprocess.run(command, capture_output=True, timeout=15)
+            assert result.returncode != 0
         finally:
             server.stop(grace=0).wait(timeout=5)
         disconnected = subprocess.run(command, capture_output=True, timeout=15)
