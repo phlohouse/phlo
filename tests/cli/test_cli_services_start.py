@@ -69,7 +69,7 @@ def _invoke_services_start_with_statuses(
 
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
-    (phlo_dir / ".env").write_text("")
+    (phlo_dir / ".env").write_text("MINIO_ROOT_PASSWORD=readiness-test-secret\n")
     (phlo_dir / "docker-compose.yml").write_text(compose)
     backend = backend or _ReadinessBackend(snapshots)
     monkeypatch.chdir(tmp_path)
@@ -615,7 +615,7 @@ def test_services_start_uses_podman_backend(monkeypatch: pytest.MonkeyPatch, tmp
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     (phlo_dir / "docker-compose.yml").write_text("services:\n  postgres: {}\n")
-    (phlo_dir / ".env").write_text("")
+    (phlo_dir / ".env").write_text("POSTGRES_PASSWORD=backend-test-secret\n")
     (tmp_path / "phlo.yaml").write_text("name: demo\n")
     monkeypatch.chdir(tmp_path)
 
@@ -1222,6 +1222,127 @@ def test_load_native_env_overrides_merges_env_files(tmp_path) -> None:
     assert result["PHLO_API_PORT"] == "54001"
     assert result["OBSERVATORY_PORT"] == "3001"
     assert result["SECRET_TOKEN"] == "abc123"
+
+
+@pytest.mark.parametrize("explicit", [False, True], ids=["default", "through-container"])
+def test_native_start_launches_the_complete_ordered_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, explicit: bool
+) -> None:
+    """Native launches retain dependency order and omit unselected optional services."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.plugins.compose.native import NativeProcessManager
+
+    services = {
+        name: ServiceDefinition(
+            name=name,
+            description=name,
+            depends_on=dependencies,
+            dev={"command": [sys.executable, "-c", "import time; time.sleep(60)"]}
+            if name != "bridge"
+            else {},
+        )
+        for name, dependencies in [
+            ("a-client", ["bridge"] if explicit else ["z-server", "missing-external"]),
+            ("bridge", ["z-server"]),
+            ("z-server", []),
+            ("unused", []),
+        ]
+    }
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text("")
+    (phlo_dir / "docker-compose.yml").write_text(
+        "services:\n"
+        "  a-client: {}\n"
+        "  z-server: {}\n"
+        "  bridge:\n"
+        "    profiles: [optional]\n"
+        "    depends_on: [z-server]\n"
+        "  unused:\n"
+        "    profiles: [optional]\n"
+    )
+    launches = []
+    processes = []
+    compose_calls = []
+    original_start = NativeProcessManager.start_service
+
+    async def record_start(self, service, **kwargs):
+        process = await original_start(self, service, **kwargs)
+        assert process is not None and process.is_running
+        processes.append(process)
+        launches.append(service.name)
+        return process
+
+    def run_compose(cmd, **_kwargs):
+        compose_calls.append(cmd)
+        return CompletedProcess(args=cmd, returncode=0)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ServiceDiscovery", lambda: FakeDiscovery(services))
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
+    monkeypatch.setattr(start_module, "require_container_backend", lambda *_args: None)
+    monkeypatch.setattr(start_module, "run_command", run_compose)
+    monkeypatch.setattr(
+        start_module,
+        "select_project_container_backend",
+        lambda **_kwargs: _ReadinessBackend(
+            [[ServiceStatus(service="bridge", state="running", health=None)]]
+        ),
+    )
+    monkeypatch.setattr(NativeProcessManager, "start_service", record_start)
+    monkeypatch.setattr(start_module, "_emit_service_lifecycle_events", lambda *_a, **_k: None)
+    monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_a, **_k: None)
+    try:
+        args = ["--native", "--detach"] + (["--service", "a-client"] if explicit else [])
+        result = CliRunner().invoke(start_module.start_cmd, args)
+        assert result.exit_code == 0, result.output
+        assert launches == ["z-server", "a-client"]
+        state = json.loads((phlo_dir / "native-processes.json").read_text())
+        assert set(state) == {"z-server", "a-client"}
+        up_calls = [cmd for cmd in compose_calls if "up" in cmd]
+        if explicit:
+            assert up_calls == [["docker", "compose", "up", "-d", "--no-deps", "bridge"]]
+        else:
+            assert up_calls == []
+    finally:
+        for process in processes:
+            process.process.terminate()
+            process.process.wait(timeout=5)
+            process.close_log_file()
+
+
+def test_native_start_leaves_an_optional_only_stack_stopped(monkeypatch, tmp_path) -> None:
+    """An empty implicit selection must not become an unscoped Compose/native start."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.plugins.compose.native import NativeProcessManager
+
+    optional = ServiceDefinition(
+        name="optional",
+        description="optional",
+        dev={"command": [sys.executable, "-c", "import time; time.sleep(60)"]},
+    )
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / "docker-compose.yml").write_text(
+        "services:\n  optional:\n    profiles: [optional]\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        start_module, "ServiceDiscovery", lambda: FakeDiscovery({"optional": optional})
+    )
+    monkeypatch.setattr(
+        start_module, "run_command", lambda *_a, **_k: pytest.fail("No container should start")
+    )
+    monkeypatch.setattr(
+        NativeProcessManager,
+        "start_service",
+        lambda *_a, **_k: pytest.fail("No native process should start"),
+    )
+    result = CliRunner().invoke(start_module.start_cmd, ["--native", "--detach"])
+    assert result.exit_code == 0, result.output
+    assert "No services selected to start." in result.output
+    assert not (phlo_dir / "native-processes.json").exists()
 
 
 @pytest.mark.parametrize(

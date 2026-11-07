@@ -43,7 +43,6 @@ from phlo.cli.commands.services.utils import (
     _save_native_state,
     _stop_native_processes,
     ensure_phlo_dir,
-    expand_service_dependencies,
     get_enabled_disabled_service_names,
     get_profile_service_names,
     inline_service_definitions,
@@ -64,6 +63,7 @@ from phlo.cli.output import missing_compose_file_error
 from phlo.config.layout import env_defaults_path, project_env_paths
 from phlo.logging import get_logger
 from phlo.plugins.discovery._service_definition import ServicePortRangeError
+from phlo.plugins.discovery.service_manifest import ServiceManifestResolver
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
 if TYPE_CHECKING:
@@ -483,25 +483,34 @@ def _requested_host_ports(
 def _expand_requested_services(
     discovery: ServiceDiscovery,
     service_names: list[str],
+    compose_file: Path,
 ) -> list[ServiceDefinition]:
-    """Expand explicit service targets with dependencies and setup companions."""
-    if not service_names:
-        return []
-
-    all_services = discovery.discover()
+    """Resolve explicit or rendered default targets before partitioning execution modes."""
+    all_services = dict(discovery.discover())
     inline_services = inline_service_definitions(_load_project_config(Path.cwd()))
     all_services.update({service.name: service for service in inline_services})
+    if not service_names:
+        compose_services = _load_compose_services(compose_file)
+        service_names = _default_compose_service_names(compose_file)
+        # Compose owns the implicit selection. Installed optional services that
+        # are absent from this project must not become native startup targets.
+        all_services = {
+            name: all_services.get(name)
+            or ServiceDefinition(
+                name=name,
+                description=name,
+                depends_on=list(config.get("depends_on") or []),
+            )
+            for name, config in compose_services.items()
+            if name in service_names and isinstance(config, dict)
+        }
     unknown_services = [name for name in service_names if name not in all_services]
     if unknown_services:
         raise click.ClickException(f"Unknown service name(s): {', '.join(unknown_services)}")
 
-    requested = [all_services[name] for name in service_names]
-    if not inline_services:
-        return expand_service_dependencies(discovery, requested)
-    return expand_service_dependencies(
-        discovery,
-        requested,
-        additional_services=inline_services,
+    return ServiceManifestResolver.expand_dependencies(
+        [all_services[name] for name in service_names],
+        available_services=list(all_services.values()),
     )
 
 
@@ -686,7 +695,12 @@ def start_cmd(
         click.echo(f"Starting {project_name} infrastructure...")
 
     discovery = ServiceDiscovery()
-    resolved_services = _resolve_start_dependencies(services_list, discovery, project_name)
+    resolved_services = _resolve_start_dependencies(
+        services_list, discovery, project_name, compose_file
+    )
+    if not resolved_services:
+        click.echo("No services selected to start.")
+        return
 
     _preflight_required_env_vars(
         phlo_dir=phlo_dir,
@@ -698,9 +712,10 @@ def start_cmd(
 
     # If native dev services are enabled, start Docker services excluding native ones,
     # then start native processes for the excluded services.
-    skip_docker_compose, docker_services_list, native = _plan_start_modes(
-        native, discovery, project_name, resolved_services, services_list, profile, compose_file
+    skip_docker_compose, docker_services_list, native_to_start = _plan_start_modes(
+        native, project_name, resolved_services
     )
+    native = bool(native_to_start)
 
     docker_service_names: list[str] = []
     if not skip_docker_compose:
@@ -744,7 +759,14 @@ def start_cmd(
         result = subprocess.CompletedProcess(args=[], returncode=0)
     else:
         cmd = _build_start_command(
-            phlo_dir, project_name, profile, backend_name, detach, build, docker_services_list
+            phlo_dir,
+            project_name,
+            profile,
+            backend_name,
+            detach,
+            build,
+            docker_services_list if services_list or native else [],
+            no_deps=native,
         )
 
     try:
@@ -768,7 +790,7 @@ def start_cmd(
 
         if result.returncode == 0:
             if native and _start_native_processes(
-                services_list,
+                native_to_start,
                 project_name,
                 lifecycle_request_id,
                 skip_docker_compose,
@@ -826,22 +848,19 @@ def start_cmd(
 
 
 def _resolve_start_dependencies(
-    services_list: list[str], discovery: ServiceDiscovery, project_name: str
+    services_list: list[str], discovery: ServiceDiscovery, project_name: str, compose_file: Path
 ) -> list[ServiceDefinition]:
-    """Expand explicit targets, retaining the command's dependency error contract."""
-    resolved_services: list[ServiceDefinition] = []
-    if services_list:
-        try:
-            resolved_services = _expand_requested_services(discovery, services_list)
-        except ValueError as exc:
-            logger.warning(
-                "services_start_dependency_resolution_failed",
-                project_name=project_name,
-                service_names=services_list,
-                error=str(exc),
-            )
-            raise click.ClickException(str(exc)) from exc
-    return resolved_services
+    """Expand targets, retaining the command's dependency error contract."""
+    try:
+        return _expand_requested_services(discovery, services_list, compose_file)
+    except ValueError as exc:
+        logger.warning(
+            "services_start_dependency_resolution_failed",
+            project_name=project_name,
+            service_names=services_list,
+            error=str(exc),
+        )
+        raise click.ClickException(str(exc)) from exc
 
 
 def _build_start_command(
@@ -852,6 +871,8 @@ def _build_start_command(
     detach: bool,
     build: bool,
     docker_services_list: list[str],
+    *,
+    no_deps: bool = False,
 ) -> list[str]:
     """Construct Compose argv without contacting the backend."""
     cmd = compose_base_cmd(
@@ -867,6 +888,11 @@ def _build_start_command(
 
     if build:
         cmd.append("--build")
+
+    if no_deps:
+        # The complete selection is already expanded. Compose must not launch
+        # a container for a dependency assigned to the native process manager.
+        cmd.append("--no-deps")
 
     # Add specific services if specified
     if docker_services_list:
@@ -1121,55 +1147,12 @@ def _run_native_startup(
     return started, failed
 
 
-def _resolve_native_targets(
-    services_list: list[str],
-    available: dict[str, ServiceDefinition],
-    discovery: ServiceDiscovery,
-    project_name: str,
-) -> list[ServiceDefinition]:
-    if services_list:
-        requested = [available[n] for n in services_list if n in available]
-        expanded: dict[str, ServiceDefinition] = {svc.name: svc for svc in requested}
-        queue = list(requested)
-        while queue:
-            svc = queue.pop(0)
-            for dep_name in svc.depends_on:
-                dep = available.get(dep_name)
-                if dep and dep.name not in expanded:
-                    expanded[dep.name] = dep
-                    queue.append(dep)
-        try:
-            native_to_start = discovery.resolve_dependencies(list(expanded.values()))
-        except ValueError as exc:
-            logger.warning(
-                "services_start_native_dependency_resolution_failed",
-                project_name=project_name,
-                service_names=[svc.name for svc in expanded.values()],
-                error=str(exc),
-            )
-            raise click.ClickException(str(exc)) from exc
-    else:
-        native_to_start = [available[n] for n in sorted(available)]
-    logger.info(
-        "services_start_native_targets_resolved",
-        project_name=project_name,
-        service_count=len(native_to_start),
-        service_names=[svc.name for svc in native_to_start],
-    )
-    return native_to_start
-
-
 def _plan_start_modes(
     native: bool,
-    discovery: ServiceDiscovery,
     project_name: str,
     resolved_services: list[ServiceDefinition],
-    services_list: list[str],
-    profile: tuple[str, ...],
-    compose_file: Path,
-) -> tuple[bool, list[str], bool]:
-    # If native dev services are enabled, start Docker services excluding native ones,
-    # then start native processes for the excluded services.
+) -> tuple[bool, list[str], list[ServiceDefinition]]:
+    """Partition the complete ordered selection without rediscovery or re-expansion."""
     native_service_names: set[str] = set()
     if native:
         from phlo.plugins.compose.native import NativeProcessManager
@@ -1179,7 +1162,7 @@ def _plan_start_modes(
             project_root, log_dir=project_root / ".phlo" / "native-logs"
         )
 
-        for _, svc in discovery.discover().items():
+        for svc in resolved_services:
             if dev_manager.can_run_dev(svc):
                 native_service_names.add(svc.name)
         logger.info(
@@ -1196,45 +1179,14 @@ def _plan_start_modes(
             click.echo("Warning: No services support native mode; starting Docker only.", err=True)
             native = False
 
-    docker_services_list = (
-        [service.name for service in resolved_services] if resolved_services else services_list
-    )
-    if native and not docker_services_list and not profile:
-        try:
-            compose_config = yaml.safe_load(compose_file.read_text()) or {}
-        except OSError as e:
-            logger.error(
-                "services_start_compose_read_failed",
-                project_name=project_name,
-                compose_file=str(compose_file),
-                exc_info=True,
-            )
-            raise click.ClickException(f"Failed to read {compose_file}: {e}") from e
-        except yaml.YAMLError as e:
-            logger.error(
-                "services_start_compose_parse_failed",
-                project_name=project_name,
-                compose_file=str(compose_file),
-                exc_info=True,
-            )
-            raise click.ClickException(f"Failed to parse {compose_file}: {e}") from e
-        compose_service_names = list((compose_config.get("services") or {}).keys())
-        docker_services_list = [n for n in compose_service_names if n not in native_service_names]
-
-    if native and docker_services_list:
-        docker_services_list = [n for n in docker_services_list if n not in native_service_names]
-
-    if native and resolved_services:
-        required_docker_services = [
-            service.name
-            for service in resolved_services
-            if service.name not in native_service_names
-        ]
-        docker_services_list = required_docker_services
-
-    # If the user explicitly requested services and all of them are native-capable,
-    # avoid running `docker compose up` with no service args (which would start the entire stack).
-    skip_docker_compose = bool(native and services_list and not docker_services_list)
+    native_to_start = [
+        service for service in resolved_services if service.name in native_service_names
+    ]
+    docker_services_list = [
+        service.name for service in resolved_services if service.name not in native_service_names
+    ]
+    # Empty Compose targets mean "start the whole stack", not "start nothing".
+    skip_docker_compose = bool(native_to_start and not docker_services_list)
     logger.info(
         "services_start_execution_mode_resolved",
         project_name=project_name,
@@ -1243,7 +1195,7 @@ def _plan_start_modes(
         docker_service_names=docker_services_list,
         native=native,
     )
-    return skip_docker_compose, docker_services_list, native
+    return skip_docker_compose, docker_services_list, native_to_start
 
 
 def _resolve_start_targets(
@@ -1274,7 +1226,7 @@ def _resolve_start_targets(
 
 
 def _start_native_processes(
-    services_list: list[str],
+    native_to_start: list[ServiceDefinition],
     project_name: str,
     lifecycle_request_id: str,
     skip_docker_compose: bool,
@@ -1284,15 +1236,8 @@ def _start_native_processes(
     """Start native processes; return whether native-only mode completes the command."""
     from phlo.plugins.compose.native import NativeProcessManager
 
-    discovery = ServiceDiscovery()
     project_root = Path.cwd()
     dev_manager = NativeProcessManager(project_root, log_dir=project_root / ".phlo" / "native-logs")
-
-    available = {
-        svc.name: svc for svc in discovery.discover().values() if dev_manager.can_run_dev(svc)
-    }
-
-    native_to_start = _resolve_native_targets(services_list, available, discovery, project_name)
 
     # Avoid port collisions by ensuring any previously-started Docker containers for the
     # target native services are stopped before launching subprocesses.
