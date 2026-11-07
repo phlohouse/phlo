@@ -1310,9 +1310,11 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 | `operation` | option | `--operation` | `choice` | true | `Sentinel.UNSET` | choices: compact, snapshot_expiry |
 | `table` | option | `--table` | `text` | true | `Sentinel.UNSET` | none |
 | `ref` | option | `--ref` | `text` | false | `main` | none |
-| `catalog` | option | `--catalog` | `text` | false | `iceberg` | none |
-| `max_affected_objects` | option | `--max-affected-objects` | `integer` | false | `1000` | none |
-| `max_affected_bytes` | option | `--max-affected-bytes` | `integer` | false | `1073741824` | none |
+| `catalog` | option | `--catalog` | `text` | false | `Sentinel.UNSET` | none |
+| `retention_hours` | option | `--retention-hours` | `integer` | false | `Sentinel.UNSET` | none |
+| `retain_last` | option | `--retain-last` | `integer` | false | `Sentinel.UNSET` | none |
+| `max_affected_objects` | option | `--max-affected-objects` | `integer` | false | `Sentinel.UNSET` | none |
+| `max_affected_bytes` | option | `--max-affected-bytes` | `integer` | false | `Sentinel.UNSET` | none |
 | `output_json` | option | `--json` | `boolean` | false | `false` | flag |
 | `output_format` | option | `--format` | `choice` | false | `table` | choices: json, table |
 
