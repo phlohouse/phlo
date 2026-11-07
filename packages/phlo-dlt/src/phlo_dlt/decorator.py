@@ -48,16 +48,14 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import timedelta
-from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
 from phlo.capabilities import (
     AssetCheckSpec,
     AssetSpec,
-    CheckResult,
     MaterializeResult,
     PartitionSpec,
     RunResult,
@@ -74,22 +72,16 @@ from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
 from phlo.operations.parquet_validation import ValidationMode
 
-from phlo_dlt.contract_coverage import detect_dropped_source_columns
 from phlo_dlt.dlt_helpers import (
     get_branch_from_context,
     get_catalog_system_from_context,
     get_write_branch_from_context,
     validate_interval_options,
 )
-from phlo_dlt.executor import DomainQualityValidationError, StagedFrameLoader
+from phlo_dlt.executor import DomainQualityValidationError
 from phlo_dlt.pandera_checks import (
     PANDERA_CONTRACT_CHECK_NAME,
-    PanderaContractEvaluation,
     PanderaContractValidationError,
-    deserialize_pandera_contract_evaluation,
-    evaluate_pandera_contract_parquet,
-    evaluate_pandera_contract_parquet_files,
-    pandera_contract_asset_check_result,
 )
 from phlo_dlt.registry import TableConfig
 
@@ -327,159 +319,6 @@ def _resolve_table_store_capability(context: RuntimeContext) -> tuple[Any, str]:
         message="No table_store capability is installed",
         suggestions=["Install a table-store provider such as phlo-iceberg or phlo-delta"],
     )
-
-
-def _report_contract_validation(
-    *,
-    logger: Any,
-    table_config: TableConfig,
-    metadata: dict[str, Any],
-    parquet_paths: list[Path],
-    partition_date: str,
-    query_or_sql: str,
-    strict_validation: bool,
-    validation_mode: ValidationMode,
-    validation_batch_size: int,
-    validation_sample_size: int,
-) -> Generator[RunResult, None, list[str]]:
-    """Report the staged contract and source-column coverage after ingestion."""
-    schema = table_config.validation_schema
-    assert schema is not None
-    dropped: list[str] = []
-    try:
-        dropped = detect_dropped_source_columns(parquet_paths, schema)
-    # reason: Source-column coverage is advisory and must never break ingestion.
-    except Exception as exc:  # noqa: BLE001
-        log_event(
-            logger,
-            "warning",
-            "source_column_coverage_check_failed",
-            table_name=table_config.full_table_name,
-            error=str(exc),
-        )
-    if dropped:
-        log_event(
-            logger,
-            "warning",
-            "source_columns_dropped_by_contract",
-            table_name=table_config.full_table_name,
-            dropped_columns=dropped,
-            hint="Add these columns to the validation_schema or remove them "
-            "from the source; they will not be written to the table store.",
-        )
-    details = {
-        "table_name": table_config.full_table_name,
-        "partition_date": partition_date,
-        "parquet_path": str(parquet_paths[0]) if parquet_paths else None,
-        "parquet_path_count": len(parquet_paths),
-    }
-    log_event(logger, "info", "pandera_contract_evaluation_started", **details)
-    try:
-        evaluation = deserialize_pandera_contract_evaluation(metadata.get("pandera_evaluation"))
-        if evaluation is None:
-            if len(parquet_paths) == 1:
-                evaluation = evaluate_pandera_contract_parquet(
-                    parquet_paths[0],
-                    schema_class=schema,
-                    mode=validation_mode,
-                    batch_size=validation_batch_size,
-                    sample_size=validation_sample_size,
-                )
-            else:
-                evaluation = evaluate_pandera_contract_parquet_files(
-                    parquet_paths,
-                    schema_class=schema,
-                    mode=validation_mode,
-                    batch_size=validation_batch_size,
-                    sample_size=validation_sample_size,
-                )
-        log_event(
-            logger,
-            "info" if evaluation.passed else "warning",
-            "pandera_contract_evaluation_passed"
-            if evaluation.passed
-            else "pandera_contract_evaluation_failed",
-            **details,
-            total_count=evaluation.total_count,
-            failed_count=evaluation.failed_count,
-            **({"error": evaluation.error} if not evaluation.passed else {}),
-        )
-    except Exception as exc:
-        log_event(logger, "error", "pandera_contract_evaluation_failed", **details, error=str(exc))
-        logger.exception("pandera_contract_evaluation_exception")
-        evaluation = PanderaContractEvaluation(False, 1, 0, [{"error": str(exc)}], str(exc))
-    yield pandera_contract_asset_check_result(
-        evaluation,
-        partition_key=partition_date,
-        asset_key=table_config.ingestion_asset_key,
-        schema_class=schema,
-        query_or_sql=query_or_sql,
-        blocking=bool(strict_validation),
-        validation_mode=validation_mode,
-    )
-    if strict_validation and not evaluation.passed:
-        raise RuntimeError("Pandera contract validation failed")
-    return dropped
-
-
-def _report_domain_validation(
-    *,
-    logger: Any,
-    table_config: TableConfig,
-    metadata: dict[str, Any],
-    parquet_paths: list[Path],
-    partition_date: str,
-    query_or_sql: str,
-    strict_validation: bool,
-    quality_checks: Sequence[Callable[[pd.DataFrame], str | None]],
-) -> Iterator[RunResult]:
-    """Reuse recorded staged checks, loading a frame only for legacy executors."""
-    recorded = metadata.get("domain_quality_evaluations")
-    staged_frames = StagedFrameLoader(parquet_paths)
-    for index, quality_check in enumerate(quality_checks):
-        check_name = getattr(quality_check, "__name__", None) or f"quality_{index}"
-        recorded_evaluation = (
-            recorded[index]
-            if isinstance(recorded, list)
-            and index < len(recorded)
-            and isinstance(recorded[index], dict)
-            else None
-        )
-        if recorded_evaluation is not None:
-            value = recorded_evaluation.get("violation")
-            violation = value if isinstance(value, str) else None
-        elif not parquet_paths:
-            violation = "no staged parquet available for domain checks"
-        else:
-            try:
-                violation = quality_check(staged_frames.load())
-            # reason: Callback failures must surface as failed quality checks.
-            except Exception as exc:  # noqa: BLE001
-                violation = f"quality check raised: {exc}"
-        passed = not violation
-        yield CheckResult(
-            passed=passed,
-            check_name=f"quality_{check_name}",
-            metadata={
-                "source": "domain",
-                "partition_key": partition_date,
-                "violation": violation,
-                "staged_parquet": query_or_sql,
-            },
-            severity=None if passed else ("error" if strict_validation else "warn"),
-            asset_key=table_config.ingestion_asset_key,
-        )
-        if not passed:
-            log_event(
-                logger,
-                "warning",
-                "domain_quality_check_failed",
-                table_name=table_config.full_table_name,
-                check=check_name,
-                violation=violation,
-            )
-            if strict_validation:
-                raise RuntimeError(f"Domain quality check failed: {check_name}: {violation}")
 
 
 def _ingestion_partition(runtime: RuntimeContext, partitioned: bool) -> str:
@@ -869,7 +708,6 @@ def phlo_ingestion(
                     table_config=table_config,
                     table_store_resource=table_store,
                     dlt_source_func=func,
-                    validation_schema=table_config.validation_schema,
                     validate=validate,
                     strict_validation=strict_validation,
                     add_metadata_columns=add_metadata_columns,
@@ -898,24 +736,8 @@ def phlo_ingestion(
                     },
                 )
 
+                yield from result.check_results
                 if result.status == "no_data":
-                    if validate and table_config.validation_schema is not None:
-                        evaluation = PanderaContractEvaluation(
-                            passed=True,
-                            failed_count=0,
-                            total_count=0,
-                            sample=[],
-                            error=None,
-                        )
-                        check_result = pandera_contract_asset_check_result(
-                            evaluation,
-                            partition_key=partition_date,
-                            asset_key=table_config.ingestion_asset_key,
-                            schema_class=table_config.validation_schema,
-                            query_or_sql="status:no_data",
-                            blocking=bool(strict_validation),
-                        )
-                        yield check_result
                     yield MaterializeResult(
                         metadata={
                             "branch": branch_name,
@@ -927,42 +749,6 @@ def phlo_ingestion(
                         status="no_data",
                     )
                     return
-                dropped_source_columns: list[str] = []
-                parquet_paths_raw = result.metadata.get("parquet_paths")
-                if isinstance(parquet_paths_raw, list):
-                    parquet_paths = [Path(str(path)) for path in parquet_paths_raw]
-                else:
-                    parquet_path = result.metadata.get("parquet_path")
-                    parquet_paths = [Path(str(parquet_path))] if parquet_path else []
-                query_or_sql = (
-                    ",".join(f"parquet://{parquet_path}" for parquet_path in parquet_paths)
-                    if parquet_paths
-                    else "parquet://<missing>"
-                )
-                if validate and table_config.validation_schema is not None:
-                    dropped_source_columns = yield from _report_contract_validation(
-                        logger=logger,
-                        table_config=table_config,
-                        metadata=result.metadata,
-                        parquet_paths=parquet_paths,
-                        partition_date=partition_date,
-                        query_or_sql=query_or_sql,
-                        strict_validation=strict_validation,
-                        validation_mode=validation_mode,
-                        validation_batch_size=validation_batch_size,
-                        validation_sample_size=validation_sample_size,
-                    )
-                yield from _report_domain_validation(
-                    logger=logger,
-                    table_config=table_config,
-                    metadata=result.metadata,
-                    parquet_paths=parquet_paths,
-                    partition_date=partition_date,
-                    query_or_sql=query_or_sql,
-                    strict_validation=strict_validation,
-                    quality_checks=quality_checks or (),
-                )
-
                 yield MaterializeResult(
                     metadata={
                         "branch": branch_name,
@@ -982,47 +768,14 @@ def phlo_ingestion(
                         else None,
                         "table_store": table_store_name,
                         "total_elapsed_seconds": result.metadata.get("total_elapsed_seconds", 0.0),
-                        "dropped_source_columns": dropped_source_columns,
+                        "dropped_source_columns": result.metadata.get("dropped_source_columns", []),
                     },
                     status=result.status,
                 )
 
-            except DomainQualityValidationError as exc:
-                query_or_sql = ",".join(
-                    f"parquet://{parquet_path}" for parquet_path in exc.parquet_paths
-                )
-                for evaluation in exc.evaluations:
-                    yield CheckResult(
-                        passed=evaluation.passed,
-                        check_name=f"quality_{evaluation.check_name}",
-                        metadata={
-                            "source": "domain",
-                            "partition_key": partition_date,
-                            "violation": evaluation.violation,
-                            "staged_parquet": query_or_sql,
-                        },
-                        severity=None if evaluation.passed else "error",
-                        asset_key=table_config.ingestion_asset_key,
-                    )
-                raise
-            except PanderaContractValidationError as exc:
-                # Emit the failed check before aborting: the generator must
-                # surface the check result so the orchestrator records the
-                # validation failure even though the run itself raises.
-                validation_schema = table_config.validation_schema
-                assert validation_schema is not None
-                query_or_sql = ",".join(
-                    f"parquet://{parquet_path}" for parquet_path in exc.parquet_paths
-                )
-                yield pandera_contract_asset_check_result(
-                    exc.evaluation,
-                    partition_key=partition_date,
-                    asset_key=table_config.ingestion_asset_key,
-                    schema_class=validation_schema,
-                    query_or_sql=query_or_sql,
-                )
-                raise RuntimeError("Pandera contract validation failed") from exc
-            except Exception:
+            except (DomainQualityValidationError, PanderaContractValidationError) as exc:
+                # The orchestrator must record every staged check before the run raises.
+                yield from exc.check_results
                 raise
 
         asset_spec = AssetSpec(

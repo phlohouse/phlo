@@ -17,6 +17,7 @@ from phlo_dlt.contract_coverage import (
     detect_dropped_source_columns,
 )
 from phlo_dlt.decorator import clear_ingestion_assets, get_ingestion_assets, phlo_ingestion
+from phlo_dlt.dlt_helpers import DltStagingResult
 
 
 class WideSchema(pa.DataFrameModel):
@@ -96,48 +97,34 @@ class _Runtime:
     class logger:  # noqa: N801 - attribute namespace stub
         def info(self, *args, **kwargs) -> None: ...
 
+        debug = info
         warning = info
         error = info
 
 
-class _StubIngester:
-    """Ingestion stub: skips DLT and table-store machinery in run-level tests."""
-
-    staged_frame: pd.DataFrame
-
-    def __init__(self, **kwargs) -> None:
-        self.kwargs = kwargs
-
-    def run_ingestion(self, partition_key, parameters):  # noqa: ANN001, ARG002
-        staged = tmp_parquet_path()
-        self.staged_frame.to_parquet(staged, index=False)
-        return SimpleNamespace(
-            status="success",
-            rows_inserted=len(self.staged_frame),
-            rows_deleted=0,
-            metadata={"parquet_paths": [str(staged)], "parquet_path": str(staged)},
-        )
-
-
-_STAGED_PARQUET: Path | None = None
-
-
-def tmp_parquet_path() -> Path:
-    assert _STAGED_PARQUET is not None
-    return _STAGED_PARQUET
-
-
 @pytest.fixture()
 def stub_ingester(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> pd.DataFrame:
-    global _STAGED_PARQUET
+    """Run the real executor against staged rows and a recording write boundary."""
     frame = pd.DataFrame({"code": ["A", "B"]})
-    _STAGED_PARQUET = tmp_path / "staged.parquet"
-    _StubIngester.staged_frame = frame
+    path = tmp_path / "staged.parquet"
+    writes: list[list[str]] = []
+    frame.attrs["writes"] = writes
+
+    def stage(**_kwargs):
+        frame.to_parquet(path, index=False)
+        return DltStagingResult([path], 0.01, None)
+
+    def merge(**kwargs):
+        rows = pd.read_parquet(kwargs["parquet_paths"][0])
+        writes.append(rows["code"].tolist())
+        return {"rows_inserted": len(rows), "rows_deleted": 0}
+
     monkeypatch.setattr(
         "phlo_dlt.decorator._resolve_table_store_capability",
         lambda runtime: (SimpleNamespace(), "test-store"),
     )
-    monkeypatch.setattr("phlo_dlt.executor.DltIngester", _StubIngester)
+    monkeypatch.setattr("phlo_dlt.executor.extract_to_parquet", stage)
+    monkeypatch.setattr("phlo_dlt.executor.merge_to_table_store", merge)
     return frame
 
 
@@ -216,7 +203,8 @@ def test_failing_quality_check_blocks_strict_run(
         item for item in collected if getattr(item, "check_name", "").startswith("quality_")
     ]
     assert [item.passed for item in quality_results] == [False]
-    assert len(observed) == 1 and observed[0].equals(stub_ingester)
+    assert len(observed) == 1 and observed[0]["code"].tolist() == ["A", "B"]
+    assert stub_ingester.attrs["writes"] == []
 
 
 def test_passing_quality_check_yields_passed_result(
@@ -240,6 +228,7 @@ def test_passing_quality_check_yields_passed_result(
         item for item in results if getattr(item, "check_name", "").startswith("quality_")
     ]
     assert [item.passed for item in quality_results] == [True]
+    assert stub_ingester.attrs["writes"] == [["A", "B"]]
 
 
 def test_failing_quality_check_warns_in_non_strict_mode(
@@ -265,3 +254,5 @@ def test_failing_quality_check_warns_in_non_strict_mode(
         item for item in results if getattr(item, "check_name", "").startswith("quality_")
     ]
     assert [item.passed for item in quality_results] == [False]
+    assert quality_results[0].severity == "warn"
+    assert stub_ingester.attrs["writes"] == [["A", "B"]]
