@@ -63,6 +63,78 @@ WAP_TAG_KEY = "phlo/wap_branch"
 CATALOG_SYSTEM_TAG_KEY = "phlo/catalog_system"
 
 
+def validate_merge_config(
+    merge_strategy: str,
+    unique_key: str,
+    merge_config: dict[str, Any] | None,
+) -> None:
+    """Reject unsupported write options without expanding provider defaults."""
+    if merge_strategy not in ("append", "merge", "history"):
+        raise PhloConfigError(
+            message=f"Invalid merge_strategy: {merge_strategy}",
+            suggestions=["Use merge_strategy='append', 'merge' or 'history'"],
+        )
+
+    if merge_strategy == "history":
+        if merge_config is not None and not isinstance(merge_config, dict):
+            raise PhloConfigError(message="merge_config must be a dict")
+        try:
+            HistoryPolicy.from_config(merge_config)
+        except ValueError as exc:
+            raise PhloConfigError(message=str(exc)) from exc
+        return
+
+    if merge_config is None:
+        return
+
+    if not isinstance(merge_config, dict):
+        raise PhloConfigError(
+            message="merge_config must be a dict",
+            suggestions=["Pass merge_config={'deduplication': True, ...}"],
+        )
+
+    supported_keys = ("deduplication", "deduplication_method", "deduplication_order_by")
+    unknown_keys = sorted(set(merge_config) - set(supported_keys))
+    if unknown_keys:
+        raise PhloConfigError(
+            message=f"Unsupported merge_config option(s): {', '.join(unknown_keys)}",
+            suggestions=[f"Use only supported keys: {', '.join(supported_keys)}"],
+        )
+
+    if "deduplication" in merge_config and not isinstance(merge_config["deduplication"], bool):
+        raise PhloConfigError(
+            message="merge_config['deduplication'] must be a boolean",
+            suggestions=["Use true or false for the deduplication option"],
+        )
+
+    supported_methods = ("first", "last")
+    method = merge_config.get("deduplication_method")
+    if method is not None and (not isinstance(method, str) or method not in supported_methods):
+        raise PhloConfigError(
+            message=f"Unsupported merge_config deduplication_method: {method!r}",
+            suggestions=[
+                f"Use one of: {', '.join(supported_methods)} "
+                "(optionally with deduplication_order_by set to an ordering column)"
+            ],
+        )
+
+    order_by = merge_config.get("deduplication_order_by")
+    if order_by is not None and not isinstance(order_by, str):
+        raise PhloConfigError(
+            message="merge_config['deduplication_order_by'] must be a column name string",
+            suggestions=[
+                'Use e.g. {"deduplication": true, "deduplication_method": "last", '
+                '"deduplication_order_by": "updated_at"}'
+            ],
+        )
+
+    if merge_config.get("deduplication") and not unique_key:
+        raise PhloConfigError(
+            message="deduplication requires a unique_key",
+            suggestions=["Set unique_key parameter to a valid column name"],
+        )
+
+
 def validate_interval_options(
     column: str | None, lookback: timedelta, strategy: str, unique_key: str
 ) -> None:
@@ -679,8 +751,8 @@ def merge_to_table_store(
     schema, then appends or upserts per merge_strategy on branch_name.
     History sends every unprojected file to an opted-in provider together and
     also reports rows_skipped and rows_conflicting. Raises
-    PhloConfigError when no schema is available or derivable, and
-    ValueError for an unknown merge_strategy.
+    PhloConfigError for invalid write options or when no schema is available
+    or derivable. Options are checked before any provider mutation.
 
     Example:
         ```python
@@ -698,6 +770,7 @@ def merge_to_table_store(
         ```
 
     """
+    validate_merge_config(merge_strategy, table_config.unique_key, merge_config)
     merge_config = merge_config or {}
     table_name = table_config.full_table_name
     history_policy = None
@@ -796,7 +869,7 @@ def merge_to_table_store(
             merge_metrics["rows_inserted"] += file_metrics.get("rows_inserted", 0)
             merge_metrics["rows_deleted"] += file_metrics.get("rows_deleted", 0)
         log.info(f"Appended {merge_metrics['rows_inserted']} rows to {table_name}")
-    elif merge_strategy == "merge":
+    else:
         log.info(
             f"Merging data to destination table on branch {branch_name} (idempotent upsert)..."
         )
@@ -823,14 +896,6 @@ def merge_to_table_store(
             f"Merged {merge_metrics['rows_inserted']} rows to {table_name} "
             + f"(deleted {merge_metrics['rows_deleted']} existing duplicates)"
         )
-    else:
-        logger.error(
-            "dlt_merge_to_table_store_unknown_strategy",
-            table_name=table_name,
-            merge_strategy=merge_strategy,
-        )
-        raise ValueError(f"Unknown merge strategy: {merge_strategy}")
-
     logger.info(
         "dlt_merge_to_table_store_finished",
         table_name=table_name,
