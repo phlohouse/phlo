@@ -289,7 +289,7 @@ def test_schema_migrate_scaffold_yaml_backend_failure_is_clean_error(monkeypatch
         )
         monkeypatch.setattr(
             schema_migrate_commands,
-            "_build_scaffold_payload_from_contract",
+            "_resolve_migrator",
             lambda **kwargs: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
         )
 
@@ -847,23 +847,50 @@ def test_collect_transform_refs_filters_and_deduplicates(monkeypatch) -> None:
     assert refs == ["transform_a", "transform_b"]
 
 
-def test_build_scaffold_payload_from_contract_rejects_table_mismatch(monkeypatch) -> None:
-    """A contract file whose table name does not match the request should fail."""
+@pytest.mark.parametrize(
+    ("contract", "error"),
+    [
+        (
+            {"table_name": "warehouse.other"},
+            "Contract table mismatch: expected 'warehouse.customers', found 'warehouse.other'",
+        ),
+        ({"table_name": "warehouse.customers"}, "Contract missing normalized_schema payload"),
+        (
+            {"table_name": "warehouse.customers", "normalized_schema": {"fields": {}}},
+            "Invalid normalized_schema payload in contract",
+        ),
+        (
+            {"table_name": "warehouse.customers", "normalized_schema": {"metadata": []}},
+            "Invalid normalized_schema payload in contract",
+        ),
+    ],
+)
+def test_schema_migrate_scaffold_rejects_invalid_contract_before_discovery(
+    monkeypatch, contract, error
+) -> None:
+    """Malformed contracts fail cleanly before provider discovery or output writes."""
 
-    monkeypatch.setattr(
-        schema_migrate_commands.schema_migrate_contracts,
-        "read_contract",
-        lambda path: {
-            "table_name": "warehouse.other",
-            "normalized_schema": {"fields": [], "metadata": {}},
-        },
-    )
+    def unexpected_resolution():
+        pytest.fail("Malformed contracts must be rejected before resolving the migrator")
 
-    with pytest.raises(ValueError, match="Contract table mismatch"):
-        schema_migrate_commands._build_scaffold_payload_from_contract(
-            table_name="warehouse.customers",
-            contract_path=Path(".phlo/contracts/warehouse__customers.json"),
+    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", unexpected_resolution)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        source = Path("contract.json")
+        source.write_text(json.dumps(contract), encoding="utf-8")
+        result = runner.invoke(
+            cli,
+            [
+                "schema-migrate",
+                "scaffold-yaml",
+                "warehouse.customers",
+                "--from-contract",
+                str(source),
+            ],
         )
+        assert result.exit_code == 1
+        assert error in result.output.replace("\n", "")
+        assert not Path(".phlo/migrations").exists()
 
 
 def test_refresh_contracts_skips_missing_tables_without_warning(monkeypatch) -> None:

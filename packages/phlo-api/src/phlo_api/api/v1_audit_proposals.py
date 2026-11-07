@@ -216,9 +216,6 @@ def create_audit_proposal(
         previous_source=previous_source,
         previous_source_digest=previous_source_digest,
     )
-    state_dir = project_root / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    legacy_path = state_dir / "v1_audit_proposals.json"
     payload = record.model_dump(mode="json")
 
     def upsert(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -235,18 +232,14 @@ def create_audit_proposal(
             raise RuntimeError("Audit proposal storage limit reached.")
         return [*items, payload]
 
-    stored = mutate_collection(project_root, "v1_audit_proposals", legacy_path, upsert)
+    stored = mutate_collection(project_root, "v1_audit_proposals", upsert)
     stored_record = next(item for item in stored if item.get("proposal_id") == proposal_id)
     return AssetAuditProposal.model_validate_json(json.dumps(stored_record))
 
 
 def get_audit_proposal(project_root: Path, proposal_id: str) -> AssetAuditProposal | None:
     """Load a persisted proposal by its opaque stable identifier."""
-    state_dir = project_root / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    records = load_collection(
-        project_root, "v1_audit_proposals", state_dir / "v1_audit_proposals.json"
-    )
+    records = load_collection(project_root, "v1_audit_proposals")
     stored = next((item for item in records if item.get("proposal_id") == proposal_id), None)
     if stored is None:
         return None

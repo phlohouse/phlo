@@ -193,10 +193,6 @@ class CsvUploadView(CsvUpload):
     )
 
 
-def _legacy_path() -> Path:
-    return project_root() / ".phlo" / "csv-uploads.json"
-
-
 def _file_path(upload_id: str) -> Path:
     if not _ID.fullmatch(upload_id):
         raise NotFoundError("Upload was not found.")
@@ -208,7 +204,7 @@ def _file_path(upload_id: str) -> Path:
 
 
 def _records() -> list[CsvUpload]:
-    items = load_collection(project_root(), _COLLECTION, _legacy_path())
+    items = load_collection(project_root(), _COLLECTION)
     if sum(not item.get("reclaimed_at") for item in items) > MAX_UPLOADS:
         raise BackendUnavailableError("Upload collection exceeds its configured limit.")
     return [CsvUpload.model_validate(item) for item in items]
@@ -387,7 +383,7 @@ async def v1_csv_upload_archive(
                 raise ConflictError("Upload changed before archival; reload before continuing.")
             return [updated.model_dump() if item is current else item for item in items]
 
-        mutate_collection(project_root(), _COLLECTION, _legacy_path(), archive)
+        mutate_collection(project_root(), _COLLECTION, archive)
         audit_operation(
             operation="csv_upload.archive" if payload.archived else "csv_upload.restore",
             target=upload_id,
@@ -459,7 +455,7 @@ async def v1_csv_upload(request: Request, env: Environment = Query()) -> CsvUplo
                     )
                 return [*items, record.model_dump()]
 
-            mutate_collection(project_root(), _COLLECTION, _legacy_path(), append)
+            mutate_collection(project_root(), _COLLECTION, append)
             committed = True
             _audit(auth, record, "csv_upload.retain")
             return _view(record, data)
@@ -480,10 +476,8 @@ async def v1_csv_upload_reclaim(
     auth = _upload_auth(request)
     # Serialize with launch/prepare as well as upload review/archive.
     async with ingestion.candidate_lock(env, upload_id), _UPLOAD_LOCK:
-        load_collection(project_root(), _COLLECTION, _legacy_path(), require_known_state=True)
-        load_collection(
-            project_root(), ingestion._COLLECTION, ingestion._legacy(), require_known_state=True
-        )
+        load_collection(project_root(), _COLLECTION, require_known_state=True)
+        load_collection(project_root(), ingestion._COLLECTION, require_known_state=True)
         record = _record(request, env, upload_id)
         if not record.archived_at or record.checksum != payload.expected_checksum:
             raise ConflictError("Reclamation requires an archived upload and its exact checksum.")
@@ -520,9 +514,7 @@ async def v1_csv_upload_reclaim(
                     raise ConflictError("Upload changed during reclamation.")
                 return [updated.model_dump() if item is current else item for item in items]
 
-            mutate_collection(
-                project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True
-            )
+            mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
 
         if not record.reclaim_started_at:
             _verified_bytes(record)
@@ -583,9 +575,7 @@ def v1_csv_upload_review(
     if record.archived_at:
         raise ConflictError("Restore the archived upload before changing its review.")
     data = _verified_bytes(record)
-    candidates = load_collection(
-        project_root(), "v1_csv_candidates", project_root() / ".phlo/csv-candidates.json"
-    )
+    candidates = load_collection(project_root(), "v1_csv_candidates")
     if any(item.get("upload_id") == upload_id for item in candidates):
         raise ConflictError(
             "This review has an immutable candidate destination. Upload again to change its recipe."
@@ -630,6 +620,6 @@ def v1_csv_upload_review(
             raise ConflictError("Upload review changed. Reload before saving column choices.")
         return [reviewed.model_dump() if item is current else item for item in items]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy_path(), update, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, update, require_known_state=True)
     _audit(auth, reviewed, "csv_upload.review")
     return _view(reviewed, data)

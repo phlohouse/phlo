@@ -5,9 +5,9 @@ phlo.schema_migration.planning plus instruction resolution from
 phlo.schema_migration.instructions; no behaviour is defined here.
 """
 
+from phlo.schema_migration.artifacts import default_migration_instruction_path
 from phlo.schema_migration.instructions import (
     MigrationInstructionError,
-    default_migration_instruction_path,
     resolve_migration_instructions,
 )
 from phlo.schema_migration.planning import (

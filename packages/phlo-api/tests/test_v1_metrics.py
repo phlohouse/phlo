@@ -275,7 +275,6 @@ def test_metric_archive_restore_capacity_export_and_evidence(metric_setup, tmp_p
     metrics.mutate_collection(
         metrics.project_root(),
         metrics._COLLECTION,
-        metrics._path(),
         lambda items: [original] + [{**original, "model_id": f"filler-{i}"} for i in range(499)],
     )
     archived = client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1})
@@ -340,7 +339,6 @@ def test_metric_archive_restore_capacity_export_and_evidence(metric_setup, tmp_p
     metrics.mutate_collection(
         metrics.project_root(),
         metrics._COLLECTION,
-        metrics._path(),
         lambda items: (
             items
             + [{**original, "model_id": f"archived-{i}", "status": "archived"} for i in range(498)]
@@ -470,7 +468,6 @@ def test_metric_mutation_authorizes_the_exact_version(
             metrics.mutate_collection(
                 metrics.project_root(),
                 metrics._COLLECTION,
-                metrics._path(),
                 lambda items: [
                     {**item, "asset_id": "gold/forbidden", "version": base_version + 1}
                     for item in items
@@ -613,7 +610,7 @@ def test_metric_reclaim_requires_confirmation_version_and_asset_authorization(
     )
     assert receipt["reclaimed_by"] == "test:operator" and receipt["reason"] == "Exported for review"
     assert receipt["created_at"] == archived["created_at"] and receipt["version"] == 3
-    stored = metrics.load_collection(metrics.project_root(), metrics._COLLECTION, metrics._path())
+    stored = metrics.load_collection(metrics.project_root(), metrics._COLLECTION)
     assert stored == [receipt] and "measures" not in receipt
     assert client.post(f"{url}/preview-sql?env=sandbox", json={}).status_code == 410
     assert (
@@ -654,11 +651,12 @@ def test_metric_reclaim_preserves_unknown_mutation_evidence(
     service = get_settings_service()
     namespace = state_namespace(tmp_path, metrics._COLLECTION)
     if fence == "legacy":
-        metrics._path().parent.mkdir(parents=True, exist_ok=True)
+        legacy_path = tmp_path / ".phlo/metric-models.json"
+        legacy_path.parent.mkdir(parents=True, exist_ok=True)
         raw = json.dumps(
             {"items": [], "unknown_mutation": {"state": "unknown", "key": "do-not-retry"}}
         )
-        metrics._path().write_text(raw)
+        legacy_path.write_text(raw)
     else:
         assert client.post(f"{base}?env=sandbox", json=metric_setup).status_code == 201
         assert (
@@ -694,7 +692,7 @@ def test_metric_reclaim_preserves_unknown_mutation_evidence(
     )
     assert response.status_code == 409, response.text
     if fence == "legacy":
-        assert metrics._path().read_text() == raw
+        assert legacy_path.read_text() == raw
         assert service.get(SettingsScope.GLOBAL, namespace) is None
     else:
         assert (
@@ -721,7 +719,6 @@ def test_metric_reclaim_retains_recent_content_and_capacity_under_audit_policy(
     metrics.mutate_collection(
         tmp_path,
         metrics._COLLECTION,
-        metrics._path(),
         lambda items: (
             [old_creation] + [{**old_creation, "model_id": f"retained-{i}"} for i in range(999)]
         ),
@@ -731,13 +728,13 @@ def test_metric_reclaim_retains_recent_content_and_capacity_under_audit_policy(
         ADMIN_SETTINGS_NAMESPACE,
         {"version": 1, "values": {"observatory.settings.audit.retention_years": 7}},
     )
-    before = metrics.load_collection(tmp_path, metrics._COLLECTION, metrics._path())
+    before = metrics.load_collection(tmp_path, metrics._COLLECTION)
     audit_path = tmp_path / ".phlo/audit/operations.jsonl"
     audit_before = audit_path.read_bytes()
     payload = {"expected_version": 2, "confirmed": True, "reason": "Exported for handoff"}
     denied = client.post(f"{url}/reclaim?env=sandbox", json=payload)
     assert denied.status_code == 409 and "retention_minimum_not_elapsed" in denied.text
-    assert metrics.load_collection(tmp_path, metrics._COLLECTION, metrics._path()) == before
+    assert metrics.load_collection(tmp_path, metrics._COLLECTION) == before
     assert audit_path.read_bytes() == audit_before
     assert client.get(f"{url}/export?env=sandbox").json()["version"] == 2
     replacement = {**metric_setup, "model_id": "replacement"}
@@ -746,7 +743,6 @@ def test_metric_reclaim_retains_recent_content_and_capacity_under_audit_policy(
     metrics.mutate_collection(
         tmp_path,
         metrics._COLLECTION,
-        metrics._path(),
         lambda items: [
             {**item, "updated_at": "1991-01-01T00:00:00+00:00"}
             if item["model_id"] == "batch_release"
@@ -758,7 +754,7 @@ def test_metric_reclaim_retains_recent_content_and_capacity_under_audit_policy(
     assert receipt.status_code == 200, receipt.text
     assert receipt.json()["version"] == 3
     assert client.post(f"{base}?env=sandbox", json=replacement).status_code == 201
-    assert receipt.json() in metrics.load_collection(tmp_path, metrics._COLLECTION, metrics._path())
+    assert receipt.json() in metrics.load_collection(tmp_path, metrics._COLLECTION)
     evidence = [json.loads(line) for line in audit_path.read_text().splitlines()]
     assert (
         next(item for item in evidence if item["operation"] == "metric_model.reclaim")["result"]

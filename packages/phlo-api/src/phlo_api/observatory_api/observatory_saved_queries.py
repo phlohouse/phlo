@@ -31,18 +31,9 @@ READ_QUERY_RE = re.compile(
 )
 
 
-def saved_queries_path(project_root: Path) -> Path:
-    """Return the saved-queries file path, creating the state directory if needed."""
-    state_dir = project_root / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / "saved_queries.json"
-
-
 def load_saved_queries(project_root: Path) -> list[ObservatorySavedQuery]:
     """Load and validate saved queries from durable state."""
-    return _validate_queries(
-        load_collection(project_root, "saved_queries", saved_queries_path(project_root))
-    )
+    return _validate_queries(load_collection(project_root, "saved_queries"))
 
 
 def dedupe_saved_queries(queries: list[ObservatorySavedQuery]) -> list[ObservatorySavedQuery]:
@@ -66,7 +57,6 @@ def write_saved_queries(project_root: Path, queries: list[ObservatorySavedQuery]
     mutate_collection(
         project_root,
         "saved_queries",
-        saved_queries_path(project_root),
         lambda _items: [query.model_dump(mode="json") for query in queries],
     )
 
@@ -97,7 +87,6 @@ def save_query(project_root: Path, request: ObservatorySavedQueryRequest) -> Obs
     mutate_collection(
         project_root,
         "saved_queries",
-        saved_queries_path(project_root),
         lambda items: [
             item.model_dump(mode="json")
             for item in dedupe_saved_queries([query, *_validate_queries(items)])[:100]

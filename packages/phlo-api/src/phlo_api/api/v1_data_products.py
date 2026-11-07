@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
-from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
 
@@ -129,10 +128,6 @@ class ProductExport(WireModel):
     definition: ProductDefinition
 
 
-def _legacy_path() -> Path:
-    return project_root() / ".phlo" / "data-products.json"
-
-
 def _authority() -> DatasetAuthority:
     if observatory._load_capability_registry() is None:
         raise BackendUnavailableError("Project declaration registry is unavailable.")
@@ -196,7 +191,7 @@ def _records(env: Environment) -> list[ProductRecord | ProductTombstone]:
     return [
         record
         for record in _stored_records(
-            load_collection(project_root(), _COLLECTION, _legacy_path(), require_known_state=True)
+            load_collection(project_root(), _COLLECTION, require_known_state=True)
         )
         if record.env == env
     ]
@@ -295,7 +290,7 @@ async def _write_product(
             if not (item.env == env and item.product_id == payload.product_id)
         ] + [selected.model_dump()]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
     assert selected is not None
     raw_scopes = principal.claims.get("scopes", [])
     scopes = (
@@ -374,7 +369,7 @@ async def _set_status(
             item.model_dump() if item is not current else selected.model_dump() for item in records
         ]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
     assert selected is not None
     audit_operation(
         operation="data_product.archive" if status == "archived" else "data_product.restore",
@@ -455,7 +450,7 @@ async def v1_data_product_reclaim(
         )
         return [selected.model_dump() if item is current else item.model_dump() for item in records]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
     assert selected is not None
     audit_operation(
         operation="data_product.reclaim",

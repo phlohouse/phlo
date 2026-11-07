@@ -8,6 +8,8 @@ management.
 """
 
 import json
+import shlex
+from subprocess import CompletedProcess
 from types import SimpleNamespace
 from datetime import datetime
 from unittest.mock import ANY, patch
@@ -15,6 +17,8 @@ from unittest.mock import ANY, patch
 import click
 import pytest
 from click.testing import CliRunner
+from phlo.cli.infrastructure.container_backend import PodmanBackend
+from rich.console import Console
 
 from phlo_dagster.cli_backfill import (
     _generate_partition_dates,
@@ -28,6 +32,94 @@ pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
 
 async def _ready(*_args, **_kwargs) -> None:
     """Stub the Dagster HTTP readiness wait: the backfill behaviour is under test."""
+
+
+@pytest.mark.parametrize("host_platform", ["Linux", "Darwin", "Windows"])
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_container_backfill_preserves_command_environment(
+    monkeypatch, tmp_path, host_platform, dry_run
+):
+    from phlo_dagster import cli_backfill
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    (tmp_path / "phlo.yaml").write_text(
+        'env:\n  PHLO_OBSERVE_PRETTY: "1"\n  PHLO_OBSERVE_PRETTY_VERBOSE: "1"\n'
+        '  OBSERVE_DRAINS: "console,file"\n  PHLO_AUTO_REFRESH_CONTRACTS: "1"\n'
+        '  PHLO_CONTRACT_REFRESH_SELECTION: "not-forwarded"\n'
+    )
+    monkeypatch.setattr("platform.system", lambda: host_platform)
+
+    def host_identity(backend_name):
+        assert host_platform == "Linux", "non-Linux commands must not query host identity"
+        assert backend_name == "podman"
+        return 1234, 5678
+
+    monkeypatch.setattr(
+        "phlo_dagster.materialization_command.container_host_identity", host_identity
+    )
+    monkeypatch.setattr(cli_backfill, "console", Console(width=2000))
+    monkeypatch.setattr(cli_backfill, "load_wap_config", lambda: SimpleNamespace(enabled=False))
+    monkeypatch.setattr(cli_backfill, "select_project_container_backend", PodmanBackend)
+    monkeypatch.setattr(cli_backfill, "get_project_name", lambda: "demo")
+
+    def find_container(project_name):
+        assert not dry_run, "previews must not discover a running container"
+        assert project_name == "demo"
+        return "demo-dagster-7"
+
+    monkeypatch.setattr(cli_backfill, "find_dagster_container", find_container)
+    monkeypatch.setattr(cli_backfill, "wait_for_dagster_runtime", lambda *a, **kw: None)
+    commands = []
+
+    def run_command(cmd, **kwargs):
+        commands.append(cmd)
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_backfill.subprocess, "run", run_command)
+    result = CliRunner().invoke(
+        backfill,
+        ["orders", "--partitions", "2026-02-03"] + (["--dry-run"] if dry_run else []),
+    )
+
+    assert result.exit_code == 0, result.output
+    if dry_run:
+        assert commands == []
+        argv = shlex.split(
+            next(line for line in result.output.splitlines() if "podman exec" in line)
+        )
+        container_name = "dagster"
+    else:
+        assert len(commands) == 1
+        argv = commands[0]
+        container_name = "demo-dagster-7"
+        assert not (tmp_path / ".phlo/backfill_state.json").exists()
+    assert argv[:2] == ["podman", "exec"]
+    assert argv[argv.index("-w") + 1] == "/app"
+    assert f"PHLO_HOST_PLATFORM={host_platform}" in argv
+    assert "PHLO_PROJECT_PATH=/app" in argv
+    assert "PHLO_OBSERVE_PRETTY=1" in argv
+    assert "PHLO_OBSERVE_PRETTY_VERBOSE=1" in argv
+    assert "OBSERVE_DRAINS=console,file" in argv
+    assert not any(
+        arg.startswith(("PHLO_AUTO_REFRESH_CONTRACTS=", "PHLO_CONTRACT_REFRESH_SELECTION="))
+        for arg in argv
+    )
+    if host_platform == "Linux":
+        assert argv[argv.index("--user") + 1] == "1234:5678"
+    else:
+        assert "--user" not in argv
+    assert argv[argv.index(container_name) + 1 :] == [
+        "dagster",
+        "asset",
+        "materialize",
+        "-m",
+        "phlo_dagster.framework.definitions",
+        "--select",
+        "orders",
+        "--partition",
+        "2026-02-03",
+    ]
 
 
 @pytest.mark.parametrize("output_json", [False, True])

@@ -39,15 +39,13 @@ from typing import Any
 import dagster as dg
 
 from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCatalog
+from phlo.capabilities.registry import get_capability_registry
 from phlo.capabilities.resolver import resolve_capability
 from phlo.config.process import get_process_settings
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.infrastructure import load_wap_config
-from phlo_dagster.framework.discovery import (
-    _collect_dagster_extension_definitions,
-    _ensure_core_resources,
-    discover_user_workflows,
-)
+from phlo_dagster.framework import assembly
+from phlo_dagster.framework.discovery import discover_user_workflows
 from phlo_dagster.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
 from phlo_dagster.framework.asset_check_inventory import add_asset_check_inventory
 from phlo_dagster.framework.schema_contracts import maybe_refresh_contracts
@@ -56,6 +54,26 @@ from phlo_dagster.settings import get_settings
 from phlo.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
+
+
+def _ensure_core_resources(definitions: Any) -> Any:
+    resources = dict(definitions.resources or {})
+    if "trino" not in resources:
+        trino_resource = _default_trino_resource()
+        if trino_resource is not None:
+            resources["trino"] = trino_resource
+    if resources == (definitions.resources or {}):
+        return definitions
+    return dg.Definitions.merge(definitions, dg.Definitions(resources=resources))
+
+
+def _default_trino_resource() -> Any | None:
+    # Only auto-wire a trino resource if a provider has already registered one.
+    registry = get_capability_registry()
+    for resource in registry.list("resource"):
+        if resource.name == "trino":
+            return resource.resource
+    return None
 
 
 def _collect_wap_definitions() -> dg.Definitions | None:
@@ -244,7 +262,7 @@ def build_definitions(
             workflows_path=str(workflows_path),
         )
         user_defs = dg.Definitions()
-    dagster_defs = _collect_dagster_extension_definitions()
+    dagster_defs = assembly.collect_dagster_extension_definitions()
     definitions_to_merge = [user_defs]
     definitions_to_merge.append(dg.Definitions(sensors=[phlo_incident_signal_sensor]))
     if get_process_settings().phlo_observatory_environment:

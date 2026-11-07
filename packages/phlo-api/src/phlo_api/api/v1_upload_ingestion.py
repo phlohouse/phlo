@@ -120,12 +120,8 @@ class CandidateLoad(WireModel):
     retry_of_run_id: str | None = None
 
 
-def _legacy():
-    return project_root() / ".phlo/csv-candidates.json"
-
-
 def _all() -> list[CandidateReceipt]:
-    values = load_collection(project_root(), _COLLECTION, _legacy())
+    values = load_collection(project_root(), _COLLECTION)
     retained_ids = {item.upload_id for item in uploads._records() if not item.reclaimed_at}
     if sum(value.get("upload_id") in retained_ids for value in values) > 100:
         raise BackendUnavailableError("CSV candidate collection exceeds its configured limit.")
@@ -198,7 +194,7 @@ def _save(receipt: CandidateReceipt, *, previous: CandidateReceipt | None) -> Ca
             raise ConflictError("CSV candidate changed; reload before continuing.")
         return [receipt.model_dump() if item is current else item for item in items]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy(), update)
+    mutate_collection(project_root(), _COLLECTION, update)
     return receipt
 
 

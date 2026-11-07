@@ -33,18 +33,9 @@ MAX_OPERATION_RECORDS = 200
 OPERATION_OBSERVABILITY_SCHEMA_VERSION = "phlo.operation_observability.v1"
 
 
-def operation_journal_path(project_root: Path) -> Path:
-    """Return the journal file path, creating the Observatory state directory."""
-    state_dir = project_root / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / "operation_journal.json"
-
-
 def load_operation_journal(project_root: Path) -> list[ObservatoryOperation]:
     """Load and validate the persisted operations, newest first; raises on corrupt state."""
-    return _validate_operations(
-        load_collection(project_root, "operation_journal", operation_journal_path(project_root))
-    )
+    return _validate_operations(load_collection(project_root, "operation_journal"))
 
 
 def write_operation_journal(project_root: Path, operations: Iterable[ObservatoryOperation]) -> None:
@@ -53,7 +44,6 @@ def write_operation_journal(project_root: Path, operations: Iterable[Observatory
     mutate_collection(
         project_root,
         "operation_journal",
-        operation_journal_path(project_root),
         lambda _items: [operation.model_dump(mode="json") for operation in records],
     )
 
@@ -98,7 +88,6 @@ def append_operation(
     mutate_collection(
         project_root,
         "operation_journal",
-        operation_journal_path(project_root),
         lambda items: [
             item.model_dump(mode="json")
             for item in sort_operations([recorded, *_validate_operations(items)])[
