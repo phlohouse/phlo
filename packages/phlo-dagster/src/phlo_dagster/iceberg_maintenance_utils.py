@@ -40,19 +40,6 @@ def durable_maintenance_journal() -> OperationJournalStore:
     return FileOperationJournalStore(directory)
 
 
-def is_outcome_unknown(result: dict[str, Any]) -> bool:
-    """True when the provider submitted the operation but cannot confirm its outcome.
-
-    Providers report this via ``failure.outcome == "unknown"`` or the
-    ``*_outcome_unknown*`` failure codes; the operation may have committed,
-    so the journal must record UNKNOWN rather than a retryable FAILED.
-    """
-    failure = result.get("failure")
-    if not isinstance(failure, dict):
-        return False
-    return failure.get("outcome") == "unknown" or "outcome_unknown" in str(failure.get("code", ""))
-
-
 def resolve_maintenance_discovery() -> MaintenanceDiscovery:
     """Resolve neutral discovery and statistics capabilities for maintenance."""
     resolution = resolve_capability("table_store", "iceberg")
