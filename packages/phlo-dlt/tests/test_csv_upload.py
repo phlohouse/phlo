@@ -165,7 +165,7 @@ def test_candidate_staging_supplies_required_provenance_to_the_real_iceberg_sche
         )
         return pipeline, root / "pipelines" / pipeline_name
 
-    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", setup_pipeline)
+    monkeypatch.setattr("phlo_dlt.dlt_helpers.setup_dlt_pipeline", setup_pipeline)
 
     class Store:
         support = SimpleNamespace(schema_policies=frozenset({"strict"}))

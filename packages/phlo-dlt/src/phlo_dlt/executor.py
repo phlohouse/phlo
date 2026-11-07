@@ -87,10 +87,9 @@ from phlo.capabilities.runtime import DataInterval, RuntimeRouting, routing_from
 from phlo_dlt.dlt_helpers import (
     apply_data_interval,
     apply_validation_schema_hints,
+    extract_to_parquet,
     inject_metadata_columns,
     merge_to_table_store,
-    setup_dlt_pipeline,
-    stage_to_parquet,
     validate_interval_options,
 )
 from phlo_dlt.evidence import (
@@ -565,33 +564,14 @@ class DltIngester(BaseIngester):
                     emitter, attempt, event_context, source_identity, project_error
                 )
 
-            pipeline, local_staging_root = setup_dlt_pipeline(
-                pipeline_name=pipeline_name,
-                # DLT's filesystem destination uses dataset_name as a directory.
-                # A Dagster group can contain several assets, so it cannot also
-                # identify a pipeline's staging area.
-                dataset_name=pipeline_name,
-            )
-
-            # dlt_helpers log through a context object exposing ``.log``;
-            # this shim adapts the plain logger to that contract.
-
-            class ContextShim:
-                """Expose a `.log` attribute expected by DLT helpers."""
-
-                def __init__(self, logger):
-                    """Store logger on `.log` to match helper context contract."""
-                    self.log = logger
-
-            shim = ContextShim(self.logger)
-
-            parquet_paths, dlt_elapsed = stage_to_parquet(
-                context=shim,
-                pipeline=pipeline,
+            staged = extract_to_parquet(
                 dlt_source=dlt_source,
-                local_staging_root=local_staging_root,
-                **({"allow_empty": True} if self.interval_column is not None else {}),
+                pipeline_name=pipeline_name,
+                log=self.logger,
+                allow_empty=self.interval_column is not None,
             )
+            parquet_paths = staged.parquet_paths
+            dlt_elapsed = staged.elapsed_seconds
 
             if not parquet_paths:
                 return self._no_data_result(
@@ -604,7 +584,7 @@ class DltIngester(BaseIngester):
                         parquet_path=parquet_path,
                         partition_date=partition_date,
                         run_id=run_id,
-                        context=shim,
+                        log=self.logger,
                     )
 
             # Inventory after Phlo metadata mutation, immediately before
@@ -622,9 +602,9 @@ class DltIngester(BaseIngester):
                 if isinstance(item.get("byte_count"), int)
             )
             execution_identity, execution_identity_observed = dlt_execution_identity(
-                pipeline, dlt_source, parameters, staged_objects
+                staged.load_info, dlt_source, parameters, staged_objects
             )
-            dlt_metrics = dlt_observed_metrics(pipeline)
+            dlt_metrics = dlt_observed_metrics(staged.load_info)
             before_state = table_state(
                 self.table_store, self.table_config.full_table_name, branch_name
             )
@@ -715,7 +695,7 @@ class DltIngester(BaseIngester):
             evidence_resources.append(output_resource)
 
             merge_metrics = merge_to_table_store(
-                context=shim,
+                log=self.logger,
                 table_store=self.table_store,
                 table_config=self.table_config,
                 parquet_paths=parquet_paths,

@@ -20,6 +20,7 @@ from pandera.typing import Series  # type: ignore[possibly-missing-import]
 
 from phlo.logging import get_logger
 from phlo.hooks.events import IngestionEvent, TelemetryEvent
+from phlo_dlt.dlt_helpers import DltStagingResult
 from phlo_dlt.executor import DltIngester
 from phlo_dlt.registry import TableConfig
 
@@ -37,12 +38,8 @@ def test_strict_validation_blocks_visible_write(monkeypatch, tmp_path) -> None:
     merge_called = False
 
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([invalid_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([invalid_path], 0.01, None),
     )
 
     def _merge_to_table_store(**_kwargs):
@@ -85,12 +82,8 @@ def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tm
     observed_values: list[int] = []
 
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([accepted_path, rejected_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([accepted_path, rejected_path], 0.01, None),
     )
 
     def _merge_to_table_store(**_kwargs):
@@ -133,16 +126,9 @@ def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, 
     invalid_path = tmp_path / "invalid.parquet"
     pd.DataFrame([{"name": "test", "value": "not_an_int"}]).to_parquet(invalid_path)
 
-    pipeline_setup: dict[str, str] = {}
-
-    def _setup_dlt_pipeline(**kwargs):
-        pipeline_setup.update(kwargs)
-        return SimpleNamespace(), tmp_path
-
-    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", _setup_dlt_pipeline)
     monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([invalid_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([invalid_path], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.merge_to_table_store",
@@ -170,10 +156,6 @@ def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, 
 
     assert result.status == "success"
     assert result.metadata["pandera_evaluation"]["passed"] is False
-    assert pipeline_setup == {
-        "pipeline_name": "entries_2026_03_05",
-        "dataset_name": "entries_2026_03_05",
-    }
 
 
 def test_dlt_failure_events_carry_runtime_correlation(monkeypatch, tmp_path) -> None:
@@ -187,11 +169,7 @@ def test_dlt_failure_events_carry_runtime_correlation(monkeypatch, tmp_path) -> 
     bus = RecordingBus()
     monkeypatch.setattr("phlo.hooks.emitters.get_hook_bus", lambda: bus)
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
+        "phlo_dlt.executor.extract_to_parquet",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("stage failed")),
     )
 
@@ -246,11 +224,7 @@ def test_lifecycle_sink_failures_do_not_mask_provider_failure(
 
     monkeypatch.setattr("phlo.hooks.emitters.get_hook_bus", lambda: RaisingBus())
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
+        "phlo_dlt.executor.extract_to_parquet",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("provider stage failed")),
     )
 
@@ -280,12 +254,8 @@ def test_provider_exception_records_unknown_output_without_claiming_no_write(
     parquet_path = tmp_path / "staged.parquet"
     captured: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([parquet_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([parquet_path], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.staged_object_inventory",
@@ -365,12 +335,8 @@ def test_successful_write_with_contradictory_readback_stays_successful(
         ]
     )
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([parquet_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([parquet_path], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.staged_object_inventory",
