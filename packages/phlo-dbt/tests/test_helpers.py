@@ -11,6 +11,7 @@ from datetime import date
 import pytest
 import yaml
 
+from phlo.config.env import use_project_root
 from phlo_dbt.helpers import (
     DbtManifestTable,
     build_partition_vars,
@@ -113,7 +114,8 @@ def test_ensure_compiled_prepares_discovered_project_profile(
     monkeypatch.setenv("DBT_PROJECT_DIR", str(project))
     profiles = tmp_path / "separate_profiles" if explicit_profiles else project
 
-    assert ensure_compiled(profiles_dir=str(profiles) if explicit_profiles else None) is True
+    with use_project_root(tmp_path):
+        assert ensure_compiled(profiles_dir=str(profiles) if explicit_profiles else None) is True
     profile = yaml.safe_load((profiles / "profiles.yml").read_text())
     assert profile["sales_profile"]["target"] == "dev"
     assert (project / "target" / "manifest.json").read_text() == '{"nodes": {}}'
