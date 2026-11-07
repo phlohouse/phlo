@@ -76,6 +76,7 @@ test-coverage:
 		--cov-report= --junitxml=$(COVERAGE_DIR)/results.xml --tb=short -ra || exit $$?; \
 	COVERAGE_FILE=$(COVERAGE_DIR)/.coverage uv run --locked python -m pytest \
 		-p scripts.ci_required -o addopts= -m integration \
+		packages/phlo-api/tests/test_continuity_api.py \
 		packages/phlo-api/tests/test_operation_controls_postgres.py \
 		packages/phlo-api/tests/test_run_report_postgres_recovery.py \
 		tests/integration/test_issue1035_dataset_journey.py \
@@ -104,6 +105,7 @@ test-coverage-postgres:
 	COVERAGE_FILE="$(COVERAGE_INPUTS_DIR)/postgres/coverage.data" \
 		uv run --locked python -m pytest -p scripts.ci_required -o addopts= -m integration \
 		-n 4 --dist loadscope --timeout=300 \
+		packages/phlo-api/tests/test_continuity_api.py \
 		packages/phlo-api/tests/test_operation_controls_postgres.py \
 		packages/phlo-api/tests/test_run_report_postgres_recovery.py \
 		tests/integration/test_issue1035_dataset_journey.py \
