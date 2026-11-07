@@ -329,6 +329,45 @@ class TestDiscoverPanderaSchemas:
         assert discovered["Orders"].__module__ not in sys.modules
         assert sys.path == before_path
 
+    @pytest.mark.parametrize("dependent", ["A", "B"])
+    def test_discovery_shares_imported_schema_identity_within_each_session(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dependent: str
+    ):
+        """Importing another schema must not cause a second execution or class identity."""
+        root = tmp_path / "linked_schemas"
+        schemas_dir = root / "schemas"
+        schemas_dir.mkdir(parents=True)
+        (root / "__init__.py").write_text("")
+        (schemas_dir / "__init__.py").write_text("")
+        executions = tmp_path / "executions.txt"
+        base = "B" if dependent == "A" else "A"
+        sources = {
+            dependent.lower(): f"from .{base.lower()} import {base}\n"
+            f"class {dependent}({base}):\n    detail: str\n",
+            base.lower(): "from phlo_pandera.schemas import PhloSchema\n"
+            f"class {base}(PhloSchema):\n    id: int\n",
+        }
+        for name, source in sources.items():
+            (schemas_dir / f"{name}.py").write_text(
+                "from pathlib import Path\n"
+                f"with Path({str(executions)!r}).open('a') as marker:\n"
+                f"    marker.write('{name}\\n')\n" + source
+            )
+        monkeypatch.setenv("PHLO_SCHEMA_SEARCH_PATHS", str(root))
+        provider = PanderaSchemaDiscoveryProvider()
+
+        for session in range(1, 3):
+            discovered = provider.discover_schemas()
+
+            assert set(discovered) == {"A", "B"}
+            assert discovered[dependent].__bases__ == (discovered[base],)
+            assert issubclass(discovered[dependent], discovered[base])
+            assert sorted(executions.read_text().splitlines()) == ["a"] * session + ["b"] * session
+            for name in ("A", "B"):
+                assert discovered[name].__phlo_schema_source_path__ == str(
+                    schemas_dir / f"{name.lower()}.py"
+                )
+
     def test_discovery_preserves_relative_imports_refresh_and_process_imports(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
@@ -337,8 +376,17 @@ class TestDiscoverPanderaSchemas:
         original_package = installed / "schema_project"
         original_package.mkdir(parents=True)
         (original_package / "__init__.py").write_text("")
+        (original_package / "schemas").mkdir()
+        (original_package / "schemas" / "__init__.py").write_text("")
+        (original_package / "schemas" / "orders.py").write_text("installed = True\n")
+        (original_package / "base.py").write_text(
+            "from phlo_pandera.schemas import PhloSchema as Base\n"
+            "class PhloSchema(Base):\n    installed_only: str\n"
+        )
         monkeypatch.syspath_prepend(str(installed))
         original = importlib.import_module("schema_project")
+        importlib.import_module("schema_project.schemas.orders")
+        importlib.import_module("schema_project.base")
         try:
             root = tmp_path / "configured" / "schema_project"
             schemas_dir = root / "schemas"
@@ -381,7 +429,9 @@ class TestDiscoverPanderaSchemas:
                 if name == "schema_project" or name.startswith("schema_project.")
             } == before_modules
         finally:
-            sys.modules.pop("schema_project", None)
+            for name in list(sys.modules):
+                if name == "schema_project" or name.startswith("schema_project."):
+                    sys.modules.pop(name, None)
 
 
 class TestClassifySchemaChange:
