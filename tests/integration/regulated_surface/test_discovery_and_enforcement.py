@@ -32,6 +32,7 @@ from phlo.capabilities.interfaces import (
     ResourceRef,
 )
 from phlo.capabilities.registry import CAPABILITY_FAMILIES
+from phlo.config.project import ProjectConfigError
 from phlo.identity.bridge import create_regulated_bridge
 from phlo.security.adapters import SurfaceOperation
 from phlo.security.enforcement import EnforcementContext
@@ -291,10 +292,10 @@ class TestValidation:
 
         assert report.regulated_enabled is True
 
-    def test_validation_reads_regulated_mode_fallback_from_phlo_yaml(
+    def test_validation_rejects_removed_regulated_mode_key(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Validation should fallback to regulated_mode from phlo.yaml."""
+        """A removed regulated_mode key fails closed instead of enabling regulated mode."""
         config_path = tmp_path / "phlo.yaml"
         config_path.write_text(yaml.safe_dump({"regulated_mode": True}))
 
@@ -302,10 +303,8 @@ class TestValidation:
         monkeypatch.delenv("PHLO_REGULATED", raising=False)
         monkeypatch.delenv("PHLO_REGULATED_MODE", raising=False)
 
-        with pytest.warns(DeprecationWarning):
-            report = run_regulated_validation()
-
-        assert report.regulated_enabled is True
+        with pytest.raises(ProjectConfigError, match="'regulated_mode' was removed in 0.19.0"):
+            run_regulated_validation()
 
 
 class TestModuleLevelGlobalsGone:
