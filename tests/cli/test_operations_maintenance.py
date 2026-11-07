@@ -86,6 +86,27 @@ def test_plan_returns_json_without_mutation(provider) -> None:
     assert payload["plan_token"] == "plan-tok-1"
 
 
+@pytest.mark.parametrize("operation", ["compact", "snapshot_expiry"])
+def test_real_iceberg_planning_rejection_is_a_cli_error(provider, monkeypatch, tmp_path, operation):
+    from phlo_iceberg.resource import IcebergResource
+
+    method = "compact" if operation == "compact" else "expire_snapshots"
+    monkeypatch.setattr(provider, method, getattr(IcebergResource, method).__get__(provider))
+
+    def unexpected_metadata(*_args, **_kwargs):
+        raise AssertionError("Invalid planning input must not reach metadata")
+
+    monkeypatch.setattr(provider, "_compaction_metadata", unexpected_metadata)
+    monkeypatch.setattr(provider, "get_catalog", unexpected_metadata)
+    journal_dir = tmp_path / "journal"
+    result = _invoke(["plan", "--operation", operation, "--table", "raw.events.extra"], journal_dir)
+    assert result.exit_code == 1
+    assert "invalid_maintenance_input" in result.output
+    assert operation in result.output
+    assert "namespace.table" in result.output
+    assert not journal_dir.exists()
+
+
 def test_plan_fails_without_store(monkeypatch) -> None:
     monkeypatch.setattr(
         "phlo.operations.maintenance.resolve_capability", lambda _kind, _name=None: None
