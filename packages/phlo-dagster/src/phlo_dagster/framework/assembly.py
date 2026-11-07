@@ -77,7 +77,7 @@ def _build_dagster_fallback_definitions(
         )
     except PhloConfigError:
         raise
-    except Exception as exc:  # noqa: BLE001 - normalize fallback failure shape
+    except Exception as exc:
         raise PhloConfigError("Dagster fallback also failed") from exc
 
 
@@ -85,7 +85,7 @@ def collect_dagster_extension_definitions() -> Any:
     """Load and merge allowed extensions, isolating individual plugin failures."""
     try:
         import dagster as dg
-    except Exception:  # noqa: BLE001 - optional dependency
+    except Exception:
         return None
 
     definitions: list[dg.Definitions] = []
@@ -110,7 +110,7 @@ def collect_dagster_extension_definitions() -> Any:
 def _collect_module_dagster_definitions(imported_modules: list[Any]) -> Any | None:
     try:
         import dagster as dg
-    except Exception:  # noqa: BLE001 - optional dependency
+    except Exception:
         return None
 
     definitions: list[dg.Definitions] = []
@@ -175,7 +175,7 @@ def _merge_dagster_definitions(*, capability_defs: Any, module_defs: Any | None)
 
     try:
         import dagster as dg
-    except Exception:  # noqa: BLE001 - optional dependency
+    except Exception:
         return capability_defs
 
     if not isinstance(capability_defs, dg.Definitions):
