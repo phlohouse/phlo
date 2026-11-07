@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
 from pathlib import Path
 from typing import Any, Literal
 
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AwareDatetime
 
 from phlo.config.process import get_process_settings
+from phlo.wap_evidence import WapEvidence
 from phlo_api.api import v1_jobs
 from phlo_api.api.operation_controls import require_scope
 from phlo_api.api.v1 import _target
@@ -22,8 +20,6 @@ from phlo_api.v1_contract import Environment, RunStatus, WireModel
 
 router = APIRouter(tags=["v1 WAP"])
 _RUN_LIMIT = 500
-_JSON_LIMIT = 2 * 1024 * 1024
-_LOGICAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,114}$")
 
 
 class WapRun(WireModel):
@@ -51,82 +47,8 @@ class WapRunPage(WireModel):
     catalog_available: bool
 
 
-class _Report(BaseModel):
-    model_config = ConfigDict(strict=True)
-    schema_version: Literal["phlo.wap_report.v2"]
-    run_id: str
-    dagster_run_id: str
-    branch: str
-    launch_tags: dict[str, str]
-    launch_manifest_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
-    strategy: Literal["branch", "snapshot"]
-    status: str = Field(min_length=1, max_length=128)
-    updated_at: AwareDatetime
-    context: dict[str, str] | None = None
-    target_branch: str | None = None
-
-
-def _read_json(path: Path) -> bytes:
-    with path.open("rb") as handle:
-        value = handle.read(_JSON_LIMIT + 1)
-    if len(value) > _JSON_LIMIT:
-        raise ValueError("WAP evidence exceeds the read limit.")
-    return value
-
-
-def _report(
-    logical_id: str, run_id: str, tags: dict[str, str]
-) -> tuple[_Report | None, Literal["verified", "missing", "invalid"]]:
-    root = (
-        Path(get_process_settings().get("PHLO_PROJECT_PATH", "/app/project"))
-        / ".phlo"
-        / "wap-reports"
-    )
-    try:
-        report = _Report.model_validate_json(_read_json(root / f"{logical_id}.json"))
-    except FileNotFoundError:
-        return None, "missing"
-    except (OSError, ValueError, ValidationError):
-        return None, "invalid"
-    run_key = hashlib.sha256(logical_id.encode()).hexdigest()[:24]
-    try:
-        raw = _read_json(root / "launches" / f"{run_key}.{report.launch_manifest_checksum}.json")
-        binding = json.loads(raw)
-        valid = (
-            hashlib.sha256(raw).hexdigest() == report.launch_manifest_checksum
-            and isinstance(binding, dict)
-            and binding.get("schema_version")
-            in {"phlo.wap_launch_manifest.v1", "phlo.wap_launch_manifest.v2"}
-            and binding.get("logical_run_id") == logical_id == report.run_id
-            and binding.get("dagster_run_id") == run_id == report.dagster_run_id
-            and binding.get("branch") == tags["phlo/wap_branch"] == report.branch
-            and binding.get("tags") == report.launch_tags
-            and all(tags.get(key) == value for key, value in report.launch_tags.items())
-            and all(
-                report.launch_tags.get(key) == tags.get(key)
-                for key in ("phlo/run_id", "phlo/wap_branch", "phlo/ref", "phlo/project_id")
-            )
-        )
-        if valid and binding["schema_version"] == "phlo.wap_launch_manifest.v2":
-            context = binding.get("context")
-            valid = (
-                isinstance(context, dict)
-                and set(context)
-                == {"environment", "target_ref", "location", "backend_id", "strategy"}
-                and all(isinstance(value, str) and value for value in context.values())
-                and context == report.context
-                and context["target_ref"] == binding.get("target_branch") == report.target_branch
-                and context["strategy"] == report.strategy
-                and re.fullmatch(r"[a-f0-9]{64}", context["backend_id"]) is not None
-                and all(
-                    tags.get(key, context["environment"]) == context["environment"]
-                    for key in ("environment", "env")
-                )
-                and all(tags.get(key, report.branch) == report.branch for key in ("ref", "branch"))
-            )
-    except (OSError, ValueError, UnicodeDecodeError):
-        return None, "invalid"
-    return (report, "verified") if valid else (None, "invalid")
+def _evidence() -> WapEvidence:
+    return WapEvidence(Path(get_process_settings().get("PHLO_PROJECT_PATH", "/app/project")))
 
 
 def _publication_ref(row: dict[str, Any], *, promoted_only: bool = False) -> str | None:
@@ -135,21 +57,13 @@ def _publication_ref(row: dict[str, Any], *, promoted_only: bool = False) -> str
 
     tags = _launch_tags(row)
     logical_id = tags.get("phlo/run_id", "")
-    branch = tags.get("phlo/wap_branch")
-    if (
-        not _LOGICAL_ID.fullmatch(logical_id)
-        or branch != f"pipeline-run-{logical_id}"
-        or tags.get("phlo/ref") != branch
-        or not tags.get("phlo/project_id")
-    ):
-        return None
     run_id = row.get("runId")
     if not isinstance(run_id, str) or not run_id:
         return None
-    report, state = _report(logical_id, run_id, tags)
-    if state != "verified" or report is None or report.context is None:
+    verified = _evidence().verify(logical_id, run_id, tags)
+    if verified is None or verified.binding.get("context") is None:
         return None
-    context = report.context
+    context = verified.binding["context"]
     target = _targets().get(context["environment"])
     origin = row.get("repositoryOrigin")
     if (
@@ -158,7 +72,7 @@ def _publication_ref(row: dict[str, Any], *, promoted_only: bool = False) -> str
         or target.dagster_location != context["location"]
         or not isinstance(origin, dict)
         or origin.get("repositoryLocationName") != context["location"]
-        or (promoted_only and report.status != "promoted")
+        or (promoted_only and verified.report["status"] != "promoted")
     ):
         return None
     return target.nessie_ref
@@ -220,24 +134,32 @@ async def _observation(
     if origin["repositoryLocationName"] != location:
         return None
     logical_id = tags.get("phlo/run_id", "")
+    evidence = _evidence()
+    try:
+        report_path = evidence.report_path(logical_id)
+    except ValueError as exc:
+        raise BadGatewayError("WAP run has inconsistent launch identity.") from exc
     if (
-        not _LOGICAL_ID.fullmatch(logical_id)
-        or staging_ref != f"pipeline-run-{logical_id}"
+        staging_ref != f"pipeline-run-{logical_id}"
         or tags.get("phlo/ref") != staging_ref
         or not tags.get("phlo/project_id")
     ):
         raise BadGatewayError("WAP run has inconsistent launch identity.")
     run = v1_jobs._run(row, location, staging_ref)
     assert run is not None
-    report, report_state = await run_sync(_report, logical_id, run.run_id, tags)
+    verified = await run_sync(evidence.verify, logical_id, run.run_id, tags)
+    report = verified.report if verified else None
+    report_state: Literal["verified", "missing", "invalid"] = (
+        "verified" if verified else "invalid" if report_path.exists() else "missing"
+    )
     if (
-        (report is not None and report.context is not None)
+        (report is not None and report.get("context") is not None)
         or "phlo/wap_binding" in tags
         or "environment" in tags
     ) and _publication_ref(row) != ref:
         return None
     catalog_system = tags.get("phlo/catalog_system")
-    strategy: Literal["branch", "snapshot", "unknown"] = report.strategy if report else "unknown"
+    strategy: Literal["branch", "snapshot", "unknown"] = report["strategy"] if report else "unknown"
     branch_state: Literal["present", "absent", "unknown", "not_applicable"] = "unknown"
     branch_hash = None
     if strategy == "snapshot":
@@ -260,8 +182,8 @@ async def _observation(
         branch_state=branch_state,
         branch_hash=branch_hash,
         report_state=report_state,
-        lifecycle_status=report.status if report else None,
-        reported_at=report.updated_at if report else None,
+        lifecycle_status=report["status"] if report else None,
+        reported_at=verified.reported_at if verified else None,
     )
 
 

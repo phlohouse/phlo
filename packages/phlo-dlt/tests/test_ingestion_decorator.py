@@ -182,7 +182,8 @@ def test_strict_domain_quality_failure_preserves_main_through_wap_and_evidence(
         hook_bus.clear()
 
     assert [(result.check_name, result.passed) for result in results] == [
-        ("quality_<lambda>", False)
+        ("pandera_contract", True),
+        ("quality_<lambda>", False),
     ]
     assert store.rows("main") == main_before
     assert store.catalog_hash("main") == main_hash_before
@@ -282,6 +283,139 @@ def test_blessed_decorator_persists_runtime_correlation(monkeypatch, tmp_path) -
         "tenant": "project-decorated",
         "attributes": {"catalog_ref": "main"},
     }
+
+
+@pytest.mark.parametrize("strict", [True, False])
+@pytest.mark.parametrize("mode", ["materialized", "full", "sample"])
+def test_staged_checks_are_complete_and_emitted_once_before_strict_failure(
+    monkeypatch, tmp_path, strict, mode
+) -> None:
+    """Both files and every domain callback contribute to the recorded outcome."""
+
+    class PositiveRows(DataFrameModel):
+        id: int = Field(gt=0)
+
+    paths = [tmp_path / "first.parquet", tmp_path / "second.parquet"]
+    pq.write_table(pa.table({"id": [3]}), paths[0])
+    pq.write_table(pa.table({"id": [-7, 11]}), paths[1])
+    callback_rows: list[list[int]] = []
+    written: list[int] = []
+
+    def reject_negative(frame):
+        callback_rows.append(frame["id"].tolist())
+        return "negative id" if (frame["id"] < 0).any() else None
+
+    def accept_all(frame):
+        callback_rows.append(frame["id"].tolist())
+        return None
+
+    def merge(**kwargs):
+        for path in kwargs["parquet_paths"]:
+            written.extend(pq.read_table(path).column("id").to_pylist())
+        return {"rows_inserted": len(written), "rows_deleted": 0}
+
+    monkeypatch.setattr(
+        "phlo_dlt.decorator._resolve_table_store_capability",
+        lambda _runtime: (SimpleNamespace(), "recording-store"),
+    )
+    monkeypatch.setattr(
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult(paths, 0.01, None),
+    )
+    monkeypatch.setattr("phlo_dlt.executor.merge_to_table_store", merge)
+
+    @phlo_ingestion(
+        table_name="positive_rows",
+        unique_key="id",
+        group="raw",
+        validation_schema=PositiveRows,
+        strict_validation=strict,
+        validation_mode=mode,
+        validation_batch_size=1,
+        validation_sample_size=2,
+        quality_checks=[reject_negative, accept_all],
+        add_metadata_columns=False,
+    )
+    def rows(partition_date):
+        return object()
+
+    runtime = SimpleNamespace(
+        partition_key="2026-11-07",
+        run_id="staged-checks",
+        tags={},
+        resources={},
+        logger=get_logger("test_staged_checks"),
+    )
+    emitted = []
+    run = get_ingestion_assets()[0].run.fn(runtime)
+    if strict:
+        with pytest.raises(RuntimeError, match="Pandera contract validation failed"):
+            for item in run:
+                emitted.append(item)
+    else:
+        emitted.extend(run)
+    checks = [item for item in emitted if isinstance(item, CheckResult)]
+    assert [(item.check_name, item.passed) for item in checks] == [
+        ("pandera_contract", False),
+        ("quality_reject_negative", False),
+        ("quality_accept_all", True),
+    ]
+    assert callback_rows == [[3, -7, 11], [3, -7, 11]]
+    assert written == ([] if strict else [3, -7, 11])
+    assert checks[0].metadata["schema"] == "PositiveRows"
+    assert checks[0].metadata["partition_key"] == "2026-11-07"
+    assert checks[0].metadata["total_count"] == (2 if mode == "sample" else 3)
+    assert checks[0].metadata["failed_count"] == 1
+    assert checks[0].severity == ("error" if strict else "warn")
+    assert checks[0].metadata["blocking"] is strict
+    if mode != "materialized":
+        assert checks[0].metadata["validation_mode"] == mode
+        assert checks[0].metadata["validation_scope"] == (
+            "prefix_sample" if mode == "sample" else "dataset"
+        )
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_no_data_emits_executor_check_without_running_domain_callbacks(monkeypatch, strict) -> None:
+    class EmptyRows(DataFrameModel):
+        id: int
+
+    def domain(_frame):
+        pytest.fail("No-data ingestion must not run domain callbacks")
+
+    monkeypatch.setattr(
+        "phlo_dlt.decorator._resolve_table_store_capability",
+        lambda _runtime: (SimpleNamespace(), "unused-store"),
+    )
+
+    @phlo_ingestion(
+        table_name="empty_rows",
+        unique_key="id",
+        group="raw",
+        validation_schema=EmptyRows,
+        strict_validation=strict,
+        validation_mode="sample",
+        quality_checks=[domain],
+    )
+    def rows(partition_date):
+        return None
+
+    runtime = SimpleNamespace(
+        partition_key="2026-11-07",
+        run_id="no-data-check",
+        tags={},
+        resources={},
+        logger=get_logger("test_empty_checks"),
+    )
+    results = list(get_ingestion_assets()[0].run.fn(runtime))
+    assert len(results) == 2
+    check, materialization = results
+    assert isinstance(check, CheckResult) and check.passed
+    assert check.metadata["total_count"] == 0
+    assert check.metadata["blocking"] is strict
+    assert check.metadata["validation_mode"] == "sample"
+    assert check.metadata["query_or_sql"] == "status:no_data"
+    assert materialization.status == "no_data"
 
 
 def test_blessed_decorator_persists_runtime_correlation_through_sqlite(

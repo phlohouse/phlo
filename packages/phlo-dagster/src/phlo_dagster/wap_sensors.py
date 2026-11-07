@@ -50,6 +50,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import dagster as dg
@@ -63,9 +64,11 @@ from phlo.capabilities.interfaces import (
 )
 from phlo.capabilities.resolver import resolve_capability
 from phlo.config import get_settings
+from phlo.config.process import get_process_settings
 from phlo.hooks import HookCorrelation, QualityResultEvent, get_hook_bus
 from phlo.logging import get_logger
 from phlo.plugins.observatory_settings import StorageUnavailableError, get_operational_settings
+from phlo.wap_evidence import VerifiedWapEvidence, WapEvidence
 from phlo.run_evidence import (
     RequiredEvidenceProfile,
     RunReconciler,
@@ -75,19 +78,12 @@ from phlo.run_evidence import (
 
 from phlo_dagster.run_evidence import DagsterRunEvidenceSource
 from phlo_dagster.settings import WapSensorSettings
-from phlo_dagster.wap_context import WAP_BINDING_TAG, validate_wap_context
+from phlo_dagster.wap_context import validate_wap_context
 from phlo_dagster.wap_launch import (
-    WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
     WAP_CATALOG_SYSTEM_TAG,
-    WAP_PROJECT_ID_TAG,
-    WAP_REF_TAG,
     WAP_RUN_ID_TAG,
-    WAP_STRATEGY_BRANCH,
     WAP_STRATEGY_SNAPSHOT,
-    _report_path,
-    _report_snapshot_path,
-    read_wap_launch_manifest,
     write_wap_report,
 )
 
@@ -297,11 +293,8 @@ def _attempt_for_run(run: Any) -> int | None:
     return attempt
 
 
-def _read_wap_report(run_id: str) -> dict[str, Any] | None:
-    try:
-        return json.loads(_report_path(run_id).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+def _evidence() -> WapEvidence:
+    return WapEvidence(Path(get_process_settings().get("PHLO_PROJECT_PATH", ".")))
 
 
 def _severity_label(value: Any) -> str:
@@ -465,15 +458,10 @@ def _quality_evidence(
     evidence_run_id: str | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     """Read report evidence and bind promotion to a durable aggregate decision."""
-    path = _report_path(run_id)
-    raw: bytes | None = None
-    try:
-        raw = path.read_bytes()
-        report = json.loads(raw.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        report = None
-    if report is not None and not isinstance(report, dict):
-        report = None
+    evidence = _evidence()
+    path = evidence.report_path(run_id)
+    snapshot = evidence.read_report_snapshot(run_id)
+    raw, report = snapshot if snapshot is not None else (None, None)
     if report is not None and report.get("run_id") != run_id:
         return None, {"quality_evidence": {"status": "unavailable"}}
     quality_id = None
@@ -501,7 +489,7 @@ def _quality_evidence(
         if aggregate_id is not None:
             quality_id = aggregate_id
     checksum = hashlib.sha256(raw).hexdigest() if raw is not None else None
-    snapshot_path = _report_snapshot_path(run_id, checksum) if checksum is not None else None
+    snapshot_path = evidence.snapshot_path(run_id, checksum) if checksum is not None else None
     evidence_path = snapshot_path if snapshot_path is not None and snapshot_path.exists() else path
     decision = (
         "rejected"
@@ -573,114 +561,39 @@ def _logical_run_id(run: Any) -> str:
     return str(logical_run_id or dagster_run_id)
 
 
-def _verify_wap_launch_manifest(run: Any, branch_name: str) -> tuple[str, dict[str, Any]] | None:
-    """Fail closed unless the run still matches its pre-launch WAP manifest."""
+def _migrate_launch_hashes(run: Any) -> VerifiedWapEvidence | None:
+    """Backfill legacy lifecycle hashes only after immutable evidence verifies."""
     logical_run_id = _logical_run_id(run)
     dagster_run_id = str(getattr(run, "run_id", "") or "")
     tags = getattr(run, "tags", {}) or {}
     project = _project_identity_for_run(run)
-    attempt, attempt_error = attempt_from_tags(tags)
-    if (
-        not project.project_id
-        or attempt is None
-        or attempt_error
-        or tags.get(WAP_PROJECT_ID_TAG) != project.project_id
-        or tags.get(WAP_ATTEMPT_TAG) != str(attempt)
-    ):
+    if not project.project_id:
         return None
-    expected_tags = {
-        WAP_RUN_ID_TAG: logical_run_id,
-        WAP_BRANCH_TAG: branch_name,
-        WAP_REF_TAG: branch_name,
-        WAP_PROJECT_ID_TAG: project.project_id,
-        WAP_ATTEMPT_TAG: str(attempt),
-    }
-    # phlo/catalog_system is set at launch from the resolved catalog provider
-    # and stored in launch_tags alongside the required tags. Manifests written
-    # before the tag existed carry neither — require it only when present so
-    # strict binding equality still verifies older launches.
-    catalog_system = tags.get(WAP_CATALOG_SYSTEM_TAG)
-    if catalog_system:
-        expected_tags[WAP_CATALOG_SYSTEM_TAG] = catalog_system
-    for key in ("environment", WAP_BINDING_TAG):
-        if key in tags:
-            expected_tags[key] = tags[key]
-    if (
-        not logical_run_id
-        or not dagster_run_id
-        or any(tags.get(key) != value for key, value in expected_tags.items())
-    ):
+    evidence = _evidence()
+    verified = evidence.verify(logical_run_id, dagster_run_id, tags, project_id=project.project_id)
+    if verified is None:
         return None
-    manifest = _read_wap_report(logical_run_id)
-    checksum = manifest.get("launch_manifest_checksum") if manifest else None
-    binding = read_wap_launch_manifest(logical_run_id, str(checksum)) if checksum else None
-    if not manifest or not binding:
-        return None
-    has_launch_source_hash = "launch_source_hash" in manifest
-    has_launch_target_hash_before = "launch_target_hash_before" in manifest
-    if not has_launch_source_hash and not has_launch_target_hash_before:
-        # Reports written before launch hashes had their own fields used the
-        # mutable lifecycle hashes.  Recover those facts from the verified,
-        # content-addressed binding once so retries do not reinterpret a
-        # later branch head as launch state.
-        launch_source_hash = binding.get("source_hash")
-        launch_target_hash_before = binding.get("target_hash_before")
+    if verified.needs_hash_migration:
         if not write_wap_report(
             logical_run_id,
-            launch_source_hash=launch_source_hash,
-            launch_target_hash_before=launch_target_hash_before,
+            launch_source_hash=verified.binding["source_hash"],
+            launch_target_hash_before=verified.binding["target_hash_before"],
         ):
             return None
-        manifest = _read_wap_report(logical_run_id)
-        if not manifest:
-            return None
-    elif not has_launch_source_hash or not has_launch_target_hash_before:
-        return None
-    else:
-        launch_source_hash = manifest["launch_source_hash"]
-        launch_target_hash_before = manifest["launch_target_hash_before"]
-    context = binding.get("context")
-    if context is not None and not isinstance(context, dict):
-        return None
-    context_fields = {"context": context} if context else {}
-    target_ref = context.get("target_ref") if context else "main"
-    if (
-        manifest.get("run_id") != logical_run_id
-        or manifest.get("branch") != branch_name
-        or manifest.get("dagster_run_id") != dagster_run_id
-        or manifest.get("launch_tags") != expected_tags
-        or (context and manifest.get("context") != context)
-        or binding
-        != {
-            "schema_version": "phlo.wap_launch_manifest.v2"
-            if context
-            else "phlo.wap_launch_manifest.v1",
-            "logical_run_id": logical_run_id,
-            "dagster_run_id": dagster_run_id,
-            "branch": branch_name,
-            "tags": expected_tags,
-            "source_hash": launch_source_hash,
-            "target_branch": target_ref,
-            "target_hash_before": launch_target_hash_before,
-            **context_fields,
-        }
-    ):
-        return None
-    return logical_run_id, manifest
+        return evidence.verify(logical_run_id, dagster_run_id, tags, project_id=project.project_id)
+    return verified
 
 
 def _check_wap_run_context(run: Any, branch: str, catalog: Any) -> bool:
     """Guard promotion and retention, including legacy runs and foreign locations."""
-    verified = _verify_wap_launch_manifest(run, branch)
-    if verified is None:
+    verified = _migrate_launch_hashes(run)
+    if verified is None or verified.binding["branch"] != branch:
         return False
-    logical_run_id, report = verified
-    binding = read_wap_launch_manifest(logical_run_id, report["launch_manifest_checksum"])
     try:
-        validate_wap_context(run, binding or {}, catalog)
+        validate_wap_context(run, verified.binding, catalog)
     except ValueError as exc:
         write_wap_report(
-            logical_run_id,
+            _logical_run_id(run),
             status="promotion_blocked",
             failure_reason="wap_launch_context_invalid",
             context_error=str(exc),
@@ -691,11 +604,10 @@ def _check_wap_run_context(run: Any, branch: str, catalog: Any) -> bool:
 
 def _publication_target(run: Any) -> str:
     """Read only verified immutable launch facts, never a tag or current default."""
-    report = _read_wap_report(_logical_run_id(run)) or {}
-    binding = read_wap_launch_manifest(_logical_run_id(run), report["launch_manifest_checksum"])
-    if not binding or not binding.get("context"):
+    verified = _evidence().verify(_logical_run_id(run), run.run_id, run.tags or {})
+    if verified is None or not verified.binding.get("context"):
         raise ValueError("WAP publication context is missing")
-    return binding["context"]["target_ref"]
+    return verified.binding["context"]["target_ref"]
 
 
 def _reconcile_promoted_wap_run(run: Any, instance: Any) -> bool:
@@ -1389,7 +1301,7 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
             )
             continue
 
-        report = _read_wap_report(logical_run_id)
+        report = _evidence().read_report(logical_run_id)
         if report and report.get("review_required"):
             skipped += 1
             continue
@@ -1458,8 +1370,9 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
 
 def _iter_snapshot_strategy_reports() -> list[dict[str, Any]]:
     """List durable reports launched under the snapshot strategy."""
+    evidence = _evidence()
     try:
-        report_dir = _report_path("probe").parent
+        report_dir = evidence.directory
         paths = sorted(report_dir.glob("*.json"))
     except OSError:
         return []
@@ -1467,10 +1380,7 @@ def _iter_snapshot_strategy_reports() -> list[dict[str, Any]]:
     for path in paths:
         if path.parent.name != "wap-reports":
             continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
+        payload = evidence.read_report(path.stem)
         if isinstance(payload, dict) and payload.get("strategy") == WAP_STRATEGY_SNAPSHOT:
             reports.append(payload)
     return reports
@@ -1636,7 +1546,7 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
     if run_tags.get("phlo/wap_promoted"):
         return (promoted, blocked)
 
-    manifest = _verify_wap_launch_manifest(run, branch_name)
+    manifest = _migrate_launch_hashes(run)
     if manifest is None:
         logical_run_id = _logical_run_id(run)
         if logical_run_id:
@@ -1654,13 +1564,13 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
         blocked += 1
         return (promoted, blocked)
 
-    manifest_logical_run_id, manifest_payload = manifest
+    manifest_logical_run_id = manifest.report["run_id"]
     if not _check_wap_run_context(run, branch_name, catalog):
         return (promoted, blocked + 1)
     target_ref = _publication_target(run)
     # Fail closed on configuration drift: a run launched under a different
     # strategy must never be advanced with the wrong catalog contract.
-    report_strategy = manifest_payload.get("strategy", WAP_STRATEGY_BRANCH)
+    report_strategy = manifest.report["strategy"]
     if report_strategy != configured_strategy:
         write_wap_report(
             manifest_logical_run_id,
@@ -1834,7 +1744,7 @@ def _promote_validated_run(
     promoted = blocked = 0
 
     logical_run_id = _logical_run_id(run)
-    prior_report = _read_wap_report(logical_run_id)
+    prior_report = _evidence().read_report(logical_run_id)
     merge_message = None
     if not prior_report or prior_report.get("merge_state") != "merged":
         try:

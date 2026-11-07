@@ -11,6 +11,7 @@ from phlo.capabilities.resolver import ResolutionResult
 from phlo.capabilities.specs import AssetCheckSpec, AssetSpec, CheckResult, RunSpec
 from phlo.capabilities.support import CapabilitySupport
 from phlo.config.project import load_project_model, load_wap_config
+from phlo.wap_evidence import WapEvidence
 
 from phlo_dagster import adapter, wap_context, wap_launch, wap_sensors
 
@@ -103,7 +104,9 @@ wap:
     monkeypatch.setattr(wap_sensors, "_reconcile_promoted_wap_run", lambda *a: True)
     observations = []
     monkeypatch.setattr(wap_sensors, "_emit_wap_observation", lambda **kw: observations.append(kw))
-    return SimpleNamespace(catalog=catalog, config=config, observations=observations)
+    return SimpleNamespace(
+        catalog=catalog, config=config, observations=observations, evidence=WapEvidence(tmp_path)
+    )
 
 
 def run_for(launch, physical="physical-1", location="warehouse-code"):
@@ -138,12 +141,12 @@ def test_non_main_publication_and_acknowledged_recovery(environment, monkeypatch
     context = sensor_context([run])
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
     assert environment.catalog.refs == {"main": "production-0", "qa": "audited-rows"}
-    assert wap_launch.read_wap_report("non-main")["merge_state"] == "merged"
+    assert environment.evidence.read_report("non-main")["merge_state"] == "merged"
     environment.catalog.refs["qa"] = "later-publication"
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
     assert environment.catalog.merges == [(launch.branch, "qa")]
     assert environment.catalog.deletes == [launch.branch]
-    report = wap_launch.read_wap_report("non-main")
+    report = environment.evidence.read_report("non-main")
     assert report["status"] == "promoted"
     assert report["context"]["environment"] == "stage"
     assert report["target_branch"] == "qa"
@@ -252,12 +255,13 @@ def test_target_hash_drift_is_not_backend_outage(environment):
     environment.catalog.unavailable = True
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
     assert (
-        wap_launch.read_wap_report("target-drift")["failure_reason"] == "catalog_hash_unavailable"
+        environment.evidence.read_report("target-drift")["failure_reason"]
+        == "catalog_hash_unavailable"
     )
     environment.catalog.unavailable = False
     environment.catalog.refs["qa"] = "other-publisher"
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
-    assert wap_launch.read_wap_report("target-drift")["failure_reason"] == "target_hash_drift"
+    assert environment.evidence.read_report("target-drift")["failure_reason"] == "target_hash_drift"
     assert environment.catalog.merges == environment.catalog.deletes == []
 
 
@@ -292,7 +296,7 @@ def test_credential_rotation_is_not_backend_drift(environment):
     launch.record_launch_result(status="launched", dagster_run_id=run.run_id)
     environment.catalog.base_url = "http://user:new-password@nessie:19120"
     wap_launch.verify_wap_execution(run)
-    report = str(wap_launch.read_wap_report("rotation"))
+    report = str(environment.evidence.read_report("rotation"))
     assert "password" not in report
     assert "http://" not in report
 
@@ -316,7 +320,7 @@ def test_legacy_main_manifest_is_not_auto_stamped_or_published(environment):
     context = sensor_context([run])
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
     wap_sensors.wap_branch_cleanup_sensor._raw_fn(context)
-    report = wap_launch.read_wap_report("legacy")
+    report = environment.evidence.read_report("legacy")
     assert report["status"] == "promotion_blocked"
     assert "legacy_launch_context_missing" in report["context_error"]
     assert "context" not in report
@@ -364,7 +368,7 @@ def test_canonical_tag_conflict_blocks_public_execution_and_sensors(environment,
             list(definitions.assets), instance=instance, tags=run.tags, raise_on_error=False
         )
         assert not result.success
-        assert "WAP execution binding or capability routing is invalid" in (
+        assert "WAP execution binding invalid" in (
             result.failure_data_for_node("raw__orders").error.to_string()
         )
         assert writes == []
@@ -419,7 +423,7 @@ def test_unknown_publication_response_requires_receipt_even_when_hash_matches(
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
     assert environment.catalog.refs["qa"] == "audited-rows"
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
-    report = wap_launch.read_wap_report(launch.logical_run_id)
+    report = environment.evidence.read_report(launch.logical_run_id)
     assert report["failure_reason"] == "merge_outcome_unknown"
     assert environment.catalog.merges == [(launch.branch, "qa")]
     assert environment.catalog.deletes == []
@@ -430,7 +434,7 @@ def test_unknown_publication_response_requires_receipt_even_when_hash_matches(
         target_hash_after="audited-rows",
     )
     wap_sensors.wap_auto_promotion_sensor._raw_fn(context)
-    assert wap_launch.read_wap_report(launch.logical_run_id)["status"] == "promoted"
+    assert environment.evidence.read_report(launch.logical_run_id)["status"] == "promoted"
     assert environment.catalog.merges == [(launch.branch, "qa")]
     assert environment.catalog.deletes == [launch.branch]
 
@@ -585,7 +589,7 @@ def test_candidate_bound_checks_gate_publication(environment, monkeypatch, scena
             environment.catalog.refs[launch.branch] = "unreviewed-52"
         with dg.build_sensor_context(instance=instance) as context:
             wap_sensors.wap_auto_promotion_sensor.evaluate_tick(context)
-    report = wap_launch.read_wap_report(launch.logical_run_id)
+    report = environment.evidence.read_report(launch.logical_run_id)
     if reason:
         assert report["failure_reason"] == reason
         assert environment.catalog.refs["qa"] == "qa-0"

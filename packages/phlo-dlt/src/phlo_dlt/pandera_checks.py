@@ -12,8 +12,6 @@ Key Components:
     - :func:`evaluate_pandera_contract_parquet`: Validate single Parquet file
     - :func:`evaluate_pandera_contract_parquet_files`: Validate multiple Parquet files
     - :func:`pandera_contract_asset_check_result`: Convert to Phlo check result
-    - :func:`serialize_pandera_contract_evaluation`: Serialize evaluation to dict
-    - :func:`deserialize_pandera_contract_evaluation`: Deserialize from dict
 
 Validation Flow:
     1. DLT extracts data to Parquet files
@@ -150,6 +148,7 @@ class PanderaContractValidationError(RuntimeError):
 
     evaluation: PanderaContractEvaluation
     parquet_paths: tuple[Path, ...]
+    check_results: tuple[CheckResult, ...] = ()
 
     def __post_init__(self) -> None:
         """Initialize the RuntimeError base class with a standard message."""
@@ -416,65 +415,4 @@ def pandera_contract_asset_check_result(
         metadata=metadata,
         severity=None if evaluation.passed else ("error" if blocking else "warn"),
         asset_key=asset_key,
-    )
-
-
-def serialize_pandera_contract_evaluation(
-    evaluation: PanderaContractEvaluation,
-) -> dict[str, Any]:
-    """Convert a Pandera contract evaluation to metadata-safe primitives.
-
-    Serializes an evaluation to primitive values so results survive
-    storage in JSON/YAML metadata between pipeline stages.
-
-    Example:
-        ```python
-        evaluation = PanderaContractEvaluation(
-            passed=True, failed_count=0, total_count=100, sample=[], error=None
-        )
-        metadata = serialize_pandera_contract_evaluation(evaluation)
-        # Can now be stored in JSON/YAML metadata
-        ```
-
-    See Also:
-        :func:`deserialize_pandera_contract_evaluation`: Reverse operation.
-
-    """
-    return {
-        "passed": evaluation.passed,
-        "failed_count": evaluation.failed_count,
-        "total_count": evaluation.total_count,
-        "sample": evaluation.sample,
-        "error": evaluation.error,
-    }
-
-
-def deserialize_pandera_contract_evaluation(payload: Any) -> PanderaContractEvaluation | None:
-    """Convert metadata payload back into a Pandera contract evaluation.
-
-    Rebuilds an evaluation from a payload produced by
-    serialize_pandera_contract_evaluation, coercing types as needed;
-    returns None when ``payload`` is not a dictionary.
-
-    Example:
-        ```python
-        metadata = {"passed": True, "failed_count": 0, "total_count": 100, "sample": []}
-        evaluation = deserialize_pandera_contract_evaluation(metadata)
-        if evaluation:
-            print(f"Validation passed: {evaluation.passed}")
-        ```
-
-    See Also:
-        :func:`serialize_pandera_contract_evaluation`: Forward operation.
-
-    """
-    if not isinstance(payload, dict):
-        return None
-    sample = payload.get("sample")
-    return PanderaContractEvaluation(
-        passed=bool(payload.get("passed")),
-        failed_count=int(payload.get("failed_count", 0)),
-        total_count=int(payload.get("total_count", 0)),
-        sample=sample if isinstance(sample, list) else [],
-        error=str(payload["error"]) if payload.get("error") is not None else None,
     )

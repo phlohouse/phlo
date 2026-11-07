@@ -142,14 +142,6 @@ def validate_wap_context(run: Any, binding: dict[str, Any], catalog: Any = None)
     tags = run.tags or {}
     if capability_overrides_from_tags(tags):
         raise ValueError("WAP capability overrides are unsupported")
-    branch = binding.get("branch")
-    if any(tags.get(key, branch) != branch for key in ("ref", "branch")):
-        raise ValueError("WAP routing tags conflict")
-    if any(
-        tags.get(key, context.get("environment")) != context.get("environment")
-        for key in ("environment", "env")
-    ):
-        raise ValueError("WAP environment tags conflict")
     if run_location(run) != context.get("location"):
         raise ValueError("WAP run code location does not match launch context")
     resolution = resolve_capability("catalog")

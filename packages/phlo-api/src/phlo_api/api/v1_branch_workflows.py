@@ -26,7 +26,6 @@ from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.operation_controls import (
     audit_operation,
     enforce_rate_limit,
-    idempotency_key_target,
     load_operational_settings,
     replay_or_execute_async,
     require_scope,
@@ -1161,8 +1160,6 @@ async def v1_branch_create(
         raise NotFoundError("Source reference was not found in the selected environment.")
     operation = "v1_branch_create"
     action_target = f"{auth['subject']}:{env}:{name}<-{from_ref}"
-    if idempotency_key_target(key, operation) not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         if await _reference(name) is not None:
@@ -1225,8 +1222,6 @@ async def v1_branch_delete(
         )
     operation = "v1_branch_delete"
     action_target = f"{auth['subject']}:{env}:{name}@{payload.expected_hash}"
-    if idempotency_key_target(key, operation) not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         branch = await _scoped_reference(name, env, target_config, branch_only=True)
@@ -1292,8 +1287,6 @@ async def v1_branch_rebase(
         f"{auth['subject']}:{env}:{source_name}@{payload.expected_source_hash}"
         f"<-{target_name}@{payload.expected_target_hash}"
     )
-    if idempotency_key_target(key, operation) not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         source = await _scoped_reference(source_name, env, target_config, branch_only=True)
@@ -1444,8 +1437,6 @@ async def v1_branch_checks(
     target = _target(request, env)
     operation = "v1_branch_checks"
     action_target = f"{auth['subject']}:{env}:{branch_name}@{payload.expected_hash}"
-    if idempotency_key_target(key, operation) not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         branch = await _scoped_reference(branch_name, env, target, branch_only=True)
@@ -1497,8 +1488,6 @@ async def v1_branch_trial_merge(
         f"{auth['subject']}:{env}:{branch_name}@{payload.expected_source_hash}"
         f"->{payload.target}@{payload.expected_target_hash}"
     )
-    if idempotency_key_target(key, operation) not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         source = await _scoped_reference(branch_name, env, target_config, branch_only=True)
@@ -1596,8 +1585,6 @@ async def v1_branch_merge(
         f"{auth['subject']}:{env}:{branch_name}@{payload.expected_source_hash}"
         f"->{payload.target}@{payload.expected_target_hash}:{request_hash}"
     )
-    if idempotency_key_target(key, operation) not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
     actor = _action_actor(request, auth)
 
     async def execute() -> dict[str, Any]:
