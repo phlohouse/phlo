@@ -70,7 +70,7 @@ def staged_object_inventory(paths: list[Path]) -> list[dict[str, Any]]:
 
 
 def dlt_execution_identity(
-    pipeline: Any,
+    load_info: Any,
     source: Any,
     parameters: dict[str, Any],
     staged_objects: list[dict[str, Any]],
@@ -83,7 +83,6 @@ def dlt_execution_identity(
     for candidate in (getattr(source, "load_id", None), getattr(source, "_load_id", None)):
         if isinstance(candidate, str) and candidate:
             return candidate, True
-    load_info = getattr(pipeline, "_phlo_last_load_info", None)
     packages = getattr(load_info, "load_packages", None) if load_info is not None else None
     for package in packages or ():
         for attr in ("load_id", "load_package_id", "job_id"):
@@ -97,9 +96,8 @@ def dlt_execution_identity(
     return None, False
 
 
-def dlt_observed_metrics(pipeline: Any) -> dict[str, int]:
+def dlt_observed_metrics(load_info: Any) -> dict[str, int]:
     """Extract only explicitly reported dlt read metrics."""
-    load_info = getattr(pipeline, "_phlo_last_load_info", None)
     raw = getattr(load_info, "metrics", None)
     if not isinstance(raw, dict):
         return {}

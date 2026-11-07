@@ -24,7 +24,11 @@ from phlo.logging import get_logger
 from phlo.run_evidence import SQLiteRunEvidenceStore
 from phlo.run_evidence.hooks import CoreRunEvidenceHookProvider
 from phlo_dlt.decorator import clear_ingestion_assets, get_ingestion_assets, phlo_ingestion
-from phlo_dlt.dlt_helpers import get_branch_from_context, get_write_branch_from_context
+from phlo_dlt.dlt_helpers import (
+    DltStagingResult,
+    get_branch_from_context,
+    get_write_branch_from_context,
+)
 from phlo_dlt.executor import DltIngester
 from phlo_dlt.registry import TableConfig
 from pyiceberg.schema import Schema
@@ -135,12 +139,8 @@ def test_strict_domain_quality_failure_preserves_main_through_wap_and_evidence(
         lambda _runtime: (store, "representative-wap-store"),
     )
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([rejected_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([rejected_path], 0.01, None),
     )
 
     @phlo_ingestion(
@@ -228,12 +228,8 @@ def test_blessed_decorator_persists_runtime_correlation(monkeypatch, tmp_path) -
         lambda _runtime: (SimpleNamespace(), "test-store"),
     )
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([tmp_path / "staged.parquet"], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([tmp_path / "staged.parquet"], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.staged_object_inventory",
@@ -307,12 +303,8 @@ def test_blessed_decorator_persists_runtime_correlation_through_sqlite(
         lambda _runtime: (SimpleNamespace(), "test-store"),
     )
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([tmp_path / "staged.parquet"], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([tmp_path / "staged.parquet"], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.staged_object_inventory",

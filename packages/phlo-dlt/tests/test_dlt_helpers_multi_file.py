@@ -9,24 +9,28 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import dlt
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
 from pyiceberg.schema import Schema
 from pyiceberg.types import NestedField, StringType
 
-from phlo_dlt.dlt_helpers import merge_to_table_store, stage_to_parquet
+from phlo.logging import get_logger
+from phlo_dlt.dlt_helpers import extract_to_parquet, merge_to_table_store, stage_to_parquet
 from phlo_dlt.evidence import table_state
-from phlo_dlt.evidence import normalize_source_identity, staged_object_inventory
+from phlo_dlt.evidence import (
+    dlt_execution_identity,
+    dlt_observed_metrics,
+    normalize_source_identity,
+    staged_object_inventory,
+)
 from phlo_dlt.registry import TableConfig
 
 
 def test_stage_to_parquet_collects_all_files_across_load_packages(tmp_path) -> None:
-    context = SimpleNamespace(
-        log=SimpleNamespace(
-            info=lambda *_args, **_kwargs: None,
-            debug=lambda *_args, **_kwargs: None,
-        )
-    )
+    log = get_logger("test-multifile-staging")
     relative_file = tmp_path / "staging" / "part-1.parquet"
     absolute_file = tmp_path / "part-2.parquet"
     relative_file.parent.mkdir(parents=True, exist_ok=True)
@@ -47,9 +51,10 @@ def test_stage_to_parquet_collects_all_files_across_load_packages(tmp_path) -> N
         run=lambda _source, loader_file_format="parquet": load_info,
     )
 
-    parquet_paths, _elapsed = stage_to_parquet(context, pipeline, object(), tmp_path)
+    staged = stage_to_parquet(log, pipeline, object(), tmp_path)
 
-    assert parquet_paths == [relative_file.resolve(), absolute_file]
+    assert staged.parquet_paths == [relative_file.resolve(), absolute_file]
+    assert staged.load_info is load_info
 
 
 def test_merge_to_table_store_appends_all_files(tmp_path) -> None:
@@ -70,9 +75,8 @@ def test_merge_to_table_store_appends_all_files(tmp_path) -> None:
             append_calls.append(data_path)
             return {"rows_inserted": 1, "rows_deleted": 0}
 
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda *_args, **_kwargs: None))
     metrics = merge_to_table_store(
-        context=context,
+        log=get_logger("test-append-all"),
         table_store=TableStoreStub(),
         table_config=TableConfig(
             table_name="entries",
@@ -114,9 +118,8 @@ def test_merge_to_table_store_forwards_deduplication_options(tmp_path) -> None:
             merge_calls.append({"data_path": data_path, **merge_options})
             return {"rows_inserted": 1, "rows_deleted": 1}
 
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda *_args, **_kwargs: None))
     metrics = merge_to_table_store(
-        context=context,
+        log=get_logger("test-merge-options"),
         table_store=TableStoreStub(),
         table_config=TableConfig(
             table_name="events",
@@ -186,9 +189,8 @@ def test_merge_to_table_store_supports_pyarrow_table_schema(tmp_path) -> None:
             append_calls.append(data_path)
             return {"rows_inserted": 1, "rows_deleted": 0}
 
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda *_args, **_kwargs: None))
     metrics = merge_to_table_store(
-        context=context,
+        log=get_logger("test-arrow-schema"),
         table_store=TableStoreStub(),
         table_config=TableConfig(
             table_name="pokemon_species",
@@ -234,3 +236,49 @@ def test_source_identity_preserves_port_and_redacts_query_credentials() -> None:
     assert normalize_source_identity(None, "https://[2001:db8::1]:8443/api") == (
         "https://[2001:db8::1]:8443/api"
     )
+
+
+def test_managed_extraction_isolates_datasets_and_returns_real_load_evidence(tmp_path, monkeypatch):
+    create_pipeline = dlt.pipeline
+
+    def local_pipeline(**kwargs):
+        # Redirect storage only; extraction, job discovery and load evidence are real.
+        kwargs["pipelines_dir"] = str(tmp_path / "pipelines")
+        kwargs["destination"] = dlt.destinations.filesystem(bucket_url=str(tmp_path / "bucket"))
+        return create_pipeline(**kwargs)
+
+    monkeypatch.setattr(dlt, "pipeline", local_pipeline)
+    for name, record_id in (("orders", 7), ("customers", 29)):
+        staged = extract_to_parquet(
+            dlt.resource([{"id": record_id}], name="records"),
+            pipeline_name=name,
+            log=get_logger("test-managed-extraction"),
+        )
+        assert len(staged.parquet_paths) == 1
+        assert staged.parquet_paths[0].is_relative_to(tmp_path / "pipelines" / name)
+        rows = pq.read_table(staged.parquet_paths[0]).to_pylist()
+        assert [row["id"] for row in rows] == [record_id]
+        published_paths = list((tmp_path / "bucket" / name).rglob("*.parquet"))
+        assert len(published_paths) == 1
+        assert pq.read_table(published_paths[0]).column("id").to_pylist() == [record_id]
+        assert rows[0]["_dlt_load_id"] in staged.load_info.loads_ids
+        assert staged.elapsed_seconds >= 0
+
+
+@pytest.mark.parametrize(
+    ("parameters", "source", "expected"),
+    [
+        ({"execution_id": "explicit"}, SimpleNamespace(load_id="source"), "explicit"),
+        ({"load_id": "explicit-load"}, SimpleNamespace(load_id="source"), "explicit-load"),
+        ({}, SimpleNamespace(load_id="source"), "source"),
+        ({}, SimpleNamespace(_load_id="private-source"), "private-source"),
+        ({}, object(), "package"),
+    ],
+)
+def test_explicit_load_evidence_preserves_identity_precedence(parameters, source, expected):
+    load_info = SimpleNamespace(
+        load_packages=[SimpleNamespace(load_id="package")],
+        metrics={"records_read": 17, "bytes_read": 281},
+    )
+    assert dlt_execution_identity(load_info, source, parameters, []) == (expected, True)
+    assert dlt_observed_metrics(load_info) == {"records_read": 17, "bytes_read": 281}
