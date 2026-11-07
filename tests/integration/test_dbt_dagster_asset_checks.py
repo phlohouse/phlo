@@ -108,8 +108,7 @@ def test_dbt_asset_runner_emits_dagster_check_events(
             },
         )(),
     )
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_profile", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_manifest", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("phlo_dbt.assets.ensure_compiled", lambda *_args, **_kwargs: True)
 
     class FakeTransformer:
         def __init__(self, **_kwargs) -> None:

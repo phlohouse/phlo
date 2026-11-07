@@ -12,11 +12,9 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
-from phlo_dbt.discovery import get_dbt_project_dir
-from phlo_dbt.transformer import ensure_dbt_manifest
+from phlo_dbt.transformer import ensure_compiled
 
 
 SelectorInput = str | Iterable[str] | None
@@ -124,20 +122,6 @@ def build_partition_vars(
     if end is not None:
         vars_["partition_end"] = _format_partition_value(end, date_format)
     return vars_
-
-
-def ensure_compiled(
-    project_dir: str | Path | None = None,
-    profiles_dir: str | Path | None = None,
-) -> bool:
-    """Ensure the dbt project has a current compiled manifest.
-
-    This is a small public wrapper around the package's existing manifest
-    compiler, with project discovery as the default for ergonomic callers.
-    """
-    resolved_project = Path(project_dir) if project_dir is not None else get_dbt_project_dir()
-    resolved_profiles = Path(profiles_dir) if profiles_dir is not None else resolved_project
-    return ensure_dbt_manifest(resolved_project, resolved_profiles)
 
 
 def _manifest_nodes(manifest: Mapping[str, Any]) -> list[Mapping[str, Any]]:

@@ -1,13 +1,15 @@
 """Tests for ergonomic dbt helper utilities.
 
 Covers selector normalization, manifest model selection, qualified table
-extraction, partition variable building, and compiler wrapping.
+extraction, partition variable building, and manifest preparation.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
+
+import pytest
+import yaml
 
 from phlo_dbt.helpers import (
     DbtManifestTable,
@@ -100,13 +102,18 @@ def test_build_partition_vars_uses_partition_key_and_window() -> None:
     }
 
 
-def test_ensure_compiled_wraps_existing_manifest_compiler(monkeypatch, tmp_path) -> None:
-    calls: list[tuple[Path, Path]] = []
-    monkeypatch.setattr("phlo_dbt.helpers.get_dbt_project_dir", lambda: tmp_path / "dbt")
-    monkeypatch.setattr(
-        "phlo_dbt.helpers.ensure_dbt_manifest",
-        lambda project, profiles: calls.append((project, profiles)) or True,
-    )
+@pytest.mark.parametrize("explicit_profiles", [False, True])
+def test_ensure_compiled_prepares_discovered_project_profile(
+    monkeypatch, tmp_path, explicit_profiles
+) -> None:
+    project = tmp_path / "dbt"
+    (project / "target").mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: sales\nprofile: sales_profile\n")
+    (project / "target" / "manifest.json").write_text('{"nodes": {}}')
+    monkeypatch.setenv("DBT_PROJECT_DIR", str(project))
+    profiles = tmp_path / "separate_profiles" if explicit_profiles else project
 
-    assert ensure_compiled(profiles_dir=tmp_path / "profiles") is True
-    assert calls == [(tmp_path / "dbt", tmp_path / "profiles")]
+    assert ensure_compiled(profiles_dir=str(profiles) if explicit_profiles else None) is True
+    profile = yaml.safe_load((profiles / "profiles.yml").read_text())
+    assert profile["sales_profile"]["target"] == "dev"
+    assert (project / "target" / "manifest.json").read_text() == '{"nodes": {}}'
