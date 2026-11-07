@@ -12,7 +12,6 @@ Modules:
     schema_migrator: Iceberg-backed SchemaMigrator implementation.
     settings: Configuration and settings management.
     plugin: Phlo plugin registration for resource providers.
-    cli_utils: CLI helper utilities.
 
 Example:
     Basic usage of the iceberg package::
@@ -38,7 +37,6 @@ See Also:
 from phlo_iceberg.catalog import get_catalog
 from phlo_iceberg.helpers import (
     identity_partition,
-    load_table_schema,
     maintenance_recommendations,
     partition_spec,
     recommend_table_maintenance,
@@ -54,6 +52,7 @@ from phlo_iceberg.tables import (
     append_to_table,
     ensure_table,
     expire_snapshots,
+    get_table_schema,
     get_table_stats,
     merge_to_table,
     remove_orphan_files,
@@ -64,13 +63,13 @@ __all__ = [
     "ensure_table",
     "expire_snapshots",
     "get_catalog",
+    "get_table_schema",
     "get_table_stats",
     "identity_partition",
     "IcebergResource",
     "IcebergResourceProvider",
     "IcebergSchemaMigrator",
     "IcebergSettings",
-    "load_table_schema",
     "maintenance_recommendations",
     "partition_spec",
     "recommend_table_maintenance",
