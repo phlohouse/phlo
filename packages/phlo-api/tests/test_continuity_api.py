@@ -554,6 +554,76 @@ def _maintenance_apply(client, plan, key="first", **options):
     )
 
 
+@pytest.mark.parametrize("operation", ["compact", "snapshot_expiry"])
+def test_maintenance_planning_rejects_bad_identifiers_before_metadata(
+    client, maintenance_backend, journal_dir, monkeypatch, operation
+):
+    from phlo_iceberg.resource import IcebergResource
+
+    monkeypatch.setattr(client._transport, "raise_server_exceptions", False)
+
+    def unexpected_metadata(*_args, **_kwargs):
+        raise AssertionError("Invalid planning input must not reach metadata")
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(IcebergResource, "_compaction_metadata", unexpected_metadata)
+        guarded.setattr(IcebergResource, "get_catalog", unexpected_metadata)
+        rejected = client.post(
+            "/api/continuity/plan",
+            json={
+                "operation": "maintenance.plan",
+                "maintenance_operation": operation,
+                "table": "raw.events.extra",
+            },
+        )
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"]["error"] == "invalid_maintenance_input"
+    assert rejected.json()["detail"]["identifiers"][0] == operation
+    valid = _maintenance_plan(client, operation)
+    assert valid["plan"]["accepted"] is True
+    assert valid["plan"]["dry_run"] is True
+    assert valid["plan"]["table_name"] == "raw.events"
+    assert maintenance_backend.sql == []
+    assert not journal_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "failure,status",
+    [("precondition", 400), ("provider_failure", 500), ("malformed_result", 500)],
+)
+def test_maintenance_planning_distinguishes_precondition_rejection_from_server_failure(
+    client, maintenance_backend, journal_dir, monkeypatch, failure, status
+):
+    from phlo_iceberg.resource import IcebergResource
+
+    from phlo.capabilities.maintenance import MaintenancePreconditionError
+
+    monkeypatch.setattr(client._transport, "raise_server_exceptions", False)
+
+    def broken_plan(self, **_kwargs):
+        if failure == "precondition":
+            raise MaintenancePreconditionError("Catalog cannot satisfy the requested precondition")
+        if failure == "provider_failure":
+            raise RuntimeError("Unexpected backend failure")
+        # Result normalization raises ValueError, not a provider input rejection.
+        return [("malformed",)]
+
+    monkeypatch.setattr(IcebergResource, "compact", broken_plan)
+    response = client.post(
+        "/api/continuity/plan",
+        json={
+            "operation": "maintenance.plan",
+            "maintenance_operation": "compact",
+            "table": "raw.events",
+        },
+    )
+    assert response.status_code == status, response.text
+    if status == 400:
+        assert response.json()["detail"]["error"] == "invalid_maintenance_input"
+    assert maintenance_backend.sql == []
+    assert not journal_dir.exists()
+
+
 def test_maintenance_compact_uses_shipped_providers_and_plan_owned_target(
     client, maintenance_backend, journal_dir
 ):
