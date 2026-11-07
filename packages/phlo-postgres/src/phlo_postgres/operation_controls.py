@@ -10,12 +10,18 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import Any
 
 import psycopg2
 from psycopg2.extensions import cursor
 
-from phlo.operations.journal import OperationJournalEntry, OperationJournalState
+from phlo.operations.journal import (
+    OperationJournalEntry,
+    OperationJournalState,
+    canonical_maintenance_action,
+    maintenance_action_aliases,
+)
 from phlo.plugins.observatory_settings import StorageUnavailableError
 
 RATE_BUCKET_CAP = 4096
@@ -277,11 +283,17 @@ class PostgresOperationControls:
 
     def claim(self, entry: OperationJournalEntry) -> bool:
         """Claim a journal operation and its active target across replicas."""
+        entry = replace(entry, action=canonical_maintenance_action(entry.action))
         with self._transaction() as cur:
             cur.execute(
                 "SELECT 1 FROM phlo_api_operation_journal WHERE namespace=%s AND "
-                "(operation_id=%s OR (action=%s AND target=%s AND state IN ('claimed','submitted','unknown'))) LIMIT 1",
-                (self._namespace, entry.operation_id, entry.action, entry.target),
+                "(operation_id=%s OR (action=ANY(%s) AND target=%s AND state IN ('claimed','submitted','unknown'))) LIMIT 1",
+                (
+                    self._namespace,
+                    entry.operation_id,
+                    list(maintenance_action_aliases(entry.action)),
+                    entry.target,
+                ),
             )
             if cur.fetchone() is not None:
                 return False
