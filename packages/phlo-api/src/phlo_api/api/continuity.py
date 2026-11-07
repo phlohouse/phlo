@@ -63,6 +63,7 @@ from pydantic import BaseModel
 
 from phlo_api.api.operation_controls import (
     IdempotencyConflict,
+    MutationDeferred,
     audit_operation,
     enforce_rate_limit,
     idempotency_key_target,
@@ -450,6 +451,13 @@ def _maintenance_execution(
         except MaintenanceError as exc:
             raise _error(400, exc.code, exc.identifiers) from exc
         except OperationJournalError as exc:
+            if exc.code == "conflicting_claim":
+                # execute_maintenance refuses the claim before marking submitted
+                # or invoking the provider. Keep the key bound, but retryable.
+                raise MutationDeferred(
+                    status_code=409,
+                    detail={"error": exc.code, "identifiers": list(exc.identifiers)},
+                ) from exc
             if exc.code == "apply_outcome_unknown":
                 raise _error(502, exc.code, exc.identifiers) from exc
             raise
