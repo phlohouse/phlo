@@ -113,7 +113,8 @@ def ingest_batch(
 
     ``stager(checkpoint_id, records)`` lands the batch and returns at least
     ``snapshot_id``; ``promoter(checkpoint_id)`` (snapshot strategy only)
-    advances the release pointer and returns release records. On any failure
+    advances the release pointer and must return exactly one snapshot-bound
+    release matching the destination table and checkpoint release id. On any failure
     the checkpoint is marked failed and its offsets stay uncommitted so the
     range replays into an idempotent stage.
     """
@@ -190,19 +191,27 @@ def ingest_batch(
     if promoter is not None:
         try:
             promoted = promoter(checkpoint.checkpoint_id)
+            matching = [
+                record
+                for record in promoted
+                if _release_field(record, "table_name") == config.destination_table
+                and _release_field(record, "release_id") == checkpoint.checkpoint_id
+            ]
+            if len(matching) != 1 or _release_field(matching[0], "snapshot_id") is None:
+                raise ValueError(
+                    "Promotion requires exactly one matching release with a non-null snapshot"
+                )
+            released_snapshot = _release_field(matching[0], "snapshot_id")
+            checkpoint_adapter.bind_snapshot(
+                checkpoint_id=checkpoint.checkpoint_id,
+                snapshot_id=released_snapshot,
+                release_id=release_id,
+            )
         except Exception as exc:
             checkpoint_adapter.fail(
                 checkpoint_id=checkpoint.checkpoint_id, reason=f"promote failed: {exc}"
             )
             raise
-        if promoted:
-            release_id = _release_field(promoted[0], "release_id")
-            released_snapshot = _release_field(promoted[0], "snapshot_id")
-            checkpoint_adapter.bind_snapshot(
-                checkpoint_id=checkpoint.checkpoint_id,
-                snapshot_id=released_snapshot if released_snapshot is not None else "unknown",
-                release_id=release_id,
-            )
 
     checkpoint = checkpoint_adapter.commit(checkpoint_id=checkpoint.checkpoint_id)
     return {
@@ -339,6 +348,7 @@ def _build_asset_run(
                     lambda checkpoint_id: promotion_catalog.promote_candidates(
                         namespace=f"pipeline-run-{checkpoint_id}",
                         release_id=checkpoint_id,
+                        tables=[config.destination_table],
                     )
                 )
                 if promotion_catalog is not None
