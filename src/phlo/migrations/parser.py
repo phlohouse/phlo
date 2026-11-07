@@ -72,7 +72,6 @@ def load_migration_spec(path: Path) -> MigrationSpec:
     options_raw = _optional_mapping(raw, "options") or {}
     options = MigrationOptions(
         chunk_size=_optional_int(options_raw.get("chunk_size"), 50_000),
-        parallelism=_optional_int(options_raw.get("parallelism"), 1),
         validate=_optional_bool(options_raw.get("validate"), True),
         dry_run=_optional_bool(options_raw.get("dry_run"), False),
         quality_schema=_optional_str(options_raw.get("quality_schema")),
@@ -89,8 +88,6 @@ def load_migration_spec(path: Path) -> MigrationSpec:
 
     if options.chunk_size <= 0:
         raise MigrationSpecError("options.chunk_size must be > 0")
-    if options.parallelism <= 0:
-        raise MigrationSpecError("options.parallelism must be > 0")
 
     write_mode = destination.write_mode.lower()
     if write_mode not in {"append", "overwrite", "merge"}:
