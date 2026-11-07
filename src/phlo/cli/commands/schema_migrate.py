@@ -27,12 +27,12 @@ from phlo.capabilities.resolver import (
     list_capabilities,
     resolve_capability,
 )
-from phlo.capabilities.specs import FieldSpec, NormalizedSchema, SchemaMigrationPlan
+from phlo.capabilities.specs import SchemaMigrationPlan
 from phlo.cli.authorization_wrappers import require_mutation_authorization
-from phlo.cli.commands import schema_migrate_contracts
 from phlo.cli.contract import PhloCommand, PhloGroup
 from phlo.cli.output import confirm_action, json_envelope, user_error
 from phlo.logging import get_logger
+from phlo.schema_migration import artifacts
 from phlo.schema_migration.instructions import (
     MigrationInstructionError,
     resolve_migration_instructions,
@@ -290,7 +290,7 @@ def export_contract_for_table(
     now = datetime.now(UTC).isoformat()
 
     contract = {
-        "contract_version": schema_migrate_contracts.CONTRACT_VERSION,
+        "contract_version": artifacts.CONTRACT_VERSION,
         "generated_at": now,
         "table_name": table_name,
         "schema_class": getattr(native_schema, "__name__", None),
@@ -302,9 +302,7 @@ def export_contract_for_table(
         "quality_checks": _collect_quality_checks(table_name),
         "transform_refs": _collect_transform_refs(table_name),
     }
-    destination = output_path or schema_migrate_contracts.default_contract_path(table_name)
-    schema_migrate_contracts.write_contract(destination, contract, force=force)
-    return destination
+    return artifacts.write_contract(contract, output_path=output_path, force=force)
 
 
 def _is_missing_table_error(exc: BaseException) -> bool:
@@ -708,17 +706,12 @@ def scaffold_yaml(
     force: bool,
 ) -> None:
     """Generate migration scaffold YAML from a Phlo contract."""
-    source_path = contract_path or schema_migrate_contracts.default_contract_path(table_name)
-    destination = output_path or schema_migrate_contracts.default_scaffold_yaml_path(table_name)
-
     try:
-        payload = _build_scaffold_payload_from_contract(
+        destination = artifacts.scaffold_contract(
             table_name=table_name,
-            contract_path=source_path,
-        )
-        schema_migrate_contracts.write_scaffold_yaml(
-            destination,
-            payload=payload,
+            contract_path=contract_path,
+            resolve_migrator=_resolve_migrator,
+            output_path=output_path,
             force=force,
         )
     except (
@@ -760,7 +753,7 @@ def scaffold_yaml_recent(since_hours: int, limit: int | None, force: bool) -> No
         console.print("[red]--limit must be > 0[/red]")
         sys.exit(1)
 
-    contract_paths = schema_migrate_contracts.list_recent_contract_paths(
+    contract_paths = artifacts.list_recent_contract_paths(
         since_hours=since_hours,
         limit=limit,
     )
@@ -772,17 +765,11 @@ def scaffold_yaml_recent(since_hours: int, limit: int | None, force: bool) -> No
     errors: list[str] = []
     for contract_path in contract_paths:
         try:
-            contract = schema_migrate_contracts.read_contract(contract_path)
-            table_name = contract.get("table_name")
-            if not isinstance(table_name, str) or not table_name:
-                raise ValueError(f"Contract missing table_name: {contract_path}")
-
-            payload = _build_scaffold_payload_from_contract(
-                table_name=table_name,
+            destination = artifacts.scaffold_contract(
                 contract_path=contract_path,
+                resolve_migrator=_resolve_migrator,
+                force=force,
             )
-            destination = schema_migrate_contracts.default_scaffold_yaml_path(table_name)
-            schema_migrate_contracts.write_scaffold_yaml(destination, payload=payload, force=force)
             generated_count += 1
             console.print(
                 f"[green]Generated migration scaffold:[/green] {destination} (from {contract_path})"
@@ -807,40 +794,6 @@ def scaffold_yaml_recent(since_hours: int, limit: int | None, force: bool) -> No
         for error in errors:
             console.print(f"- {error}")
         sys.exit(1)
-
-
-def _build_scaffold_payload_from_contract(
-    *, table_name: str, contract_path: Path
-) -> dict[str, Any]:
-    contract = schema_migrate_contracts.read_contract(contract_path)
-    contract_table = contract.get("table_name")
-    if contract_table != table_name:
-        raise ValueError(
-            f"Contract table mismatch: expected '{table_name}', found '{contract_table}'"
-        )
-
-    desired_payload = contract.get("normalized_schema")
-    if not isinstance(desired_payload, dict):
-        raise ValueError("Contract missing normalized_schema payload")
-
-    fields_payload = desired_payload.get("fields", [])
-    metadata_payload = desired_payload.get("metadata", {})
-    if not isinstance(fields_payload, list) or not isinstance(metadata_payload, dict):
-        raise ValueError("Invalid normalized_schema payload in contract")
-
-    desired = NormalizedSchema(
-        fields=[FieldSpec(**field_data) for field_data in fields_payload],
-        metadata=metadata_payload,
-    )
-    migrator = _resolve_migrator()
-    migration_plan = migrator.diff_schema(table_name=table_name, desired=desired)
-
-    return schema_migrate_contracts.build_scaffold_payload(
-        table_name=table_name,
-        contract=contract,
-        migration_plan=migration_plan,
-        generated_at=datetime.now(UTC).isoformat(),
-    )
 
 
 def _find_native_schema(table_name: str, schema_class: str | None) -> Any:

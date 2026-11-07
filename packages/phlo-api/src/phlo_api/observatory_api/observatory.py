@@ -333,10 +333,6 @@ def _observatory_state_dir() -> Path:
     return state_dir
 
 
-def _saved_queries_path() -> Path:
-    return _observatory_state_dir() / "saved_queries.json"
-
-
 def _branches_path() -> Path:
     return _observatory_state_dir() / "branches.json"
 

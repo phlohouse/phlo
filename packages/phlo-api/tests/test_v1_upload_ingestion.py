@@ -656,7 +656,6 @@ def test_receipt_cas_normalizes_new_default_fields_without_replacing_identity(ca
     ingestion.mutate_collection(
         ingestion.project_root(),
         ingestion._COLLECTION,
-        ingestion._legacy(),
         lambda items: [
             {key: value for key, value in item.items() if key != "attempts"} for item in items
         ],

@@ -41,7 +41,6 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import platform
 import shlex
 import subprocess
 import sys
@@ -57,17 +56,16 @@ from phlo.application.discovery import discover_capabilities
 from phlo.cli.contract import PhloCommand
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
-    container_host_identity,
     select_project_container_backend,
 )
 from phlo.cli.infrastructure.utils import get_project_name
 from phlo.cli.output import command_failed_error, json_envelope, service_unavailable_error
-from phlo.config.env import load_project_env
 from phlo.config_schema import WapConfig
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
 
 from phlo_dagster.containers import find_dagster_container
+from phlo_dagster.materialization_command import build_materialization_command
 from phlo_dagster.operations import wait_for_dagster_http
 from phlo_dagster.settings import get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
@@ -301,8 +299,12 @@ def _materialize_container(
         if not dry_run:
             wait_for_dagster_runtime(container_name, backend=backend)
 
-        cmd = _materialize_command(
-            backend, container_name, effective_selection, partition, no_contract_refresh
+        cmd = build_materialization_command(
+            backend,
+            container_name,
+            effective_selection,
+            partition,
+            refresh_contracts=not no_contract_refresh,
         )
 
         if dry_run:
@@ -446,36 +448,3 @@ def _materialize_container(
             exc_info=True,
         )
         raise
-
-
-def _materialize_command(
-    backend: ContainerBackend,
-    container_name: str,
-    selection: str,
-    partition: str | None,
-    no_contract_refresh: bool,
-) -> list[str]:
-    host_platform = platform.system()
-    exec_env = {
-        "PHLO_HOST_PLATFORM": host_platform,
-        "PHLO_PROJECT_PATH": "/app",
-        "PHLO_AUTO_REFRESH_CONTRACTS": "0" if no_contract_refresh else "1",
-        "PHLO_CONTRACT_REFRESH_SELECTION": selection,
-    }
-    project_env = load_project_env()
-    for pretty_var in ("PHLO_OBSERVE_PRETTY", "PHLO_OBSERVE_PRETTY_VERBOSE", "OBSERVE_DRAINS"):
-        if project_env.get(pretty_var):
-            exec_env[pretty_var] = project_env[pretty_var]
-    cmd = backend.container_exec_cmd(
-        container_name=container_name,
-        user=":".join(map(str, container_host_identity(backend.name)))
-        if host_platform == "Linux"
-        else None,
-        env=exec_env,
-        workdir="/app",
-        command=["dagster", "asset", "materialize", "-m", "phlo_dagster.framework.definitions"],
-    )
-    cmd.extend(["--select", selection])
-    if partition:
-        cmd.extend(["--partition", partition])
-    return cmd
