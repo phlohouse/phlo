@@ -32,6 +32,7 @@ from phlo.plugins.observatory_settings import (
     operational_schedule_slot,
 )
 from phlo.operations.journal import (
+    OperationJournalError,
     OperationJournalStore,
     execute_maintenance,
     read_or_replay,
@@ -278,7 +279,10 @@ def optimize_table_files(
             else:
                 context.log.info(f"Compaction {status} for {table_name}")
         except Exception as e:
-            error_msg = f"Failed to optimize {table_name}: {e}"
+            error = str(e)
+            if isinstance(e, OperationJournalError) and e.__cause__ is not None:
+                error += f" (caused by {type(e.__cause__).__name__}: {e.__cause__})"
+            error_msg = f"Failed to optimize {table_name}: {error}"
             context.log.warning(error_msg)
             errors.append(error_msg)
             results.append(
@@ -293,7 +297,7 @@ def optimize_table_files(
                     failure={
                         "code": "invalid_request",
                         "type": type(e).__name__,
-                        "message": str(e),
+                        "message": error,
                         "retryable": False,
                     },
                     operation_id=f"{context.run_id}:{table_name}",
