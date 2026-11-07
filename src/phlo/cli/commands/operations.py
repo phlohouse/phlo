@@ -581,10 +581,7 @@ def maintenance_apply(
     from phlo.operations.journal import (
         OperationJournalError,
         OperationJournalState,
-        claim_operation,
-        complete_operation,
-        maintenance_operation_id,
-        mark_submitted,
+        execute_maintenance,
     )
 
     with Path(plan_path).open(encoding="utf-8") as f:
@@ -638,32 +635,22 @@ def maintenance_apply(
         execute_kwargs["executor"] = executor
 
     journal = _durable_journal()
-    # One id per exact plan: a fresh plan for the same table and ref is a new
-    # operation, while re-applying the same plan conflicts with its entry.
-    operation_id = maintenance_operation_id(operation, table, ref, plan_token)
+
+    def execute(operation_id: str):
+        return execute_fn(**execute_kwargs, operation_id=operation_id)
+
     try:
-        claim_operation(
+        outcome = execute_maintenance(
             journal,
-            operation_id=operation_id,
-            subject=CliPrincipalResolver.resolve().subject,
-            action=operation,
-            target=table,
+            operation=operation,
+            table=table,
+            ref=ref,
             plan_token=plan_token,
+            subject=CliPrincipalResolver.resolve().subject,
+            execute=execute,
         )
-        mark_submitted(journal, operation_id)
-        execute_kwargs["operation_id"] = operation_id
-        result = execute_fn(**execute_kwargs)
-        result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-        rejected = result_dict.get("accepted") is False or result_dict.get("status") in {
-            "blocked",
-            "failed",
-        }
-        if rejected:
-            # Preserve provider evidence while refusing contradictory accepted/status success.
-            if not journal.transition(operation_id, OperationJournalState.FAILED, result_dict):
-                raise OperationJournalError("unknown_operation", (operation_id,))
-        else:
-            complete_operation(journal, operation_id, result_dict)
+        result_dict = outcome.result or {}
+        rejected = outcome.state is not OperationJournalState.SUCCEEDED
         if output_json or output_format == "json":
             _emit(
                 result_dict,

@@ -40,12 +40,9 @@ from phlo.operations.journal import (
     OperationJournalError,
     OperationJournalState,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
+    execute_maintenance,
     maintenance_operation_id,
     maintenance_plan_token,
-    mark_submitted,
-    mark_unknown,
 )
 from phlo.operations.journal_store import FileOperationJournalStore
 from phlo.operations.restore import (
@@ -452,26 +449,23 @@ def _maintenance_execution(
 
     def execute() -> dict[str, Any]:
         provider = _maintenance_executor(maintenance_operation)
-        # Claim the durable journal exactly like the CLI surface.
-        claim_operation(
-            journal,
-            operation_id=plan_id,
-            subject=subject,
-            action=maintenance_operation,
-            target=table,
-            plan_token=plan_token,
-        )
-        mark_submitted(journal, plan_id)
         try:
-            result = provider.execute(table_name=table, ref=ref, plan_token=plan_token)
-            result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-        except Exception as exc:
-            # Submitted but the outcome is unknown: record UNKNOWN so no new
-            # key can replay this operation automatically.
-            mark_unknown(journal, plan_id)
-            raise _error(502, "apply_outcome_unknown", (plan_id,)) from exc
-        complete_operation(journal, plan_id, result_dict)
-        return {"operation": "maintenance.apply", "operation_id": plan_id, **result_dict}
+            outcome = execute_maintenance(
+                journal,
+                operation=maintenance_operation,
+                table=table,
+                ref=ref,
+                plan_token=plan_token,
+                subject=subject,
+                execute=lambda _operation_id: provider.execute(
+                    table_name=table, ref=ref, plan_token=plan_token
+                ),
+            )
+        except OperationJournalError as exc:
+            if exc.code == "apply_outcome_unknown":
+                raise _error(502, exc.code, exc.identifiers) from exc
+            raise
+        return {"operation": "maintenance.apply", "operation_id": plan_id, **(outcome.result or {})}
 
     return plan_token, plan_id, execute
 

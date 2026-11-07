@@ -7,10 +7,12 @@ persistence is a provider-owned adapter (PostgreSQL), never core SQL.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Protocol
+
+from phlo.capabilities.maintenance import MaintenanceOperationResult
 
 
 class OperationJournalState(StrEnum):
@@ -143,6 +145,69 @@ def maintenance_plan_token(plan: Mapping[str, Any]) -> str:
     return "" if token is None else str(token)
 
 
+def _maintenance_state(result: Mapping[str, Any]) -> OperationJournalState:
+    failure = result.get("failure")
+    outcome = failure.get("outcome") if isinstance(failure, Mapping) else None
+    if outcome == "unknown":
+        return OperationJournalState.UNKNOWN
+    if result.get("status") in {"failed", "blocked"}:
+        if result.get("accepted") is False and (
+            outcome == "not_submitted" or result.get("executed") is False
+        ):
+            return OperationJournalState.FAILED
+        if outcome != "not_submitted" and (
+            result.get("retry_safe") is False
+            or result.get("accepted") is True
+            or result.get("executed") is True
+        ):
+            return OperationJournalState.UNKNOWN
+        if result.get("accepted") is False:
+            return OperationJournalState.FAILED
+    if result.get("accepted") is True and result.get("status") in {"succeeded", "noop"}:
+        return OperationJournalState.SUCCEEDED
+    return OperationJournalState.UNKNOWN
+
+
+def execute_maintenance(
+    store: OperationJournalStore,
+    *,
+    operation: str,
+    table: str,
+    ref: str,
+    plan_token: str,
+    subject: str,
+    execute: Callable[[str], MaintenanceOperationResult | Mapping[str, Any]],
+) -> OperationJournalEntry:
+    """Claim and execute one maintenance plan, retaining uncertain submission fences.
+
+    The adapter supplies provider invocation and translates errors/output. Neither
+    an accepted submission nor a failed response proves a definitive outcome.
+    Preserve returned evidence even when it cannot release the durable claim.
+    """
+    operation_id = maintenance_operation_id(operation, table, ref, plan_token)
+    entry = claim_operation(
+        store,
+        operation_id=operation_id,
+        subject=subject,
+        action=operation,
+        target=table,
+        plan_token=plan_token,
+    )
+    mark_submitted(store, operation_id)
+    try:
+        result = execute(operation_id)
+        evidence = (
+            result.to_dict() if isinstance(result, MaintenanceOperationResult) else dict(result)
+        )
+    except Exception as exc:
+        mark_unknown(store, operation_id)
+        raise OperationJournalError("apply_outcome_unknown", (operation_id,)) from exc
+    state = _maintenance_state(evidence)
+    if not store.transition(operation_id, state, evidence):
+        raise OperationJournalError("unknown_operation", (operation_id,))
+    return replace(entry, state=state, result=evidence)
+
+
 def claim_operation(
     store: OperationJournalStore,
     *,
@@ -196,9 +261,21 @@ def reconcile_unknown(
     store: OperationJournalStore, operation_id: str, result: dict[str, Any]
 ) -> None:
     """Explicitly reconcile an unknown outcome after operator-driven verification."""
+    entry = store.read(operation_id)
+    if entry is not None and entry.action in {"compact", "snapshot_expiry"}:
+        state = _maintenance_state(result)
+        if state is OperationJournalState.UNKNOWN:
+            raise OperationJournalError("unknown_outcome_blocks_replay", (operation_id,))
+    else:
+        # Backup/restore reconciliation retains its accepted-result contract.
+        state = (
+            OperationJournalState.SUCCEEDED
+            if result.get("accepted")
+            else OperationJournalState.FAILED
+        )
     if not store.transition(
         operation_id,
-        OperationJournalState.SUCCEEDED if result.get("accepted") else OperationJournalState.FAILED,
+        state,
         result,
     ):
         raise OperationJournalError("unknown_operation", (operation_id,))
