@@ -191,7 +191,11 @@ class MutationRejected(HTTPException):
 
 
 class MutationDeferred(MutationRejected):
-    """A proven pre-submission refusal permits retry, but never key rebinding."""
+    """A proven pre-submission refusal permits retry, but never key rebinding.
+
+    Retry safety does not guarantee eventual success: a retained terminal
+    journal entry can permanently refuse the same operation id.
+    """
 
 
 class IdempotencyConflict(HTTPException):
