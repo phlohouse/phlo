@@ -24,7 +24,7 @@ from typing import Any
 from uuid import uuid4
 
 POSTGRES_IMAGE = "postgres:18-alpine"
-MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.0"
+MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.4"
 NESSIE_IMAGE = "ghcr.io/projectnessie/nessie:0.108.3"
 NESSIE_ADMIN_IMAGE = "ghcr.io/projectnessie/nessie-server-admin@sha256:ffccc83adc048ae9c069205b2b7c79c8c72604574558f915b730f2266262c159"
 MC_IMAGE = MINIO_IMAGE

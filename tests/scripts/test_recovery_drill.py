@@ -49,7 +49,7 @@ def test_compose_uses_isolated_ports_and_supported_stack_images(tmp_path):
     assert nessie_env["nessie.catalog.service.s3.default-options.endpoint"] == "http://minio:9000/"
     assert nessie_env["nessie.catalog.service.s3.default-options.path-style-access"] == "true"
     assert recovery_drill.MC_IMAGE == recovery_drill.MINIO_IMAGE
-    assert recovery_drill.MC_IMAGE == "ghcr.io/phlohouse/phlo-minio:0.17.0"
+    assert recovery_drill.MC_IMAGE == "ghcr.io/phlohouse/phlo-minio:0.17.4"
     assert recovery_drill.NESSIE_ADMIN_IMAGE.startswith(
         "ghcr.io/projectnessie/nessie-server-admin@sha256:"
     )

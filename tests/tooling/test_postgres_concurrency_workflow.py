@@ -34,7 +34,7 @@ GATE_JOB = "integration"
 OPERATIONS_JOB = "operations"
 GATE_STEP = "Run PostgreSQL concurrency gates"
 API_GROUPS = ("api-contracts", "api-preview", "api-query-journey", "api-branch-journey")
-MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.3"
+MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.4"
 MINIO_IMAGE_ID = "sha256:" + "a" * 64
 GATE_DSN_ENV_VARS = (
     "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN",
@@ -193,7 +193,13 @@ def test_named_contract_jobs_require_the_transferred_image_and_preserve_results(
 
 def test_operations_keep_independent_guards_and_failure_artifacts() -> None:
     job = _parse_yaml(WORKFLOW_ROOT / INTEGRATION_WORKFLOW)["jobs"][OPERATIONS_JOB]
-    assert not job.get("needs"), "operational contracts do not depend on the MinIO source build"
+    assert job["needs"] == "minio-image"
+    assert job["env"]["MINIO_IMAGE"] == MINIO_IMAGE
+    download = _step_named(job, "Download the checkout-built MinIO image")
+    assert download["with"]["name"] == "integration-minio-image"
+    assert download["with"]["path"] == "${{ runner.temp }}"
+    load = _step_named(job, "Load and verify the checkout-built MinIO image")
+    assert load["env"]["EXPECTED_MINIO_ID"] == "${{ needs.minio-image.outputs.image_id }}"
     for name in (
         "Preflight PostgreSQL gate dependencies",
         GATE_STEP,
@@ -277,7 +283,7 @@ def test_minio_build_preserves_checkout_source_and_exports_one_local_image() -> 
     assert 0 < upload["retention-days"] <= 3
 
 
-@pytest.mark.parametrize("job_id", ["contracts", "api"])
+@pytest.mark.parametrize("job_id", ["contracts", "api", OPERATIONS_JOB])
 @pytest.mark.parametrize(
     ("actual_id", "expected_id", "load_status", "inspect_status", "accepted"),
     [

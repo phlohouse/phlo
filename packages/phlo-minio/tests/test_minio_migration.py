@@ -14,7 +14,7 @@ from click.testing import CliRunner
 from phlo.cli.infrastructure.command import CommandError
 from phlo_minio.cli import minio_group
 
-IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.3"
+IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.4"
 
 
 def _project(root: Path, directory: str = "/data") -> Path:
