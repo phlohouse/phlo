@@ -223,7 +223,6 @@ async def launch_materialize(
     )
     return _launch_result(
         operation="materialize_asset",
-        dry_run=False,
         payload=result.get("data", {}).get("launchPipelineExecution", {}),
         asset_key_path=asset_key_path,
         partition_key=partition_key,
@@ -258,7 +257,6 @@ async def launch_retry(
     )
     return _launch_result(
         operation="retry_failed_run",
-        dry_run=False,
         payload=result.get("data", {}).get("launchPipelineReexecution", {}),
         fallback_run_id=run_id,
     )
@@ -466,7 +464,6 @@ async def _graphql(
 def _launch_result(
     *,
     operation: str,
-    dry_run: bool,
     payload: dict[str, Any],
     asset_key_path: str | None = None,
     partition_key: str | None = None,
@@ -476,11 +473,12 @@ def _launch_result(
     raw_run = payload.get("run")
     run: dict[str, Any] = raw_run if isinstance(raw_run, dict) else {}
     accepted = typename in {"LaunchRunSuccess", "LaunchPipelineRunSuccess"} and bool(run)
+    run_id = run.get("runId") or fallback_run_id
     return DagsterOperationResult(
         operation=operation,
-        dry_run=dry_run,
+        dry_run=False,
         accepted=accepted,
-        run_id=str(run.get("runId") or fallback_run_id) if (run or fallback_run_id) else None,
+        run_id=str(run_id) if run_id else None,
         asset_key_path=asset_key_path,
         partition_key=partition_key,
         status=str(run.get("status") or typename),

@@ -68,10 +68,10 @@ from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
 
 from phlo_dagster.containers import find_dagster_container
-from phlo_dagster.operations import launch_materialize, wait_for_dagster_http
+from phlo_dagster.operations import wait_for_dagster_http
 from phlo_dagster.settings import get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
-from phlo_dagster.wap_launch import prepare_wap_launch
+from phlo_dagster.wap_launch import WapLaunchError, prepare_wap_launch, submit_wap_launch
 
 
 def _summarize_process_output(lines: list[str]) -> str | None:
@@ -163,9 +163,11 @@ def materialize(
 
     wap_config = load_wap_config()
     if wap_config.enabled:
-        _materialize_wap(
-            wap_config, asset_name, select, partition, dry_run, output_json, environment
-        )
+        if not asset_name or select:
+            raise click.UsageError(
+                "WAP is enabled in phlo.yaml and requires one ASSET_NAME; --select is not supported."
+            )
+        _materialize_wap(wap_config, asset_name, partition, dry_run, output_json, environment)
         return
     if environment is not None:
         raise click.UsageError("--environment requires WAP to be enabled.")
@@ -174,126 +176,98 @@ def materialize(
 
 def _materialize_wap(
     wap_config: WapConfig,
-    asset_name: str | None,
-    select: str | None,
+    asset_name: str,
     partition: str | None,
     dry_run: bool,
     output_json: bool,
     environment: str | None = None,
 ) -> None:
-    if wap_config.enabled:
-        if not asset_name or select:
-            raise click.UsageError(
-                "WAP is enabled in phlo.yaml and requires one ASSET_NAME; --select is not supported."
-            )
-        from phlo_dagster.wap_context import select_wap_target
+    from phlo_dagster.wap_context import select_wap_target
 
-        select_wap_target(environment)
-        dagster_url = resolve_wap_dagster_url(wap_config)
-        access_token = get_process_settings().phlo_dagster_access_token
-        if getattr(wap_config, "requires_access_token", False) and not access_token:
-            raise click.ClickException(
-                "PHLO_DAGSTER_ACCESS_TOKEN is required for a non-local WAP Dagster endpoint."
-            )
-        logical_run_id = uuid.uuid4().hex
-        if dry_run:
-            if output_json:
-                click.echo(
-                    json_envelope(
-                        data={
-                            "asset_name": asset_name,
-                            "partition": partition,
-                            "dagster_url": dagster_url,
-                            "mode": "wap",
-                        },
-                        status="planned",
-                        reason_code="materialization_planned",
-                    )
-                )
-                return
-            click.echo(
-                "WAP dry run - would launch "
-                f"{asset_name} with logical run ID {logical_run_id} through {dagster_url}"
-            )
-            return
-
-        # The webserver can accept the container-health signal before its
-        # GraphQL route serves; a single launch attempt against the warming
-        # server fails as ambiguous. Wait for HTTP first.
-        asyncio.run(wait_for_dagster_http(dagster_url))
-        discover_capabilities()
-        wap_launch = prepare_wap_launch(logical_run_id=logical_run_id, environment=environment)
-        try:
-            result = asyncio.run(
-                launch_materialize(
-                    dagster_url=dagster_url,
-                    asset_key_path=asset_name,
-                    job_name=wap_config.job_name,
-                    repository_location_name=wap_config.repository_location_name,
-                    repository_name=wap_config.repository_name,
-                    access_token=access_token,
-                    partition_key=partition,
-                    idempotency_key=logical_run_id,
-                    tags=wap_launch.tags,
-                )
-            )
-        except Exception as exc:
-            wap_launch.record_launch_result(status="launch_ambiguous", error=str(exc))
-            raise click.ClickException(f"WAP launch outcome is ambiguous: {exc}") from exc
-        if not result.accepted:
-            wap_launch.record_launch_result(status="launch_rejected", error=result.message)
-            raise click.ClickException(result.message)
-
-        if not getattr(result, "run_id", None):
-            wap_launch.record_launch_result(
-                status="launch_ambiguous", error="Dagster returned no run ID"
-            )
-            raise click.ClickException(
-                "Dagster accepted the request without a run ID; its outcome is unknown."
-            )
-
-        if not wap_launch.record_launch_result(status="launched", dagster_run_id=result.run_id):
-            if output_json:
-                click.echo(
-                    json_envelope(
-                        data={
-                            "run_id": result.run_id,
-                            "logical_run_id": logical_run_id,
-                            "branch": wap_launch.branch,
-                        },
-                        status="partial",
-                        reason_code="launch_manifest_failed",
-                        errors=[
-                            "Dagster accepted the run, but its immutable launch manifest could not be stored. The branch was retained."
-                        ],
-                    )
-                )
-                raise click.exceptions.Exit(1)
-            raise click.ClickException(
-                "Dagster accepted the WAP run, but its immutable launch manifest could not be stored. "
-                "The branch was retained."
-            )
-
+    select_wap_target(environment)
+    dagster_url = resolve_wap_dagster_url(wap_config)
+    access_token = get_process_settings().phlo_dagster_access_token
+    if getattr(wap_config, "requires_access_token", False) and not access_token:
+        raise click.ClickException(
+            "PHLO_DAGSTER_ACCESS_TOKEN is required for a non-local WAP Dagster endpoint."
+        )
+    logical_run_id = uuid.uuid4().hex
+    if dry_run:
         if output_json:
             click.echo(
                 json_envelope(
                     data={
                         "asset_name": asset_name,
                         "partition": partition,
-                        "logical_run_id": logical_run_id,
-                        "run_id": result.run_id,
-                        "branch": wap_launch.branch,
+                        "dagster_url": dagster_url,
+                        "mode": "wap",
                     },
-                    status="submitted",
-                    reason_code="materialization_submitted",
+                    status="planned",
+                    reason_code="materialization_planned",
                 )
             )
             return
         click.echo(
-            f"Launched WAP materialization for {asset_name} on {wap_launch.branch} "
-            f"(logical run {logical_run_id}, Dagster run {result.run_id})"
+            "WAP dry run - would launch "
+            f"{asset_name} with logical run ID {logical_run_id} through {dagster_url}"
         )
         return
+
+    # The webserver can accept the container-health signal before its
+    # GraphQL route serves; a single launch attempt against the warming
+    # server fails as ambiguous. Wait for HTTP first.
+    asyncio.run(wait_for_dagster_http(dagster_url))
+    discover_capabilities()
+    wap_launch = prepare_wap_launch(logical_run_id=logical_run_id, environment=environment)
+    try:
+        run_id = asyncio.run(
+            submit_wap_launch(
+                wap_launch,
+                config=wap_config,
+                dagster_url=dagster_url,
+                asset_key_path=asset_name,
+                access_token=access_token,
+                partition_key=partition,
+            )
+        )
+    except WapLaunchError as exc:
+        if output_json and exc.run_id:
+            click.echo(
+                json_envelope(
+                    data={
+                        "run_id": exc.run_id,
+                        "logical_run_id": logical_run_id,
+                        "branch": wap_launch.branch,
+                    },
+                    status="partial",
+                    reason_code="launch_manifest_failed",
+                    errors=[
+                        "Dagster accepted the run, but its immutable launch manifest could not be stored. The branch was retained."
+                    ],
+                )
+            )
+            raise click.exceptions.Exit(1) from exc
+        raise click.ClickException(str(exc)) from exc
+
+    if output_json:
+        click.echo(
+            json_envelope(
+                data={
+                    "asset_name": asset_name,
+                    "partition": partition,
+                    "logical_run_id": logical_run_id,
+                    "run_id": run_id,
+                    "branch": wap_launch.branch,
+                },
+                status="submitted",
+                reason_code="materialization_submitted",
+            )
+        )
+        return
+    click.echo(
+        f"Launched WAP materialization for {asset_name} on {wap_launch.branch} "
+        f"(logical run {logical_run_id}, Dagster run {run_id})"
+    )
 
 
 def _materialize_container(

@@ -75,8 +75,7 @@ def _stub_settings(monkeypatch, project_paths, *, namespaced: bool) -> None:
             },
         )(),
     )
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_profile", lambda *_a, **_k: None)
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_manifest", lambda *_a, **_k: True)
+    monkeypatch.setattr("phlo_dbt.assets.ensure_compiled", lambda *_a, **_k: True)
 
 
 def test_translator_prefixes_only_own_resources() -> None:
@@ -467,10 +466,12 @@ def test_grouped_results_require_owned_test_evidence(monkeypatch, tmp_path, test
         "test_metadata": {"name": "not_null"},
         "depends_on": {"nodes": ["model.sales.orders"]},
     }
+    manifest["nodes"]["model.sales.orders"]["depends_on"]["nodes"] = ["model.sales.customers"]
     manifest_path.write_text(json.dumps(manifest))
     _stub_settings(monkeypatch, [project], namespaced=True)
     monkeypatch.setattr("phlo_dbt.transformer.ensure_dbt_profile", lambda *a, **kw: None)
-    monkeypatch.setattr("phlo.hooks.bus.HookBus.emit", lambda *a, **kw: None)
+    events = []
+    monkeypatch.setattr("phlo.hooks.bus.HookBus.emit", lambda self, event: events.append(event))
 
     def command(self, args):
         target = Path(args[args.index("--target-path") + 1])
@@ -494,3 +495,6 @@ def test_grouped_results_require_owned_test_evidence(monkeypatch, tmp_path, test
     assert len(mats) == 1
     assert mats[0].status == ("failure" if test_status in {None, "fail"} else "success")
     assert len(checks) == (0 if test_status in {None, "skipped"} else 1)
+    lineage = [event for event in events if event.event_type == "lineage.edges"]
+    assert len(lineage) == 1
+    assert lineage[0].edges == [("sales.customers", "sales.orders")]

@@ -35,7 +35,7 @@ from phlo.config.transformation import active_transformation_provider
 from phlo.exceptions import PhloCapabilitySetupError
 from phlo.logging import get_logger
 from phlo_dbt.discovery import read_dbt_project_name
-from phlo_dbt.runtime_config import ensure_dbt_profile, resolve_dbt_target_name
+from phlo_dbt.runtime_config import resolve_dbt_target_name
 from phlo_dbt.settings import get_settings
 from phlo_dbt.grouped import run_dbt_group
 
@@ -43,7 +43,7 @@ from phlo_dbt.asset_checks import (
     dbt_asset_check_index,
     extract_dbt_asset_checks,
 )
-from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
+from phlo_dbt.transformer import DbtTransformer, ensure_compiled
 from phlo_dbt.translator import DbtSpecTranslator
 
 logger = get_logger(__name__)
@@ -54,7 +54,6 @@ def _raise_required_dbt_setup_error(
     reason: str,
     dbt_project_path: Path,
     dbt_profiles_path: Path,
-    manifest_path: Path,
 ) -> None:
     """Raise a required capability setup error for dbt asset discovery."""
     raise PhloCapabilitySetupError(
@@ -64,7 +63,8 @@ def _raise_required_dbt_setup_error(
         suggestions=[
             f"Check the dbt project at {dbt_project_path}",
             f"Check generated profiles at {dbt_profiles_path}",
-            f"Ensure dbt can parse or compile a valid manifest at {manifest_path}",
+            f"Ensure dbt can parse or compile a valid manifest at "
+            f"{dbt_project_path / 'target' / 'manifest.json'}",
         ],
     )
 
@@ -165,7 +165,6 @@ def _run_dbt_model(
     manifest: Mapping[str, Any],
     translator: DbtSpecTranslator,
     test_names: tuple[str, ...],
-    key_prefix: str | None = None,
 ) -> list[MaterializeResult | CheckResult]:
     """Execute a single dbt model and return its materialization result plus
     test-check results."""
@@ -178,7 +177,7 @@ def _run_dbt_model(
         project_dir=project_dir,
         profiles_dir=profiles_dir,
         target=target,
-        key_prefix=key_prefix,
+        translator=translator,
     )
 
     result = transformer.run_transform(
@@ -246,15 +245,14 @@ def _read_dbt_asset_checks(
     ]
 
 
-def _load_project_manifest(
-    project_path: Path, profiles_path: Path, manifest_path: Path
-) -> Mapping[str, Any]:
-    if not ensure_dbt_manifest(project_path, profiles_path):
+def _load_project_manifest(project_path: Path, profiles_path: Path) -> Mapping[str, Any]:
+    """Prepare and load the manifest, validating the collections discovery consumes."""
+    manifest_path = project_path / "target" / "manifest.json"
+    if not ensure_compiled(project_path, profiles_path):
         _raise_required_dbt_setup_error(
             reason="manifest_unavailable",
             dbt_project_path=project_path,
             dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
         )
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -263,15 +261,23 @@ def _load_project_manifest(
             reason="manifest_read_failed",
             dbt_project_path=project_path,
             dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
         )
     if not isinstance(manifest, Mapping):
         _raise_required_dbt_setup_error(
             reason="manifest_not_mapping",
             dbt_project_path=project_path,
             dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
         )
+    manifest = dict(manifest)
+    for collection in ("nodes", "sources"):
+        if manifest.get(collection) is None:
+            manifest[collection] = {}
+        if not isinstance(manifest[collection], Mapping):
+            _raise_required_dbt_setup_error(
+                reason="manifest_shape_invalid",
+                dbt_project_path=project_path,
+                dbt_profiles_path=profiles_path,
+            )
     return manifest
 
 
@@ -294,25 +300,6 @@ def _build_asset_key_map(
     return asset_keys
 
 
-def _manifest_nodes_sources(
-    manifest: Mapping[str, Any], project_path: Path, profiles_path: Path, manifest_path: Path
-) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
-    nodes = manifest.get("nodes")
-    sources = manifest.get("sources")
-    if nodes is None:
-        nodes = {}
-    if sources is None:
-        sources = {}
-    if not isinstance(nodes, Mapping) or not isinstance(sources, Mapping):
-        _raise_required_dbt_setup_error(
-            reason="manifest_shape_invalid",
-            dbt_project_path=project_path,
-            dbt_profiles_path=profiles_path,
-            manifest_path=manifest_path,
-        )
-    return nodes, sources
-
-
 def _build_project_asset_specs(
     *,
     project_path: Path,
@@ -328,7 +315,6 @@ def _build_project_asset_specs(
     """
     settings = get_settings()
     profiles_path = settings.dbt_profiles_path_for(project_path)
-    manifest_path = project_path / "target" / "manifest.json"
 
     if not project_path.exists() or not (project_path / "dbt_project.yml").exists():
         logger.warning(
@@ -339,12 +325,10 @@ def _build_project_asset_specs(
         )
         return [], {}
 
-    ensure_dbt_profile(profiles_path, project_dir=project_path)
-
-    manifest = _load_project_manifest(project_path, profiles_path, manifest_path)
+    manifest = _load_project_manifest(project_path, profiles_path)
 
     translator = DbtSpecTranslator(project_dir=project_path, key_prefix=key_prefix)
-    nodes, sources = _manifest_nodes_sources(manifest, project_path, profiles_path, manifest_path)
+    nodes, sources = manifest["nodes"], manifest["sources"]
 
     asset_keys = _build_asset_key_map(translator, nodes, sources)
 
@@ -361,7 +345,6 @@ def _build_project_asset_specs(
             asset_keys=asset_keys,
             tests=test_names_by_asset,
             translator=translator,
-            key_prefix=key_prefix,
         )
 
     run_group = (
@@ -422,7 +405,6 @@ def _build_project_asset_specs(
                 runtime=runtime,
                 manifest=manifest,
                 translator=translator,
-                key_prefix=key_prefix,
                 test_names=test_names,
             )
 

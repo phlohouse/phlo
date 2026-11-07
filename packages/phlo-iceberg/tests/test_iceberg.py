@@ -16,7 +16,6 @@ from pyiceberg.schema import Schema
 from pyiceberg.types import LongType, NestedField, StringType, TimestampType
 
 from phlo_iceberg.catalog import create_namespace, get_catalog, list_tables, reset_catalog_cache
-from phlo_iceberg.cli_utils import get_iceberg_catalog
 from phlo_iceberg.resource import IcebergResource
 from phlo_iceberg.schema_alignment import _align_arrow_table_to_target_schema
 from phlo_iceberg.tables import (
@@ -154,21 +153,20 @@ class TestCatalogOperations:
         mock_logger.warning.assert_not_called()
 
     @patch("phlo_iceberg.catalog.get_settings")
-    def test_cli_catalog_shares_the_catalog_cache(self, mock_get_settings):
-        """get_iceberg_catalog reuses get_catalog's cache, and reset clears it."""
+    def test_reset_catalog_cache_replaces_cached_catalog(self, mock_get_settings):
+        """Reset forces the next catalog lookup to create a new connection."""
         mock_get_settings.return_value.get_pyiceberg_catalog_config.return_value = {}
         get_catalog.cache_clear()
 
         with patch(
             "phlo_iceberg.catalog.load_catalog", side_effect=lambda **_: MagicMock()
         ) as mock_load_catalog:
-            first = get_iceberg_catalog("main")
+            first = get_catalog(ref="main")
             assert get_catalog(ref="main") is first
-            assert get_iceberg_catalog("main") is first
             assert mock_load_catalog.call_count == 1
 
             reset_catalog_cache()
-            assert get_iceberg_catalog("main") is not first
+            assert get_catalog(ref="main") is not first
             assert mock_load_catalog.call_count == 2
 
         get_catalog.cache_clear()
@@ -438,8 +436,9 @@ class TestTableOperations:
                 arrow_table, target_schema, table_name="raw.pokemon"
             )
 
+    @pytest.mark.parametrize("ref", ["main", "dev"])
     @patch("phlo_iceberg.tables.get_catalog")
-    def test_get_table_schema_retrieves_schemas_from_existing_tables(self, mock_get_catalog):
+    def test_get_table_schema_retrieves_schemas_from_existing_tables(self, mock_get_catalog, ref):
         """Test that get_table_schema retrieves schemas from existing tables."""
         mock_catalog = MagicMock()
         mock_get_catalog.return_value = mock_catalog
@@ -449,8 +448,9 @@ class TestTableOperations:
         mock_table.schema.return_value = mock_schema
         mock_catalog.load_table.return_value = mock_table
 
-        schema = get_table_schema("raw.entries")
+        schema = get_table_schema("raw.entries", ref=ref)
 
+        mock_get_catalog.assert_called_once_with(ref=ref)
         mock_catalog.load_table.assert_called_once_with("raw.entries")
         mock_table.schema.assert_called_once()
         assert schema == mock_schema
@@ -585,6 +585,7 @@ def test_public_module_exports_are_available():
         "ensure_table",
         "expire_snapshots",
         "get_catalog",
+        "get_table_schema",
         "get_table_stats",
         "merge_to_table",
         "remove_orphan_files",

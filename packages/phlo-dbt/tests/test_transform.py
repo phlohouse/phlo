@@ -11,7 +11,7 @@ import pytest
 from phlo.hooks.events import TelemetryEvent, TransformEvent
 from phlo.logging import get_logger
 from phlo_dbt.assets import _dbt_transform_metadata
-from phlo_dbt.transformer import DbtTransformer, ensure_dbt_manifest
+from phlo_dbt.transformer import DbtTransformer, ensure_compiled
 from phlo_dbt.translator import DbtSpecTranslator, get_compiled_sql_from_resource_props
 
 
@@ -56,7 +56,7 @@ def test_custom_dbt_translator_asset_key_source_meta_override() -> None:
     assert asset_key == "external_orders"
 
 
-def test_ensure_dbt_manifest_uses_parse_for_discovery(monkeypatch, tmp_path: Path) -> None:
+def test_ensure_compiled_uses_parse_for_discovery(monkeypatch, tmp_path: Path) -> None:
     """dbt asset discovery should not require a live query engine connection."""
     project_dir = tmp_path / "dbt"
     profiles_dir = project_dir / "profiles"
@@ -77,7 +77,7 @@ def test_ensure_dbt_manifest_uses_parse_for_discovery(monkeypatch, tmp_path: Pat
         "phlo_dbt.transformer.ensure_dbt_profile", lambda _profiles_dir, **_kwargs: None
     )
 
-    assert ensure_dbt_manifest(project_dir, profiles_dir) is True
+    assert ensure_compiled(project_dir, profiles_dir) is True
     assert captured[0][:2] == ["dbt", "parse"]
     assert "--project-dir" in captured[0]
     assert str(project_dir) in captured[0]
@@ -648,7 +648,7 @@ def test_run_transform_falls_back_when_run_results_missing(tmp_path: Path) -> No
     assert result.metadata["counts_source"] == "summary_only_combined"
 
 
-def test_ensure_dbt_manifest_strips_colliding_project_dir_env(tmp_path, monkeypatch) -> None:
+def test_ensure_compiled_strips_colliding_project_dir_env(tmp_path, monkeypatch) -> None:
     """DBT_PROJECT_DIR must not leak into the child dbt process.
 
     The variable doubles as phlo-dbt's project-dir setting; when a project
@@ -657,8 +657,6 @@ def test_ensure_dbt_manifest_strips_colliding_project_dir_env(tmp_path, monkeypa
     "Path ... does not exist".
     """
     import json
-
-    from phlo_dbt.transformer import ensure_dbt_manifest
 
     project = tmp_path / "dbt"
     (project / "target").mkdir(parents=True)
@@ -678,7 +676,7 @@ def test_ensure_dbt_manifest_strips_colliding_project_dir_env(tmp_path, monkeypa
     monkeypatch.setattr("phlo_dbt.transformer.subprocess.run", fake_run)
     monkeypatch.setenv("DBT_PROJECT_DIR", "workflows/operational_marts/dbt")
 
-    assert ensure_dbt_manifest(project, project / "profiles") is True
+    assert ensure_compiled(project, project / "profiles") is True
     assert "--project-dir" in captured["cmd"]
     assert str(project) in captured["cmd"]
     assert "DBT_PROJECT_DIR" not in captured["env"]
