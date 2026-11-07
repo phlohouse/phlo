@@ -202,6 +202,8 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill.prepare_wap_launch",
         lambda **kwargs: SimpleNamespace(
+            context=None,
+            logical_run_id=kwargs["logical_run_id"],
             branch=f"pipeline-run-{kwargs['logical_run_id']}",
             tags={"phlo/wap_branch": "branch", "phlo/ref": "branch"},
             cleanup_if_created=lambda: None,
@@ -213,7 +215,7 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
         launched.append(kwargs)
         return SimpleNamespace(accepted=True, message="ok", run_id=kwargs["partition_key"])
 
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     promoted: list[str] = []
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill._wait_for_wap_lifecycle",
@@ -223,9 +225,11 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
         "dlt_events",
         ["2024-01-01", "2024-01-02"],
         dagster_url="http://dagster",
-        job_name="__ASSET_JOB",
-        repository_location_name="phlo_dagster",
-        repository_name="phlo_dagster",
+        wap_config=SimpleNamespace(
+            job_name="__ASSET_JOB",
+            repository_location_name="phlo_dagster",
+            repository_name="phlo_dagster",
+        ),
         access_token="token",
     )
     assert [call["partition_key"] for call in launched] == ["2024-01-01", "2024-01-02"]
@@ -247,6 +251,8 @@ def test_wap_backfill_waits_for_promotion_before_next_branch(monkeypatch, tmp_pa
         nonlocal main_hash
         created_from.append(main_hash)
         return SimpleNamespace(
+            context=None,
+            logical_run_id=kwargs["logical_run_id"],
             branch=f"pipeline-run-{kwargs['logical_run_id']}",
             tags={},
             record_launch_result=lambda **_kwargs: True,
@@ -261,7 +267,7 @@ def test_wap_backfill_waits_for_promotion_before_next_branch(monkeypatch, tmp_pa
         main_hash = f"main-{len(launched)}"
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.prepare_wap_launch", prepare)
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     monkeypatch.setattr("phlo_dagster.cli_backfill._wait_for_wap_lifecycle", wait)
     monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", tmp_path / "state.json")
 
@@ -269,9 +275,9 @@ def test_wap_backfill_waits_for_promotion_before_next_branch(monkeypatch, tmp_pa
         "dlt_events",
         ["2024-01-01", "2024-01-02"],
         dagster_url="http://dagster",
-        job_name="__ASSET_JOB",
-        repository_location_name=None,
-        repository_name=None,
+        wap_config=SimpleNamespace(
+            job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+        ),
         access_token=None,
         requested_parallel=2,
     )
@@ -286,14 +292,18 @@ def test_wap_backfill_persists_failed_partition_for_resume(monkeypatch, tmp_path
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill.prepare_wap_launch",
         lambda **_kwargs: SimpleNamespace(
-            branch="branch", tags={}, record_launch_result=lambda **_kwargs: True
+            context=None,
+            logical_run_id=_kwargs["logical_run_id"],
+            branch="branch",
+            tags={},
+            record_launch_result=lambda **_kwargs: True,
         ),
     )
 
     async def launch(**kwargs):
         return SimpleNamespace(accepted=True, message="ok", run_id=kwargs["partition_key"])
 
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill._wait_for_wap_lifecycle",
         lambda **kwargs: (
@@ -310,9 +320,9 @@ def test_wap_backfill_persists_failed_partition_for_resume(monkeypatch, tmp_path
             "dlt_events",
             ["2024-01-01", "2024-01-02"],
             dagster_url="http://dagster",
-            job_name="__ASSET_JOB",
-            repository_location_name=None,
-            repository_name=None,
+            wap_config=SimpleNamespace(
+                job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+            ),
             access_token=None,
         )
     except click.ClickException as exc:
@@ -451,7 +461,11 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
     def prepare(**kwargs):
         prepared.append(kwargs["logical_run_id"])
         return SimpleNamespace(
-            branch="branch", tags={}, record_launch_result=lambda **_kwargs: True
+            context=None,
+            logical_run_id=kwargs["logical_run_id"],
+            branch="branch",
+            tags={},
+            record_launch_result=lambda **_kwargs: True,
         )
 
     async def launch(**kwargs):
@@ -459,7 +473,7 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
         return SimpleNamespace(accepted=True, message="ok", run_id="dagster-1")
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.prepare_wap_launch", prepare)
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     state_file = tmp_path / ".phlo" / "backfill_state.json"
     monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", state_file)
     monkeypatch.setattr(
@@ -472,9 +486,9 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
             "dlt_events",
             ["2024-01-01"],
             dagster_url="http://dagster",
-            job_name="__ASSET_JOB",
-            repository_location_name=None,
-            repository_name=None,
+            wap_config=SimpleNamespace(
+                job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+            ),
             access_token=None,
         )
     except click.ClickException:
@@ -488,9 +502,9 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
         "dlt_events",
         state["remaining_partitions"],
         dagster_url="http://dagster",
-        job_name="__ASSET_JOB",
-        repository_location_name=None,
-        repository_name=None,
+        wap_config=SimpleNamespace(
+            job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+        ),
         access_token=None,
         completed_partitions=state["completed_partitions"],
         in_flight_wap=state["in_flight_wap"],
