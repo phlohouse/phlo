@@ -19,6 +19,7 @@ from phlo.capabilities import (
 from phlo.logging import get_logger
 
 from phlo.operations.journal import (
+    OperationJournalError,
     OperationJournalStore,
     execute_maintenance,
     maintenance_plan_token,
@@ -233,7 +234,10 @@ def expire_table_snapshots(
                     ),
                 )
             except Exception as e:
-                error_msg = f"Failed to expire snapshots for {table_name}: {e}"
+                error = str(e)
+                if isinstance(e, OperationJournalError) and e.__cause__ is not None:
+                    error += f" (caused by {type(e.__cause__).__name__}: {e.__cause__})"
+                error_msg = f"Failed to expire snapshots for {table_name}: {error}"
                 context.log.warning(
                     error_msg,
                     extra=maintenance_log_extra(
@@ -241,7 +245,7 @@ def expire_table_snapshots(
                         config,
                         operation=operation,
                         table_name=table_name,
-                        error=str(e),
+                        error=error,
                     ),
                 )
                 errors.append(error_msg)
