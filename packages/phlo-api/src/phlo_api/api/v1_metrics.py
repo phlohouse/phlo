@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
-from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlencode
 
@@ -142,10 +141,6 @@ class MetricPreview(WireModel):
     source: Literal["draft_metric_definition"] = "draft_metric_definition"
 
 
-def _path() -> Path:
-    return project_root() / ".phlo" / "metric-models.json"
-
-
 def _stored_records(items: list[dict]) -> list[MetricRecord | MetricTombstone]:
     return [
         MetricTombstone.model_validate(item)
@@ -157,7 +152,7 @@ def _stored_records(items: list[dict]) -> list[MetricRecord | MetricTombstone]:
 
 def _records(env: Environment, ref: str) -> list[MetricRecord | MetricTombstone]:
     records = _stored_records(
-        load_collection(project_root(), _COLLECTION, _path(), require_known_state=True)
+        load_collection(project_root(), _COLLECTION, require_known_state=True)
     )
     return [record for record in records if record.env == env and record.nessie_ref == ref]
 
@@ -378,7 +373,7 @@ async def _write(request: Request, env: Environment, payload: MetricWrite) -> Me
             selected.model_dump()
         ]
 
-    mutate_collection(project_root(), _COLLECTION, _path(), change, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
     assert selected is not None
     principal = get_request_principal(request)
     audit_operation(
@@ -453,7 +448,7 @@ async def _set_status(
             item.model_dump() if item is not current else selected.model_dump() for item in records
         ]
 
-    mutate_collection(project_root(), _COLLECTION, _path(), change, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
     assert selected is not None
     principal = get_request_principal(request)
     audit_operation(
@@ -535,7 +530,7 @@ async def v1_metric_model_reclaim(
         )
         return [selected.model_dump() if item is current else item.model_dump() for item in records]
 
-    mutate_collection(project_root(), _COLLECTION, _path(), change, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
     assert selected is not None
     audit_operation(
         operation="metric_model.reclaim",

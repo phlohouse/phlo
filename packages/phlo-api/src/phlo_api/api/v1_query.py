@@ -9,7 +9,6 @@ import io
 import json
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -405,14 +404,8 @@ async def _execute_session(session: QuerySession) -> None:
         session.updated_at = datetime.now(UTC)
 
 
-def _saved_queries_path() -> Path:
-    state_dir = project_root() / ".phlo" / "observatory"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / "v1_saved_queries.json"
-
-
 def _load_saved() -> list[SavedQuery]:
-    items = load_collection(project_root(), _QUERY_COLLECTION, _saved_queries_path())
+    items = load_collection(project_root(), _QUERY_COLLECTION)
     try:
         return [SavedQuery.model_validate_json(json.dumps(item)) for item in items]
     except Exception as exc:
@@ -745,7 +738,7 @@ async def v1_saved_query_create(
                 raise HTTPException(status_code=409, detail={"error": "saved_query_limit_reached"})
             return [*items, item.model_dump(mode="json")]
 
-        mutate_collection(project_root(), _QUERY_COLLECTION, _saved_queries_path(), append)
+        mutate_collection(project_root(), _QUERY_COLLECTION, append)
         return item.model_dump(mode="json")
 
     result = replay_or_execute(
@@ -797,7 +790,7 @@ async def v1_saved_query_update(
         ]
 
     def execute_update() -> dict[str, Any]:
-        items = mutate_collection(project_root(), _QUERY_COLLECTION, _saved_queries_path(), update)
+        items = mutate_collection(project_root(), _QUERY_COLLECTION, update)
         return next(item for item in items if item["id"] == query_id)
 
     result = replay_or_execute(
@@ -834,7 +827,7 @@ async def v1_saved_query_delete(
         return [item.model_dump(mode="json") for item in saved if item.id != query_id]
 
     def execute_delete() -> dict[str, Any]:
-        mutate_collection(project_root(), _QUERY_COLLECTION, _saved_queries_path(), delete)
+        mutate_collection(project_root(), _QUERY_COLLECTION, delete)
         return {"deleted": True}
 
     replay_or_execute(

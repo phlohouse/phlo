@@ -7,6 +7,7 @@ files surface as StorageCorruptionError instead of silent data loss.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from threading import Barrier, Thread
 
@@ -30,9 +31,12 @@ from phlo_api.observatory_api.observatory_operation_journal import (
 from phlo_api.observatory_api.observatory_saved_queries import (
     load_saved_queries,
     save_query,
-    saved_queries_path,
 )
-from phlo_api.observatory_api.observatory_durable_state import state_namespace
+from phlo_api.observatory_api.observatory_durable_state import (
+    load_collection,
+    mutate_collection,
+    state_namespace,
+)
 from phlo.plugins.observatory_settings import (
     SettingsScope,
     StorageCorruptionError,
@@ -95,7 +99,8 @@ def test_forced_concurrent_writes_preserve_saved_queries_and_journal_records(
 
 
 def test_migrates_valid_legacy_json_once_without_cross_project_state(tmp_path: Path) -> None:
-    legacy_path = saved_queries_path(tmp_path)
+    legacy_path = tmp_path / ".phlo/observatory/saved_queries.json"
+    legacy_path.parent.mkdir(parents=True)
     legacy_bytes = b'{\n  "items": [{"id":"legacy","name":"Legacy","sql":"select * from raw.orders limit 1","branch":null,"created_at":"2026-01-01T00:00:00+00:00","updated_at":"2026-01-01T00:00:00+00:00","metadata":{}}]\n}\n'
     legacy_path.write_bytes(legacy_bytes)
 
@@ -113,8 +118,72 @@ def test_migrates_valid_legacy_json_once_without_cross_project_state(tmp_path: P
     )
 
 
+@pytest.mark.parametrize(
+    ("collection", "filename"),
+    [
+        ("saved_queries", "observatory/saved_queries.json"),
+        ("operation_journal", "observatory/operation_journal.json"),
+        ("v1_saved_queries", "observatory/v1_saved_queries.json"),
+        ("v1_audit_proposals", "observatory/v1_audit_proposals.json"),
+        ("v1_csv_uploads", "csv-uploads.json"),
+        ("v1_csv_candidates", "csv-candidates.json"),
+        ("v1_owned_candidates", "candidate-bindings.json"),
+        ("v1_data_products", "data-products.json"),
+        ("v1_metric_models", "metric-models.json"),
+    ],
+)
+@pytest.mark.parametrize("load_first", [True, False])
+def test_collection_imports_historical_filename_only_once(
+    tmp_path: Path, collection: str, filename: str, load_first: bool
+) -> None:
+    legacy = tmp_path / ".phlo" / filename
+    legacy.parent.mkdir(parents=True)
+    original = json.dumps({"items": [{"id": "legacy"}]}).encode()
+    legacy.write_bytes(original)
+
+    if load_first:
+        assert load_collection(tmp_path, collection) == [{"id": "legacy"}]
+    assert mutate_collection(tmp_path, collection, lambda items: [*items, {"id": "new"}]) == [
+        {"id": "legacy"},
+        {"id": "new"},
+    ]
+    assert legacy.read_bytes() == original
+    legacy.write_text("invalid after import", encoding="utf-8")
+    assert load_collection(tmp_path, collection) == [{"id": "legacy"}, {"id": "new"}]
+    assert mutate_collection(tmp_path, collection, lambda items: items[1:]) == [{"id": "new"}]
+    assert load_collection(tmp_path, collection) == [{"id": "new"}]
+    assert load_collection(tmp_path / "other", collection) == []
+
+
+@pytest.mark.parametrize("durable", [True, False])
+@pytest.mark.parametrize("payload", [{}, {"items": {}}, {"items": ["not a record"]}])
+def test_collection_rejects_corrupt_payload_without_replacing_it(
+    tmp_path: Path, durable: bool, payload: dict
+) -> None:
+    service = get_settings_service()
+    namespace = state_namespace(tmp_path, "saved_queries")
+    state = {"schema_version": 1, **payload}
+    path = tmp_path / ".phlo/observatory/saved_queries.json"
+    if durable:
+        service.put(SettingsScope.GLOBAL, namespace, state)
+    else:
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(StorageCorruptionError, match="durable state is unavailable"):
+        load_collection(tmp_path, "saved_queries")
+    with pytest.raises(StorageCorruptionError, match="durable state is unavailable"):
+        mutate_collection(tmp_path, "saved_queries", lambda items: [])
+    if durable:
+        assert service.get(SettingsScope.GLOBAL, namespace).settings == state
+    else:
+        assert json.loads(path.read_text(encoding="utf-8")) == payload
+        assert service.get(SettingsScope.GLOBAL, namespace) is None
+
+
 def test_malformed_legacy_json_is_preserved_and_never_replaced(tmp_path: Path) -> None:
-    path = saved_queries_path(tmp_path)
+    path = tmp_path / ".phlo/observatory/saved_queries.json"
+    path.parent.mkdir(parents=True)
     original = b"{ definitely not json"
     path.write_bytes(original)
 
