@@ -10,11 +10,13 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+import yaml
 
-from phlo.cli.commands import schema_migrate_contracts as contracts
+from phlo.capabilities.specs import FieldSpec, NormalizedSchema, SchemaChange, SchemaMigrationPlan
+from phlo.schema_migration import artifacts as contracts
+from phlo.schema_migration.instructions import resolve_migration_instructions
 
 
 def test_table_artifact_stem_and_default_paths() -> None:
@@ -24,7 +26,7 @@ def test_table_artifact_stem_and_default_paths() -> None:
     assert contracts.default_contract_path("warehouse.customers") == Path(
         ".phlo/contracts/warehouse__customers.json"
     )
-    assert contracts.default_scaffold_yaml_path("warehouse.customers") == Path(
+    assert contracts.default_migration_instruction_path("warehouse.customers") == Path(
         ".phlo/migrations/warehouse__customers.yaml"
     )
 
@@ -38,15 +40,15 @@ def test_write_and_read_contract_round_trip(tmp_path: Path) -> None:
         "quality_checks": [],
     }
 
-    contracts.write_contract(path, payload)
+    assert contracts.write_contract(payload, output_path=path) == path
 
     assert contracts.read_contract(path) == payload
 
     with pytest.raises(FileExistsError):
-        contracts.write_contract(path, payload)
+        contracts.write_contract(payload, output_path=path)
 
     updated = {**payload, "contract_version": 2}
-    contracts.write_contract(path, updated, force=True)
+    contracts.write_contract(updated, output_path=path, force=True)
 
     assert contracts.read_contract(path) == updated
 
@@ -92,18 +94,20 @@ def test_list_recent_contract_paths_filters_orders_and_limits(tmp_path: Path) ->
     assert recent_paths == [older]
 
 
-def test_build_scaffold_payload_uses_stable_operation_ids() -> None:
-    """build_scaffold_payload should preserve contract context and deterministic ids."""
-    migration_plan = SimpleNamespace(
+def test_scaffold_contract_preserves_review_context_and_stable_ids(tmp_path, monkeypatch) -> None:
+    """Scaffolds preserve decoded schemas, review context, IDs, and overwrite protection."""
+    monkeypatch.chdir(tmp_path)
+    migration_plan = SchemaMigrationPlan(
+        table_name="warehouse.customers",
         changes=[
-            SimpleNamespace(
+            SchemaChange(
                 field_name="email",
                 change_type="update",
                 old_value="varchar",
                 new_value="string",
                 classification="safe",
             ),
-            SimpleNamespace(
+            SchemaChange(
                 field_name="age",
                 change_type="drop",
                 old_value="int64",
@@ -116,22 +120,39 @@ def test_build_scaffold_payload_uses_stable_operation_ids() -> None:
         recommendations=["keep the column nullable"],
     )
     contract = {
+        "table_name": "warehouse.customers",
         "contract_version": 3,
+        "normalized_schema": {
+            "fields": [{"name": "email", "dtype": "string", "nullable": False}],
+            "metadata": {"owner": "analytics"},
+        },
         "table_store": "iceberg",
         "schema_migrator": "iceberg",
         "quality_checks": [{"name": "freshness"}],
         "transform_refs": ["transform_a"],
     }
 
-    payload = contracts.build_scaffold_payload(
-        table_name="warehouse.customers",
-        contract=contract,
-        migration_plan=migration_plan,
-        generated_at="2026-04-09T09:00:00+00:00",
+    class Migrator:
+        def diff_schema(self, *, table_name, desired):
+            assert table_name == "warehouse.customers"
+            assert desired == NormalizedSchema(
+                fields=[FieldSpec(name="email", dtype="string", nullable=False)],
+                metadata={"owner": "analytics"},
+            )
+            return migration_plan
+
+    source = contracts.write_contract(contract)
+    assert source == Path(".phlo/contracts/warehouse__customers.json")
+    before = datetime.now(UTC)
+    destination = contracts.scaffold_contract(
+        contract_path=source, resolve_migrator=lambda: Migrator()
     )
+    assert destination == Path(".phlo/migrations/warehouse__customers.yaml")
+    original = destination.read_text(encoding="utf-8")
+    payload = yaml.safe_load(original)
 
     assert payload["schema_migration_version"] == contracts.MIGRATION_SCAFFOLD_VERSION
-    assert payload["generated_at"] == "2026-04-09T09:00:00+00:00"
+    assert before <= datetime.fromisoformat(payload["generated_at"]) <= datetime.now(UTC)
     assert payload["table_name"] == "warehouse.customers"
     assert payload["contract_version"] == 3
     assert payload["classification"] == "warning"
@@ -143,17 +164,39 @@ def test_build_scaffold_payload_uses_stable_operation_ids() -> None:
         "quality_checks": [{"name": "freshness"}],
         "transform_refs": ["transform_a"],
     }
-    assert payload["operations"][0]["operation_id"] == contracts.stable_operation_id(
-        table_name="warehouse.customers",
-        field_name="email",
-        change_type="update",
-        old_value="varchar",
-        new_value="string",
+    assert payload["operations"] == [
+        {
+            "operation_id": "95aca5fd9436f301",
+            "field_name": "email",
+            "change_type": "update",
+            "old_value": "varchar",
+            "new_value": "string",
+            "classification": "safe",
+        },
+        {
+            "operation_id": "fa35df8230e9d521",
+            "field_name": "age",
+            "change_type": "drop",
+            "old_value": "int64",
+            "new_value": None,
+            "classification": "breaking",
+        },
+    ]
+    payload["renames"] = {"old_email": "email"}
+    reviewed = yaml.safe_dump(payload, sort_keys=False)
+    destination.write_text(reviewed, encoding="utf-8")
+    with pytest.raises(FileExistsError, match="use --force to overwrite"):
+        contracts.scaffold_contract(
+            table_name="warehouse.customers", resolve_migrator=lambda: Migrator()
+        )
+    assert destination.read_text(encoding="utf-8") == reviewed
+    assert resolve_migration_instructions(
+        table_name="warehouse.customers", migration_file=None, rename_flags=()
+    ).renames == {"old_email": "email"}
+
+    contracts.scaffold_contract(
+        table_name="warehouse.customers", resolve_migrator=lambda: Migrator(), force=True
     )
-    assert payload["operations"][1]["operation_id"] == contracts.stable_operation_id(
-        table_name="warehouse.customers",
-        field_name="age",
-        change_type="drop",
-        old_value="int64",
-        new_value=None,
-    )
+    regenerated = yaml.safe_load(destination.read_text(encoding="utf-8"))
+    assert regenerated["renames"] == {}
+    assert regenerated["operations"] == payload["operations"]

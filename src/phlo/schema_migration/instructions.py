@@ -7,21 +7,16 @@ MigrationInstructionError instead of being silently merged.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import yaml
 
+from phlo.schema_migration import artifacts
 from phlo.schema_migration.planning import SchemaMigrationInstructions
 
 
 class MigrationInstructionError(ValueError):
     """Raised when migration instruction files or flags are invalid."""
-
-
-def default_migration_instruction_path(table_name: str) -> Path:
-    """Return the default migration instruction file for a table."""
-    return Path(".phlo/migrations") / f"{_table_to_artifact_stem(table_name)}.yaml"
 
 
 def resolve_migration_instructions(
@@ -31,7 +26,7 @@ def resolve_migration_instructions(
     rename_flags: tuple[str, ...],
 ) -> SchemaMigrationInstructions:
     """Merge migration instructions from YAML and CLI rename flags."""
-    yaml_path = migration_file or default_migration_instruction_path(table_name)
+    yaml_path = migration_file or artifacts.default_migration_instruction_path(table_name)
     renames = _load_migration_yaml_renames(yaml_path, table_name)
 
     for value in rename_flags:
@@ -46,11 +41,6 @@ def resolve_migration_instructions(
         renames[old_name] = new_name
 
     return SchemaMigrationInstructions(renames=renames)
-
-
-def _table_to_artifact_stem(table_name: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", table_name.strip())
-    return sanitized.replace(".", "__")
 
 
 def _parse_rename_flag(value: str) -> tuple[str, str]:
