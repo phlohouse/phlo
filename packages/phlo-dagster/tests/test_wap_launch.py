@@ -15,6 +15,7 @@ import httpx
 import pytest
 from phlo.config_schema import WapConfig
 from phlo.exceptions import PhloConfigError
+from phlo.wap_evidence import WapEvidence
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
@@ -23,8 +24,6 @@ from phlo_dagster.wap_launch import (
     WAP_RUN_ID_TAG,
     WapLaunchError,
     prepare_wap_launch,
-    read_wap_launch_manifest,
-    read_wap_report,
     submit_wap_launch,
 )
 
@@ -218,12 +217,13 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
         with pytest.raises(WapLaunchError) as failure:
             asyncio.run(submission)
         assert failure.value.run_id == ("physical-17" if outcome == "manifest_failure" else None)
-    report = read_wap_report("request-42")
+    evidence = WapEvidence(tmp_path)
+    report = evidence.read_report("request-42")
     assert report["status"] == report_status
     assert catalog.get_branch_hash(launch.branch) == "main-hash"
     assert catalog.deleted == []
     if outcome == "accepted":
-        manifest = read_wap_launch_manifest("request-42", report["launch_manifest_checksum"])
+        manifest = evidence.read_binding("request-42", report["launch_manifest_checksum"])
         assert manifest["dagster_run_id"] == report["dagster_run_id"] == "physical-17"
         assert manifest["tags"] == launch.tags
     else:

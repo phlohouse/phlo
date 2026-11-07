@@ -19,6 +19,7 @@ def _run(logical_id: str, location: str = "prod_loc", **overrides):
         "phlo/wap_branch": f"pipeline-run-{logical_id}",
         "phlo/ref": f"pipeline-run-{logical_id}",
         "phlo/project_id": "project",
+        "phlo/attempt": "1",
         "phlo/catalog_system": "nessie",
     }
     return {
@@ -74,6 +75,9 @@ def _write_report(root: Path, row: dict, strategy="branch", context=None, **over
         "dagster_run_id": row["runId"],
         "branch": tags["phlo/wap_branch"],
         "tags": tags,
+        "source_hash": "launch-source",
+        "target_hash_before": "launch-target",
+        "target_branch": "main",
     }
     if context is not None:
         binding.update(
@@ -229,10 +233,13 @@ def test_explicit_env_and_read_scope_are_required(wap_api, monkeypatch):
     assert client.get("/api/v1/wap/runs?env=prod").status_code == 403
 
 
-def test_real_launch_report_writer_is_compatible(wap_api):
+@pytest.mark.parametrize("strict", [None, False, True])
+def test_real_launch_report_writer_is_compatible(wap_api, strict):
+    from phlo_dagster.wap_context import WapContext
     from phlo_dagster.wap_launch import WapLaunch, write_wap_report
+    from phlo_api.api import v1
 
-    client, runs, _, _, _ = wap_api
+    client, runs, _, root, _ = wap_api
     launch = WapLaunch(
         logical_run_id="prod-one",
         branch="pipeline-run-prod-one",
@@ -243,16 +250,31 @@ def test_real_launch_report_writer_is_compatible(wap_api):
         project_id="project",
         attempt=1,
         catalog_system="nessie",
+        context=WapContext(
+            "prod", "main", "prod_loc", "a" * 64, require_candidate_bound_checks=strict
+        )
+        if strict is not None
+        else None,
     )
+    if strict is not None:
+        launch = launch.seal()
     runs[0]["tags"] = [{"key": key, "value": value} for key, value in launch.tags.items()]
     assert launch.record_launch_result(status="launched", dagster_run_id="dagster-prod-one")
+    before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in root.rglob("*.json")}
     item = client.get("/api/v1/wap/runs?env=prod").json()["items"][0]
     assert item["report_state"] == "verified"
     assert item["lifecycle_status"] == "launched"
     assert item["strategy"] == "branch"
+    if strict is not None:
+        assert v1_jobs._identity(runs[0], "prod_loc", "main")
+        assert not v1_jobs._identity(runs[0], "stage_loc", "candidate")
+    assert {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in root.rglob("*.json")} == before
     assert write_wap_report("prod-one", status="promoted")
     item = client.get("/api/v1/wap/runs?env=prod").json()["items"][0]
     assert item["lifecycle_status"] == "promoted"
+    if strict is not None:
+        assert v1._run_on_ref(runs[0], "main")
+        assert not v1._run_on_ref(runs[0], "candidate")
 
 
 def _context(**overrides):
@@ -290,7 +312,7 @@ def test_verified_v2_wap_run_belongs_to_immutable_target_not_staging_or_other_en
     row = rows[0]
     _write_report(root, row, context=_context(), status="promoted")
     tags = {tag["key"]: tag["value"] for tag in row["tags"]}
-    assert v1_wap._report("prod-one", row["runId"], tags)[1] == "verified"
+    assert v1_wap._evidence().verify("prod-one", row["runId"], tags) is not None
     assert v1._run_on_ref(row, "release_test")
     assert v1_jobs._identity(row, "prod_loc", "release_test")
     assert not v1._run_on_ref(row, "release_other")
