@@ -1,8 +1,11 @@
 """Candidate ingestion preserves actor, immutable review and real run/result identity."""
 
+import asyncio
 import sys
 import json
 import hashlib
+from collections import OrderedDict
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -20,6 +23,10 @@ from phlo.rbac.models import CanonicalAction
 
 @pytest.fixture
 def candidate(monkeypatch, tmp_path):
+    from phlo_api.api import operation_controls
+
+    # Each scenario gets its own rate buckets, not quota consumed by earlier tests.
+    monkeypatch.setattr(operation_controls, "_RATE_LIMITS", OrderedDict())
     monkeypatch.setitem(
         security_test_support._ACTIONS_BY_PRINCIPAL,
         "operator",
@@ -155,6 +162,222 @@ def plan(candidate, monkeypatch):
     response = client.post(path + "/candidate/plan?env=sandbox", json={})
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.mark.parametrize("destination_first", [True, False])
+def test_destination_reservation_and_column_review_cannot_both_commit(
+    candidate, monkeypatch, destination_first
+):
+    client, path, upload, _ = candidate
+    review_body = {"expected_version": upload["version"], "columns": upload["columns"]}
+    destination_body = {"expected_version": upload["version"], "table": "reviewed_batch"}
+    responses = {}
+    if destination_first:
+
+        async def head(ref):
+            responses["review"] = await asyncio.to_thread(
+                client.put, path + "/columns?env=sandbox", json=review_body
+            )
+            return "base-head"
+
+        monkeypatch.setattr(ingestion, "_head", head)
+        responses["destination"] = client.post(
+            path + "/destination?env=sandbox", json=destination_body
+        )
+    else:
+        review_rows = ingestion.uploads._review_rows
+
+        def overlap(*args):
+            # The review has read the upload but has not committed its CAS.
+            monkeypatch.setattr(ingestion.uploads, "_review_rows", review_rows)
+            responses["destination"] = client.post(
+                path + "/destination?env=sandbox", json=destination_body
+            )
+            return review_rows(*args)
+
+        monkeypatch.setattr(ingestion.uploads, "_review_rows", overlap)
+        responses["review"] = client.put(path + "/columns?env=sandbox", json=review_body)
+
+    assert responses["destination"].status_code == 200, responses["destination"].text
+    assert responses["review"].status_code == 409, responses["review"].text
+    receipt = client.get(path + "/candidate?env=sandbox")
+    assert receipt.status_code == 200, receipt.text
+    assert receipt.json()["review_version"] == upload["version"]
+    assert client.get(path + "?env=sandbox").json()["version"] == upload["version"]
+
+
+def test_review_committed_during_validation_prevents_stale_destination(candidate, monkeypatch):
+    client, path, upload, _ = candidate
+    review_rows = ingestion.uploads._review_rows
+
+    def overlap(*args):
+        monkeypatch.setattr(ingestion.uploads, "_review_rows", review_rows)
+        reviewed = client.put(
+            path + "/columns?env=sandbox",
+            json={"expected_version": upload["version"], "columns": upload["columns"]},
+        )
+        assert reviewed.status_code == 200, reviewed.text
+        return review_rows(*args)
+
+    monkeypatch.setattr(ingestion.uploads, "_review_rows", overlap)
+    stale = client.post(
+        path + "/destination?env=sandbox",
+        json={"expected_version": upload["version"], "table": "reviewed_batch"},
+    )
+    assert stale.status_code == 409, stale.text
+    current = client.get(path + "?env=sandbox").json()
+    assert current["version"] == upload["version"] + 1
+    assert current["destination_table"] is None
+    assert client.get(path + "/candidate?env=sandbox").status_code == 404
+    retried = client.post(
+        path + "/destination?env=sandbox",
+        json={"expected_version": current["version"], "table": "reviewed_batch"},
+    )
+    assert retried.status_code == 200, retried.text
+
+
+@pytest.mark.parametrize("failure_stage", ["_head", "provision_candidate"])
+def test_failed_destination_retains_reservation_and_inputs_until_same_destination_retry(
+    candidate, monkeypatch, failure_stage
+):
+    from phlo_api.errors import BackendUnavailableError
+
+    client, path, upload, root = candidate
+    body = {"expected_version": upload["version"], "table": "reviewed_batch"}
+
+    @asynccontextmanager
+    async def independent_worker(*_args):
+        yield
+
+    # Simulate independent workers: correctness must not come from candidate_lock.
+    monkeypatch.setattr(ingestion, "candidate_lock", independent_worker)
+
+    async def fail(*_args, **_kwargs):
+        competing = await asyncio.to_thread(
+            client.post,
+            path + "/destination?env=sandbox",
+            json={**body, "table": "competing_batch"},
+        )
+        assert competing.status_code == 409, competing.text
+        raise BackendUnavailableError("Unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ingestion, failure_stage, fail)
+        failed = client.post(path + "/destination?env=sandbox", json=body)
+    assert failed.status_code == 503, failed.text
+    current = client.get(path + "?env=sandbox").json()
+    assert current["destination_table"] == body["table"]
+    assert current["version"] == upload["version"]
+    assert (
+        client.put(
+            path + "/columns?env=sandbox",
+            json={"expected_version": upload["version"], "columns": upload["columns"]},
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            path + "/destination?env=sandbox", json={**body, "table": "other_batch"}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            path + "/archive?env=sandbox", json={"archived": True, "reason": "Hide"}
+        ).status_code
+        == 200
+    )
+    reclaimed = client.post(
+        path + "/reclaim?env=sandbox",
+        json={"confirmed": True, "expected_checksum": upload["checksum"], "reason": "Expired"},
+    )
+    assert reclaimed.status_code == 409, reclaimed.text
+    assert (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").exists()
+    assert (
+        client.post(
+            path + "/archive?env=sandbox", json={"archived": False, "reason": "Retry"}
+        ).status_code
+        == 200
+    )
+    retried = client.post(path + "/destination?env=sandbox", json=body)
+    assert retried.status_code == 200, retried.text
+    assert client.get(path + "/candidate?env=sandbox").json() == retried.json()
+
+
+@pytest.mark.parametrize("unknown", [None, "metadata", "receipt", "owner"])
+def test_legacy_candidate_reservation_migration_fails_closed(candidate, unknown):
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api.observatory_durable_state import state_namespace
+
+    client, path, upload, root = candidate
+    prepared = prepare(candidate)
+    service = get_settings_service()
+
+    def old_uploads(state):
+        return {
+            **state,
+            "items": [
+                {key: value for key, value in item.items() if key != "destination_table"}
+                for item in state["items"]
+            ],
+        }
+
+    service.mutate(SettingsScope.GLOBAL, state_namespace(root, "v1_csv_uploads"), old_uploads)
+    if unknown:
+
+        def corrupt(state):
+            if unknown == "metadata":
+                return {**state, "future_fence": True}
+            changes = {"future_evidence": True} if unknown == "receipt" else {"actor": "other"}
+            return {**state, "items": [{**item, **changes} for item in state["items"]]}
+
+        service.mutate(SettingsScope.GLOBAL, state_namespace(root, "v1_csv_candidates"), corrupt)
+    reviewed = client.put(
+        path + "/columns?env=sandbox",
+        json={"expected_version": upload["version"], "columns": upload["columns"]},
+    )
+    assert reviewed.status_code == 409, reviewed.text
+    if unknown is None:
+        current = client.get(path + "?env=sandbox")
+        assert current.status_code == 200, current.text
+        assert current.json()["destination_table"] == prepared["table"]
+        assert client.get(path + "/candidate?env=sandbox").json() == prepared
+    else:
+        stored = service.get(SettingsScope.GLOBAL, state_namespace(root, "v1_csv_uploads"))
+        assert "destination_table" not in stored.settings["items"][0]
+    assert (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").exists()
+
+
+def test_destination_replay_preserves_unknown_candidate_metadata(candidate):
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api.observatory_durable_state import state_namespace
+
+    client, path, upload, root = candidate
+    prepared = prepare(candidate)
+    namespace = state_namespace(root, "v1_csv_candidates")
+    service = get_settings_service()
+    service.mutate(SettingsScope.GLOBAL, namespace, lambda state: {**state, "future_fence": True})
+    replay = client.post(
+        path + "/destination?env=sandbox",
+        json={"expected_version": upload["version"], "table": prepared["table"]},
+    )
+    assert replay.status_code == 409, replay.text
+    assert client.get(path + "/candidate?env=sandbox").status_code == 409
+    assert (
+        client.post(
+            path + "/archive?env=sandbox", json={"archived": True, "reason": "Hide"}
+        ).status_code
+        == 200
+    )
+    reclaim = client.post(
+        path + "/reclaim?env=sandbox",
+        json={"confirmed": True, "expected_checksum": upload["checksum"], "reason": "Expired"},
+    )
+    assert reclaim.status_code == 409, reclaim.text
+    stored = service.get(SettingsScope.GLOBAL, namespace)
+    assert stored.settings["future_fence"] is True
+    assert stored.settings["items"] == [prepared]
+    assert (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").exists()
 
 
 def test_destination_is_real_immutable_actor_private_and_requires_current_review(candidate):
