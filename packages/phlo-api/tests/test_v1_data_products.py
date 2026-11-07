@@ -264,7 +264,6 @@ def test_product_collection_and_membership_are_bounded(setup_products):
     products.mutate_collection(
         products.project_root(),
         products._COLLECTION,
-        products._legacy_path(),
         lambda items: records,
     )
     response = client.post("/api/v1/data-products?env=sandbox", json=setup_products)
@@ -303,7 +302,6 @@ def test_product_collection_and_membership_are_bounded(setup_products):
     products.mutate_collection(
         products.project_root(),
         products._COLLECTION,
-        products._legacy_path(),
         lambda items: (
             items
             + [{**record, "product_id": f"archived-{i}", "status": "archived"} for i in range(498)]
@@ -512,9 +510,7 @@ def test_product_reclaim_preserves_canonical_members_and_identity_evidence(
         ).hexdigest()
     )
     assert tombstone["reclaimed_by"] == "test:operator" and tombstone["version"] == 3
-    assert products.load_collection(tmp_path, products._COLLECTION, products._legacy_path()) == [
-        tombstone
-    ]
+    assert products.load_collection(tmp_path, products._COLLECTION) == [tombstone]
     assert (
         client.put(f"{url}?env=sandbox", json={**setup_products, "expected_version": 3}).status_code
         == 410
@@ -525,9 +521,7 @@ def test_product_reclaim_preserves_canonical_members_and_identity_evidence(
     )
     assert replacement.status_code == 201 and replacement.json()["members"] == archived["members"]
     assert client.get(f"{url}?env=sandbox").status_code == 410
-    assert tombstone in products.load_collection(
-        tmp_path, products._COLLECTION, products._legacy_path()
-    )
+    assert tombstone in products.load_collection(tmp_path, products._COLLECTION)
     assert client.post(f"{base}?env=sandbox", json=setup_products).status_code == 409
     audits = [
         json.loads(line)
@@ -558,9 +552,7 @@ def test_product_reclaim_tombstone_survives_audit_append_failure(setup_products,
         )
     retained = client.get(f"{url}?env=sandbox")
     assert retained.status_code == 410
-    stored = products.load_collection(
-        products.project_root(), products._COLLECTION, products._legacy_path()
-    )
+    stored = products.load_collection(products.project_root(), products._COLLECTION)
     assert stored[0]["reclaimed_by"] == "test:operator" and stored[0]["reason"] == "Retire"
     assert client.post("/api/v1/data-products?env=sandbox", json=setup_products).status_code == 409
 
@@ -583,12 +575,11 @@ def test_product_reclaim_retains_recent_content_and_capacity_under_audit_policy(
     assert (
         client.post(f"{url}/archive?env=sandbox", json={"expected_version": 1}).status_code == 200
     )
-    archived = products.load_collection(tmp_path, products._COLLECTION, products._legacy_path())[0]
+    archived = products.load_collection(tmp_path, products._COLLECTION)[0]
     old_creation = {**archived, "created_at": "1990-01-01T00:00:00+00:00"}
     products.mutate_collection(
         tmp_path,
         products._COLLECTION,
-        products._legacy_path(),
         lambda items: (
             [old_creation] + [{**old_creation, "product_id": f"retained-{i}"} for i in range(999)]
         ),
@@ -598,15 +589,13 @@ def test_product_reclaim_retains_recent_content_and_capacity_under_audit_policy(
         ADMIN_SETTINGS_NAMESPACE,
         {"version": 1, "values": {"observatory.settings.audit.retention_years": 7}},
     )
-    before = products.load_collection(tmp_path, products._COLLECTION, products._legacy_path())
+    before = products.load_collection(tmp_path, products._COLLECTION)
     audit_path = tmp_path / ".phlo/audit/operations.jsonl"
     audit_before = audit_path.read_bytes()
     payload = {"expected_version": 2, "confirmed": True, "reason": "Exported for handoff"}
     denied = client.post(f"{url}/reclaim?env=sandbox", json=payload)
     assert denied.status_code == 409 and "retention_minimum_not_elapsed" in denied.text
-    assert (
-        products.load_collection(tmp_path, products._COLLECTION, products._legacy_path()) == before
-    )
+    assert products.load_collection(tmp_path, products._COLLECTION) == before
     assert audit_path.read_bytes() == audit_before
     assert client.get(f"{url}/export?env=sandbox").json()["version"] == 2
     replacement = {**setup_products, "product_id": "replacement"}
@@ -614,7 +603,6 @@ def test_product_reclaim_retains_recent_content_and_capacity_under_audit_policy(
     products.mutate_collection(
         tmp_path,
         products._COLLECTION,
-        products._legacy_path(),
         lambda items: [
             {**item, "updated_at": "1991-01-01T00:00:00+00:00"}
             if item["product_id"] == "batch-record-cgt04"
@@ -626,9 +614,7 @@ def test_product_reclaim_retains_recent_content_and_capacity_under_audit_policy(
     assert receipt.status_code == 200, receipt.text
     assert receipt.json()["version"] == 3
     assert client.post(f"{base}?env=sandbox", json=replacement).status_code == 201
-    assert receipt.json() in products.load_collection(
-        tmp_path, products._COLLECTION, products._legacy_path()
-    )
+    assert receipt.json() in products.load_collection(tmp_path, products._COLLECTION)
     evidence = [json.loads(line) for line in audit_path.read_text().splitlines()]
     assert (
         next(item for item in evidence if item["operation"] == "data_product.reclaim")["result"]

@@ -493,7 +493,7 @@ def test_csv_payload_retention_includes_recent_archive_with_inclusive_boundary(
         )
         return items
 
-    uploads.mutate_collection(project, uploads._COLLECTION, uploads._legacy_path(), age)
+    uploads.mutate_collection(project, uploads._COLLECTION, age)
     now = "2025-10-01T11:59:59.999999+00:00"
 
     class Clock(datetime):
