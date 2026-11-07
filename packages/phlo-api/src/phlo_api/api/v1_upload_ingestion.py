@@ -160,18 +160,17 @@ def _known_receipts() -> list[CandidateReceipt]:
 
 
 def legacy_destination_tables(records: list[uploads.CsvUpload]) -> dict[str, str]:
-    """Import historical reservations without letting review adopt mismatched evidence."""
+    """Fence historical destinations without attesting their retained review.
+
+    Before reservations were atomic, a review could advance after preparation.
+    Keep that upload frozen, not the entire inventory unavailable. Candidate
+    actions and reclamation still require every immutable recipe binding.
+    """
     tables: dict[str, str] = {}
+    upload_ids = {record.upload_id for record in records}
     for receipt in _known_receipts():
-        record = next((item for item in records if item.upload_id == receipt.upload_id), None)
-        if record is None or receipt.upload_id in tables:
+        if receipt.upload_id not in upload_ids or receipt.upload_id in tables:
             raise ConflictError("Legacy candidate ownership is unavailable or ambiguous.")
-        _require_frozen_recipe(
-            record.model_copy(
-                update={"destination_table": record.destination_table or receipt.table}
-            ),
-            receipt,
-        )
         tables[receipt.upload_id] = receipt.table
     return tables
 
