@@ -3,9 +3,9 @@
 Shared authn-to-authz canonicalization bridge converting AuthPrincipal (from
 authentication) to Principal (for authorization), so all regulated surfaces
 derive principals consistently from the same upstream IdP or trusted proxy
-chain using canonical RBAC subject assignments. Inputs are the AuthPrincipal,
-request/session metadata, and canonical RBAC subject assignments; the output is
-a Principal with canonical roles and attributes.
+chain using canonical RBAC subject assignments. Inputs are the AuthPrincipal
+and canonical RBAC subject assignments; the output is a Principal with
+canonical roles and attributes.
 
 Regulated mode: all regulated surfaces must use this bridge for principal
 resolution; per-surface bespoke group-to-role mapping is forbidden and local
@@ -87,16 +87,15 @@ class IdentityBridge:
     def canonicalize(
         self,
         auth_principal: AuthPrincipal,
-        context: dict[str, str] | None = None,
     ) -> Principal:
         """Convert AuthPrincipal to canonical Principal.
 
         Core bridge function: validates the principal type is approved (if
         enforcement is enabled), maps IdP groups to canonical roles, applies
         principal-type default roles, propagates relevant attributes, and
-        returns the canonical Principal for authorization decisions. ``context``
-        carries optional request/session metadata for audit. Raises ValueError
-        when the principal type is not approved and enforcement is enabled.
+        returns the canonical Principal for authorization decisions. Raises
+        ValueError when the principal type is not approved and enforcement is
+        enabled.
         """
         from phlo.capabilities.interfaces import Principal
 
@@ -197,15 +196,15 @@ class IdentityBridge:
 
 
 def create_regulated_bridge(
-    group_role_mapping: dict[str, str] | None = None,
+    *,
     canonical_rbac: CanonicalRBAC | None = None,
 ) -> IdentityBridge:
     """Create an identity bridge configured for regulated mode.
 
     Convenience factory returning a bridge with regulated-mode enforcement
     enabled (empty group mapping, approved-principal-type enforcement on).
-    ``group_role_mapping`` is retained only for API compatibility: regulated
-    bridges never translate identity-provider groups into authorization roles.
+    Regulated bridges never translate identity-provider groups into
+    authorization roles.
     """
     config = IdentityBridgeConfig(
         group_role_mapping={},
@@ -219,16 +218,15 @@ def create_regulated_bridge(
 def canonicalize_principal(
     auth_principal: AuthPrincipal,
     regulated: bool = False,
-    context: dict[str, str] | None = None,
 ) -> Principal:
     """Canonicalize an AuthPrincipal to a Principal.
 
     Convenience wrapper for simple use cases; enables regulated-mode enforcement
-    when ``regulated`` is True. ``context`` carries optional request/session
-    metadata. For more control, use the IdentityBridge class directly.
+    when ``regulated`` is True. For more control, use the IdentityBridge class
+    directly.
     """
     bridge = create_regulated_bridge() if regulated else IdentityBridge()
-    return bridge.canonicalize(auth_principal, context)
+    return bridge.canonicalize(auth_principal)
 
 
 def _managed_roles_for(auth_principal: AuthPrincipal) -> tuple[str, ...] | None:
