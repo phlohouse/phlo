@@ -14,6 +14,7 @@ import socket
 import subprocess
 import time
 from collections.abc import Callable, Coroutine
+from dataclasses import replace
 from pathlib import Path
 from time import monotonic as _readiness_monotonic
 from time import sleep as _readiness_sleep
@@ -489,20 +490,21 @@ def _expand_requested_services(
     all_services = dict(discovery.discover())
     inline_services = inline_service_definitions(_load_project_config(Path.cwd()))
     all_services.update({service.name: service for service in inline_services})
+    compose_services = _load_compose_services(compose_file)
+    for name, config in compose_services.items():
+        if not isinstance(config, dict):
+            continue
+        # Rendered dependencies include project overrides, which replace rather
+        # than extend installed edges. Keep native/env metadata without mutating
+        # the discovered definition shared by other commands.
+        definition = all_services.get(name) or ServiceDefinition(name=name, description=name)
+        all_services[name] = replace(definition, depends_on=list(config.get("depends_on") or []))
     if not service_names:
-        compose_services = _load_compose_services(compose_file)
         service_names = _default_compose_service_names(compose_file)
         # Compose owns the implicit selection. Installed optional services that
         # are absent from this project must not become native startup targets.
         all_services = {
-            name: all_services.get(name)
-            or ServiceDefinition(
-                name=name,
-                description=name,
-                depends_on=list(config.get("depends_on") or []),
-            )
-            for name, config in compose_services.items()
-            if name in service_names and isinstance(config, dict)
+            name: definition for name, definition in all_services.items() if name in service_names
         }
     unknown_services = [name for name in service_names if name not in all_services]
     if unknown_services:
