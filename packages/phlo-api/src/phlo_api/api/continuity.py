@@ -459,7 +459,9 @@ def _maintenance_execution(
             "operation_id": plan.operation_id,
         }
 
-    return plan.plan_token, plan.operation_id, execute
+    # Revisions can coincide across tables and refs. Binding the complete id
+    # also makes historical token-only keys conflict rather than replay or retry.
+    return plan.operation_id, plan.operation_id, execute
 
 
 @router.post("/apply")

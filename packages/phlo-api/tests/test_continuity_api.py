@@ -10,6 +10,8 @@ expanding provider behavior or importing any provider/CLI code in the adapter.
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -588,6 +590,77 @@ def test_maintenance_compact_uses_shipped_providers_and_plan_owned_target(
     assert fresh["operation_id"] == "compact:raw.events:feature:1"
     assert _maintenance_apply(client, fresh, "fresh").status_code == 200
     assert backend.revision == 2
+
+
+def test_maintenance_http_key_binds_equal_revisions_to_the_exact_ref(
+    client, maintenance_backend, tmp_path
+):
+    backend = maintenance_backend
+    backend.revision = 0
+    branch_a = _maintenance_plan(client, ref="branch_a")
+    branch_b = _maintenance_plan(client, ref="branch_b")
+    assert branch_a["plan_token"] == branch_b["plan_token"] == "0"
+    assert branch_a["operation_id"] != branch_b["operation_id"]
+    applied = _maintenance_apply(client, branch_a, "shared-key")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "succeeded"
+    count = len(backend.sql)
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    audit = audit_path.read_bytes()
+
+    # A new client still sees the persisted identity, not just an in-memory cache.
+    with closing(authenticated_client("admin")) as reopened:
+        conflict = _maintenance_apply(reopened, branch_b, "shared-key")
+        assert conflict.status_code == 409, conflict.text
+        assert conflict.json()["detail"]["error"] == "idempotency_key_conflict"
+        assert _maintenance_apply(reopened, branch_a, "shared-key").json() == applied.json()
+    assert len(backend.sql) == count
+    assert audit_path.read_bytes() == audit
+    with closing(sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite")) as conn:
+        rows = conn.execute("SELECT target, exclusion_target FROM operations").fetchall()
+    assert rows == [(branch_a["operation_id"], branch_a["operation_id"])]
+
+    # The other ref has not advanced. Its own key may execute its own plan.
+    backend.revision = 0
+    other = _maintenance_apply(client, branch_b, "branch-b-key")
+    assert other.status_code == 200, other.text
+    assert other.json()["operation_id"] == branch_b["operation_id"]
+    assert other.json()["status"] == "succeeded"
+    assert backend.sql[-1][0] == "branch_b"
+
+
+@pytest.mark.parametrize("legacy_state", ["completed", "safe_to_retry"])
+def test_maintenance_legacy_token_only_key_fails_closed_without_rebinding(
+    client, maintenance_backend, tmp_path, legacy_state
+):
+    maintenance_backend.revision = 0
+    planned = _maintenance_plan(client, ref="branch_a")
+    applied = _maintenance_apply(client, planned, "legacy-key")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "succeeded"
+    database = tmp_path / ".phlo" / "state" / "operations.sqlite"
+    # Preserve a real provider response, but restore the historical token-only
+    # binding. Even a retry-authorized old key cannot establish the new identity.
+    with closing(sqlite3.connect(database)) as conn:
+        conn.execute(
+            "UPDATE operations SET target=?, exclusion_target=?, state=? WHERE operation=?",
+            (planned["plan_token"], planned["plan_token"], legacy_state, "maintenance.apply"),
+        )
+        conn.commit()
+        before = conn.execute("SELECT target, state, response_json FROM operations").fetchall()
+    count = len(maintenance_backend.sql)
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    audit = audit_path.read_bytes()
+    with closing(authenticated_client("admin")) as reopened:
+        refused = _maintenance_apply(reopened, planned, "legacy-key")
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["error"] == "idempotency_key_conflict"
+    assert len(maintenance_backend.sql) == count
+    assert audit_path.read_bytes() == audit
+    with closing(sqlite3.connect(database)) as conn:
+        assert (
+            conn.execute("SELECT target, state, response_json FROM operations").fetchall() == before
+        )
 
 
 @pytest.mark.parametrize("phase,state", [("preflight", "failed"), ("submission", "unknown")])
