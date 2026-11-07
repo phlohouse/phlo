@@ -163,6 +163,7 @@ jobs:
 
   operations:
     name: integration / operations
+    needs: minio-image
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -181,6 +182,7 @@ jobs:
           --health-retries 5
     env:
       UV_PYTHON: "3.12"
+      MINIO_IMAGE: ghcr.io/phlohouse/phlo-minio:0.17.4
       PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN: postgresql://phlo_ci:phlo_ci_password@localhost:5432/phlo_ci
       PHLO_RUN_EVIDENCE_TEST_POSTGRES_DSN: postgresql://phlo_ci:phlo_ci_password@localhost:5432/phlo_ci
     steps:
@@ -188,6 +190,22 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/docker-mirror
+      - name: Download the checkout-built MinIO image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: integration-minio-image
+          path: ${{ runner.temp }}
+      - name: Load and verify the checkout-built MinIO image
+        id: minio
+        env:
+          EXPECTED_MINIO_ID: ${{ needs.minio-image.outputs.image_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED_MINIO_ID"
+          docker image load --input "$RUNNER_TEMP/integration-minio.tar"
+          actual_id="$(docker image inspect --format '{{.Id}}' "$MINIO_IMAGE")"
+          test "$actual_id" = "$EXPECTED_MINIO_ID"
       - name: Install uv
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
