@@ -70,14 +70,30 @@ def test_claim_succeeds_and_state_is_claimed(store) -> None:
     "first_action, second_action, second_id",
     [
         ("compact", "compact", "op:1"),
+        ("compact", "compact", "fresh-plan"),
+        ("backup.create", "backup.create", "fresh-plan"),
+        ("restore.apply", "restore.apply", "fresh-plan"),
         ("expire_snapshots", "snapshot_expiry", "fresh-plan"),
         ("snapshot_expiry", "expire_snapshots", "fresh-plan"),
     ],
 )
-def test_conflicting_claim_is_rejected(store, first_action, second_action, second_id) -> None:
+@pytest.mark.parametrize("state", ["claimed", "submitted", "unknown"])
+def test_conflicting_claim_is_rejected(
+    store, first_action, second_action, second_id, state
+) -> None:
     _claim(store, action=first_action)
+    store.transition("op:1", OperationJournalState(state))
     with pytest.raises(OperationJournalError, match="conflicting_claim"):
         _claim(store, subject="other-operator", action=second_action, operation_id=second_id)
+
+
+@pytest.mark.parametrize("state", ["succeeded", "failed"])
+def test_finished_operation_keeps_its_identity_but_releases_target(store, state) -> None:
+    _claim(store)
+    store.transition("op:1", OperationJournalState(state))
+    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+        _claim(store)
+    _claim(store, operation_id="fresh-plan", token="fresh")
 
 
 def test_mark_submitted_moves_to_submitted(store) -> None:
