@@ -58,7 +58,6 @@ from phlo.run_evidence.stored import (
     StoredEvent,
     StoredQualityResult,
     StoredResource,
-    StoredRun,
     StoredStage,
     parse_stored_row,
 )
@@ -723,7 +722,6 @@ class _SqlRunEvidenceStore:
             decision = evaluate_reconciliation(
                 observation=observation,
                 profile=profile,
-                run_row=parse_stored_row(StoredRun, run_row),
                 event_rows=[parse_stored_row(StoredEvent, row) for row in event_rows],
                 stage_rows=[parse_stored_row(StoredStage, row) for row in stage_rows],
                 record_rows=record_rows,
