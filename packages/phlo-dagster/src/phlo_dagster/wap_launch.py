@@ -28,9 +28,11 @@ from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCata
 from phlo.capabilities.resolver import resolve_capability
 from phlo.config import get_settings
 from phlo.config.process import get_process_settings
+from phlo.config_schema import WapConfig
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 import phlo.telemetry as phlo_observe
+from phlo_dagster.operations import launch_materialize
 from phlo_dagster.wap_context import (
     WAP_BINDING_TAG,
     WapContext,
@@ -49,6 +51,63 @@ WAP_STRATEGY_BRANCH = "branch"
 WAP_STRATEGY_SNAPSHOT = "snapshot"
 _PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason", "review_required", "review_message"})
 logger = get_logger(__name__)
+
+
+class WapLaunchError(RuntimeError):
+    """Submission failed, optionally after Dagster accepted a physical run."""
+
+    def __init__(self, message: str, *, run_id: str | None = None) -> None:
+        super().__init__(message)
+        self.run_id = run_id
+
+
+async def submit_wap_launch(
+    launch: WapLaunch,
+    *,
+    config: WapConfig,
+    dagster_url: str,
+    asset_key_path: str,
+    access_token: str | None = None,
+    partition_key: str | None = None,
+) -> str:
+    """Submit a prepared launch and acknowledge its physical identity durably.
+
+    Returns a run ID only after the immutable launch manifest is stored. All
+    failures retain the staging ref. An accepted but unrecorded run is carried
+    on WapLaunchError so callers can report partial success without resubmitting.
+    """
+    try:
+        result = await launch_materialize(
+            dagster_url=dagster_url,
+            asset_key_path=asset_key_path,
+            job_name=config.job_name,
+            repository_location_name=launch.context.location
+            if launch.context
+            else config.repository_location_name,
+            repository_name=config.repository_name,
+            access_token=access_token,
+            partition_key=partition_key,
+            idempotency_key=launch.logical_run_id,
+            tags=launch.tags,
+        )
+    except Exception as exc:
+        launch.record_launch_result(status="launch_ambiguous", error=str(exc))
+        raise WapLaunchError(f"WAP launch outcome is ambiguous: {exc}") from exc
+    if not result.accepted:
+        launch.record_launch_result(status="launch_rejected", error=result.message)
+        raise WapLaunchError(result.message)
+    if not result.run_id:
+        launch.record_launch_result(status="launch_ambiguous", error="Dagster returned no run ID")
+        raise WapLaunchError(
+            "Dagster accepted the request without a run ID; its outcome is unknown."
+        )
+    if not launch.record_launch_result(status="launched", dagster_run_id=result.run_id):
+        raise WapLaunchError(
+            "Dagster accepted the WAP run, but its immutable launch manifest could not be stored. "
+            "The branch was retained.",
+            run_id=result.run_id,
+        )
+    return result.run_id
 
 
 def _report_path(logical_run_id: str) -> Path:

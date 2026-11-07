@@ -169,10 +169,6 @@ def test_service_discovery_uses_manifest_resolver_for_directory_services(
 ) -> None:
     get_global_registry().clear()
     monkeypatch.setattr(
-        "phlo.plugins.discovery._service_loading.discover_plugins",
-        lambda plugin_type, auto_register: None,
-    )
-    monkeypatch.setattr(
         "phlo.plugins.discovery.service_manifest.discover_plugins",
         lambda plugin_type="service", auto_register=True: None,
     )
@@ -195,14 +191,31 @@ def test_resolver_expands_requested_services_with_dependencies(tmp_path: Path) -
     definitions = [
         ServiceDefinition.from_dict({"name": "postgres", "image": "postgres:16"}, tmp_path),
         ServiceDefinition.from_dict(
-            {"name": "api", "image": "api:latest", "depends_on": ["postgres"]},
+            {"name": "api", "image": "api:old", "depends_on": ["redis"]},
             tmp_path,
         ),
+        ServiceDefinition.from_dict({"name": "redis", "image": "redis:7"}, tmp_path),
+        ServiceDefinition.from_dict({"name": "api-setup", "depends_on": ["api"]}, tmp_path),
+        ServiceDefinition.from_dict({"name": "redis-setup", "depends_on": ["redis"]}, tmp_path),
     ]
+    requested = ServiceDefinition.from_dict(
+        {"name": "api", "image": "api:latest", "depends_on": ["postgres"]}, tmp_path
+    )
 
-    expanded = ServiceManifestResolver.expand_dependencies(definitions, ["api"])
+    expanded = ServiceManifestResolver.expand_dependencies(
+        [requested], available_services=definitions
+    )
 
-    assert [service.name for service in expanded] == ["postgres", "api"]
+    assert [service.name for service in expanded] == ["postgres", "api", "api-setup"]
+    assert expanded[1] is requested
+
+
+def test_resolver_reports_dependency_cycles_without_recursive_expansion(tmp_path: Path) -> None:
+    first = ServiceDefinition.from_dict({"name": "first", "depends_on": ["second"]}, tmp_path)
+    second = ServiceDefinition.from_dict({"name": "second", "depends_on": ["first"]}, tmp_path)
+
+    with pytest.raises(ValueError, match="Circular dependency detected: first → second → first"):
+        ServiceManifestResolver.expand_dependencies([first], available_services=[second])
 
 
 def test_manifest_scans_and_yaml_reads_are_cached_without_sharing_mutations(

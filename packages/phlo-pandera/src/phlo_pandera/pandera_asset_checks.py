@@ -65,9 +65,7 @@ from phlo.capabilities.specs import CheckResult
 from phlo.logging import get_logger
 from phlo.operations.parquet_validation import (
     ValidationMode,
-    evaluate_validation_frames,
-    parquet_validation_frames,
-    validate_batch_contract,
+    evaluate_parquet_contract,
 )
 from phlo_pandera.contract import PANDERA_CONTRACT_CHECK_NAME, QualityCheckContract
 from phlo_pandera.severity import severity_for_pandera_contract
@@ -212,20 +210,14 @@ def evaluate_pandera_contract_parquet(
     """
 
     try:
-        if mode == "materialized":
-            df = pd.read_parquet(parquet_path)
-            return evaluate_pandera_contract(df, schema_class=schema_class)
-        if mode == "full":
-            validate_batch_contract(schema_class.to_schema())
-        frames = parquet_validation_frames(
-            [parquet_path],
-            mode=mode,
-            batch_size=batch_size,
-            sample_size=sample_size,
-        )
         return PanderaContractEvaluation(
-            *evaluate_validation_frames(
-                frames, lambda frame: evaluate_pandera_contract(frame, schema_class=schema_class)
+            *evaluate_parquet_contract(
+                parquet_path,
+                schema_class=schema_class,
+                evaluate=lambda frame: evaluate_pandera_contract(frame, schema_class=schema_class),
+                mode=mode,
+                batch_size=batch_size,
+                sample_size=sample_size,
             )
         )
     except Exception:

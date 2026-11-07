@@ -36,7 +36,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -53,6 +53,7 @@ from phlo.hooks.emitters import (
     TransformEventEmitter,
 )
 from phlo.hooks.events import HookCorrelation
+from phlo_dbt.discovery import get_dbt_project_dir
 from phlo_dbt.lineage_import import collect_asset_lineage, load_dbt_manifest
 from phlo_dbt.translator import DbtSpecTranslator
 from phlo_dbt.runtime_config import ensure_dbt_profile
@@ -185,8 +186,17 @@ def _latest_project_mtime(dbt_project_path: Path) -> float:
     return latest
 
 
-def ensure_dbt_manifest(dbt_project_path: Path, profiles_path: Path) -> bool:
-    """Ensure a valid dbt manifest exists for the project; True when present after checks/parse."""
+def ensure_compiled(
+    project_dir: str | Path | None = None,
+    profiles_dir: str | Path | None = None,
+) -> bool:
+    """Prepare the profile and ensure a current, valid manifest using offline dbt parse.
+
+    Discover the project when omitted. Profiles default to the project directory;
+    explicit project and profile locations remain independent.
+    """
+    dbt_project_path = Path(project_dir) if project_dir is not None else get_dbt_project_dir()
+    profiles_path = Path(profiles_dir) if profiles_dir is not None else dbt_project_path
     manifest_path = dbt_project_path / "target" / "manifest.json"
     ensure_dbt_profile(profiles_path, project_dir=dbt_project_path)
 
@@ -251,8 +261,6 @@ def _emit_dbt_lineage(
     translator: DbtSpecTranslator,
     *,
     lineage_emitter: LineageEventEmitter,
-    logger: Any,
-    reader: Callable[[str], Any],
 ) -> None:
     """Emit lineage edges derived from a dbt manifest via the lineage emitter."""
     manifest = load_dbt_manifest(manifest_path)
@@ -315,21 +323,20 @@ class DbtTransformer(BaseTransformer):
         profiles_dir: Path,
         target: str = "dev",
         dbt_executable: str = "dbt",
-        key_prefix: str | None = None,
+        translator: DbtSpecTranslator | None = None,
     ):
         """Initialize dbt transformer runtime configuration.
 
-        ``key_prefix`` namespaces lineage asset keys with the dbt project
-        name, matching the prefixed asset keys built under
-        ``dbt_namespaced_asset_keys``; it must stay in sync with the prefix
-        used at spec-build time.
+        Reuse the discovery translator so lineage and checks use the same
+        project-local asset keys. Standalone transforms use an unprefixed
+        translator confined to this project.
         """
         super().__init__(context, logger)
         self.project_dir = project_dir
         self.profiles_dir = profiles_dir
         self.target = target
         self.dbt_executable = dbt_executable
-        self.key_prefix = key_prefix
+        self.translator = translator if translator is not None else DbtSpecTranslator(project_dir)
         self.build_run_results: Mapping[str, Any] | None = None
 
     @staticmethod
@@ -384,7 +391,7 @@ class DbtTransformer(BaseTransformer):
             command_name=self.dbt_executable,
             command_args=self._sanitize_command_args_for_logging(args),
         )
-        # DBT_PROJECT_DIR is phlo-dbt's own setting (see ensure_dbt_manifest);
+        # DBT_PROJECT_DIR is phlo-dbt's own setting (see ensure_compiled);
         # leaked into the child process it overrides dbt's project resolution.
         full_env.pop("DBT_PROJECT_DIR", None)
 
@@ -538,14 +545,11 @@ class DbtTransformer(BaseTransformer):
 
             # 3. Emit lineage from the manifest left by the build.
             manifest_path = artifact_path / "manifest.json"
-            translator = DbtSpecTranslator(project_dir=self.project_dir, key_prefix=self.key_prefix)
 
             _emit_dbt_lineage(
                 manifest_path,
-                translator,
+                self.translator,
                 lineage_emitter=lineage,
-                logger=self.logger,
-                reader=json.loads,
             )
 
             # Catalog introspection is explicit, not part of every model build.

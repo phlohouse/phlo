@@ -28,7 +28,6 @@ from phlo.run_evidence.stored import (
     EvidenceRecord,
     StoredArtifact,
     StoredEvent,
-    StoredRun,
     StoredStage,
 )
 
@@ -236,18 +235,10 @@ def _event_status(event: StoredEvent) -> RunStatus | None:
     return event.payload.status or event.payload.run_status
 
 
-def _latest_heartbeat(observation: RunObservation, events: list[StoredEvent]) -> datetime | None:
-    # Heartbeats come from the provider observation only; stored events never
-    # supply one. The parameter keeps call sites uniform across evidence kinds.
-    del events
-    return observation.heartbeat_at
-
-
 def evaluate_reconciliation(
     *,
     observation: RunObservation,
     profile: RequiredEvidenceProfile,
-    run_row: StoredRun | None,
     event_rows: list[StoredEvent],
     stage_rows: list[StoredStage],
     record_rows: dict[str, list[EvidenceRecord]] | None = None,
@@ -321,7 +312,6 @@ def evaluate_reconciliation(
     status, finished_at, heartbeat, reason, completeness, stale_seconds = _resolve_run_outcome(
         completeness,
         observation,
-        attempt_events,
         now,
         clock_skew,
         missing,
@@ -444,7 +434,6 @@ class _RunTiming:
 def _resolve_run_outcome(
     completeness: EvidenceCompleteness,
     observation: RunObservation,
-    attempt_events: list[StoredEvent],
     now: datetime,
     clock_skew: timedelta,
     missing: list[str],
@@ -456,7 +445,7 @@ def _resolve_run_outcome(
         "complete" if completeness is EvidenceCompleteness.COMPLETE else "missing_required_evidence"
     )
     finished_at = observation.finished_at
-    heartbeat = _latest_heartbeat(observation, attempt_events)
+    heartbeat = observation.heartbeat_at
     timing = _run_timing_gaps(now, clock_skew, observation, heartbeat)
     missing.extend(timing.missing)
     if timing.missing and explicit_state not in {

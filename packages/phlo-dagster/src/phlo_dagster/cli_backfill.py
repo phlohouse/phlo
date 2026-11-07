@@ -67,10 +67,15 @@ from rich.table import Table
 
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
-from phlo_dagster.operations import get_run_status, launch_materialize, wait_for_dagster_http
+from phlo_dagster.operations import get_run_status, wait_for_dagster_http
 from phlo_dagster.settings import WapBackfillSettings, get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
-from phlo_dagster.wap_launch import prepare_wap_launch, read_wap_report
+from phlo_dagster.wap_launch import (
+    WapLaunchError,
+    prepare_wap_launch,
+    read_wap_report,
+    submit_wap_launch,
+)
 
 console = Console()
 logger = get_logger(__name__)
@@ -232,10 +237,8 @@ def backfill(
             _run_wap_backfill(
                 asset_name,
                 partition_dates,
+                wap_config=wap_config,
                 dagster_url=dagster_url,
-                job_name=wap_config.job_name,
-                repository_location_name=wap_config.repository_location_name,
-                repository_name=wap_config.repository_name,
                 access_token=access_token,
                 completed_partitions=completed_partitions,
                 requested_parallel=parallel,
@@ -381,10 +384,8 @@ def _run_wap_backfill(
     asset_name: str,
     partition_dates: list[str],
     *,
+    wap_config: WapConfig,
     dagster_url: str,
-    job_name: str,
-    repository_location_name: str | None,
-    repository_name: str | None,
     access_token: str | None,
     completed_partitions: list[str] | None = None,
     requested_parallel: int = 1,
@@ -412,7 +413,10 @@ def _run_wap_backfill(
         raise click.ClickException(
             "WAP backfill context drift; review retained runs before resuming"
         )
-    if repository_location_name is not None and repository_location_name != context.location:
+    if (
+        wap_config.repository_location_name is not None
+        and wap_config.repository_location_name != context.location
+    ):
         raise click.ClickException("WAP backfill location does not match selected environment")
     if requested_parallel > 1:
         console.print(
@@ -437,39 +441,18 @@ def _run_wap_backfill(
                     logical_run_id=logical_run_id, environment=context.environment
                 )
                 try:
-                    result = asyncio.run(
-                        launch_materialize(
+                    dagster_run_id = asyncio.run(
+                        submit_wap_launch(
+                            launch,
+                            config=wap_config,
                             dagster_url=dagster_url,
                             asset_key_path=asset_name,
-                            job_name=job_name,
-                            repository_location_name=context.location,
-                            repository_name=repository_name,
                             access_token=access_token,
                             partition_key=partition_date,
-                            idempotency_key=logical_run_id,
-                            tags=launch.tags,
                         )
                     )
-                except Exception as exc:
-                    launch.record_launch_result(status="launch_ambiguous", error=str(exc))
-                    raise click.ClickException(
-                        f"WAP launch outcome is ambiguous for {partition_date}: {exc}"
-                    ) from exc
-                if not result.accepted:
-                    launch.record_launch_result(status="launch_rejected", error=result.message)
-                    raise click.ClickException(result.message)
-                if not launch.record_launch_result(
-                    status="launched", dagster_run_id=getattr(result, "run_id", None)
-                ):
-                    raise click.ClickException(
-                        "Dagster accepted the WAP run, but its immutable launch manifest could not be stored. "
-                        "The branch was retained."
-                    )
-                dagster_run_id = getattr(result, "run_id", None)
-                if not dagster_run_id:
-                    raise click.ClickException(
-                        "Dagster accepted the WAP run without returning a run ID."
-                    )
+                except WapLaunchError as exc:
+                    raise click.ClickException(f"WAP partition {partition_date}: {exc}") from exc
                 in_flight_wap[partition_date] = {
                     "logical_run_id": logical_run_id,
                     "dagster_run_id": dagster_run_id,

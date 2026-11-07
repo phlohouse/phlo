@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pyiceberg.schema import Schema
-
 PartitionTransform = Literal["identity", "day", "hour", "month", "year"]
 PartitionSpecInput = list[tuple[str, PartitionTransform]]
 
@@ -23,13 +21,6 @@ def table_exists(table_name: str, ref: str = "main") -> bool:
     except Exception:
         return False
     return True
-
-
-def load_table_schema(table_name: str, ref: str = "main") -> Schema:
-    """Load the current Iceberg schema for a table."""
-    from phlo_iceberg.tables import get_table_schema
-
-    return get_table_schema(table_name, ref=ref)
 
 
 def identity_partition(*columns: str) -> PartitionSpecInput:
@@ -94,7 +85,6 @@ __all__ = [
     "PartitionSpecInput",
     "PartitionTransform",
     "identity_partition",
-    "load_table_schema",
     "maintenance_recommendations",
     "partition_spec",
     "recommend_table_maintenance",
