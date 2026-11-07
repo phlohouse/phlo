@@ -1224,6 +1224,102 @@ def test_load_native_env_overrides_merges_env_files(tmp_path) -> None:
     assert result["SECRET_TOKEN"] == "abc123"
 
 
+@pytest.mark.parametrize("explicit", [False, True], ids=["default", "explicit"])
+@pytest.mark.parametrize("add_dependency", [False, True], ids=["remove", "add"])
+def test_native_start_uses_rendered_dependency_overrides(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, explicit: bool, add_dependency: bool
+) -> None:
+    """Rendered dependencies replace installed edges without losing native metadata."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.plugins.compose.generator import ComposeGenerator
+    from phlo.plugins.compose.native import NativeProcessManager
+
+    services = {
+        "client": ServiceDefinition(
+            name="client",
+            description="client",
+            image="example:latest",
+            depends_on=["native"] if add_dependency else ["native", "removed"],
+        ),
+        "native": ServiceDefinition(
+            name="native",
+            description="native",
+            image="example:latest",
+            profile="optional",
+            env_vars={"NATIVE_TOKEN": {}},
+            dev={"command": [sys.executable, "-c", "import time; time.sleep(60)"]},
+        ),
+        "extra": ServiceDefinition(
+            name="extra", description="extra", image="example:latest", profile="optional"
+        ),
+        "removed": ServiceDefinition(
+            name="removed",
+            description="removed",
+            image="example:latest",
+            profile="optional",
+            env_vars={"REMOVED_TOKEN": {}},
+        ),
+    }
+    discovery = FakeDiscovery(services)
+    dependencies = ["native", "extra"] if add_dependency else ["native"]
+    overrides = {"client": {"depends_on": dependencies}}
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text("NATIVE_TOKEN=local-native-token\n")
+    (tmp_path / "phlo.yaml").write_text(
+        "services:\n  client:\n    depends_on: " + str(dependencies)
+    )
+    (phlo_dir / "docker-compose.yml").write_text(
+        ComposeGenerator(discovery).generate_compose(
+            list(services.values()), phlo_dir, user_overrides=overrides
+        )
+    )
+    running: set[str] = set()
+    processes = []
+    original_start = NativeProcessManager.start_service
+
+    async def record_start(self, service, **kwargs):
+        process = await original_start(self, service, **kwargs)
+        assert process is not None and process.is_running
+        processes.append(process)
+        return process
+
+    def run_compose(cmd, **_kwargs):
+        if "up" in cmd:
+            # Model --no-deps: only explicit targets become running containers.
+            assert "--no-deps" in cmd
+            running.update(cmd[cmd.index("--no-deps") + 1 :])
+        return CompletedProcess(args=cmd, returncode=0)
+
+    class Backend(_ReadinessBackend):
+        def project_service_statuses(self, _project_name, *, deadline):
+            return [ServiceStatus(service=name, state="running", health=None) for name in running]
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ServiceDiscovery", lambda: discovery)
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
+    monkeypatch.setattr(start_module, "require_container_backend", lambda *_args: None)
+    monkeypatch.setattr(start_module, "run_command", run_compose)
+    monkeypatch.setattr(start_module, "select_project_container_backend", lambda **_kw: Backend([]))
+    monkeypatch.setattr(NativeProcessManager, "start_service", record_start)
+    monkeypatch.setattr(start_module, "_emit_service_lifecycle_events", lambda *_a, **_k: None)
+    monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_a, **_k: None)
+    try:
+        args = ["--native", "--detach"] + (["--service", "client"] if explicit else [])
+        result = CliRunner().invoke(start_module.start_cmd, args)
+        assert result.exit_code == 0, result.output
+        assert running == ({"client", "extra"} if add_dependency else {"client"})
+        state = json.loads((phlo_dir / "native-processes.json").read_text())
+        assert set(state) == {"native"}
+        assert "Services running: " + ", ".join(sorted(running)) in result.output
+    finally:
+        for process in processes:
+            process.process.terminate()
+            process.process.wait(timeout=5)
+            process.close_log_file()
+
+
 @pytest.mark.parametrize("explicit", [False, True], ids=["default", "through-container"])
 def test_native_start_launches_the_complete_ordered_selection(
     monkeypatch: pytest.MonkeyPatch, tmp_path, explicit: bool
@@ -1253,7 +1349,8 @@ def test_native_start_launches_the_complete_ordered_selection(
     (phlo_dir / ".env").write_text("")
     (phlo_dir / "docker-compose.yml").write_text(
         "services:\n"
-        "  a-client: {}\n"
+        "  a-client:\n"
+        f"    depends_on: {['bridge'] if explicit else ['z-server', 'missing-external']}\n"
         "  z-server: {}\n"
         "  bridge:\n"
         "    profiles: [optional]\n"
@@ -1310,6 +1407,31 @@ def test_native_start_launches_the_complete_ordered_selection(
             process.process.terminate()
             process.process.wait(timeout=5)
             process.close_log_file()
+
+
+def test_services_start_rejects_a_rendered_dependency_cycle(monkeypatch, tmp_path) -> None:
+    """A project-rendered cycle is diagnosed before any container starts."""
+    from phlo.cli.commands.services import start as start_module
+
+    monkeypatch.setattr(
+        start_module,
+        "ServiceDiscovery",
+        lambda: FakeDiscovery({name: _service(name) for name in ("client", "database")}),
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=(
+            "services:\n"
+            "  client:\n    depends_on: [database]\n"
+            "  database:\n    depends_on: [client]\n"
+        ),
+        snapshots=[],
+        args=["--native", "--service", "client"],
+    )
+    assert result.exit_code == 1, result.output
+    assert "Circular dependency detected:" in result.output
+    assert "client" in result.output and "database" in result.output
 
 
 def test_native_start_leaves_an_optional_only_stack_stopped(monkeypatch, tmp_path) -> None:
