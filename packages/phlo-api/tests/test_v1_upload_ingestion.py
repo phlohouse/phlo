@@ -304,7 +304,7 @@ def test_failed_destination_retains_reservation_and_inputs_until_same_destinatio
     assert client.get(path + "/candidate?env=sandbox").json() == retried.json()
 
 
-@pytest.mark.parametrize("unknown", [None, "metadata", "receipt", "owner"])
+@pytest.mark.parametrize("unknown", [None, "metadata", "receipt"])
 def test_legacy_candidate_reservation_migration_fails_closed(candidate, unknown):
     from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
     from phlo_api.observatory_api.observatory_durable_state import state_namespace
@@ -328,8 +328,10 @@ def test_legacy_candidate_reservation_migration_fails_closed(candidate, unknown)
         def corrupt(state):
             if unknown == "metadata":
                 return {**state, "future_fence": True}
-            changes = {"future_evidence": True} if unknown == "receipt" else {"actor": "other"}
-            return {**state, "items": [{**item, **changes} for item in state["items"]]}
+            return {
+                **state,
+                "items": [{**item, "future_evidence": True} for item in state["items"]],
+            }
 
         service.mutate(SettingsScope.GLOBAL, state_namespace(root, "v1_csv_candidates"), corrupt)
     reviewed = client.put(
@@ -346,6 +348,193 @@ def test_legacy_candidate_reservation_migration_fails_closed(candidate, unknown)
         stored = service.get(SettingsScope.GLOBAL, state_namespace(root, "v1_csv_uploads"))
         assert "destination_table" not in stored.settings["items"][0]
     assert (root / ".phlo/uploads" / upload["upload_id"] / "source.csv").exists()
+
+
+@pytest.mark.parametrize("mismatch", ["review", "actor", "env", "checksum", "recipe_digest"])
+def test_legacy_mismatch_fences_only_its_upload(candidate, mismatch):
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api.observatory_durable_state import state_namespace
+
+    client, path, upload, root = candidate
+    receipt = prepare(candidate)
+    healthy = client.post("/api/v1/uploads/csv?env=sandbox", content=b"id\n9\n")
+    assert healthy.status_code == 201, healthy.text
+    healthy_path = f"/api/v1/uploads/csv/{healthy.json()['upload_id']}"
+    service = get_settings_service()
+    upload_namespace = state_namespace(root, "v1_csv_uploads")
+    candidate_namespace = state_namespace(root, "v1_csv_candidates")
+
+    def historical_uploads(state):
+        items = [
+            {key: value for key, value in item.items() if key != "destination_table"}
+            for item in state["items"]
+        ]
+        if mismatch == "review":
+            # The old HTTP race could commit a newer review after preparing v2.
+            items[0] = {
+                **items[0],
+                "version": 3,
+                "columns": [{**items[0]["columns"][0], "name": "new_id"}, *items[0]["columns"][1:]],
+            }
+        return {**state, "items": items}
+
+    service.mutate(SettingsScope.GLOBAL, upload_namespace, historical_uploads)
+    if mismatch != "review":
+        receipt = {
+            **receipt,
+            mismatch: {"actor": "other", "env": "prod"}.get(mismatch, "f" * 64),
+        }
+        service.mutate(
+            SettingsScope.GLOBAL,
+            candidate_namespace,
+            lambda state: {**state, "items": [receipt]},
+        )
+
+    inventory = client.get("/api/v1/uploads/csv?env=sandbox")
+    assert inventory.status_code == 200, inventory.text
+    assert inventory.json()["total"] == 2
+    current = client.get(path + "?env=sandbox")
+    assert current.status_code == 200, current.text
+    current = current.json()
+    assert current["destination_table"] == receipt["table"]
+    assert current["version"] == (3 if mismatch == "review" else 2)
+    assert client.get(healthy_path + "?env=sandbox").status_code == 200
+    reviewed = client.put(
+        healthy_path + "/columns?env=sandbox",
+        json={"expected_version": 1, "columns": healthy.json()["columns"]},
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    prepared = client.post(
+        healthy_path + "/destination?env=sandbox",
+        json={"expected_version": 2, "table": "healthy_table"},
+    )
+    assert prepared.status_code == 200, prepared.text
+    assert prepared.json()["upload_id"] == healthy.json()["upload_id"]
+    assert (
+        client.put(
+            path + "/columns?env=sandbox",
+            json={"expected_version": current["version"], "columns": current["columns"]},
+        ).status_code
+        == 409
+    )
+    for table, status in [
+        (receipt["table"], 404 if mismatch in {"actor", "env"} else 409),
+        ("competing", 409),
+    ]:
+        response = client.post(
+            path + "/destination?env=sandbox",
+            json={"expected_version": current["version"], "table": table},
+        )
+        assert response.status_code == status, response.text
+    for suffix in ["/candidate/plan", "/candidate/reconcile"]:
+        response = client.post(path + suffix + "?env=sandbox")
+        assert response.status_code == (404 if mismatch in {"actor", "env"} else 409), response.text
+    assert authenticated_client("viewer").get(path + "?env=sandbox").status_code == 404
+    assert client.get(path + "?env=prod").status_code == 404
+    archived = client.post(
+        path + "/archive?env=sandbox", json={"archived": True, "reason": "Retain evidence"}
+    )
+    assert archived.status_code == 200, archived.text
+    reclaimed = client.post(
+        path + "/reclaim?env=sandbox",
+        json={"confirmed": True, "expected_checksum": upload["checksum"], "reason": "Expired"},
+    )
+    assert reclaimed.status_code == 409, reclaimed.text
+    assert service.get(SettingsScope.GLOBAL, candidate_namespace).settings["items"][0] == receipt
+    assert (
+        root / ".phlo/uploads" / upload["upload_id"] / "source.csv"
+    ).read_bytes() == b"id,result\n1,ND\n2,<LOQ\n"
+
+
+@pytest.mark.parametrize(
+    "store_kind", ["memory", pytest.param("postgres", marks=pytest.mark.integration)]
+)
+@pytest.mark.parametrize("intervening", [None, "review", "destination", "metadata"])
+def test_concurrent_legacy_readers_accept_only_identical_migration(
+    candidate, monkeypatch, store_kind, intervening
+):
+    from contextlib import ExitStack
+    from copy import deepcopy
+
+    from phlo.plugins.observatory_settings import SettingsScope, get_settings_service
+    from phlo_api.observatory_api import observatory_durable_state as durable
+
+    client, path, upload, root = candidate
+    receipt = prepare(candidate)
+    healthy = client.post("/api/v1/uploads/csv?env=sandbox", content=b"id\n9\n")
+    assert healthy.status_code == 201, healthy.text
+    healthy_path = f"/api/v1/uploads/csv/{healthy.json()['upload_id']}"
+    healthy_review = {"expected_version": 1, "columns": healthy.json()["columns"]}
+    memory = get_settings_service()
+    namespace = durable.state_namespace(root, "v1_csv_uploads")
+    memory.mutate(
+        SettingsScope.GLOBAL,
+        namespace,
+        lambda state: {
+            **state,
+            "items": [
+                {key: value for key, value in item.items() if key != "destination_table"}
+                for item in state["items"]
+            ],
+        },
+    )
+    with ExitStack() as stack:
+        if store_kind == "postgres":
+            from testcontainers.postgres import PostgresContainer
+            from phlo_postgres.settings_store import PostgresSettingsStore
+
+            postgres = stack.enter_context(PostgresContainer("postgres:18-alpine", password="test"))
+            monkeypatch.setenv(
+                "PHLO_OBSERVATORY_SETTINGS_DB_URL", postgres.get_connection_url(driver=None)
+            )
+            store = PostgresSettingsStore()
+            for collection in ["v1_csv_uploads", "v1_csv_candidates"]:
+                name = durable.state_namespace(root, collection)
+                store.put(
+                    SettingsScope.GLOBAL, name, memory.get(SettingsScope.GLOBAL, name).settings
+                )
+            # Independent store instances/connections, not a process lock, serialize CAS.
+            monkeypatch.setattr(durable, "get_settings_service", PostgresSettingsStore)
+
+        load = ingestion.uploads.load_collection
+        overlapped = []
+        committed = []
+
+        def overlap(*args, **kwargs):
+            snapshot = load(*args, **kwargs)
+            monkeypatch.setattr(ingestion.uploads, "load_collection", load)
+            # Both HTTP reads start with legacy evidence; the nested reader commits first.
+            overlapped.append(client.get(path + "?env=sandbox"))
+            if intervening in {"review", "destination"}:
+                reviewed = client.put(healthy_path + "/columns?env=sandbox", json=healthy_review)
+                assert reviewed.status_code == 200, reviewed.text
+            if intervening == "destination":
+                prepared = client.post(
+                    healthy_path + "/destination?env=sandbox",
+                    json={"expected_version": 2, "table": "other_destination"},
+                )
+                assert prepared.status_code == 200, prepared.text
+            store = durable.get_settings_service()
+            if intervening == "metadata":
+                store.mutate(
+                    SettingsScope.GLOBAL,
+                    namespace,
+                    lambda state: {**state, "future_fence": True},
+                )
+            committed.append(deepcopy(store.get(SettingsScope.GLOBAL, namespace).settings))
+            return snapshot
+
+        monkeypatch.setattr(ingestion.uploads, "load_collection", overlap)
+        response = client.get(path + "?env=sandbox")
+        assert overlapped[0].status_code == 200, overlapped[0].text
+        assert response.status_code == (200 if intervening is None else 409), response.text
+        stored = durable.get_settings_service().get(SettingsScope.GLOBAL, namespace).settings
+        assert stored == committed[0]
+        current = client.get(path + "?env=sandbox")
+        assert current.json() == overlapped[0].json()
+        assert current.json()["destination_table"] == receipt["table"]
+        assert current.json()["version"] == upload["version"]
+        assert client.get(path + "/candidate?env=sandbox").json() == receipt
 
 
 def test_destination_replay_preserves_unknown_candidate_metadata(candidate):

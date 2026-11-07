@@ -214,18 +214,23 @@ def _records() -> list[CsvUpload]:
         from phlo_api.api.v1_upload_ingestion import legacy_destination_tables
 
         tables = legacy_destination_tables([CsvUpload.model_validate(item) for item in items])
+        migrated = [
+            {**item, "destination_table": tables.get(item["upload_id"])}
+            if "destination_table" not in item
+            else item
+            for item in items
+        ]
+        for item in migrated:
+            CsvUpload.model_validate(item)
 
         def migrate(current):
-            if current != items or any(
+            # A concurrent reader may already have committed this exact upgrade.
+            # Any other change, including a newer review or fence, still conflicts.
+            if (current != items and current != migrated) or any(
                 set(item) - CsvUpload.model_fields.keys() for item in current
             ):
                 raise ConflictError("Upload evidence changed during lifecycle migration.")
-            return [
-                {**item, "destination_table": tables.get(item["upload_id"])}
-                if "destination_table" not in item
-                else item
-                for item in current
-            ]
+            return migrated
 
         items = mutate_collection(project_root(), _COLLECTION, migrate, require_known_state=True)
     return [CsvUpload.model_validate(item) for item in items]
