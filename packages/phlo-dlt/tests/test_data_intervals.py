@@ -55,7 +55,9 @@ def test_intervals_preserve_cursor_across_replay_and_uncertain_writes(tmp_path, 
     live.apply_hints(incremental=dlt.sources.incremental("updated_at", initial_value=start))
     pipeline.run(live, loader_file_format="parquet")
     cursor_before = deepcopy(pipeline.state["sources"])
-    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", lambda **kw: (pipeline, tmp_path))
+    monkeypatch.setattr(
+        "phlo_dlt.dlt_helpers.setup_dlt_pipeline", lambda **kw: (pipeline, tmp_path)
+    )
     config = TableConfig(
         table_name="orders",
         group_name="raw",

@@ -14,7 +14,7 @@ import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 from rich.console import Console
@@ -27,7 +27,7 @@ from phlo.capabilities.resolver import (
     list_capabilities,
     resolve_capability,
 )
-from phlo.capabilities.specs import SchemaMigrationPlan
+from phlo.capabilities.specs import SchemaMigrationPlan, SchemaMigrationSpec
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.contract import PhloCommand, PhloGroup
 from phlo.cli.output import confirm_action, json_envelope, user_error
@@ -45,8 +45,8 @@ console = Console()
 logger = get_logger(__name__)
 
 
-def _resolve_migrator() -> Any:
-    """Resolve the registered SchemaMigrator from the capability registry."""
+def _resolve_migrator() -> SchemaMigrationSpec:
+    """Select a schema migrator while retaining its registered name and provider."""
     from phlo.application.discovery import discover_capabilities
 
     discover_capabilities()
@@ -68,16 +68,16 @@ def _resolve_migrator() -> Any:
             raise click.ClickException(
                 f"Configured schema migrator '{configured_migrator}' is not registered. Available schema migrators: {available}"
             )
-        return selected.provider
+        return selected
 
     default_table_store = configured_capability_name("table_store")
     if default_table_store:
         selected = migrators_by_name.get(default_table_store)
         if selected is not None:
-            return selected.provider
+            return selected
 
     if len(migrators) == 1:
-        return migrators[0].provider
+        return migrators[0]
 
     available = list_capabilities("schema_migrator")
     table_store_options = list_capabilities("table_store")
@@ -120,9 +120,11 @@ def _discover_schema_for_table(table_name: str) -> Any:
     return None
 
 
-def _resolve_desired_schema(table_name: str, schema_class: str | None) -> tuple[Any, Any, Any]:
-    """Resolve migrator, extracted desired schema, and native schema class."""
-    migrator = _resolve_migrator()
+def _resolve_desired_schema(
+    table_name: str, schema_class: str | None
+) -> tuple[SchemaMigrationSpec, Any, Any]:
+    """Resolve the selected migrator spec, desired schema, and native schema class."""
+    selected = _resolve_migrator()
     extractor = _resolve_extractor()
 
     if extractor is None:
@@ -135,7 +137,7 @@ def _resolve_desired_schema(table_name: str, schema_class: str | None) -> tuple[
         raise click.ClickException(f"No quality schema found for table: {table_name}")
 
     desired = extractor.extract(native_schema)
-    return migrator, desired, native_schema
+    return selected, desired, native_schema
 
 
 def _build_migration_plan(
@@ -155,7 +157,8 @@ def _build_migration_plan(
     except MigrationInstructionError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    migrator, desired, _ = _resolve_desired_schema(table_name, schema_class)
+    selected, desired, _ = _resolve_desired_schema(table_name, schema_class)
+    migrator = cast(Any, selected.provider)
     try:
         plan = migrator.diff_schema(
             table_name=table_name,
@@ -188,12 +191,6 @@ def _ensure_plan_supported(migrator: Any, plan: SchemaMigrationPlan) -> None:
 def _select_default_table_store_name() -> str | None:
     """Return the selected default table-store name, if available."""
     resolution = resolve_capability("table_store")
-    return resolution.name if resolution is not None else None
-
-
-def _select_default_migrator_name() -> str | None:
-    """Return the selected default schema-migrator name, if available."""
-    resolution = resolve_capability("schema_migrator")
     return resolution.name if resolution is not None else None
 
 
@@ -285,8 +282,8 @@ def export_contract_for_table(
     force: bool = False,
 ) -> Path:
     """Export a schema contract for a table and return output path."""
-    migrator, desired, native_schema = _resolve_desired_schema(table_name, schema_class)
-    migration_plan = migrator.diff_schema(table_name=table_name, desired=desired)
+    selected, desired, native_schema = _resolve_desired_schema(table_name, schema_class)
+    migration_plan = selected.provider.diff_schema(table_name=table_name, desired=desired)
     now = datetime.now(UTC).isoformat()
 
     contract = {
@@ -295,7 +292,7 @@ def export_contract_for_table(
         "table_name": table_name,
         "schema_class": getattr(native_schema, "__name__", None),
         "table_store": _select_default_table_store_name(),
-        "schema_migrator": _select_default_migrator_name(),
+        "schema_migrator": selected.name,
         "normalized_schema": asdict(desired),
         "migration_plan": asdict(migration_plan),
         "contract_metadata": _collect_contract_metadata(table_name),
@@ -612,7 +609,7 @@ def history(table_name: str, limit: int, fmt: str) -> None:
         phlo schema-migrate history warehouse.customers --limit 5
         phlo schema-migrate history warehouse.customers --format json
     """
-    migrator = _resolve_migrator()
+    migrator = _resolve_migrator().provider
 
     try:
         entries = migrator.get_schema_history(table_name=table_name, limit=limit)
@@ -710,7 +707,7 @@ def scaffold_yaml(
         destination = artifacts.scaffold_contract(
             table_name=table_name,
             contract_path=contract_path,
-            resolve_migrator=_resolve_migrator,
+            resolve_migrator=lambda: _resolve_migrator().provider,
             output_path=output_path,
             force=force,
         )
@@ -767,7 +764,7 @@ def scaffold_yaml_recent(since_hours: int, limit: int | None, force: bool) -> No
         try:
             destination = artifacts.scaffold_contract(
                 contract_path=contract_path,
-                resolve_migrator=_resolve_migrator,
+                resolve_migrator=lambda: _resolve_migrator().provider,
                 force=force,
             )
             generated_count += 1

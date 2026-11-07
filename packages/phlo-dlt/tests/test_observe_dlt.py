@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import phlo.telemetry as phlo_observe
+from phlo_dlt.dlt_helpers import DltStagingError
 
 
 class _RecordingScope:
@@ -69,8 +70,8 @@ def test_stage_to_parquet_rebinds_invocation_id_to_load_id(
     sink = _patch_observe(monkeypatch)
     from phlo_dlt.dlt_helpers import stage_to_parquet
 
-    paths, _elapsed = stage_to_parquet(MagicMock(), _pipeline(_load_info()), MagicMock(), tmp_path)
-    assert len(paths) == 1
+    staged = stage_to_parquet(MagicMock(), _pipeline(_load_info()), MagicMock(), tmp_path)
+    assert len(staged.parquet_paths) == 1
 
     correlations = [v for kind, v in sink if kind == "set_correlation"]
     # First binding is provisional (<pipeline>-<ulid>), then the real load id.
@@ -91,11 +92,12 @@ def test_stage_to_parquet_failure_records_exception_in_scope(
         stage_to_parquet(MagicMock(), _pipeline(None), MagicMock(), tmp_path)
     # The stage scope exited with the RuntimeError, so the event records failure.
     exits = [v for kind, v in sink if kind == "exit"]
-    assert exits[-1] is RuntimeError
+    assert exits[-1] is DltStagingError
 
 
+@pytest.mark.parametrize("allow_empty", [False, True])
 def test_stage_to_parquet_failed_jobs_records_exception(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, allow_empty: bool
 ) -> None:
     sink = _patch_observe(monkeypatch)
     info = _load_info()
@@ -103,13 +105,53 @@ def test_stage_to_parquet_failed_jobs_records_exception(
     pipeline = _pipeline(info)
     from phlo_dlt.dlt_helpers import stage_to_parquet
 
-    with pytest.raises(RuntimeError, match="failed loader jobs"):
-        stage_to_parquet(MagicMock(), pipeline, MagicMock(), tmp_path)
+    with pytest.raises(DltStagingError, match="failed loader jobs") as failure:
+        stage_to_parquet(MagicMock(), pipeline, MagicMock(), tmp_path, allow_empty=allow_empty)
+    assert failure.value.load_info is info
     # The failed-jobs check sits inside the stage scope and keeps the load id.
     correlations = [v for kind, v in sink if kind == "set_correlation"]
     assert correlations[-1] == {"invocation_id": "load-1"}
     exits = [v for kind, v in sink if kind == "exit"]
-    assert exits[-1] is RuntimeError
+    assert exits[-1] is DltStagingError
     # The diagnostic stash must be set even on failure — a failed load's
     # info is exactly what post-hoc inspection needs.
     assert getattr(pipeline, "_phlo_last_load_info") is info
+
+
+def test_stage_to_parquet_missing_output_records_exception(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sink = _patch_observe(monkeypatch)
+    info = _load_info()
+    info.load_packages[0].jobs["completed_jobs"][0].file_path = "out/records.jsonl"
+    from phlo_dlt.dlt_helpers import stage_to_parquet
+
+    with pytest.raises(DltStagingError, match="without producing parquet files") as failure:
+        stage_to_parquet(MagicMock(), _pipeline(info), MagicMock(), tmp_path)
+
+    assert failure.value.load_info is info
+    exits = [value for kind, value in sink if kind == "exit"]
+    assert exits == [DltStagingError, DltStagingError]
+
+
+@pytest.mark.parametrize("load_packages", [False, True])
+def test_stage_to_parquet_allows_empty_only_when_requested(monkeypatch, tmp_path, load_packages):
+    sink = _patch_observe(monkeypatch)
+    info = _load_info()
+    info.load_packages[0].jobs["completed_jobs"] = []
+    if not load_packages:
+        info.load_packages = []
+    from phlo_dlt.dlt_helpers import stage_to_parquet
+
+    staged = stage_to_parquet(MagicMock(), _pipeline(info), object(), tmp_path, allow_empty=True)
+    assert staged.parquet_paths == []
+    assert staged.load_info is info
+    assert [value for kind, value in sink if kind == "exit"] == [None, None]
+
+    with pytest.raises(DltStagingError) as failure:
+        stage_to_parquet(MagicMock(), _pipeline(info), object(), tmp_path)
+    assert failure.value.load_info is info
+    assert [value for kind, value in sink if kind == "exit"][-2:] == [
+        DltStagingError,
+        DltStagingError,
+    ]

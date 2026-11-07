@@ -84,11 +84,14 @@ def test_dbt_asset_runner_emits_dagster_check_events(
         json.dumps(
             {
                 "results": [
-                    {"unique_id": unique_id, "status": test_status, "failures": 3}
-                    for unique_id in (
-                        "test.phlo.not_null_product_dimension_sku",
-                        "test.phlo.relationships_sales_facts_product_id",
-                    )
+                    {"unique_id": "model.phlo.product_dimension", "status": "success"},
+                    *(
+                        {"unique_id": unique_id, "status": test_status, "failures": 3}
+                        for unique_id in (
+                            "test.phlo.not_null_product_dimension_sku",
+                            "test.phlo.relationships_sales_facts_product_id",
+                        )
+                    ),
                 ]
             }
         ),
@@ -139,8 +142,8 @@ def test_dbt_asset_runner_emits_dagster_check_events(
             )
             return TransformationResult(
                 status=transform_status,
-                models_built=1 if transform_status == "success" else 0,
-                models_failed=0 if transform_status == "success" else 1,
+                models_built=1,
+                models_failed=0,
                 tests_passed=1 if test_status == "pass" else 0,
                 tests_failed=1 if test_status == "fail" else 0,
             )
