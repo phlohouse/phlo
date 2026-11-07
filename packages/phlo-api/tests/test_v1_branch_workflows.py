@@ -359,7 +359,6 @@ def test_nessie_outage_is_not_reported_as_an_empty_ref_list(
 def _enable_branch_mutations(monkeypatch: pytest.MonkeyPatch) -> None:
     actor = AuthPrincipal(subject="branch-reviewer", principal_type="user", groups=("operator",))
     monkeypatch.setattr(v1_branch_workflows, "get_request_principal", lambda request: actor)
-    monkeypatch.setattr(v1_branch_workflows, "idempotency_key_target", lambda *args: None)
     monkeypatch.setattr(
         v1_branch_workflows, "_audit_callback", lambda *args, **kwargs: lambda result: None
     )

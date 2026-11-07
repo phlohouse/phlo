@@ -797,15 +797,26 @@ def test_local_rate_limit_capacity_preserves_live_limits_and_expires(monkeypatch
         controls._RATE_LIMITS.clear()
 
 
-def test_local_unknown_excludes_other_keys_and_payloads(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("use_async", [False, True])
+def test_local_unknown_excludes_other_keys_and_payloads(monkeypatch, tmp_path, use_async) -> None:
     """Uncertainty fences a resource, not just one actor's request digest."""
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    def replay(**kwargs):
+        if use_async:
+            execute = kwargs["execute"]
+
+            async def execute_async():
+                return execute()
+
+            return asyncio.run(replay_or_execute_async(**{**kwargs, "execute": execute_async}))
+        return replay_or_execute(**kwargs)
 
     def lost_response():
         raise TimeoutError("Provider response lost")
 
     with pytest.raises(TimeoutError):
-        replay_or_execute(
+        replay(
             idempotency_key="first",
             operation="merge",
             target="actor-a:payload-a",
@@ -813,7 +824,7 @@ def test_local_unknown_excludes_other_keys_and_payloads(monkeypatch, tmp_path) -
             execute=lost_response,
         )
     with pytest.raises(IdempotencyConflict) as conflict:
-        replay_or_execute(
+        replay(
             idempotency_key="second",
             operation="merge",
             target="actor-b:payload-b",
@@ -822,14 +833,14 @@ def test_local_unknown_excludes_other_keys_and_payloads(monkeypatch, tmp_path) -
         )
     assert conflict.value.detail == {"error": "operation_unknown"}
     with pytest.raises(IdempotencyConflict) as binding:
-        replay_or_execute(
+        replay(
             idempotency_key="first",
             operation="merge",
             target="actor-a:changed-payload",
             exclusion_target="staging:main",
             execute=lambda: pytest.fail("Rebound key"),
         )
-    assert binding.value.detail == {"error": "target_mismatch"}
+    assert binding.value.detail == {"error": "idempotency_key_conflict"}
 
 
 def test_multiworker_local_startup_warns(monkeypatch, caplog) -> None:
