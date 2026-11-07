@@ -14,6 +14,7 @@ from phlo.operations.journal import (
     OperationJournalState,
     claim_operation,
     complete_operation,
+    execute_maintenance,
     mark_submitted,
     mark_unknown,
     read_or_replay,
@@ -69,14 +70,30 @@ def test_claim_succeeds_and_state_is_claimed(store) -> None:
     "first_action, second_action, second_id",
     [
         ("compact", "compact", "op:1"),
+        ("compact", "compact", "fresh-plan"),
+        ("backup.create", "backup.create", "fresh-plan"),
+        ("restore.apply", "restore.apply", "fresh-plan"),
         ("expire_snapshots", "snapshot_expiry", "fresh-plan"),
         ("snapshot_expiry", "expire_snapshots", "fresh-plan"),
     ],
 )
-def test_conflicting_claim_is_rejected(store, first_action, second_action, second_id) -> None:
+@pytest.mark.parametrize("state", ["claimed", "submitted", "unknown"])
+def test_conflicting_claim_is_rejected(
+    store, first_action, second_action, second_id, state
+) -> None:
     _claim(store, action=first_action)
+    store.transition("op:1", OperationJournalState(state))
     with pytest.raises(OperationJournalError, match="conflicting_claim"):
         _claim(store, subject="other-operator", action=second_action, operation_id=second_id)
+
+
+@pytest.mark.parametrize("state", ["succeeded", "failed"])
+def test_finished_operation_keeps_its_identity_but_releases_target(store, state) -> None:
+    _claim(store)
+    store.transition("op:1", OperationJournalState(state))
+    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+        _claim(store)
+    _claim(store, operation_id="fresh-plan", token="fresh")
 
 
 def test_mark_submitted_moves_to_submitted(store) -> None:
@@ -121,6 +138,38 @@ def test_reconcile_unknown_resolves_to_succeeded(store) -> None:
     mark_unknown(store, "op:1")
     reconcile_unknown(store, "op:1", {"accepted": True})
     assert store.read("op:1").state is OperationJournalState.SUCCEEDED
+
+
+@pytest.mark.parametrize("status,state", [("succeeded", "succeeded"), ("completed", "unknown")])
+def test_maintenance_preserves_custom_serialized_evidence(tmp_path, status, state):
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    evidence = {"accepted": True, "status": status, "evidence": {"query_id": "query-7"}}
+
+    class ProviderResult:
+        def to_dict(self):
+            return evidence
+
+    directory = tmp_path / "journal"
+    result = execute_maintenance(
+        FileOperationJournalStore(directory),
+        operation="compact",
+        table="raw.events",
+        ref="feature",
+        plan_token="0",
+        subject="operator",
+        execute=lambda operation_id: ProviderResult(),
+    )
+    reopened = FileOperationJournalStore(directory)
+    assert reopened.read(result.operation_id).state == state
+    assert reopened.read(result.operation_id).result == evidence
+    if state == "succeeded":
+        assert read_or_replay(reopened, result.operation_id) == evidence
+    else:
+        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
+            read_or_replay(reopened, result.operation_id)
+        with pytest.raises(OperationJournalError, match="conflicting_claim"):
+            _claim(reopened, operation_id="fresh", target="raw.events", token="new")
 
 
 @pytest.mark.parametrize("operation", ["compact", "snapshot_expiry", "expire_snapshots"])
