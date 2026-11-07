@@ -487,17 +487,18 @@ def _expand_requested_services(
     compose_file: Path,
 ) -> list[ServiceDefinition]:
     """Resolve explicit or rendered default targets before partitioning execution modes."""
-    all_services = dict(discovery.discover())
+    discovered_services = dict(discovery.discover())
     inline_services = inline_service_definitions(_load_project_config(Path.cwd()))
-    all_services.update({service.name: service for service in inline_services})
+    discovered_services.update({service.name: service for service in inline_services})
     compose_services = _load_compose_services(compose_file)
+    all_services: dict[str, ServiceDefinition] = {}
     for name, config in compose_services.items():
         if not isinstance(config, dict):
             continue
         # Rendered dependencies include project overrides, which replace rather
-        # than extend installed edges. Keep native/env metadata without mutating
-        # the discovered definition shared by other commands.
-        definition = all_services.get(name) or ServiceDefinition(name=name, description=name)
+        # than extend installed edges. Discovery supplies metadata, not extra
+        # project members or setup companions.
+        definition = discovered_services.get(name) or ServiceDefinition(name=name, description=name)
         all_services[name] = replace(definition, depends_on=list(config.get("depends_on") or []))
     if not service_names:
         service_names = _default_compose_service_names(compose_file)
@@ -508,7 +509,11 @@ def _expand_requested_services(
         }
     unknown_services = [name for name in service_names if name not in all_services]
     if unknown_services:
-        raise click.ClickException(f"Unknown service name(s): {', '.join(unknown_services)}")
+        raise click.ClickException(
+            f"Unknown service name(s): {', '.join(unknown_services)}. "
+            "Not present in generated Compose; check your service selection and run "
+            "`phlo services init --force` to regenerate it."
+        )
 
     return ServiceManifestResolver.expand_dependencies(
         [all_services[name] for name in service_names],
