@@ -12,6 +12,33 @@ import pytest
 from phlo.wap_evidence import WapEvidence
 
 
+@pytest.mark.parametrize("excess", [-1, 0, 1])
+def test_report_encoding_and_reader_share_the_exact_byte_boundary(tmp_path, excess):
+    limit = 2 * 1024 * 1024
+    overhead = len(b'{\n  "padding": ""\n}')
+    payload = {"padding": "x" * (limit - overhead + excess)}
+    store = WapEvidence(tmp_path)
+    if excess > 0:
+        with pytest.raises(ValueError, match="exceeds the read limit"):
+            store.encode_report(payload)
+        assert not list(tmp_path.iterdir())
+    else:
+        raw = store.encode_report(payload)
+        assert len(raw) == limit + excess
+        store.directory.mkdir(parents=True)
+        store.report_path("boundary").write_bytes(raw)
+        assert store.read_report("boundary") == payload
+
+
+def test_report_bound_counts_serialized_non_ascii_bytes():
+    payload = {"padding": "é" * 400000}
+    # JSON escaping makes this small character count exceed the byte contract.
+    raw = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+    assert len(payload["padding"]) < 2 * 1024 * 1024 < len(raw)
+    with pytest.raises(ValueError, match="exceeds the read limit"):
+        WapEvidence.encode_report(payload)
+
+
 @pytest.fixture
 def records(tmp_path):
     store = WapEvidence(tmp_path)

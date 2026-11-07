@@ -22,6 +22,7 @@ from phlo.config_schema import WapConfig
 from phlo.wap_evidence import WapEvidence
 from phlo_dagster.wap_context import WapContext
 from phlo_dagster.wap_launch import (
+    WapLaunch,
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
     WAP_PROJECT_ID_TAG,
@@ -450,6 +451,55 @@ def test_snapshot_intent_retries_when_release_revision_is_unchanged(monkeypatch,
     assert result is not None
     assert catalog.revision == 1
     assert catalog.aborted == [namespace]
+
+
+def test_oversized_snapshot_outbox_preserves_registration_without_publishing(monkeypatch, tmp_path):
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    catalog = _PromotionCatalog()
+    logical_id = "large-outbox"
+    namespace = f"pipeline-run-{logical_id}"
+    catalog.candidates = [
+        CandidateSnapshot(
+            table_name=f"bronze.table_{index:05d}_{'x' * 100}",
+            snapshot_id=index,
+            run_id=logical_id,
+            namespace=namespace,
+        )
+        for index in range(16000)
+    ]
+    launch = WapLaunch(
+        logical_run_id=logical_id,
+        branch=namespace,
+        catalog=catalog,
+        created_branch=False,
+        source_hash="0",
+        target_hash_before="0",
+        project_id="warehouse",
+        attempt=1,
+        strategy="snapshot",
+        context=TEST_CONTEXT,
+    ).seal()
+    assert launch.record_launch_result(status="launched", dagster_run_id="large-run")
+    evidence = WapEvidence(tmp_path)
+    path = evidence.report_path(logical_id)
+    before = path.read_bytes()
+
+    result = _advance_snapshot_promotion(
+        catalog=catalog,
+        run=SimpleNamespace(run_id="large-run"),
+        branch_name=namespace,
+        logical_run_id=logical_id,
+        prior_report=evidence.read_report(logical_id),
+        quality_decision_id="quality",
+        quality_metadata={},
+    )
+
+    assert result is None
+    assert catalog.promoted == []
+    assert catalog.aborted == []
+    assert catalog.revision == 0
+    assert path.read_bytes() == before
+    assert evidence.verify(logical_id, "large-run", launch.tags) is not None
 
 
 # ---------------------------------------------------------------------------

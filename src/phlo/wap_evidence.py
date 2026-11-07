@@ -147,6 +147,14 @@ class WapEvidence:
         return self.directory / kind / f"{run_key}.{checksum}.json"
 
     @staticmethod
+    def encode_report(payload: dict[str, Any]) -> bytes:
+        """Serialize a lifecycle update only if the reader can consume its bytes."""
+        raw = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+        if len(raw) > _LIMIT:
+            raise ValueError("WAP evidence exceeds the read limit")
+        return raw
+
+    @staticmethod
     def _read(path: Path) -> bytes:
         with path.open("rb") as handle:
             raw = handle.read(_LIMIT + 1)
@@ -166,12 +174,20 @@ class WapEvidence:
         snapshot = self.read_report_snapshot(logical_id)
         return snapshot[1] if snapshot is not None else None
 
-    def read_report_snapshot(self, logical_id: str) -> tuple[bytes, dict[str, Any]] | None:
-        """Read lifecycle state with the exact bytes used for digest attribution."""
+    def read_report_snapshot(
+        self, logical_id: str, *, strict: bool = False
+    ) -> tuple[bytes, dict[str, Any]] | None:
+        """Read exact lifecycle bytes; strict reads distinguish absence from corruption.
+
+        Writers must use strict reads rather than treating failed reads as empty
+        reports. This method never creates or repairs evidence.
+        """
         try:
             raw = self._read(self.report_path(logical_id))
             report = self._decode(raw)
         except (OSError, ValueError, RecursionError):
+            if strict:
+                raise
             return None
         if report.get("failure_reason") is None:
             report.pop("failure_reason", None)
