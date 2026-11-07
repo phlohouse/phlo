@@ -175,7 +175,7 @@ def create_backup_set(
             destination = set_dir / provider
             try:
                 result = contributor.contribute(destination=destination, operation_id=operation_id)
-                _validate_contributor_result(provider, result, operation_id)
+                _validate_contributor_result(provider, result)
             except Exception as exc:
                 contributor_results.append(fail_contributor(provider, str(exc), operation_id))
                 raise
@@ -184,7 +184,7 @@ def create_backup_set(
                 artifacts.append(_hash_artifact(set_dir, artifact))
     except Exception as exc:
         failure = _sanitize_failure(exc)
-        contributor_results = _ensure_failed_record(contributor_results, failure, operation_id)
+        contributor_results = _ensure_failed_record(contributor_results, operation_id)
         return _failed_result(
             journal=journal,
             operation_id=operation_id,
@@ -359,9 +359,7 @@ def _validate_target(target: Path) -> None:
         )
 
 
-def _validate_contributor_result(
-    provider: str, result: BackupContributorResult, operation_id: str
-) -> None:
+def _validate_contributor_result(provider: str, result: BackupContributorResult) -> None:
     """Reject a contributor that failed, lied about identity, or left its prefix."""
     if result.state is BackupContributorState.FAILED:
         raise BackupSetError(
@@ -446,7 +444,6 @@ def _record_result(
 
 def _ensure_failed_record(
     contributor_results: Sequence[BackupContributorResult],
-    failure: dict[str, Any],
     operation_id: str,
 ) -> list[BackupContributorResult]:
     """Return records with every declared provider represented.
