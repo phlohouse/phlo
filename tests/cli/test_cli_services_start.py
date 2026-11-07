@@ -69,7 +69,7 @@ def _invoke_services_start_with_statuses(
 
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
-    (phlo_dir / ".env").write_text("")
+    (phlo_dir / ".env").write_text("MINIO_ROOT_PASSWORD=readiness-test-secret\n")
     (phlo_dir / "docker-compose.yml").write_text(compose)
     backend = backend or _ReadinessBackend(snapshots)
     monkeypatch.chdir(tmp_path)
@@ -615,7 +615,7 @@ def test_services_start_uses_podman_backend(monkeypatch: pytest.MonkeyPatch, tmp
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     (phlo_dir / "docker-compose.yml").write_text("services:\n  postgres: {}\n")
-    (phlo_dir / ".env").write_text("")
+    (phlo_dir / ".env").write_text("POSTGRES_PASSWORD=backend-test-secret\n")
     (tmp_path / "phlo.yaml").write_text("name: demo\n")
     monkeypatch.chdir(tmp_path)
 
@@ -1118,8 +1118,10 @@ def test_services_start_preflights_required_env_for_selected_services(
     assert "OAUTH2_PROXY_PROVIDER" not in result.output
 
 
+@pytest.mark.parametrize("target", ["typo", "unrendered"])
+@pytest.mark.parametrize("native", [False, True], ids=["docker", "native"])
 def test_services_start_rejects_unknown_explicit_targets(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path, target: str, native: bool
 ) -> None:
     from phlo.cli.commands.services import start as start_module
 
@@ -1129,7 +1131,15 @@ def test_services_start_rejects_unknown_explicit_targets(
 
     class RustfsFakeDiscovery(FakeDiscovery):
         def discover(self) -> dict[str, ServiceDefinition]:
-            return {"rustfs": _service("rustfs")}
+            return {
+                "rustfs": _service("rustfs"),
+                "unrendered": ServiceDefinition(
+                    name="unrendered",
+                    description="installed but absent from this project",
+                    env_vars={"UNRENDERED_TOKEN": {}},
+                    dev={"command": ["unused"]},
+                ),
+            }
 
         def get_available_profiles(self) -> set[str]:
             return set()
@@ -1137,11 +1147,51 @@ def test_services_start_rejects_unknown_explicit_targets(
     monkeypatch.setattr(start_module, "ensure_phlo_dir", lambda: phlo_dir)
     monkeypatch.setattr(start_module, "ServiceDiscovery", RustfsFakeDiscovery)
     monkeypatch.setattr(start_module, "get_project_name", lambda: "demo-project")
+    monkeypatch.setattr(
+        start_module,
+        "require_container_backend",
+        lambda *_a, **_kw: pytest.fail("absent targets must fail before backend contact"),
+    )
 
-    result = CliRunner().invoke(start_module.start_cmd, ["--service", "rustfs,typo"])
+    result = CliRunner().invoke(
+        start_module.start_cmd,
+        ["--service", f"rustfs,{target}"] + (["--native"] if native else []),
+    )
 
     assert result.exit_code != 0
-    assert "Unknown service name(s): typo" in result.output
+    assert f"Unknown service name(s): {target}" in result.output
+    assert "phlo services init --force" in result.output
+
+
+@pytest.mark.parametrize("explicit", [False, True], ids=["default", "explicit"])
+def test_services_start_ignores_unrendered_discovered_companions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, explicit: bool
+) -> None:
+    from phlo.cli.commands.services import start as start_module
+
+    postgres = _service("postgres")
+    unrendered_setup = ServiceDefinition(
+        name="unrendered-db-setup",
+        description="installed companion belonging to another project selection",
+        depends_on=["postgres"],
+        env_vars={"UNRENDERED_TOKEN": {}},
+    )
+    monkeypatch.setattr(
+        start_module,
+        "ServiceDiscovery",
+        lambda: FakeDiscovery({service.name: service for service in [postgres, unrendered_setup]}),
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  postgres: {}\n",
+        snapshots=[[ServiceStatus(service="postgres", state="running", health=None)]],
+        args=["--service", "postgres"] if explicit else [],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Services running: postgres" in result.output
+    assert "unrendered-db-setup" not in result.output
 
 
 def test_services_start_requires_full_dependency_match_for_setup_companions(
@@ -1224,6 +1274,249 @@ def test_load_native_env_overrides_merges_env_files(tmp_path) -> None:
     assert result["SECRET_TOKEN"] == "abc123"
 
 
+@pytest.mark.parametrize("explicit", [False, True], ids=["default", "explicit"])
+@pytest.mark.parametrize("add_dependency", [False, True], ids=["remove", "add"])
+def test_native_start_uses_rendered_dependency_overrides(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, explicit: bool, add_dependency: bool
+) -> None:
+    """Rendered dependencies replace installed edges without losing native metadata."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.plugins.compose.generator import ComposeGenerator
+    from phlo.plugins.compose.native import NativeProcessManager
+
+    services = {
+        "client": ServiceDefinition(
+            name="client",
+            description="client",
+            image="example:latest",
+            depends_on=["native"] if add_dependency else ["native", "removed"],
+        ),
+        "native": ServiceDefinition(
+            name="native",
+            description="native",
+            image="example:latest",
+            profile="optional",
+            env_vars={"NATIVE_TOKEN": {}},
+            dev={"command": [sys.executable, "-c", "import time; time.sleep(60)"]},
+        ),
+        "extra": ServiceDefinition(
+            name="extra", description="extra", image="example:latest", profile="optional"
+        ),
+        "removed": ServiceDefinition(
+            name="removed",
+            description="removed",
+            image="example:latest",
+            profile="optional",
+            env_vars={"REMOVED_TOKEN": {}},
+        ),
+    }
+    discovery = FakeDiscovery(services)
+    dependencies = ["native", "extra"] if add_dependency else ["native"]
+    overrides = {"client": {"depends_on": dependencies}}
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text("NATIVE_TOKEN=local-native-token\n")
+    (tmp_path / "phlo.yaml").write_text(
+        "services:\n  client:\n    depends_on: " + str(dependencies)
+    )
+    (phlo_dir / "docker-compose.yml").write_text(
+        ComposeGenerator(discovery).generate_compose(
+            list(services.values()), phlo_dir, user_overrides=overrides
+        )
+    )
+    running: set[str] = set()
+    processes = []
+    original_start = NativeProcessManager.start_service
+
+    async def record_start(self, service, **kwargs):
+        process = await original_start(self, service, **kwargs)
+        assert process is not None and process.is_running
+        processes.append(process)
+        return process
+
+    def run_compose(cmd, **_kwargs):
+        if "up" in cmd:
+            # Model --no-deps: only explicit targets become running containers.
+            assert "--no-deps" in cmd
+            running.update(cmd[cmd.index("--no-deps") + 1 :])
+        return CompletedProcess(args=cmd, returncode=0)
+
+    class Backend(_ReadinessBackend):
+        def project_service_statuses(self, _project_name, *, deadline):
+            return [ServiceStatus(service=name, state="running", health=None) for name in running]
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ServiceDiscovery", lambda: discovery)
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
+    monkeypatch.setattr(start_module, "require_container_backend", lambda *_args: None)
+    monkeypatch.setattr(start_module, "run_command", run_compose)
+    monkeypatch.setattr(start_module, "select_project_container_backend", lambda **_kw: Backend([]))
+    monkeypatch.setattr(NativeProcessManager, "start_service", record_start)
+    monkeypatch.setattr(start_module, "_emit_service_lifecycle_events", lambda *_a, **_k: None)
+    monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_a, **_k: None)
+    try:
+        args = ["--native", "--detach"] + (["--service", "client"] if explicit else [])
+        result = CliRunner().invoke(start_module.start_cmd, args)
+        assert result.exit_code == 0, result.output
+        assert running == ({"client", "extra"} if add_dependency else {"client"})
+        state = json.loads((phlo_dir / "native-processes.json").read_text())
+        assert set(state) == {"native"}
+        assert "Services running: " + ", ".join(sorted(running)) in result.output
+    finally:
+        for process in processes:
+            process.process.terminate()
+            process.process.wait(timeout=5)
+            process.close_log_file()
+
+
+@pytest.mark.parametrize("explicit", [False, True], ids=["default", "through-container"])
+def test_native_start_launches_the_complete_ordered_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, explicit: bool
+) -> None:
+    """Native launches retain dependency order and omit unselected optional services."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.plugins.compose.native import NativeProcessManager
+
+    services = {
+        name: ServiceDefinition(
+            name=name,
+            description=name,
+            depends_on=dependencies,
+            dev={"command": [sys.executable, "-c", "import time; time.sleep(60)"]}
+            if name != "bridge"
+            else {},
+        )
+        for name, dependencies in [
+            ("a-client", ["bridge"] if explicit else ["z-server", "missing-external"]),
+            ("bridge", ["z-server"]),
+            ("z-server", []),
+            ("unused", []),
+        ]
+    }
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / ".env").write_text("")
+    (phlo_dir / "docker-compose.yml").write_text(
+        "services:\n"
+        "  a-client:\n"
+        f"    depends_on: {['bridge'] if explicit else ['z-server', 'missing-external']}\n"
+        "  z-server: {}\n"
+        "  bridge:\n"
+        "    profiles: [optional]\n"
+        "    depends_on: [z-server]\n"
+        "  unused:\n"
+        "    profiles: [optional]\n"
+    )
+    launches = []
+    processes = []
+    compose_calls = []
+    original_start = NativeProcessManager.start_service
+
+    async def record_start(self, service, **kwargs):
+        process = await original_start(self, service, **kwargs)
+        assert process is not None and process.is_running
+        processes.append(process)
+        launches.append(service.name)
+        return process
+
+    def run_compose(cmd, **_kwargs):
+        compose_calls.append(cmd)
+        return CompletedProcess(args=cmd, returncode=0)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(start_module, "ServiceDiscovery", lambda: FakeDiscovery(services))
+    monkeypatch.setattr(start_module, "get_project_name", lambda: "demo")
+    monkeypatch.setattr(start_module, "compose_base_cmd", lambda **_kwargs: ["docker", "compose"])
+    monkeypatch.setattr(start_module, "require_container_backend", lambda *_args: None)
+    monkeypatch.setattr(start_module, "run_command", run_compose)
+    monkeypatch.setattr(
+        start_module,
+        "select_project_container_backend",
+        lambda **_kwargs: _ReadinessBackend(
+            [[ServiceStatus(service="bridge", state="running", health=None)]]
+        ),
+    )
+    monkeypatch.setattr(NativeProcessManager, "start_service", record_start)
+    monkeypatch.setattr(start_module, "_emit_service_lifecycle_events", lambda *_a, **_k: None)
+    monkeypatch.setattr(start_module, "_run_service_hooks", lambda *_a, **_k: None)
+    try:
+        args = ["--native", "--detach"] + (["--service", "a-client"] if explicit else [])
+        result = CliRunner().invoke(start_module.start_cmd, args)
+        assert result.exit_code == 0, result.output
+        assert launches == ["z-server", "a-client"]
+        state = json.loads((phlo_dir / "native-processes.json").read_text())
+        assert set(state) == {"z-server", "a-client"}
+        up_calls = [cmd for cmd in compose_calls if "up" in cmd]
+        if explicit:
+            assert up_calls == [["docker", "compose", "up", "-d", "--no-deps", "bridge"]]
+        else:
+            assert up_calls == []
+    finally:
+        for process in processes:
+            process.process.terminate()
+            process.process.wait(timeout=5)
+            process.close_log_file()
+
+
+def test_services_start_rejects_a_rendered_dependency_cycle(monkeypatch, tmp_path) -> None:
+    """A project-rendered cycle is diagnosed before any container starts."""
+    from phlo.cli.commands.services import start as start_module
+
+    monkeypatch.setattr(
+        start_module,
+        "ServiceDiscovery",
+        lambda: FakeDiscovery({name: _service(name) for name in ("client", "database")}),
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=(
+            "services:\n"
+            "  client:\n    depends_on: [database]\n"
+            "  database:\n    depends_on: [client]\n"
+        ),
+        snapshots=[],
+        args=["--native", "--service", "client"],
+    )
+    assert result.exit_code == 1, result.output
+    assert "Circular dependency detected:" in result.output
+    assert "client" in result.output and "database" in result.output
+
+
+def test_native_start_leaves_an_optional_only_stack_stopped(monkeypatch, tmp_path) -> None:
+    """An empty implicit selection must not become an unscoped Compose/native start."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.plugins.compose.native import NativeProcessManager
+
+    optional = ServiceDefinition(
+        name="optional",
+        description="optional",
+        dev={"command": [sys.executable, "-c", "import time; time.sleep(60)"]},
+    )
+    phlo_dir = tmp_path / ".phlo"
+    phlo_dir.mkdir()
+    (phlo_dir / "docker-compose.yml").write_text(
+        "services:\n  optional:\n    profiles: [optional]\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        start_module, "ServiceDiscovery", lambda: FakeDiscovery({"optional": optional})
+    )
+    monkeypatch.setattr(
+        start_module, "run_command", lambda *_a, **_k: pytest.fail("No container should start")
+    )
+    monkeypatch.setattr(
+        NativeProcessManager,
+        "start_service",
+        lambda *_a, **_k: pytest.fail("No native process should start"),
+    )
+    result = CliRunner().invoke(start_module.start_cmd, ["--native", "--detach"])
+    assert result.exit_code == 0, result.output
+    assert "No services selected to start." in result.output
+    assert not (phlo_dir / "native-processes.json").exists()
+
+
 @pytest.mark.parametrize(
     ("failed_name", "failed_process"),
     [
@@ -1245,7 +1538,9 @@ def test_native_start_reports_failures_without_losing_successful_services(
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     (phlo_dir / ".env").write_text("")
-    (phlo_dir / "docker-compose.yml").write_text("services: {}\n")
+    (phlo_dir / "docker-compose.yml").write_text(
+        f"services:\n  healthy: {{}}\n  {failed_name}: {{}}\n"
+    )
 
     successful = ServiceDefinition(
         name="healthy",
@@ -1322,7 +1617,7 @@ def test_native_start_interrupt_persists_and_cleans_started_services(
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     (phlo_dir / ".env").write_text("")
-    (phlo_dir / "docker-compose.yml").write_text("services: {}\n")
+    (phlo_dir / "docker-compose.yml").write_text("services:\n  first: {}\n  second: {}\n")
     prior_entry = {"pid": 909, "started_at": 1.0, "log": "prior.log"}
     (phlo_dir / "native-processes.json").write_text(json.dumps({"prior": prior_entry}))
     first = ServiceDefinition(
@@ -1419,7 +1714,7 @@ def test_native_start_sigterm_reaps_only_current_processes(
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     (phlo_dir / ".env").write_text("")
-    (phlo_dir / "docker-compose.yml").write_text("services: {}\n")
+    (phlo_dir / "docker-compose.yml").write_text("services:\n  first: {}\n  second: {}\n")
     prior = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"],
         start_new_session=True,
@@ -1496,7 +1791,7 @@ def test_native_start_sigterm_fallback_kills_stubborn_current_descendant(
     phlo_dir = tmp_path / ".phlo"
     phlo_dir.mkdir()
     (phlo_dir / ".env").write_text("")
-    (phlo_dir / "docker-compose.yml").write_text("services: {}\n")
+    (phlo_dir / "docker-compose.yml").write_text("services:\n  first: {}\n  second: {}\n")
     prior = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"],
         start_new_session=True,

@@ -121,7 +121,6 @@ class MigrationOptions:
     """Execution options for a migration."""
 
     chunk_size: int = 50_000
-    parallelism: int = 1
     validate: bool = True
     dry_run: bool = False
     quality_schema: str | None = None

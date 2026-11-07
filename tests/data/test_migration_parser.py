@@ -74,13 +74,6 @@ class TestLoadMigrationSpec:
         with pytest.raises(MigrationSpecError, match="chunk_size"):
             load_migration_spec(spec_file)
 
-    def test_parallelism_zero_raises(self, tmp_path: Path) -> None:
-        data = _valid_spec()
-        data["options"] = {"parallelism": 0}
-        spec_file = _write_yaml(tmp_path / "spec.yaml", data)
-        with pytest.raises(MigrationSpecError, match="parallelism"):
-            load_migration_spec(spec_file)
-
     def test_invalid_write_mode_raises(self, tmp_path: Path) -> None:
         data = _valid_spec()
         data["destination"]["write_mode"] = "invalid"
@@ -110,7 +103,6 @@ class TestLoadMigrationSpec:
         assert spec.destination.write_mode == "append"
         assert spec.destination.schema_policy == "strict"
         assert spec.options.chunk_size == 50_000
-        assert spec.options.parallelism == 1
         assert spec.options.validate is True
         assert spec.options.dry_run is False
 

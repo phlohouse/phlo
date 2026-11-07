@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -202,15 +203,14 @@ def inject_metadata_columns(
     parquet_path: Path,
     partition_date: str,
     run_id: str,
-    context: Any = None,
+    log: Any = None,
 ) -> Path:
     """Append Phlo metadata columns to a staged parquet file.
 
     Rewrites the file in place with four lineage columns: _phlo_row_id
     (unique ULID per row), _phlo_ingested_at (UTC timestamp),
     _phlo_partition_date, and _phlo_run_id. Returns the same path after
-    the columns are written. The optional Dagster context is used for
-    structured logging.
+    the columns are written. The optional logger reports progress.
 
     Example:
         ```python
@@ -221,7 +221,7 @@ def inject_metadata_columns(
             parquet_path=Path("/tmp/data.parquet"),
             partition_date="2024-01-01",
             run_id="run-123",
-            context=dagster_context,
+            log=logger,
         )
         ```
 
@@ -237,8 +237,8 @@ def inject_metadata_columns(
         row_count=num_rows,
     )
 
-    if context:
-        context.log.info(f"Injecting metadata columns into {num_rows} rows")
+    if log is not None:
+        log.info(f"Injecting metadata columns into {num_rows} rows")
 
     ingested_at = datetime.now(timezone.utc)
 
@@ -256,8 +256,8 @@ def inject_metadata_columns(
 
     pq.write_table(arrow_table, str(parquet_path))
 
-    if context:
-        context.log.debug(
+    if log is not None:
+        log.debug(
             "Added _phlo_row_id, _phlo_ingested_at, _phlo_partition_date, _phlo_run_id columns"
         )
     logger.info(
@@ -384,20 +384,55 @@ def setup_dlt_pipeline(
     return pipeline, pipelines_dir / pipeline_name
 
 
+@dataclass(frozen=True)
+class DltStagingResult:
+    """Carry staged paths, timing and explicit load evidence from one extraction."""
+
+    parquet_paths: list[Path]
+    elapsed_seconds: float
+    load_info: LoadInfo
+
+
+class DltStagingError(RuntimeError):
+    """Retain returned load evidence when staging rejects a completed load."""
+
+    def __init__(self, message: str, load_info: LoadInfo | None) -> None:
+        super().__init__(message)
+        self.load_info = load_info
+
+
+def extract_to_parquet(
+    dlt_source: Any,
+    *,
+    pipeline_name: str,
+    log: Any,
+    allow_empty: bool = False,
+) -> DltStagingResult:
+    """Extract into an isolated filesystem dataset with explicit load evidence.
+
+    Bind the dataset and relative job root to this pipeline's identity, not
+    its asset group. Custom pipelines use ``stage_to_parquet`` directly.
+    """
+    pipeline, staging_root = setup_dlt_pipeline(
+        pipeline_name=pipeline_name, dataset_name=pipeline_name
+    )
+    return stage_to_parquet(log, pipeline, dlt_source, staging_root, allow_empty=allow_empty)
+
+
 def stage_to_parquet(
-    context,
+    log: Any,
     pipeline: Any,
     dlt_source: Any,
     local_staging_root: Path,
     *,
     allow_empty: bool = False,
-) -> tuple[list[Path], float]:
-    """Run DLT extraction and return the staged parquet paths and elapsed time.
+) -> DltStagingResult:
+    """Stage a preconfigured pipeline and return paths, timing and load evidence.
 
     Executes the pipeline against the DLT source, failing with RuntimeError
     when DLT returns no load info, reports failed loader jobs, or produces
     no parquet files. Relative output paths are resolved against
-    local_staging_root. The Dagster context is used for progress logging.
+    local_staging_root. The logger reports progress.
     Bounded interval callers set ``allow_empty`` because an empty window is
     valid; failed loader jobs still raise in that mode.
 
@@ -407,8 +442,8 @@ def stage_to_parquet(
 
         pipeline, working_dir = setup_dlt_pipeline("users", "raw")
         dlt_source = fetch_users_source()
-        parquet_paths, elapsed = stage_to_parquet(
-            context, pipeline, dlt_source, working_dir
+        staged = stage_to_parquet(
+            logger, pipeline, dlt_source, working_dir
         )
         ```
 
@@ -433,7 +468,7 @@ def stage_to_parquet(
                     "dlt_stage_to_parquet_missing_load_info",
                     pipeline_name=getattr(pipeline, "pipeline_name", ""),
                 )
-                raise RuntimeError("DLT pipeline returned no load info")
+                raise DltStagingError("DLT pipeline returned no load info", load_info)
             # Best-effort diagnostic hook: stash the load info on the pipeline
             # for later inspection, before the outcome checks so failed loads
             # keep their info. Failure is ignored: it must never break staging.
@@ -461,7 +496,7 @@ def stage_to_parquet(
                     "dlt_stage_to_parquet_missing_load_packages",
                     pipeline_name=getattr(pipeline, "pipeline_name", ""),
                 )
-                raise RuntimeError("DLT pipeline completed without load packages")
+                raise DltStagingError("DLT pipeline completed without load packages", load_info)
             for load_package in load_info.load_packages:
                 failed_jobs = load_package.jobs.get("failed_jobs", [])
                 if failed_jobs:
@@ -470,31 +505,33 @@ def stage_to_parquet(
                         pipeline_name=getattr(pipeline, "pipeline_name", ""),
                         failed_job_count=len(failed_jobs),
                     )
-                    raise RuntimeError("DLT pipeline reported failed loader jobs")
+                    raise DltStagingError("DLT pipeline reported failed loader jobs", load_info)
 
-    parquet_paths: list[Path] = []
-    completed_job_count = 0
-    for load_package in load_info.load_packages:
-        completed_jobs = load_package.jobs["completed_jobs"]
-        completed_job_count += len(completed_jobs)
-        for job in completed_jobs:
-            if not job.file_path.endswith(".parquet"):
-                continue
-            parquet_path = Path(job.file_path)
-            if not parquet_path.is_absolute():
-                parquet_path = (local_staging_root / parquet_path).resolve()
-            parquet_paths.append(parquet_path)
-    if not parquet_paths and not allow_empty:
-        logger.error(
-            "dlt_stage_to_parquet_missing_parquet_output",
-            pipeline_name=getattr(pipeline, "pipeline_name", ""),
-            completed_job_count=completed_job_count,
-        )
-        raise RuntimeError("DLT pipeline completed without producing parquet files")
+            parquet_paths: list[Path] = []
+            completed_job_count = 0
+            for load_package in load_info.load_packages:
+                completed_jobs = load_package.jobs["completed_jobs"]
+                completed_job_count += len(completed_jobs)
+                for job in completed_jobs:
+                    if not job.file_path.endswith(".parquet"):
+                        continue
+                    parquet_path = Path(job.file_path)
+                    if not parquet_path.is_absolute():
+                        parquet_path = (local_staging_root / parquet_path).resolve()
+                    parquet_paths.append(parquet_path)
+            if not parquet_paths and not allow_empty:
+                logger.error(
+                    "dlt_stage_to_parquet_missing_parquet_output",
+                    pipeline_name=getattr(pipeline, "pipeline_name", ""),
+                    completed_job_count=completed_job_count,
+                )
+                raise DltStagingError(
+                    "DLT pipeline completed without producing parquet files", load_info
+                )
 
     elapsed = time.time() - start_time
-    context.log.info(f"DLT staging completed in {elapsed:.2f}s")
-    context.log.debug(f"Parquet staged to {len(parquet_paths)} files")
+    log.info(f"DLT staging completed in {elapsed:.2f}s")
+    log.debug(f"Parquet staged to {len(parquet_paths)} files")
     logger.info(
         "dlt_stage_to_parquet_finished",
         pipeline_name=getattr(pipeline, "pipeline_name", ""),
@@ -503,7 +540,7 @@ def stage_to_parquet(
         elapsed_seconds=round(elapsed, 3),
     )
 
-    return parquet_paths, elapsed
+    return DltStagingResult(parquet_paths, elapsed, load_info)
 
 
 def apply_validation_schema_hints(dlt_source: Any, schema_class: type[Any] | None) -> Any:
@@ -627,7 +664,7 @@ def _coerce_parquet_to_table_schema(parquet_file: Path, table_schema: Any, table
 
 
 def merge_to_table_store(
-    context,
+    log: Any,
     table_store: TableStore,
     table_config: TableConfig,
     parquet_paths: list[Path],
@@ -650,7 +687,7 @@ def merge_to_table_store(
         from phlo_dlt.dlt_helpers import merge_to_table_store
 
         metrics = merge_to_table_store(
-            context,
+            logger,
             table_store=iceberg_store,
             table_config=user_table_config,
             parquet_paths=[Path("/tmp/data.parquet")],
@@ -692,7 +729,7 @@ def merge_to_table_store(
         merge_config_keys=sorted(merge_config.keys()),
     )
 
-    context.log.info(f"Ensuring destination table {table_name} exists on branch {branch_name}...")
+    log.info(f"Ensuring destination table {table_name} exists on branch {branch_name}...")
     table_schema = table_config.table_schema
     if table_schema is None:
         validation_schema = table_config.validation_schema
@@ -748,7 +785,7 @@ def merge_to_table_store(
     merge_metrics = {"rows_inserted": 0, "rows_deleted": 0}
 
     if merge_strategy == "append":
-        context.log.info(f"Appending data to destination table on branch {branch_name}...")
+        log.info(f"Appending data to destination table on branch {branch_name}...")
         for parquet_path in coerced_parquet_paths:
             file_metrics = table_store.append_parquet(
                 table_name=table_name,
@@ -758,9 +795,9 @@ def merge_to_table_store(
             )
             merge_metrics["rows_inserted"] += file_metrics.get("rows_inserted", 0)
             merge_metrics["rows_deleted"] += file_metrics.get("rows_deleted", 0)
-        context.log.info(f"Appended {merge_metrics['rows_inserted']} rows to {table_name}")
+        log.info(f"Appended {merge_metrics['rows_inserted']} rows to {table_name}")
     elif merge_strategy == "merge":
-        context.log.info(
+        log.info(
             f"Merging data to destination table on branch {branch_name} (idempotent upsert)..."
         )
         dedup_kwargs: dict[str, Any] = {}
@@ -782,7 +819,7 @@ def merge_to_table_store(
             )
             merge_metrics["rows_inserted"] += file_metrics.get("rows_inserted", 0)
             merge_metrics["rows_deleted"] += file_metrics.get("rows_deleted", 0)
-        context.log.info(
+        log.info(
             f"Merged {merge_metrics['rows_inserted']} rows to {table_name} "
             + f"(deleted {merge_metrics['rows_deleted']} existing duplicates)"
         )

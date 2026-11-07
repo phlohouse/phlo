@@ -41,7 +41,7 @@ from phlo_dbt.grouped import run_dbt_group
 
 from phlo_dbt.asset_checks import (
     dbt_asset_check_index,
-    extract_dbt_asset_checks,
+    dbt_asset_outcomes,
 )
 from phlo_dbt.transformer import DbtTransformer, ensure_compiled
 from phlo_dbt.translator import DbtSpecTranslator
@@ -189,60 +189,26 @@ def _run_dbt_model(
         },
     )
 
-    checks = _read_dbt_asset_checks(
-        asset_key=asset_key,
+    outcomes = dbt_asset_outcomes(
         run_results=transformer.build_run_results,
         manifest=manifest,
+        selected=frozenset({asset_key}),
         translator=translator,
-        partition_key=partition_key,
+        runtime=runtime,
+        target=target,
+        error=result.error,
     )
-    counts: dict[str, int] = {}
-    if result.tests_passed >= 0:
-        counts["passed"] = result.tests_passed
-    if result.tests_failed >= 0:
-        counts["failed"] = result.tests_failed
+    items = outcomes.get(asset_key, [])
+    # Single builds retain invocation diagnostics and total duration. Evidence
+    # ownership and per-node status are shared with grouped execution.
     elapsed = result.metadata.get("total_elapsed_seconds")
-    duration_ms = int(round(float(elapsed) * 1000)) if isinstance(elapsed, (int, float)) else None
-    return [
-        *checks,
-        MaterializeResult(
-            status=result.status,
-            metadata={
-                "model": model_name,
-                "dbt_target": target,
-                "dbt_status": result.status,
-                "dbt_metadata": result.metadata,
-                "transform_status": result.status,
-                "transform_run_id": runtime.run_id,
-                "transform_duration_ms": duration_ms,
-                "transform_counts": counts,
-            },
-        ),
-    ]
-
-
-def _read_dbt_asset_checks(
-    *,
-    asset_key: str,
-    run_results: Mapping[str, Any] | None,
-    manifest: Mapping[str, Any],
-    translator: DbtSpecTranslator,
-    partition_key: str | None,
-) -> list[CheckResult]:
-    """Read dbt test outcomes captured from the current asset build."""
-    if run_results is None:
-        logger.warning("dbt_asset_check_results_unavailable")
-        return []
-    return [
-        check
-        for check in extract_dbt_asset_checks(
-            run_results,
-            manifest,
-            translator=translator,
-            partition_key=partition_key,
-        )
-        if check.asset_key == asset_key
-    ]
+    for item in items:
+        if isinstance(item, MaterializeResult):
+            item.metadata["dbt_metadata"] = {**result.metadata, **item.metadata["dbt_metadata"]}
+            item.metadata["transform_duration_ms"] = (
+                int(round(float(elapsed) * 1000)) if isinstance(elapsed, (int, float)) else None
+            )
+    return items
 
 
 def _load_project_manifest(project_path: Path, profiles_path: Path) -> Mapping[str, Any]:
