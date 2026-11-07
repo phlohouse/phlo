@@ -329,6 +329,54 @@ class TestDiscoverPanderaSchemas:
         assert discovered["Orders"].__module__ not in sys.modules
         assert sys.path == before_path
 
+    @pytest.mark.parametrize("root_already_present", [False, True])
+    @pytest.mark.parametrize("redirect_package", [False, True])
+    def test_discovery_uses_selected_root_and_verified_provenance(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        root_already_present: bool,
+        redirect_package: bool,
+    ):
+        """Select configured code even behind an installed copy, rejecting redirected origins."""
+        installed = tmp_path / "installed"
+        configured = tmp_path / "configured"
+        for parent, column in ((installed, "wrong_installed"), (configured, "selected_id")):
+            package = parent / "review_project"
+            schemas = package / "schemas"
+            schemas.mkdir(parents=True)
+            (package / "__init__.py").write_text("")
+            (schemas / "__init__.py").write_text("")
+            (schemas / "orders.py").write_text(
+                "from phlo_pandera.schemas import PhloSchema\n"
+                f"class Orders(PhloSchema):\n    {column}: int\n"
+            )
+        root = configured / "review_project"
+        if redirect_package:
+            (root / "__init__.py").write_text(
+                f"__path__ = [{str(installed / 'review_project')!r}]\n"
+            )
+        search_path = [str(installed)]
+        if root_already_present:
+            search_path.extend([str(configured), str(configured)])
+        monkeypatch.setattr(sys, "path", search_path + sys.path)
+        monkeypatch.setenv("PHLO_SCHEMA_SEARCH_PATHS", str(root))
+        before_path = list(sys.path)
+
+        direct = discover_pandera_schemas([str(root)])
+        provided = PanderaSchemaDiscoveryProvider().discover_schemas()
+
+        for discovered in (direct, provided):
+            if redirect_package:
+                assert discovered == {}
+            else:
+                assert set(discovered) == {"Orders"}
+                assert set(discovered["Orders"].to_schema().columns) == {"selected_id"}
+                assert discovered["Orders"].__phlo_schema_source_path__ == str(
+                    root / "schemas" / "orders.py"
+                )
+        assert sys.path == before_path
+
     @pytest.mark.parametrize("dependent", ["A", "B"])
     def test_discovery_shares_imported_schema_identity_within_each_session(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dependent: str
