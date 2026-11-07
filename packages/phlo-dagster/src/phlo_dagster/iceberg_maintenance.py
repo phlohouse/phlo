@@ -19,12 +19,9 @@ from phlo.capabilities import (
 from phlo.logging import get_logger
 
 from phlo.operations.journal import (
-    OperationJournalState,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    mark_unknown,
+    execute_maintenance,
+    maintenance_plan_token,
     read_or_replay,
 )
 
@@ -32,7 +29,6 @@ from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
     durable_maintenance_journal,
     finish_maintenance_op,
-    is_outcome_unknown,
     list_tables,
     maintenance_log_extra,
     resolve_namespaces,
@@ -120,14 +116,13 @@ def _run_retention_resource_operation(
         * 24,
         "max_affected_objects": config.max_affected_objects,
         "max_affected_bytes": config.max_affected_bytes,
-        "operation_id": None,
     }
     method = (
         store.expire_snapshots if operation == "expire_snapshots" else store.cleanup_orphan_files
     )
     if operation == "expire_snapshots":
         common["retain_last"] = config.snapshot_retain_last
-    plan = method(**common, dry_run=True)
+    plan = method(**common, operation_id=None, dry_run=True)
     if config.dry_run:
         return plan
     before_revision = cast(int | str | None, plan.get("before_revision"))
@@ -136,44 +131,30 @@ def _run_retention_resource_operation(
     # against a stale plan.
     if operation == "expire_snapshots":
         common["executor"] = _load_snapshot_expiry_executor()
-    execute = lambda: method(  # noqa: E731
-        **common,
-        dry_run=False,
-        expected_snapshot_id=before_revision,
-        confirmation_token=_confirmation_token_for_table(config, table_name),
-    )
+
+    def execute(operation_id: str | None = None) -> dict[str, Any]:
+        return method(
+            **common,
+            operation_id=operation_id,
+            dry_run=False,
+            expected_snapshot_id=before_revision,
+            confirmation_token=_confirmation_token_for_table(config, table_name),
+        )
+
     if journal is None or run_id is None:
         return execute()
 
-    plan_token = str(plan.get("plan_token") or before_revision or "")
-    claim_operation(
+    entry = execute_maintenance(
         journal,
         operation_id=operation_id,
+        operation=operation,
+        table=table_name,
+        ref=config.ref,
+        plan_token=maintenance_plan_token(plan),
         subject="dagster:maintenance-policy",
-        action=operation,
-        target=table_name,
-        plan_token=plan_token,
+        execute=execute,
     )
-    mark_submitted(journal, operation_id)
-    try:
-        result = execute()
-    except Exception:
-        mark_unknown(journal, operation_id)
-        raise
-    if is_outcome_unknown(result):
-        # The provider may have committed; journaling FAILED would let a
-        # later run re-claim and resubmit the same mutation.
-        mark_unknown(journal, operation_id)
-        return result
-    rejected = result.get("accepted") is False or str(result.get("status")) in {
-        "blocked",
-        "failed",
-    }
-    if rejected:
-        journal.transition(operation_id, OperationJournalState.FAILED, dict(result))
-    else:
-        complete_operation(journal, operation_id, dict(result))
-    return result
+    return entry.result or {}
 
 
 @dg.op

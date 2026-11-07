@@ -17,7 +17,12 @@ import psycopg2
 import pytest
 from testcontainers.postgres import PostgresContainer
 
-from phlo.operations.journal import OperationJournalEntry, OperationJournalState
+from phlo.operations.journal import (
+    OperationJournalEntry,
+    OperationJournalError,
+    OperationJournalState,
+    reconcile_unknown,
+)
 from phlo.plugins.observatory_settings import StorageUnavailableError
 from phlo_api.api.operation_controls import resolve_idempotency_claim
 from phlo_postgres.operation_controls import (
@@ -197,6 +202,72 @@ def test_shared_journal_blocks_unknown_until_reconciled(postgres_dsn):
     assert stores[1].read("first").state == OperationJournalState.UNKNOWN
     assert stores[1].transition("first", OperationJournalState.SUCCEEDED, {"accepted": True})
     assert stores[0].claim(replace(entry, operation_id="second"))
+
+
+@pytest.mark.parametrize("persisted_action", ["expire_snapshots", "snapshot_expiry"])
+@pytest.mark.parametrize("state", ["claimed", "submitted", "unknown"])
+def test_legacy_retention_journal_alias_fences_replicas(postgres_dsn, persisted_action, state):
+    namespace = str(uuid4())
+    first = PostgresOperationControls(postgres_dsn, namespace)
+    second = PostgresOperationControls(postgres_dsn, namespace)
+    first.initialize()
+    entry = OperationJournalEntry(
+        "expire_snapshots:raw.events:main:old-run",
+        "scheduler",
+        persisted_action,
+        "raw.events",
+        "old-plan",
+        OperationJournalState(state),
+        result={"accepted": True},
+    )
+    # Seed historical SQL and JSON action columns, not a new claim normalised by core.
+    with psycopg2.connect(postgres_dsn) as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO phlo_api_operation_journal(namespace,operation_id,action,target,state,entry_json) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (
+                namespace,
+                entry.operation_id,
+                persisted_action,
+                entry.target,
+                state,
+                json.dumps(entry.to_dict()),
+            ),
+        )
+    other_action = (
+        "snapshot_expiry" if persisted_action == "expire_snapshots" else "expire_snapshots"
+    )
+    contender = replace(
+        entry,
+        operation_id="fresh-plan",
+        action=other_action,
+        plan_token="new",
+        state=OperationJournalState.CLAIMED,
+        result=None,
+    )
+    assert not second.claim(contender)
+    assert second.read(entry.operation_id) == entry
+    assert second.claim(replace(contender, operation_id="other-table", target="raw.other"))
+    assert second.claim(replace(contender, operation_id="compact", action="compact"))
+    first.transition(entry.operation_id, OperationJournalState.UNKNOWN, entry.result)
+    for evidence in (
+        {"accepted": True},
+        {"accepted": False},
+        {
+            "accepted": True,
+            "status": "failed",
+            "failure": {"outcome": "unknown"},
+            "retry_safe": False,
+        },
+    ):
+        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
+            reconcile_unknown(second, entry.operation_id, evidence)
+        assert first.read(entry.operation_id) == replace(entry, state=OperationJournalState.UNKNOWN)
+        assert not first.claim(contender)
+    reconcile_unknown(second, entry.operation_id, {"accepted": True, "status": "succeeded"})
+    assert first.read(entry.operation_id).action == persisted_action
+    assert first.claim(contender)
+    assert second.read("fresh-plan").action == "snapshot_expiry"
 
 
 def test_reclamation_guard_shares_transaction_exclusion_with_remote_claims(postgres_dsn):

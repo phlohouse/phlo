@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -32,6 +33,7 @@ else:
 from phlo.operations.journal import (
     OperationJournalEntry,
     OperationJournalState,
+    canonical_maintenance_action,
 )
 
 _MSVCRT_LOCK_SIZE = 1
@@ -108,6 +110,7 @@ class FileOperationJournalStore:
         # An atomic rename prevents torn records, but it does not make the
         # read/check/write claim sequence atomic. Serialize that sequence
         # across CLI processes so only one active claim can own a target.
+        entry = replace(entry, action=canonical_maintenance_action(entry.action))
         with self._locked():
             if self._path(entry.operation_id).exists():
                 return False
@@ -118,7 +121,7 @@ class FileOperationJournalStore:
             }
             for record in self._iter_records():
                 if (
-                    record["action"] == entry.action
+                    canonical_maintenance_action(record["action"]) == entry.action
                     and record["target"] == entry.target
                     and OperationJournalState(record["state"]) in active_order
                 ):
