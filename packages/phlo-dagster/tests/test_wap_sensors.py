@@ -264,6 +264,53 @@ def test_write_wap_report_updates_run_json(monkeypatch, tmp_path):
     assert payload["created_at"]
 
 
+@pytest.mark.parametrize(
+    "damage", ["oversized_update", "oversized_existing", "malformed", "unreadable"]
+)
+def test_report_write_failure_preserves_existing_evidence(monkeypatch, tmp_path, caplog, damage):
+    from pathlib import Path
+    from phlo_dagster.wap_launch import WapLaunch
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    launch = WapLaunch(
+        logical_run_id="preserved",
+        branch="pipeline-run-preserved",
+        catalog=None,
+        created_branch=False,
+        source_hash="initial",
+        target_hash_before="target",
+        project_id="warehouse",
+        attempt=1,
+        context=TEST_CONTEXT,
+    ).seal()
+    assert launch.record_launch_result(status="launched", dagster_run_id="physical")
+    evidence = WapEvidence(tmp_path)
+    path = evidence.report_path("preserved")
+    if damage == "oversized_existing":
+        path.write_bytes(b'{"padding":"' + b"x" * (2 * 1024 * 1024) + b'"}')
+    elif damage == "malformed":
+        path.write_bytes(b"{")
+    before = path.read_bytes()
+    snapshots = set(evidence.directory.rglob("*.json"))
+    original_open = Path.open
+
+    def open_report(self, *args, **kwargs):
+        if damage == "unreadable" and self == path and args == ("rb",):
+            raise PermissionError("cannot read existing evidence")
+        return original_open(self, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "open", open_report)
+        updates = {"padding": "é" * 400000} if damage == "oversized_update" else {}
+        assert not write_wap_report("preserved", status="promotion_pending", **updates)
+    assert path.read_bytes() == before
+    assert set(evidence.directory.rglob("*.json")) == snapshots
+    if damage == "oversized_update":
+        assert evidence.verify("preserved", "physical", launch.tags) is not None
+    else:
+        assert "wap_report_recovery_required" in caplog.text
+
+
 def test_promoted_wap_report_replaces_failure_only_outcome_fields(monkeypatch, tmp_path):
     """A successful retry cannot retain a previous terminal failure reason."""
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))

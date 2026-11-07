@@ -170,7 +170,22 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
         path = evidence.report_path(logical_run_id)
     except ValueError:
         return False
-    payload = evidence.read_report(logical_run_id) or {}
+    try:
+        snapshot = evidence.read_report_snapshot(logical_run_id, strict=True)
+    except FileNotFoundError:
+        payload = {}
+    except (OSError, ValueError, RecursionError):
+        logger.error(
+            "wap_report_recovery_required",
+            path=str(path),
+            reason="Existing evidence is unreadable; operator recovery required; report preserved",
+            exc_info=True,
+        )
+        return False
+    else:
+        if snapshot is None:
+            return False
+        payload = snapshot[1]
     if updates.get("status") == "promoted":
         # Terminal success replaces failure-only outcome fields from prior
         # attempts. Identity and evidence binding fields remain append/update
@@ -190,9 +205,8 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
         }
     )
     try:
+        raw = evidence.encode_report(payload)
         path.parent.mkdir(parents=True, exist_ok=True)
-        serialized = json.dumps(payload, indent=2, sort_keys=True)
-        raw = serialized.encode("utf-8")
         # A promotion report is also the local retry record.  Replacing it
         # atomically prevents a crash from turning a valid prior record into
         # a partially-written JSON document that the next sensor cannot use.
@@ -208,7 +222,7 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         if not snapshot_path.exists():
             snapshot_path.write_bytes(raw)
-    except OSError:
+    except (OSError, ValueError):
         logger.warning(
             "wap_report_write_failed", path=str(path), logical_run_id=logical_run_id, exc_info=True
         )
