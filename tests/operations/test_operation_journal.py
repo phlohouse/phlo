@@ -107,11 +107,52 @@ def test_mark_unknown_blocks_replay(store) -> None:
 
 
 def test_reconcile_unknown_resolves_to_succeeded(store) -> None:
-    _claim(store)
+    _claim(store, action="backup.create")
     mark_submitted(store, "op:1")
     mark_unknown(store, "op:1")
     reconcile_unknown(store, "op:1", {"accepted": True})
     assert store.read("op:1").state is OperationJournalState.SUCCEEDED
+
+
+@pytest.mark.parametrize("operation", ["compact", "snapshot_expiry"])
+@pytest.mark.parametrize(
+    "observed",
+    [
+        {"accepted": True, "status": "noop"},
+        {"accepted": True, "status": "succeeded"},
+        {"accepted": False, "status": "failed", "failure": {"outcome": "not_submitted"}},
+    ],
+)
+def test_maintenance_reconciliation_requires_definitive_evidence(tmp_path, operation, observed):
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    directory = tmp_path / "journal"
+    store = FileOperationJournalStore(directory)
+    _claim(store, action=operation)
+    mark_submitted(store, "op:1")
+    mark_unknown(store, "op:1")
+    ambiguous = {
+        "accepted": True,
+        "status": "failed",
+        "executed": True,
+        "retry_safe": False,
+        "failure": {"outcome": "unknown"},
+    }
+    for evidence in (ambiguous, {"accepted": True}, {"accepted": False}):
+        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
+            reconcile_unknown(store, "op:1", evidence)
+        reopened = FileOperationJournalStore(directory)
+        assert reopened.read("op:1").state is OperationJournalState.UNKNOWN
+        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
+            read_or_replay(reopened, "op:1")
+        with pytest.raises(OperationJournalError, match="conflicting_claim"):
+            _claim(reopened, operation_id="op:fresh", action=operation, token="fresh")
+
+    reconcile_unknown(store, "op:1", observed)
+    reopened = FileOperationJournalStore(directory)
+    assert reopened.read("op:1").state == ("succeeded" if observed["accepted"] else "failed")
+    assert read_or_replay(reopened, "op:1") == observed
+    _claim(reopened, operation_id="op:fresh", action=operation, token="fresh")
 
 
 def test_read_or_replay_returns_none_for_new_operation(store) -> None:
