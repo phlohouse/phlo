@@ -225,9 +225,7 @@ def execute_maintenance(
     mark_submitted(store, operation_id)
     try:
         result = execute(operation_id)
-        evidence = (
-            result.to_dict() if isinstance(result, MaintenanceOperationResult) else dict(result)
-        )
+        evidence = dict(result) if isinstance(result, Mapping) else result.to_dict()
     except Exception as exc:
         mark_unknown(store, operation_id)
         raise OperationJournalError("apply_outcome_unknown", (operation_id,)) from exc
