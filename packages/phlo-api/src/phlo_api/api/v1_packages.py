@@ -33,7 +33,6 @@ from phlo_api.api.operation_controls import (
     MutationRejected,
     audit_operation,
     enforce_rate_limit,
-    idempotency_key_target,
     replay_or_execute,
     require_scope,
 )
@@ -103,7 +102,7 @@ def _operation_id(plan: PackageInstallPlan, plan_token: str) -> str:
 
 # Every idempotency claim state that blocks this request maps to one stable code.
 _IDEMPOTENCY_CONFLICTS = {
-    "target_mismatch": (
+    "idempotency_key_conflict": (
         "idempotency_key_conflict",
         "The idempotency key is bound to another plan.",
     ),
@@ -172,9 +171,6 @@ def v1_package_install(
     }:
         raise BadInputError("The plan is for another package.", code="package_mismatch")
     operation_id = _operation_id(plan, plan_token)
-    if idempotency_key_target(payload.idempotency_key, _ACTION) not in {None, operation_id}:
-        code, message = _IDEMPOTENCY_CONFLICTS["target_mismatch"]
-        raise ConflictError(message, code=code)
     journal = durable_operation_journal()
 
     def execute() -> dict[str, Any]:
