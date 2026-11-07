@@ -29,7 +29,6 @@ def run_dbt_group(
     asset_keys: dict[str, str],
     tests: dict[str, tuple[str, ...]],
     translator: DbtSpecTranslator,
-    key_prefix: str | None,
 ) -> RunGroupResult:
     """Build selected models and owned tests using one isolated dbt invocation."""
     nodes = {
@@ -50,7 +49,7 @@ def run_dbt_group(
         project_dir=project_dir,
         profiles_dir=profiles_dir,
         target=target,
-        key_prefix=key_prefix,
+        translator=translator,
     )
     build = transformer.run_transform(
         partition_key=runtime.partition_key,
