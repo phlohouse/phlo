@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -47,21 +46,29 @@ def _compact_result(**kwargs: Any) -> dict[str, Any]:
 
 @pytest.fixture()
 def provider(monkeypatch):
-    store = SimpleNamespace()
-    store.compact = _compact_result
-    store.expire_snapshots = lambda **kwargs: {
-        "accepted": True,
-        "status": "noop",
-        "operation": "expire_snapshots",
-    }
+    from phlo_iceberg.plugin import IcebergResourceProvider
 
-    def _resolve(kind: str, _name: str | None = None):
-        if kind == "table_store":
-            return SimpleNamespace(name="iceberg", provider=store)
-        return None
+    from phlo.capabilities.registry import clear_capabilities, register_capability
 
-    monkeypatch.setattr("phlo.capabilities.resolver.resolve_capability", _resolve)
-    return store
+    spec = IcebergResourceProvider().get_table_stores()[0]
+    store = spec.provider
+    monkeypatch.setattr(store, "compact", _compact_result)
+    monkeypatch.setattr(
+        store,
+        "expire_snapshots",
+        lambda **kwargs: {
+            "accepted": True,
+            "status": "noop",
+            "operation": "expire_snapshots",
+        },
+    )
+    clear_capabilities("table_store")
+    clear_capabilities("maintenance_executor")
+    register_capability("table_store", spec)
+    monkeypatch.setattr("phlo.operations.maintenance.discover_capabilities", lambda: None)
+    yield store
+    clear_capabilities("table_store")
+    clear_capabilities("maintenance_executor")
 
 
 def _invoke(args: list[str], journal_dir: Path | None = None) -> Any:
@@ -81,7 +88,7 @@ def test_plan_returns_json_without_mutation(provider) -> None:
 
 def test_plan_fails_without_store(monkeypatch) -> None:
     monkeypatch.setattr(
-        "phlo.capabilities.resolver.resolve_capability", lambda _kind, _name=None: None
+        "phlo.operations.maintenance.resolve_capability", lambda _kind, _name=None: None
     )
     result = _invoke(["plan", "--operation", "compact", "--table", "x"])
     assert result.exit_code != 0
@@ -289,8 +296,10 @@ def test_real_iceberg_submission_ambiguity_fences_fresh_plans(
     provider, monkeypatch, tmp_path, phase
 ):
     from phlo_iceberg.resource import IcebergResource
+    from phlo_trino.plugin import TrinoResourceProvider
+    from phlo_trino.resource import TrinoResource
 
-    from phlo.capabilities.maintenance import MaintenanceExecutionError, MaintenanceExecutionPhase
+    from phlo.capabilities.registry import register_capability
     from phlo.operations.journal_store import FileOperationJournalStore
 
     resource = IcebergResource(ref="review")
@@ -301,15 +310,18 @@ def test_real_iceberg_submission_ambiguity_fences_fresh_plans(
     )
     submissions = []
 
-    class Executor:
-        def compact_table(self, **kwargs):
-            submissions.append(kwargs["operation_id"])
-            raise MaintenanceExecutionError(
-                MaintenanceExecutionPhase(phase), ConnectionError("reset")
-            )
+    def execute(self, sql, **kwargs):
+        assert self._resolved_ref() == "review"
+        if sql.startswith("SELECT") and phase != "preflight":
+            return [(41,)]
+        submissions.append(sql)
+        raise ConnectionError("reset")
 
     provider.compact = resource.compact
-    monkeypatch.setattr("phlo.cli.commands.operations._maintenance_executor", lambda: Executor())
+    register_capability(
+        "maintenance_executor", TrinoResourceProvider().get_maintenance_executors()[0]
+    )
+    monkeypatch.setattr(TrinoResource, "execute", execute)
     journal_dir = tmp_path / "journal"
     plan_path = tmp_path / "plan.json"
 
@@ -344,9 +356,92 @@ def test_real_iceberg_submission_ambiguity_fences_fresh_plans(
     assert fresh.exit_code == 1
     if phase == "submission":
         assert "conflicting_claim" in fresh.output
-        assert submissions == ["compact:raw.events:review:original"]
+        assert submissions == ['ALTER TABLE "raw"."events" EXECUTE optimize']
     else:
-        assert submissions == [
-            "compact:raw.events:review:original",
-            "compact:raw.events:review:fresh",
+        assert len(submissions) == 2
+        assert all(sql.startswith("SELECT") for sql in submissions)
+
+
+def test_real_iceberg_stale_zero_revision_is_not_dropped(provider, monkeypatch, tmp_path):
+    from phlo_iceberg.resource import IcebergResource
+
+    provider.compact = IcebergResource.compact.__get__(provider)
+    monkeypatch.setattr(provider, "_compaction_metadata", lambda *_: (0, {"file_count": 4}))
+    planned = _invoke(["plan", "--operation", "compact", "--table", "raw.events"])
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["plan_token"] == "0"
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    monkeypatch.setattr(provider, "_compaction_metadata", lambda *_: (1, {"file_count": 4}))
+    applied = _invoke(
+        ["apply", "--plan", str(path), "--confirmation-token", "0"], tmp_path / "journal"
+    )
+    assert applied.exit_code == 1, applied.output
+    assert json.loads(applied.output)["failure"]["code"] == "concurrent_change_detected"
+
+
+def test_real_iceberg_expiry_plan_applies_with_nondefault_parameters(
+    provider, monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+
+    from phlo_iceberg.resource import IcebergResource
+
+    snapshot = SimpleNamespace(snapshot_id=42, timestamp_ms=1)
+    table = SimpleNamespace(
+        snapshots=lambda: [snapshot],
+        current_snapshot=lambda: snapshot,
+        refs=lambda: {"main": snapshot},
+    )
+    provider.expire_snapshots = IcebergResource.expire_snapshots.__get__(provider)
+    monkeypatch.setattr(
+        provider, "get_catalog", lambda **_: SimpleNamespace(load_table=lambda _: table)
+    )
+    monkeypatch.setattr(
+        "phlo_iceberg.resource.get_table_stats", lambda **_: {"current_snapshot_id": 42}
+    )
+    planned = _invoke(
+        [
+            "plan",
+            "--operation",
+            "snapshot_expiry",
+            "--table",
+            "raw.events",
+            "--ref",
+            "review",
+            "--catalog",
+            "review_catalog",
+            "--retention-hours",
+            "720",
+            "--retain-last",
+            "3",
+            "--max-affected-objects",
+            "17",
+            "--max-affected-bytes",
+            "123456",
         ]
+    )
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["operation"] == "expire_snapshots"
+    assert plan["planned"]["retention_hours"] == 720
+    assert plan["planned"]["retain_last"] == 3
+    path = tmp_path / "expiry.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    applied = _invoke(
+        ["apply", "--plan", str(path), "--confirmation-token", plan["plan_token"]],
+        tmp_path / "journal",
+    )
+    assert applied.exit_code == 0, applied.output
+    result = json.loads(applied.output)
+    assert result["status"] == "noop"
+    assert result["operation_id"] == f"snapshot_expiry:raw.events:review:{plan['plan_token']}"
+    for key in (
+        "retention_hours",
+        "retain_last",
+        "catalog",
+        "max_affected_objects",
+        "max_affected_bytes",
+    ):
+        assert result["planned"][key] == plan["planned"][key]
