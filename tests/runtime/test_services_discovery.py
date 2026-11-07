@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any, TypedDict, cast
 
 import pytest
+import yaml
 
 from phlo.plugins import PluginMetadata, ServicePlugin
 from phlo.plugins.discovery import ServiceDefinition, ServiceDiscovery, get_global_registry
 from phlo.plugins.discovery._service_definition import ServicePort
-from phlo.plugins.discovery._service_discovery import ServiceDiscovery as CompatServiceDiscovery
 from phlo.plugins.discovery.service_manifest import ServiceManifest, ServiceManifestError
 from tests.support import DummyServicePlugin as _DummyServicePlugin
 
@@ -26,11 +26,6 @@ class DiscoverySignal(TypedDict):
     level: str
     event: str
     fields: dict[str, object]
-
-
-def test_compat_service_discovery_is_canonical_class() -> None:
-    """Private compatibility module should not define a divergent class."""
-    assert CompatServiceDiscovery is ServiceDiscovery
 
 
 def _write_service_yaml(root: Path, folder: str, name: str) -> None:
@@ -106,7 +101,7 @@ def test_service_discovery_includes_plugins(
     registry.register("service", DummyServicePlugin(), replace=True)
 
     monkeypatch.setattr(
-        "phlo.plugins.discovery._service_loading.discover_plugins",
+        "phlo.plugins.discovery.service_manifest.discover_plugins",
         lambda plugin_type, auto_register: None,
     )
 
@@ -405,20 +400,13 @@ def test_service_discovery_filters_services_by_profile(
     assert discovery.get_services_by_profile("missing") == []
 
 
-def test_service_discovery_service_yaml_patterns() -> None:
-    """Service YAML detection accepts only primary and companion filenames."""
-    assert ServiceDiscovery._is_service_yaml("service.yaml") is True
-    assert ServiceDiscovery._is_service_yaml("postgres-setup.yaml") is True
-    assert ServiceDiscovery._is_service_yaml("worker-daemon.yaml") is True
-    assert ServiceDiscovery._is_service_yaml("service.schema.yaml") is False
-    assert ServiceDiscovery._is_service_yaml("values.yaml") is False
-
-
 def test_service_discovery_loads_companion_service_files(
     tmp_path: Path,
-    service_discovery_signals: list[DiscoverySignal],
+    monkeypatch: pytest.MonkeyPatch,
+    clean_registry: object,
 ) -> None:
     """Companion setup and daemon YAMLs are loaded from plugin package directories."""
+    get_global_registry().register("service", DummyServicePlugin(), replace=True)
     source_path = tmp_path / "plugin"
     source_path.mkdir()
     (source_path / "service.yaml").write_text(
@@ -437,21 +425,22 @@ def test_service_discovery_loads_companion_service_files(
         "name: ignored\ndescription: ignored service\n",
         encoding="utf-8",
     )
-    (source_path / "broken-daemon.yaml").write_text(
-        "description: missing name\n",
+    (source_path / "service.schema.yaml").write_text(
+        "name: schema\ndescription: ignored schema\n",
         encoding="utf-8",
     )
-
-    discovery = ServiceDiscovery()
-
-    assert discovery._load_companion_service_files(source_path) == 2
-    assert set(discovery._services) == {"worker", "bootstrap"}
-    assert discovery._services["worker"].profile == "analytics"
-    assert any(
-        signal["event"] == "service_discovery_companion_file_load_failed"
-        and signal["fields"]["yaml_path"] == str(source_path / "broken-daemon.yaml")
-        for signal in service_discovery_signals
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.discover_plugins", lambda **kwargs: None
     )
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.resolve_plugin_source_path",
+        lambda plugin: source_path,
+    )
+
+    services = ServiceDiscovery().discover()
+
+    assert set(services) == {"dummy_service", "worker", "bootstrap"}
+    assert services["worker"].profile == "analytics"
 
 
 def test_service_discovery_raises_for_non_mapping_directory_service_files(
@@ -483,11 +472,19 @@ def test_service_discovery_raises_for_non_mapping_directory_service_files(
     )
 
 
-def test_service_discovery_skips_malformed_companion_service_files(
+@pytest.mark.parametrize(
+    ("manifest", "error"),
+    [("name: broken: [\n", yaml.YAMLError), ("description: missing name\n", KeyError)],
+)
+def test_service_discovery_rejects_invalid_companion_service_files(
     tmp_path: Path,
-    service_discovery_signals: list[DiscoverySignal],
+    monkeypatch: pytest.MonkeyPatch,
+    clean_registry: object,
+    manifest: str,
+    error: type[Exception],
 ) -> None:
-    """Malformed companion YAML is logged and skipped without aborting discovery."""
+    """The active plugin resolver rejects malformed and incomplete companion manifests."""
+    get_global_registry().register("service", DummyServicePlugin(), replace=True)
     source_path = tmp_path / "plugin"
     source_path.mkdir()
     (source_path / "worker-daemon.yaml").write_text(
@@ -495,20 +492,19 @@ def test_service_discovery_skips_malformed_companion_service_files(
         encoding="utf-8",
     )
     (source_path / "broken-daemon.yaml").write_text(
-        "name: broken: [\n",
+        manifest,
         encoding="utf-8",
     )
-
-    discovery = ServiceDiscovery()
-
-    assert discovery._load_companion_service_files(source_path) == 1
-    assert set(discovery._services) == {"worker"}
-    assert any(
-        signal["event"] == "service_discovery_companion_file_load_failed"
-        and signal["fields"]["yaml_path"] == str(source_path / "broken-daemon.yaml")
-        and signal["fields"]["error_type"] in {"ParserError", "ScannerError"}
-        for signal in service_discovery_signals
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.discover_plugins", lambda **kwargs: None
     )
+    monkeypatch.setattr(
+        "phlo.plugins.discovery.service_manifest.resolve_plugin_source_path",
+        lambda plugin: source_path,
+    )
+
+    with pytest.raises(error):
+        ServiceDiscovery().discover()
 
 
 def test_inline_service_creation() -> None:

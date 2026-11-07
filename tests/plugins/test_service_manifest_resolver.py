@@ -169,10 +169,6 @@ def test_service_discovery_uses_manifest_resolver_for_directory_services(
 ) -> None:
     get_global_registry().clear()
     monkeypatch.setattr(
-        "phlo.plugins.discovery._service_loading.discover_plugins",
-        lambda plugin_type, auto_register: None,
-    )
-    monkeypatch.setattr(
         "phlo.plugins.discovery.service_manifest.discover_plugins",
         lambda plugin_type="service", auto_register=True: None,
     )
