@@ -40,9 +40,7 @@ import pandas as pd
 from phlo.capabilities.specs import CheckResult
 from phlo.operations.parquet_validation import (
     ValidationMode,
-    evaluate_validation_frames,
-    parquet_validation_frames,
-    validate_batch_contract,
+    evaluate_parquet_contract,
 )
 
 PANDERA_CONTRACT_CHECK_NAME = "pandera_contract"
@@ -217,14 +215,15 @@ def evaluate_pandera_contract_parquet(
         :func:`evaluate_pandera_contract_parquet_files`: For multiple files.
 
     """
-    if mode == "materialized":
-        return evaluate_pandera_contract(pd.read_parquet(parquet_path), schema_class=schema_class)
-    return evaluate_pandera_contract_parquet_files(
-        [parquet_path],
-        schema_class=schema_class,
-        mode=mode,
-        batch_size=batch_size,
-        sample_size=sample_size,
+    return PanderaContractEvaluation(
+        *evaluate_parquet_contract(
+            parquet_path,
+            schema_class=schema_class,
+            evaluate=lambda frame: evaluate_pandera_contract(frame, schema_class=schema_class),
+            mode=mode,
+            batch_size=batch_size,
+            sample_size=sample_size,
+        )
     )
 
 
@@ -258,19 +257,14 @@ def evaluate_pandera_contract_parquet_files(
         :func:`evaluate_pandera_contract_parquet`: For single file validation.
 
     """
-    if not parquet_paths:
-        raise FileNotFoundError("Missing parquet_paths in ingestion metadata")
-    if mode == "full":
-        validate_batch_contract(schema_class.to_schema())
-    frames = parquet_validation_frames(
-        parquet_paths,
-        mode=mode,
-        batch_size=batch_size,
-        sample_size=sample_size,
-    )
     return PanderaContractEvaluation(
-        *evaluate_validation_frames(
-            frames, lambda frame: evaluate_pandera_contract(frame, schema_class=schema_class)
+        *evaluate_parquet_contract(
+            parquet_paths,
+            schema_class=schema_class,
+            evaluate=lambda frame: evaluate_pandera_contract(frame, schema_class=schema_class),
+            mode=mode,
+            batch_size=batch_size,
+            sample_size=sample_size,
         )
     )
 

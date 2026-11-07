@@ -27,7 +27,7 @@ class ContractEvaluation(Protocol):
     def error(self) -> str | None: ...
 
 
-def validate_batch_contract(schema: Any) -> None:
+def _validate_batch_contract(schema: Any) -> None:
     """Reject contracts whose meaning changes when the dataset is split."""
     if schema.checks or schema.unique or schema.index is not None or schema.parsers:
         raise ValueError(
@@ -51,8 +51,8 @@ def validate_batch_contract(schema: Any) -> None:
                 )
 
 
-def parquet_validation_frames(
-    paths: Sequence[Path],
+def _parquet_validation_frames(
+    paths: Path | Sequence[Path],
     *,
     mode: ValidationMode,
     batch_size: int,
@@ -62,15 +62,14 @@ def parquet_validation_frames(
     import pandas as pd
     import pyarrow.parquet as pq
 
-    if mode not in {"materialized", "full", "sample"}:
-        raise ValueError(f"Unknown validation mode: {mode}")
-    if batch_size <= 0 or sample_size <= 0:
-        raise ValueError("Validation batch_size and sample_size must be positive")
-    if not paths:
-        raise FileNotFoundError("Missing parquet_paths in ingestion metadata")
     if mode == "materialized":
-        yield pd.concat([pd.read_parquet(path) for path in paths], ignore_index=True)
+        if isinstance(paths, Path):
+            yield pd.read_parquet(paths)
+        else:
+            yield pd.concat([pd.read_parquet(path) for path in paths], ignore_index=True)
         return
+    if isinstance(paths, Path):
+        paths = [paths]
     offset = 0
     sample_frames = []
     empty = None
@@ -99,11 +98,41 @@ def parquet_validation_frames(
         yield empty
 
 
-def evaluate_validation_frames(
-    frames: Iterator[pd.DataFrame],
+def evaluate_parquet_contract(
+    paths: Path | Sequence[Path],
+    *,
+    schema_class: type[Any],
     evaluate: Callable[[pd.DataFrame], ContractEvaluation],
+    mode: ValidationMode = "materialized",
+    batch_size: int = 65_536,
+    sample_size: int = 1_000,
 ) -> tuple[bool, int, int, list[dict[str, Any]], str | None]:
-    """Retain exact counts and a bounded failure sample across validation batches."""
+    """Validate staged Parquet with a provider's DataFrame evaluator.
+
+    Full mode rejects non-row-local contracts before reading, then evaluates
+    at most ``batch_size`` rows at once. Sample mode evaluates a deterministic
+    prefix of at most ``sample_size`` rows in path order. Materialized mode
+    evaluates the entire dataset, preserving a single Path's stored index
+    or resetting the index when combining a sequence of paths.
+
+    Sizes must be positive except for a single materialized Path, which does
+    not use them. Counts include every evaluated failure and row;
+    only the first 20 failure cases and first error are retained. Read and
+    evaluator exceptions propagate to the provider.
+    """
+    if not paths:
+        raise FileNotFoundError("Missing parquet_paths in ingestion metadata")
+    if mode == "full":
+        _validate_batch_contract(schema_class.to_schema())
+    if mode not in {"materialized", "full", "sample"}:
+        raise ValueError(f"Unknown validation mode: {mode}")
+    if (mode != "materialized" or not isinstance(paths, Path)) and (
+        batch_size <= 0 or sample_size <= 0
+    ):
+        raise ValueError("Validation batch_size and sample_size must be positive")
+    frames = _parquet_validation_frames(
+        paths, mode=mode, batch_size=batch_size, sample_size=sample_size
+    )
     passed, failed, total = True, 0, 0
     sample: list[dict[str, Any]] = []
     error = None
