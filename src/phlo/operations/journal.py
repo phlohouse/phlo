@@ -93,10 +93,9 @@ class InMemoryOperationJournalStore:
 
     def claim(self, entry: OperationJournalEntry) -> bool:
         entry = replace(entry, action=canonical_maintenance_action(entry.action))
-        existing = self.entries.get(entry.operation_id)
-        if existing is not None and existing.state is not OperationJournalState.SUCCEEDED:
+        if entry.operation_id in self.entries:
             return False
-        if entry.action == "snapshot_expiry" and any(
+        if any(
             canonical_maintenance_action(record.action) == entry.action
             and record.target == entry.target
             and record.state
