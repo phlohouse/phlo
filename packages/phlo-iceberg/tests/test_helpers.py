@@ -1,5 +1,4 @@
-"""Tests for phlo_iceberg.helpers: identity partitioning, schema loading,
-and table maintenance recommendations."""
+"""Tests for phlo_iceberg.helpers partitioning and maintenance recommendations."""
 
 from unittest.mock import MagicMock, patch
 
@@ -7,15 +6,12 @@ import pytest
 
 from phlo_iceberg.helpers import (
     identity_partition,
-    load_table_schema,
     maintenance_recommendations,
     partition_spec,
     recommend_table_maintenance,
     table_exists,
     temporal_partition,
 )
-from pyiceberg.schema import Schema
-from pyiceberg.types import NestedField, StringType
 
 
 def test_table_exists_returns_true_when_catalog_loads_table() -> None:
@@ -35,15 +31,6 @@ def test_table_exists_returns_false_when_catalog_load_fails() -> None:
 
     with patch("phlo_iceberg.catalog.get_catalog", return_value=catalog):
         assert table_exists("raw.missing") is False
-
-
-def test_load_table_schema_delegates_to_tables_module() -> None:
-    schema = Schema(NestedField(1, "id", StringType(), required=True))
-
-    with patch("phlo_iceberg.tables.get_table_schema", return_value=schema) as get_schema:
-        assert load_table_schema("raw.events", ref="dev") is schema
-
-    get_schema.assert_called_once_with("raw.events", ref="dev")
 
 
 def test_partition_helpers_build_valid_specs() -> None:
