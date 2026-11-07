@@ -55,17 +55,71 @@ def test_security_base_handles_branch_creation_without_changing_real_bases(
         (0, 0, 0, False, 1),
     ],
 )
+@pytest.mark.parametrize(
+    "event,changed_path,image_service,selected",
+    [
+        ("pull_request", "docs/index.md", "phlo-api", False),
+        ("pull_request", "packages/phlo-minio/src/phlo_minio/Dockerfile", "minio", True),
+        ("pull_request", "packages/phlo-api/src/phlo_api/Dockerfile", "phlo-api", True),
+        ("pull_request", "src/phlo/cli/main.py", "phlo-api", True),
+        ("pull_request", "src/phlo/cli/main.py", "minio", False),
+        ("merge_group", "docs/index.md", "minio", True),
+        ("push", "docs/index.md", "minio", True),
+        ("workflow_dispatch", "docs/index.md", "minio", True),
+    ],
+)
 def test_local_image_scan_uses_built_ids_and_propagates_failures(
-    tmp_path, inspect_status, scan_status, policy_status, correct_report, expected
+    tmp_path,
+    inspect_status,
+    scan_status,
+    policy_status,
+    correct_report,
+    expected,
+    event,
+    changed_path,
+    image_service,
+    selected,
 ):
     step = next(
         step
         for step in workflow("ci.yml")["jobs"]["installed-provider-artifacts"]["steps"]
         if step.get("name") == "Scan locally built first-party images without publishing"
     )
+    image_package = "phlo-minio" if image_service == "minio" else "phlo-api"
+    image = f"ghcr.io/phlohouse/{image_package}:0.17.0"
+    service = (
+        tmp_path / f"packages/{image_package}/src/{image_package.replace('-', '_')}/service.yaml"
+    )
+    service.parent.mkdir(parents=True)
+    service.write_text(
+        yaml.safe_dump(
+            {
+                "name": image_service,
+                "image": image,
+                "build": {"context": "."},
+            }
+        )
+    )
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    git_env = dict(
+        os.environ,
+        GIT_AUTHOR_NAME="Test",
+        GIT_AUTHOR_EMAIL="test@example.test",
+        GIT_COMMITTER_NAME="Test",
+        GIT_COMMITTER_EMAIL="test@example.test",
+    )
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["/usr/bin/git", "commit", "-qm", "base"], cwd=tmp_path, env=git_env, check=True)
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    changed = tmp_path / changed_path
+    changed.parent.mkdir(parents=True, exist_ok=True)
+    changed.write_text("changed\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["/usr/bin/git", "commit", "-qm", "change"], cwd=tmp_path, env=git_env, check=True
+    )
     artifacts = tmp_path / "provider-artifacts"
     artifacts.mkdir()
-    image = "ghcr.io/phlohouse/phlo-api:0.17.0"
     (artifacts / "installed-provider-artifacts.json").write_text(
         json.dumps(
             {
@@ -107,15 +161,32 @@ def test_local_image_scan_uses_built_ids_and_propagates_failures(
         f"exit {scan_status}\n"
     )
     uv = binary / "uv"
-    uv.write_text(f'#!/bin/sh\nprintf "uv %s\\n" "$*" >> "{log}"\nexit {policy_status}\n')
+    uv.write_text(
+        "#!/bin/sh\n"
+        'if [ "$7" = affected-images ]; then\n'
+        "  shift 6\n"
+        f'  exec "{sys.executable}" "{ROOT}/scripts/container_security.py" "$@"\n'
+        "fi\n"
+        f'printf "uv %s\\n" "$*" >> "{log}"\nexit {policy_status}\n'
+    )
     docker.chmod(0o755)
     uv.chmod(0o755)
     result = subprocess.run(
         ["bash", "-c", step["run"]],
         cwd=tmp_path,
-        env=dict(os.environ, PATH=f"{binary}:{os.environ['PATH']}"),
+        env=dict(
+            os.environ,
+            PATH=f"{binary}:{os.environ['PATH']}",
+            EVENT_NAME=event,
+            BASE_SHA=base,
+            HEAD_SHA="HEAD",
+        ),
         capture_output=True,
     )
+    if not selected:
+        assert result.returncode == 0, result.stderr
+        assert not log.exists()
+        return
     assert result.returncode == expected
     calls = log.read_text()
     assert calls.count("docker image inspect") == 1

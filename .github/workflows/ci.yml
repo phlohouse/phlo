@@ -92,6 +92,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
+          # PR scan selection needs merge-base ancestry; other events scan all built images.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          filter: blob:none
 
       - uses: ./.github/actions/docker-mirror
 
@@ -122,11 +125,25 @@ jobs:
 
       - name: Scan locally built first-party images without publishing
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          jq -r '. as $report | [.images[] |
+          printf '%s\n' '{"include":[]}' > provider-artifacts/affected-images.json
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            git cat-file -e "$BASE_SHA^{commit}"
+            git cat-file -e "$HEAD_SHA^{commit}"
+            uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \
+              affected-images --base "$BASE_SHA" --head "$HEAD_SHA" --build-inputs-only \
+              > provider-artifacts/affected-images.json
+          fi
+          jq -r --arg event "$EVENT_NAME" --slurpfile affected provider-artifacts/affected-images.json '
+            . as $report | [.images[] |
             select(.build and (.image | startswith("ghcr.io/phlohouse/phlo-"))) |
             select(.service as $service | any($report.builds[]; .service == $service and .status == "passed")) |
+            select(.image as $image | $event != "pull_request" or any($affected[0].include[]; .image == $image)) |
             .image] | unique[]' provider-artifacts/installed-provider-artifacts.json > provider-artifacts/local-images.txt
           while IFS= read -r image; do
             digest="$(docker image inspect --format '{{.Id}}' "$image")"
