@@ -282,3 +282,71 @@ def test_apply_journals_each_exact_plan_for_the_authorized_principal(provider, t
     repeat = apply("plan-tok-2")
     assert repeat.exit_code != 0
     assert "conflicting_claim" in repeat.output
+
+
+@pytest.mark.parametrize("phase", ["preflight", "submission"])
+def test_real_iceberg_submission_ambiguity_fences_fresh_plans(
+    provider, monkeypatch, tmp_path, phase
+):
+    from phlo_iceberg.resource import IcebergResource
+
+    from phlo.capabilities.maintenance import MaintenanceExecutionError, MaintenanceExecutionPhase
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    resource = IcebergResource(ref="review")
+    monkeypatch.setattr(
+        resource,
+        "_compaction_metadata",
+        lambda *_args: (41, {"file_count": 4, "snapshot_count": 2}),
+    )
+    submissions = []
+
+    class Executor:
+        def compact_table(self, **kwargs):
+            submissions.append(kwargs["operation_id"])
+            raise MaintenanceExecutionError(
+                MaintenanceExecutionPhase(phase), ConnectionError("reset")
+            )
+
+    provider.compact = resource.compact
+    monkeypatch.setattr("phlo.cli.commands.operations._maintenance_executor", lambda: Executor())
+    journal_dir = tmp_path / "journal"
+    plan_path = tmp_path / "plan.json"
+
+    def apply(token):
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "operation": "compact",
+                    "table_name": "raw.events",
+                    "ref": "review",
+                    "plan_token": token,
+                    "before_revision": 41,
+                }
+            )
+        )
+        return _invoke(
+            ["apply", "--plan", str(plan_path), "--confirmation-token", token], journal_dir
+        )
+
+    first = apply("original")
+    assert first.exit_code == 1, first.output
+    evidence = json.loads(first.stdout)
+    assert evidence["status"] == "failed"
+    assert evidence["failure"]["outcome"] == (
+        "unknown" if phase == "submission" else "not_submitted"
+    )
+    entry = FileOperationJournalStore(journal_dir).read("compact:raw.events:review:original")
+    assert entry.state == ("unknown" if phase == "submission" else "failed")
+    assert entry.result == evidence
+    assert apply("original").exit_code == 1
+    fresh = apply("fresh")
+    assert fresh.exit_code == 1
+    if phase == "submission":
+        assert "conflicting_claim" in fresh.output
+        assert submissions == ["compact:raw.events:review:original"]
+    else:
+        assert submissions == [
+            "compact:raw.events:review:original",
+            "compact:raw.events:review:fresh",
+        ]

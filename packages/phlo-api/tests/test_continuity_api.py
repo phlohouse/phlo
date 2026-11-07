@@ -474,7 +474,12 @@ def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
             if table_name == "silver.customers":
                 raise RuntimeError("provider died after submission")
             executed.append(f"{table_name}:{ref}:{plan_token}")
-            return {"status": "completed", "operation": "compact", "table": table_name}
+            return {
+                "accepted": True,
+                "status": "succeeded",
+                "operation": "compact",
+                "table": table_name,
+            }
 
     def plan_for(table: str, ref: str = "main") -> dict[str, Any]:
         planned = client.post(
@@ -513,7 +518,7 @@ def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
 
         applied = client.post("/api/continuity/apply", json=apply_body("mt-1", planned))
         assert applied.status_code == 200, applied.text
-        assert applied.json()["status"] == "completed"
+        assert applied.json()["status"] == "succeeded"
         assert applied.json()["operation_id"] == "compact:silver.orders:main:101"
         assert executed == ["silver.orders:main:101"]
 
@@ -558,6 +563,80 @@ def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
         replay = client.post("/api/continuity/apply", json=apply_body("mt-3", doomed))
         assert replay.status_code == 409
         assert replay.json()["detail"]["error"] == "conflicting_claim"
+        same_key = client.post("/api/continuity/apply", json=apply_body("mt-2", doomed))
+        assert same_key.status_code == 409
+        fresh_plan = client.post(
+            "/api/continuity/apply", json=apply_body("mt-fresh", plan_for("silver.customers"))
+        )
+        assert fresh_plan.status_code == 409
+        assert fresh_plan.json()["detail"]["error"] == "conflicting_claim"
+    finally:
+        clear_capabilities("maintenance_executor")
+
+
+@pytest.mark.parametrize(
+    "evidence,state",
+    [
+        ({"accepted": True, "status": "noop", "retry_safe": True}, "succeeded"),
+        ({"accepted": False, "status": "blocked", "retry_safe": True}, "failed"),
+        ({"accepted": True, "status": "failed", "retry_safe": False}, "unknown"),
+        ({"accepted": False, "status": "failed", "failure": {"outcome": "unknown"}}, "unknown"),
+        ({"accepted": True, "status": "failed", "executed": True}, "unknown"),
+    ],
+)
+def test_maintenance_returned_evidence_owns_durable_replay_fence(
+    client, journal_dir, evidence, state
+):
+    executed = []
+
+    class Executor:
+        def execute(self, *, table_name, ref, plan_token):
+            executed.append(plan_token)
+            return evidence
+
+    register_capability(
+        "maintenance_executor", MaintenanceExecutorSpec(name="compact", provider=Executor())
+    )
+    try:
+
+        def apply(key, token):
+            return client.post(
+                "/api/continuity/apply",
+                json={
+                    "operation": "maintenance.apply",
+                    "idempotency_key": key,
+                    "plan": {
+                        "operation": "compact",
+                        "table_name": "raw.events",
+                        "ref": "review",
+                        "plan_token": token,
+                    },
+                    "confirmation_token": token,
+                },
+            )
+
+        first = apply("first-key", "original")
+        assert first.status_code == 200, first.text
+        assert first.json() == {
+            "operation": "maintenance.apply",
+            "operation_id": "compact:raw.events:review:original",
+            **evidence,
+        }
+        journal = FileOperationJournalStore(journal_dir)
+        entry = journal.read("compact:raw.events:review:original")
+        assert entry.state == state
+        assert entry.result == evidence
+        verified = client.get("/api/continuity/verifications/compact:raw.events:review:original")
+        assert verified.json()["replay_blocked"] is (state == "unknown")
+
+        # Returning the same evidence is safe; a cached HTTP response must not resubmit.
+        repeated = apply("first-key", "original")
+        assert repeated.status_code == 200
+        assert executed == ["original"]
+        assert apply("other-key", "original").status_code == 409
+        fresh = apply("fresh-key", "fresh")
+        assert fresh.status_code == (409 if state == "unknown" else 200), fresh.text
+        assert executed == (["original"] if state == "unknown" else ["original", "fresh"])
     finally:
         clear_capabilities("maintenance_executor")
 

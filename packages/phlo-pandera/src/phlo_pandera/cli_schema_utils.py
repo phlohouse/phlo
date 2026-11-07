@@ -67,9 +67,6 @@ def _scan_schema_file(path: Path, py_file: Path, data_frame_model: type, schemas
     try:
         parts = py_file.relative_to(path.parent).parts[:-1] + (py_file.stem,)
         module_name = ".".join(parts)
-        module_parts = module_name.split(".")
-        for index in range(1, len(module_parts) + 1):
-            sys.modules.pop(".".join(module_parts[:index]), None)
 
         try:
             module = import_module(module_name)
@@ -119,7 +116,7 @@ def discover_pandera_schemas(
     schemas = {}
 
     for search_path in search_paths:
-        path = Path(search_path)
+        path = Path(search_path).resolve()
         if not path.exists():
             continue
 
@@ -128,13 +125,17 @@ def discover_pandera_schemas(
         if import_root not in sys.path:
             sys.path.insert(0, import_root)
             added_import_root = True
-            importlib.invalidate_caches()
 
-        # Snapshot the module cache: anything imported here is dropped again
-        # in the finally block so repeated discovery re-imports current file
-        # contents instead of serving classes cached by an earlier scan.
+        # Isolate the whole package once, including preloaded descendants.
+        # Imports share class identities within this root's discovery session;
+        # the finally block restores process imports so later sessions refresh.
         old_modules = dict(sys.modules)
         try:
+            package_name = path.name.split(".")[0]
+            for module_name in old_modules:
+                if module_name == package_name or module_name.startswith(f"{package_name}."):
+                    sys.modules.pop(module_name, None)
+            importlib.invalidate_caches()
             for py_file in path.glob("**/schemas/*.py"):
                 if py_file.name.startswith("_"):
                     continue

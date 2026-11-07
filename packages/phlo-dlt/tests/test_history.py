@@ -21,12 +21,11 @@ from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 from phlo_dlt.decorator import (
     _default_merge_config,
-    _validate_merge_config,
     clear_ingestion_assets,
     get_ingestion_assets,
     phlo_ingestion,
 )
-from phlo_dlt.dlt_helpers import DltStagingResult, merge_to_table_store
+from phlo_dlt.dlt_helpers import DltStagingResult, merge_to_table_store, validate_merge_config
 from phlo_dlt.executor import DltIngester
 from phlo_dlt.registry import TableConfig
 from phlo_iceberg import catalog as catalog_module
@@ -82,7 +81,7 @@ def test_history_config_rejects_invalid_or_ambiguous_policy(config):
     [CONFIG, {"entity_key": "entity", "version_key": "version", "payload_hash_column": "hash"}],
 )
 def test_history_config_has_no_merge_deduplication_defaults(config):
-    _validate_merge_config("history", "entity", config)
+    validate_merge_config("history", "entity", config)
     assert _default_merge_config("history", config) == config
 
 
