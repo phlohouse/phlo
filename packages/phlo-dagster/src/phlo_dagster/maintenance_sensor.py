@@ -32,12 +32,8 @@ from phlo.plugins.observatory_settings import (
     operational_schedule_slot,
 )
 from phlo.operations.journal import (
-    OperationJournalState,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    mark_unknown,
+    execute_maintenance,
     read_or_replay,
 )
 
@@ -45,7 +41,6 @@ from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
     durable_maintenance_journal as _durable_maintenance_journal,
     finish_maintenance_op,
-    is_outcome_unknown,
     list_tables,
     resolve_maintenance_discovery,
     start_maintenance_op,
@@ -202,41 +197,24 @@ def _compact_table_journaled(
     if status in {"failed", "blocked", "noop"} or before_revision is None:
         return plan_result
 
-    claim_operation(
+    entry = execute_maintenance(
         journal,
         operation_id=operation_id,
+        operation="compact",
+        table=table_name,
+        ref=ref,
         subject="dagster:maintenance-policy",
-        action="compact",
-        target=table_name,
         plan_token=str(before_revision),
-    )
-    mark_submitted(journal, operation_id)
-    try:
-        result = table_store.compact(
+        execute=lambda _journal_id: table_store.compact(
             table_name=table_name,
             override_ref=ref,
             dry_run=False,
             expected_revision=before_revision,
             operation_id=base_id,
             executor=executor,
-        )
-    except Exception:
-        mark_unknown(journal, operation_id)
-        raise
-    if is_outcome_unknown(result):
-        # The provider may have committed; journaling FAILED would let a
-        # later run re-claim and resubmit the same mutation.
-        mark_unknown(journal, operation_id)
-        return result
-    rejected = result.get("accepted") is False or str(result.get("status")) in {
-        "blocked",
-        "failed",
-    }
-    if rejected:
-        journal.transition(operation_id, OperationJournalState.FAILED, dict(result))
-    else:
-        complete_operation(journal, operation_id, dict(result))
-    return result
+        ),
+    )
+    return entry.result or {}
 
 
 @dg.op
