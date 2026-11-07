@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -697,6 +700,108 @@ def test_maintenance_http_key_binds_equal_revisions_to_the_exact_ref(
     assert other.json()["operation_id"] == branch_b["operation_id"]
     assert other.json()["status"] == "succeeded"
     assert backend.sql[-1][0] == "branch_b"
+
+
+@pytest.fixture(scope="module")
+def maintenance_postgres_dsn():
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:16", password="test") as postgres:
+        yield postgres.get_connection_url(driver=None)
+
+
+@pytest.mark.parametrize(
+    "storage", ["sqlite", pytest.param("postgres", marks=pytest.mark.integration)]
+)
+def test_maintenance_claim_refusal_keeps_bound_key_retryable(
+    client, maintenance_backend, monkeypatch, request, storage
+):
+    from phlo_trino.resource import TrinoResource
+
+    if storage == "postgres":
+        monkeypatch.setenv(
+            "PHLO_API_OPERATION_CONTROLS_DB_URL",
+            request.getfixturevalue("maintenance_postgres_dsn"),
+        )
+        monkeypatch.setenv("PHLO_API_OPERATION_CONTROLS_NAMESPACE", str(uuid4()))
+    backend = maintenance_backend
+    backend.revision = 0
+    first_plan = _maintenance_plan(client, ref="branch_a")
+    second_plan = _maintenance_plan(client, ref="branch_b")
+    assert first_plan["plan_token"] == second_plan["plan_token"] == "0"
+    entered, release = Event(), Event()
+    execute = TrinoResource.execute
+
+    def held_execute(self, sql, **kwargs):
+        if self._resolved_ref() == "branch_a":
+            entered.set()
+            assert release.wait(15), "First operation was not released"
+        return execute(self, sql, **kwargs)
+
+    monkeypatch.setattr(TrinoResource, "execute", held_execute)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(_maintenance_apply, client, first_plan, "branch-a-key")
+        try:
+            assert entered.wait(15), "First operation did not enter provider execution"
+            refused = _maintenance_apply(client, second_plan, "branch-b-key")
+            assert refused.status_code == 409, refused.text
+            assert refused.json()["detail"]["error"] == "conflicting_claim"
+            assert backend.sql == []
+            again = _maintenance_apply(client, second_plan, "branch-b-key")
+            assert again.status_code == 409, again.text
+            assert again.json()["detail"]["error"] == "conflicting_claim"
+        finally:
+            release.set()
+        applied = first.result()
+        assert applied.status_code == 200, applied.text
+        assert applied.json()["status"] == "succeeded"
+    count = len(backend.sql)
+    # The second ref has not advanced. The transport fixture models revisions
+    # globally, so restore that ref's original revision before its first apply.
+    backend.revision = 0
+    with closing(authenticated_client("admin")) as reopened:
+        rebound = _maintenance_apply(reopened, first_plan, "branch-b-key")
+        assert rebound.status_code == 409, rebound.text
+        assert rebound.json()["detail"]["error"] == "idempotency_key_conflict"
+        retried = _maintenance_apply(reopened, second_plan, "branch-b-key")
+        assert retried.status_code == 200, retried.text
+        assert retried.json()["status"] == "succeeded"
+        assert retried.json()["operation_id"] == second_plan["operation_id"]
+        after = len(backend.sql)
+        assert after > count
+        assert _maintenance_apply(reopened, second_plan, "branch-b-key").json() == retried.json()
+        assert len(backend.sql) == after
+    assert {ref for ref, _sql in backend.sql[count:]} == {"branch_b"}
+
+
+@pytest.mark.parametrize("failure", ["provider", "audit"])
+def test_maintenance_uncertain_failures_do_not_authorize_same_key_retry(
+    client, maintenance_backend, monkeypatch, failure
+):
+    from phlo_iceberg.resource import IcebergResource
+    from phlo_api.api import continuity
+
+    planned = _maintenance_plan(client)
+
+    def unavailable(*args, **kwargs):
+        raise ConnectionError("Response lost")
+
+    if failure == "provider":
+        # Fail outside the executor's structured result handling, after the
+        # core journal has marked submitted. This must never become retryable.
+        monkeypatch.setattr(IcebergResource, "compact", unavailable)
+    else:
+        monkeypatch.setattr(continuity, "audit_operation", unavailable)
+    first = _maintenance_apply(client, planned)
+    assert first.status_code == (502 if failure == "provider" else 500), first.text
+    assert first.json()["detail"]["error"] == (
+        "apply_outcome_unknown" if failure == "provider" else "mutation_succeeded_audit_failed"
+    )
+    count = len(maintenance_backend.sql)
+    retried = _maintenance_apply(client, planned)
+    assert retried.status_code == 409, retried.text
+    assert retried.json()["detail"]["error"] == "idempotency_outcome_unknown"
+    assert len(maintenance_backend.sql) == count
 
 
 @pytest.mark.parametrize("legacy_state", ["completed", "safe_to_retry"])
