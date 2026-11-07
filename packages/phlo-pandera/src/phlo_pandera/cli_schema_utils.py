@@ -5,7 +5,9 @@ tables for listings, performs basic schema-file syntax checks, and
 classifies schema changes as SAFE, WARNING, or BREAKING.
 """
 
+import hashlib
 import importlib
+import importlib.util
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -71,9 +73,22 @@ def _scan_schema_file(path: Path, py_file: Path, data_frame_model: type, schemas
 
         try:
             module = import_module(module_name)
-        except (ImportError, ModuleNotFoundError):
-            logger.debug("schema_discovery_import_failed", module_name=module_name)
-            return
+        except ModuleNotFoundError as exc:
+            # A standalone search directory need not be an importable package.
+            # Do not retry a schema whose own dependency import failed.
+            if not exc.name or not (
+                module_name == exc.name or module_name.startswith(f"{exc.name}.")
+            ):
+                raise
+            module_name = (
+                f"phlo_schema_{hashlib.sha256(str(py_file.resolve()).encode()).hexdigest()[:16]}"
+            )
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec is None or spec.loader is None:
+                return
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
 
         for name, obj in inspect.getmembers(module):
             if (

@@ -7,7 +7,9 @@ Tests cover:
 - phlo branch commands (list, create, delete, merge, diff)
 """
 
+import importlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ from click.testing import CliRunner
 
 from phlo.cli.main import cli
 from phlo_pandera.cli_schema_utils import classify_schema_change, discover_pandera_schemas
+from phlo_pandera.plugin import PanderaSchemaDiscoveryProvider
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 SCHEMA_ENV = {"PHLO_SCHEMA_SEARCH_PATHS": str(FIXTURES_DIR)}
@@ -285,6 +288,100 @@ class TestDiscoverPanderaSchemas:
         schemas = discover_pandera_schemas(search_paths=[str(workflows)])
 
         assert "RawProducts" in schemas
+
+    @pytest.mark.parametrize("layout", ["workflows", "standalone.schemas"])
+    def test_cli_and_provider_discover_each_schema_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str
+    ):
+        """Both entry points execute once and expose only locally defined schemas."""
+        root = tmp_path / layout
+        schemas_dir = root / "schemas"
+        schemas_dir.mkdir(parents=True)
+        executions = tmp_path / "executions.txt"
+        schema_file = schemas_dir / "orders.py"
+        schema_file.write_text(
+            "from pathlib import Path\n"
+            "from phlo_pandera.schemas import PhloSchema\n"
+            "from pandera.pandas import DataFrameModel\n"
+            f"with Path({str(executions)!r}).open('a') as marker:\n"
+            "    marker.write('loaded\\n')\n"
+            "class Orders(PhloSchema):\n"
+            "    order_id: int\n"
+        )
+        monkeypatch.setenv("PHLO_SCHEMA_SEARCH_PATHS", str(root))
+        monkeypatch.chdir(tmp_path.parent)
+        before_path = list(sys.path)
+
+        listed = CliRunner().invoke(cli, ["schema", "list", "--format", "json"])
+
+        assert listed.exit_code == 0, listed.output
+        assert set(json.loads(listed.output)) == {"Orders"}
+        assert executions.read_text().splitlines() == ["loaded"]
+
+        discovered = PanderaSchemaDiscoveryProvider().discover_schemas()
+
+        assert (set(discovered), executions.read_text().splitlines()) == (
+            {"Orders"},
+            ["loaded", "loaded"],
+        )
+        assert discovered["Orders"].__phlo_schema_source_path__ == str(schema_file.resolve())
+        assert set(discovered["Orders"].to_schema().columns) == {"order_id"}
+        assert discovered["Orders"].__module__ not in sys.modules
+        assert sys.path == before_path
+
+    def test_discovery_preserves_relative_imports_refresh_and_process_imports(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Search paths select fresh project code without replacing existing imports."""
+        installed = tmp_path / "installed"
+        original_package = installed / "schema_project"
+        original_package.mkdir(parents=True)
+        (original_package / "__init__.py").write_text("")
+        monkeypatch.syspath_prepend(str(installed))
+        original = importlib.import_module("schema_project")
+        try:
+            root = tmp_path / "configured" / "schema_project"
+            schemas_dir = root / "schemas"
+            schemas_dir.mkdir(parents=True)
+            (root / "__init__.py").write_text("")
+            (schemas_dir / "__init__.py").write_text("")
+            (root / "base.py").write_text("from phlo_pandera.schemas import PhloSchema\n")
+            schema_file = schemas_dir / "orders.py"
+            schema_file.write_text(
+                "from ..base import PhloSchema\nclass Orders(PhloSchema):\n    order_id: int\n"
+            )
+            monkeypatch.setenv("PHLO_SCHEMA_SEARCH_PATHS", str(root))
+            monkeypatch.chdir(tmp_path.parent)
+            before_path = list(sys.path)
+            before_modules = {
+                name: module
+                for name, module in sys.modules.items()
+                if name == "schema_project" or name.startswith("schema_project.")
+            }
+            provider = PanderaSchemaDiscoveryProvider()
+
+            first = provider.discover_schemas()
+            assert set(first) == {"Orders"}
+            assert set(first["Orders"].to_schema().columns) == {"order_id"}
+            schema_file.write_text(
+                "from ..base import PhloSchema\n"
+                "class Orders(PhloSchema):\n"
+                "    refreshed_order_id: str\n"
+            )
+            refreshed = provider.discover_schemas()
+
+            assert set(refreshed) == {"Orders"}
+            assert set(refreshed["Orders"].to_schema().columns) == {"refreshed_order_id"}
+            assert refreshed["Orders"].__phlo_schema_source_path__ == str(schema_file.resolve())
+            assert sys.path == before_path
+            assert sys.modules["schema_project"] is original
+            assert {
+                name: module
+                for name, module in sys.modules.items()
+                if name == "schema_project" or name.startswith("schema_project.")
+            } == before_modules
+        finally:
+            sys.modules.pop("schema_project", None)
 
 
 class TestClassifySchemaChange:
