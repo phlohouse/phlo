@@ -157,6 +157,30 @@ def test_affected_images_selects_exact_unique_fleet_for_all_and_broad_changes() 
     assert security_targets == all_targets
 
 
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("docs/index.md", set()),
+        ("security/container-waivers.yml", set()),
+        ("scripts/container_security.py", set()),
+        ("packages/phlo-minio/tests/test_minio_plugin.py", set()),
+        ("src/phlo/cli/main.py", {"phlo-api", "dagster"}),
+        ("uv.lock", {"phlo-api", "dagster"}),
+        ("pyproject.toml", {"phlo-api", "dagster"}),
+        ("packages/phlo-iceberg/src/phlo_iceberg/catalog.py", {"phlo-api", "dagster"}),
+        ("packages/phlo-minio/src/phlo_minio/Dockerfile", {"minio", "phlo-api", "dagster"}),
+        ("packages/phlo-minio/src/phlo_minio/minio-setup.yaml", {"minio", "phlo-api", "dagster"}),
+        (
+            "packages/phlo-observatory/src/phlo_observatory/package-lock.json",
+            {"observatory", "phlo-api", "dagster"},
+        ),
+    ],
+)
+def test_pr_scan_selection_tracks_build_inputs_without_unrelated_images(path, expected) -> None:
+    targets = container_security.affected_images([path], REPO_ROOT, build_inputs_only=True)
+    assert {target["service"] for target in targets["include"]} == expected
+
+
 def test_published_fleet_is_derived_from_source_with_required_shared_mapping() -> None:
     images = _published_images_by_service()
     assert container_security.published_fleet(REPO_ROOT) == [
