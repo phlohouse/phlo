@@ -3705,7 +3705,7 @@
           "type": "text"
         },
         {
-          "default": "iceberg",
+          "default": "Sentinel.UNSET",
           "envvar": null,
           "is_flag": false,
           "kind": "option",
@@ -3720,7 +3720,37 @@
           "type": "text"
         },
         {
-          "default": 1000,
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "retention_hours",
+          "nargs": 1,
+          "options": [
+            "--retention-hours"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "retain_last",
+          "nargs": 1,
+          "options": [
+            "--retain-last"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": "Sentinel.UNSET",
           "envvar": null,
           "is_flag": false,
           "kind": "option",
@@ -3735,7 +3765,7 @@
           "type": "integer"
         },
         {
-          "default": 1073741824,
+          "default": "Sentinel.UNSET",
           "envvar": null,
           "is_flag": false,
           "kind": "option",
