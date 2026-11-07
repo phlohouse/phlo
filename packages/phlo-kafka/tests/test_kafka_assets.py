@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from types import SimpleNamespace
 
 import pyarrow.parquet as pq
 import pytest
 from phlo.logging import get_logger
-from phlo.capabilities.interfaces import CheckpointRecord, ReleaseRecord, SourceOffsetRange
+from phlo.capabilities.interfaces import (
+    CheckpointRecord,
+    ReleaseRecord,
+    SnapshotPromotionCatalog,
+    SourceOffsetRange,
+)
 from phlo.exceptions import PhloConfigError
 from phlo_kafka.assets import (
     KafkaConsumerConfig,
@@ -121,7 +126,8 @@ def _config() -> KafkaConsumerConfig:
     )
 
 
-def test_ingest_batch_full_lifecycle_commits_checkpoint() -> None:
+@pytest.mark.parametrize("receipt_format", ["record", "dict"])
+def test_ingest_batch_full_lifecycle_commits_checkpoint(receipt_format) -> None:
     store = RecordingStore()
     promoted: list[str] = []
 
@@ -129,16 +135,31 @@ def test_ingest_batch_full_lifecycle_commits_checkpoint() -> None:
         store.transitions.append(("stage", checkpoint_id))
         return {"snapshot_id": 77, "rows_merged": len(records)}
 
-    def promoter(checkpoint_id: str) -> list[ReleaseRecord]:
+    def promoter(checkpoint_id: str):
         promoted.append(checkpoint_id)
-        return [
+        receipts = [
+            ReleaseRecord(
+                table_name="bronze.other",
+                snapshot_id=99,
+                release_id=checkpoint_id,
+                revision=1,
+            ),
+            ReleaseRecord(
+                table_name="bronze.events",
+                snapshot_id=100,
+                release_id="other-checkpoint",
+                revision=1,
+            ),
             ReleaseRecord(
                 table_name="bronze.events",
                 snapshot_id=88,
                 release_id=checkpoint_id,
                 revision=1,
-            )
+            ),
         ]
+        if receipt_format == "dict":
+            return [asdict(receipt) for receipt in receipts]
+        return receipts
 
     evidence = ingest_batch(
         config=_config(),
@@ -171,6 +192,57 @@ def test_ingest_batch_full_lifecycle_commits_checkpoint() -> None:
         ("commit", "cp-1"),
     ]
     assert promoted == ["cp-1"]
+
+
+@pytest.mark.parametrize(
+    "receipts",
+    [
+        [],
+        [{"table_name": "bronze.other", "release_id": "cp-1", "snapshot_id": 88}],
+        [{"table_name": "bronze.events", "release_id": "other", "snapshot_id": 88}],
+        [{"table_name": "bronze.events", "release_id": "cp-1", "snapshot_id": None}],
+        [{"table_name": "bronze.events", "release_id": "cp-1"}],
+        [
+            {"table_name": "bronze.events", "release_id": "cp-1", "snapshot_id": 88},
+            {"table_name": "bronze.events", "release_id": "cp-1", "snapshot_id": 88},
+        ],
+        [
+            {"table_name": "bronze.events", "release_id": "cp-1", "snapshot_id": 88},
+            {"table_name": "bronze.events", "release_id": "cp-1", "snapshot_id": 99},
+        ],
+        [
+            {"table_name": "bronze.events", "release_id": "cp-1", "snapshot_id": 88},
+            {"table_name": "bronze.events", "release_id": "cp-1", "snapshot_id": None},
+        ],
+    ],
+    ids=[
+        "empty",
+        "wrong-table",
+        "wrong-release",
+        "null-snapshot",
+        "missing-snapshot",
+        "duplicate",
+        "conflicting",
+        "ambiguous-null",
+    ],
+)
+def test_ingest_batch_rejects_invalid_promotion_receipts(receipts) -> None:
+    store = RecordingStore()
+    with pytest.raises(ValueError, match="exactly one matching release") as error:
+        ingest_batch(
+            config=_config(),
+            records=[{"event_id": "e1"}],
+            ranges=_ranges(),
+            checkpoint_adapter=KafkaCheckpointAdapter(
+                source_id="kafka:events", group_id="g", store=store
+            ),
+            stager=lambda checkpoint_id, records: {"snapshot_id": 77},
+            promoter=lambda checkpoint_id: receipts,
+        )
+
+    assert ("commit", "cp-1") not in store.transitions
+    assert [item for item in store.transitions if item[0] == "snapshot"] == [("snapshot", 77)]
+    assert store.transitions[-1] == ("fail", f"promote failed: {error.value}")
 
 
 def test_ingest_batch_without_promoter_commits_staged_snapshot() -> None:
@@ -363,6 +435,7 @@ class DurableStore(RecordingStore):
             status="staged",
             snapshot_id=snapshot_id,
             release_id=release_id,
+            failure_reason=None,
         )
         return self.records[checkpoint_id]
 
@@ -371,6 +444,106 @@ class DurableStore(RecordingStore):
         assert record.status == "staged" and record.snapshot_id is not None
         self.records[checkpoint_id] = replace(record, status="committed")
         return self.records[checkpoint_id]
+
+    def fail(self, *, checkpoint_id, reason):
+        self.records[checkpoint_id] = replace(
+            self.records[checkpoint_id], status="failed", failure_reason=reason
+        )
+        return self.records[checkpoint_id]
+
+
+@pytest.mark.parametrize("first_outcome", ["empty", "error", "success"])
+def test_asset_scopes_promotion_and_retries_without_committing_offsets(monkeypatch, first_outcome):
+    store = DurableStore()
+
+    class Catalog(SnapshotPromotionCatalog):
+        outcome = first_outcome
+        candidates = {"bronze.other": 99}
+        releases = {}
+
+        def create_candidate(self, *, table_name, run_id):
+            self.candidates.setdefault(table_name, 77)
+
+        def merge_rows_into_candidate(self, *, table_name, run_id, rows, unique_key):
+            return {"snapshot_id": self.candidates[table_name], "rows_merged": len(rows)}
+
+        def promote_candidates(self, *, namespace, release_id, tables=None):
+            assert namespace == "pipeline-run-cp-0" and release_id == "cp-0"
+            if self.outcome == "error":
+                raise RuntimeError("catalog unavailable")
+            if self.outcome == "empty":
+                return []
+            receipts = []
+            for table in list(self.candidates) if tables is None else tables:
+                self.candidates.pop(table)
+                receipt = ReleaseRecord(table, 88, release_id, revision=1)
+                self.releases[table] = receipt
+                receipts.append(receipt)
+            return receipts
+
+    catalog = Catalog()
+
+    class Client:
+        committed = []
+
+        def consume(self, **kwargs):
+            return [{"event_id": "e1"}], _ranges()
+
+        def commit_offsets(self, ranges, *, group_id):
+            assert store.records["cp-0"].status == "committed"
+            self.committed.append(ranges)
+
+    client = Client()
+    monkeypatch.setattr(
+        "phlo.infrastructure.load_wap_config", lambda: SimpleNamespace(strategy="snapshot")
+    )
+    monkeypatch.setattr(
+        "phlo_kafka.assets.resolve_capability",
+        lambda _: SimpleNamespace(
+            provider=catalog,
+            support=SimpleNamespace(supports_promote=True, supports_snapshots=True),
+        ),
+    )
+    monkeypatch.setattr(
+        "phlo_kafka.checkpoints.resolve_capability", lambda *args: SimpleNamespace(provider=store)
+    )
+    clear_kafka_assets()
+    try:
+        spec = phlo_kafka_consumer(
+            name="events",
+            topic_pattern="events",
+            destination_table="bronze.events",
+            unique_key="event_id",
+            group="ingestion",
+            client_factory=lambda: client,
+        )
+        runtime = SimpleNamespace(logger=get_logger(__name__))
+        if first_outcome != "success":
+            with pytest.raises((ValueError, RuntimeError)) as error:
+                list(spec.run.fn(runtime))
+            failed = store.records["cp-0"]
+            assert (failed.status, failed.snapshot_id, failed.release_id) == ("failed", 77, None)
+            assert failed.failure_reason == f"promote failed: {error.value}"
+            assert client.committed == []
+            assert catalog.releases == {}
+            catalog.outcome = "success"
+
+        result = list(spec.run.fn(runtime))[0]
+
+        assert catalog.candidates == {"bronze.other": 99}
+        assert set(catalog.releases) == {"bronze.events"}
+        checkpoint = store.records["cp-0"]
+        assert (checkpoint.status, checkpoint.snapshot_id, checkpoint.release_id) == (
+            "committed",
+            88,
+            "cp-0",
+        )
+        assert checkpoint.failure_reason is None
+        assert client.committed == [_ranges()]
+        assert result.metadata["snapshot_id"] == 88
+        assert result.metadata["release_id"] == "cp-0"
+    finally:
+        clear_kafka_assets()
 
 
 @pytest.mark.parametrize(
