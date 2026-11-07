@@ -1,5 +1,6 @@
 """Prove full refresh removes stale data without changing incremental defaults."""
 
+import json
 import shutil
 import subprocess
 from types import SimpleNamespace
@@ -57,7 +58,7 @@ def test_dbt_asset_full_refresh_replaces_disposable_incremental_table(tmp_path):
             project_dir=tmp_path,
             profiles_dir=tmp_path / "profiles",
             runtime=runtime,
-            manifest={"nodes": {}, "sources": {}},
+            manifest=json.loads((tmp_path / "target" / "manifest.json").read_text()),
             translator=DbtSpecTranslator(),
             test_names=(),
         )
