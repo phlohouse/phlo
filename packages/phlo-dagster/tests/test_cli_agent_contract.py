@@ -7,6 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from phlo_dagster import cli_backfill, cli_materialize, cli_status
+from phlo_dagster import wap_launch
 
 pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
 
@@ -82,14 +83,18 @@ def test_materialize_wap_json_is_submitted_not_completed(monkeypatch):
         cli_materialize,
         "prepare_wap_launch",
         lambda **kw: SimpleNamespace(
-            tags={}, branch="wap/test", record_launch_result=lambda **kw: True
+            context=None,
+            logical_run_id=kw["logical_run_id"],
+            tags={},
+            branch="wap/test",
+            record_launch_result=lambda **kw: True,
         ),
     )
 
     async def launch(**kwargs):
         return SimpleNamespace(accepted=True, run_id="run-123")
 
-    monkeypatch.setattr(cli_materialize, "launch_materialize", launch)
+    monkeypatch.setattr(wap_launch, "launch_materialize", launch)
     monkeypatch.setattr(cli_materialize, "wait_for_dagster_http", _ready)
     result = CliRunner().invoke(cli_materialize.materialize, ["orders", "--json"])
     assert result.exit_code == 0, result.output
@@ -119,7 +124,16 @@ def test_backfill_json_validation_error(monkeypatch):
     assert json.loads(result.stdout)["status"] == "error"
 
 
-def test_materialize_wap_without_run_id_is_not_submitted(monkeypatch):
+@pytest.mark.parametrize(
+    "run_id,persisted,status,error",
+    [
+        (None, True, "error", "without a run ID"),
+        ("run-123", False, "partial", "manifest could not be stored"),
+    ],
+)
+def test_materialize_wap_without_durable_binding_is_not_submitted(
+    monkeypatch, run_id, persisted, status, error
+):
     monkeypatch.setattr(
         cli_materialize,
         "load_wap_config",
@@ -135,17 +149,23 @@ def test_materialize_wap_without_run_id_is_not_submitted(monkeypatch):
         cli_materialize,
         "prepare_wap_launch",
         lambda **kw: SimpleNamespace(
-            tags={}, branch="wap/test", record_launch_result=lambda **kw: True
+            context=None,
+            logical_run_id=kw["logical_run_id"],
+            tags={},
+            branch="wap/test",
+            record_launch_result=lambda **kw: persisted,
         ),
     )
 
     async def launch(**kwargs):
-        return SimpleNamespace(accepted=True, run_id=None)
+        return SimpleNamespace(accepted=True, run_id=run_id)
 
-    monkeypatch.setattr(cli_materialize, "launch_materialize", launch)
+    monkeypatch.setattr(wap_launch, "launch_materialize", launch)
     monkeypatch.setattr(cli_materialize, "wait_for_dagster_http", _ready)
     result = CliRunner().invoke(cli_materialize.materialize, ["orders", "--json"])
     assert result.exit_code != 0
     payload = json.loads(result.stdout)
-    assert payload["status"] == "error"
-    assert "without a run ID" in str(payload["errors"])
+    assert payload["status"] == status
+    assert error in str(payload["errors"])
+    if run_id:
+        assert payload["data"]["run_id"] == run_id

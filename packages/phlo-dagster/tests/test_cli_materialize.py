@@ -141,6 +141,7 @@ def test_enabled_wap_materialize_uses_graphql_launch_and_retains_a_rejected_bran
     records: list[dict[str, str | None]] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {
@@ -187,7 +188,7 @@ def test_enabled_wap_materialize_uses_graphql_launch_and_retains_a_rejected_bran
         lambda: type("ID", (), {"hex": "request-42"})(),
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", rejected_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", rejected_launch)
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
     monkeypatch.setenv("PHLO_DAGSTER_ACCESS_TOKEN", "user-access-token")
 
@@ -211,6 +212,7 @@ def test_enabled_wap_materialize_retains_new_branch_after_ambiguous_transport_fa
     records: list[dict[str, str | None]] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {
@@ -244,7 +246,7 @@ def test_enabled_wap_materialize_retains_new_branch_after_ambiguous_transport_fa
         )(),
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", timeout_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", timeout_launch)
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
 
     result = CliRunner().invoke(
@@ -287,6 +289,7 @@ def test_enabled_wap_materialize_uses_project_configuration(
     discovery_calls: list[bool] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {
@@ -339,7 +342,7 @@ def test_enabled_wap_materialize_uses_project_configuration(
         "phlo_dagster.cli_materialize.discover_capabilities", lambda: discovery_calls.append(True)
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", prepared_launch)
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", accepted_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", accepted_launch)
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
 
     result = CliRunner().invoke(
@@ -366,6 +369,7 @@ def test_enabled_wap_materialize_waits_for_http_before_launch(monkeypatch) -> No
     calls: list[tuple[str, str]] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {"phlo/run_id": logical_run_id}
@@ -396,7 +400,7 @@ def test_enabled_wap_materialize_waits_for_http_before_launch(monkeypatch) -> No
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", recording_wait)
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", recording_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", recording_launch)
 
     result = CliRunner().invoke(materialize, ["dlt_orders"])
 
