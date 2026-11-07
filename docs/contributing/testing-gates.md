@@ -86,7 +86,7 @@ After `make setup`, with Docker running, build the checked-in MinIO image once
 and run a group from the repository root:
 
 ```bash
-docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.3 packages/phlo-minio/src/phlo_minio
+docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.4 packages/phlo-minio/src/phlo_minio
 uv run --locked python scripts/run_integration.py --group api-query-journey
 ```
 
@@ -98,9 +98,11 @@ the runner's shared MinIO/Nessie pair; the API journey fixtures own their servic
 Each pytest process prints its 20 slowest setup, call and teardown phases taking
 at least one second. Use those durations to distinguish service provisioning from
 test execution. CI combines the producer reports into `integration-results` after
-requiring the image build, storage contracts, every API group and the independent
-PostgreSQL/quickstart/recovery job to succeed. The quickstart coverage artifact
-continues to feed `pr / required`.
+requiring the image build, storage contracts, every API group and the
+PostgreSQL/quickstart/recovery job to succeed. All execution jobs load and verify
+the checkout-built MinIO image, so the recovery drill does not require an
+unpublished tag from the registry. The quickstart coverage artifact continues to
+feed `pr / required`.
 
 The [fix regression-test-or-justification item proposed in PR1109](https://github.com/phlohouse/phlo/blob/ac75026a89985d009bcb3430830e1b892af67fa4/.github/PULL_REQUEST_TEMPLATE.md#L18-L20)
 belongs to the single PR template. This change does not add a competing template
