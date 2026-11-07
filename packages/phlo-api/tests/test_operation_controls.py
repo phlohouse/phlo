@@ -25,6 +25,8 @@ from fastapi import HTTPException
 
 from phlo_api.api.operation_controls import (
     IdempotencyConflict,
+    MutationDeferred,
+    MutationRejected,
     MutationSucceededAuditFailed,
     _idempotency_hash,
     _migrate_operations_schema,
@@ -795,6 +797,45 @@ def test_local_rate_limit_capacity_preserves_live_limits_and_expires(monkeypatch
         assert len(controls._RATE_LIMITS) == 1
     finally:
         controls._RATE_LIMITS.clear()
+
+
+@pytest.mark.parametrize("use_async", [False, True])
+@pytest.mark.parametrize("rejection", [MutationRejected, MutationDeferred])
+def test_rejection_retry_policy_preserves_key_binding(
+    monkeypatch, tmp_path, use_async, rejection
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+
+    def replay(target, execute):
+        kwargs = {
+            "idempotency_key": "bound-key",
+            "operation": "maintenance.apply",
+            "target": target,
+            "exclusion_target": target,
+        }
+        if use_async:
+
+            async def execute_async():
+                return execute()
+
+            return asyncio.run(replay_or_execute_async(**kwargs, execute=execute_async))
+        return replay_or_execute(**kwargs, execute=execute)
+
+    def refused():
+        raise rejection(status_code=409, detail="Not submitted")
+
+    with pytest.raises(rejection):
+        replay("full-plan-id", refused)
+    with pytest.raises(IdempotencyConflict) as rebound:
+        replay("different-plan-id", lambda: pytest.fail("Rebound key executed"))
+    assert rebound.value.detail == {"error": "idempotency_key_conflict"}
+    if rejection is MutationDeferred:
+        assert replay("full-plan-id", lambda: {"ok": True}) == {"ok": True}
+        assert replay("full-plan-id", lambda: pytest.fail("Executed twice")) == {"ok": True}
+    else:
+        with pytest.raises(IdempotencyConflict) as failed:
+            replay("full-plan-id", lambda: pytest.fail("Rejected mutation retried"))
+        assert failed.value.detail == {"error": "idempotency_outcome_failed"}
 
 
 @pytest.mark.parametrize("use_async", [False, True])
