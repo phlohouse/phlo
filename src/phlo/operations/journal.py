@@ -93,10 +93,9 @@ class InMemoryOperationJournalStore:
 
     def claim(self, entry: OperationJournalEntry) -> bool:
         entry = replace(entry, action=canonical_maintenance_action(entry.action))
-        existing = self.entries.get(entry.operation_id)
-        if existing is not None and existing.state is not OperationJournalState.SUCCEEDED:
+        if entry.operation_id in self.entries:
             return False
-        if entry.action == "snapshot_expiry" and any(
+        if any(
             canonical_maintenance_action(record.action) == entry.action
             and record.target == entry.target
             and record.state
@@ -225,9 +224,7 @@ def execute_maintenance(
     mark_submitted(store, operation_id)
     try:
         result = execute(operation_id)
-        evidence = (
-            result.to_dict() if isinstance(result, MaintenanceOperationResult) else dict(result)
-        )
+        evidence = dict(result) if isinstance(result, Mapping) else result.to_dict()
     except Exception as exc:
         mark_unknown(store, operation_id)
         raise OperationJournalError("apply_outcome_unknown", (operation_id,)) from exc

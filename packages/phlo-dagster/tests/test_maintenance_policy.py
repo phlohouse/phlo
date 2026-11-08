@@ -15,6 +15,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from phlo.capabilities import (
+    MaintenanceExecutor,
+    MaintenanceOperationResult,
+    MaintenanceOperationState,
+)
 from phlo_dagster.maintenance_policy import (
     ExpireSnapshotsPolicy,
     NamespacePolicy,
@@ -502,44 +507,204 @@ def test_optimize_table_files_execute_journals_failed_result(monkeypatch) -> Non
     assert entry.result == rejected_result
 
 
-def test_optimize_table_files_execute_journals_outcome_unknown(monkeypatch) -> None:
-    """A submitted-but-unconfirmed provider result records UNKNOWN, not FAILED."""
-    from phlo.operations.journal import InMemoryOperationJournalStore
+class StatefulCompactionProvider:
+    """A simulated catalog implementing the table-store and executor contracts."""
+
+    def __init__(self) -> None:
+        self.revision: int | None = 42
+        self.plan_status = MaintenanceOperationState.PLANNED
+        self.failure: str | None = None
+        self.catalog_available = True
+        self.submitted_operations: list[str | None] = []
+
+    def for_ref(self, ref: str) -> StatefulCompactionProvider:
+        assert ref == "feature/review"
+        return self
+
+    def compact(
+        self,
+        *,
+        table_name: str,
+        override_ref: str | None = None,
+        dry_run: bool = False,
+        expected_revision: str | int | None = None,
+        operation_id: str | None = None,
+        executor: MaintenanceExecutor | None = None,
+    ) -> dict[str, Any]:
+        if not self.catalog_available:
+            raise ConnectionError("catalog unavailable")
+        assert override_ref is not None
+        if dry_run:
+            return MaintenanceOperationResult(
+                operation="compact",
+                table_name=table_name,
+                ref=override_ref,
+                dry_run=True,
+                status=self.plan_status,
+                accepted=self.plan_status
+                not in {
+                    MaintenanceOperationState.BLOCKED,
+                    MaintenanceOperationState.FAILED,
+                },
+                executed=False,
+                before_revision=self.revision,
+                operation_id=operation_id,
+            ).to_dict()
+        assert executor is not None
+        return executor.compact_table(
+            table_name=table_name,
+            ref=override_ref,
+            expected_revision=expected_revision,
+            operation_id=operation_id,
+        )
+
+    def compact_table(
+        self,
+        *,
+        table_name: str,
+        ref: str,
+        expected_revision: str | int | None = None,
+        operation_id: str | None = None,
+    ) -> dict[str, Any]:
+        assert ref == "feature/review"
+        assert expected_revision == self.revision
+        failure, self.failure = self.failure, None
+        submitted = failure != "not_submitted"
+        before_revision = self.revision
+        if submitted:
+            assert self.revision is not None
+            self.submitted_operations.append(operation_id)
+            self.revision += 1
+        if failure == "exception":
+            raise ConnectionError("provider response lost after commit")
+        evidence = {"code": "provider_timeout", "retryable": False} if failure else None
+        if evidence is not None and failure in {"unknown", "not_submitted"}:
+            evidence["outcome"] = failure
+        return MaintenanceOperationResult(
+            operation="compact",
+            table_name=table_name,
+            ref=ref,
+            dry_run=False,
+            status=MaintenanceOperationState.FAILED
+            if failure
+            else MaintenanceOperationState.SUCCEEDED,
+            accepted=submitted,
+            executed=submitted,
+            before_revision=before_revision,
+            after_revision=None if failure else self.revision,
+            evidence={"provider_operation_id": operation_id, "submitted": submitted},
+            failure=evidence,
+            operation_id=operation_id,
+            retry_safe=False,
+        ).to_dict()
+
+    def expire_snapshots_table(self, **kwargs: Any) -> Any:
+        raise AssertionError("compaction must not submit retention")
+
+
+@pytest.fixture
+def compaction_job(monkeypatch, tmp_path):
     from phlo_dagster import maintenance_sensor
 
-    context = MagicMock()
-    context.run_id = "run-77"
-    plan_result = {
-        "operation": "compact",
-        "status": "planned",
-        "accepted": True,
-        "before_revision": 42,
-    }
-    unknown_result = {
-        "operation": "compact",
-        "status": "failed",
-        "accepted": True,
-        "executed": True,
-        "failure": {
-            "code": "maintenance_outcome_unknown",
-            "outcome": "unknown",
-            "retryable": False,
-        },
-        "retry_safe": False,
-    }
-    compact = MagicMock(side_effect=[plan_result, unknown_result])
-    table_store = MagicMock()
-    table_store.compact = compact
-    journal = InMemoryOperationJournalStore()
-    _journaled_op_mocks(monkeypatch, table_store, journal)
+    provider = StatefulCompactionProvider()
 
-    compute_fn = cast(Any, maintenance_sensor.optimize_table_files.compute_fn)
-    compute_fn.decorated_fn(
-        context,
-        maintenance_sensor.OptimizeConfig(table_names=["raw.events"], dry_run=False),
-    )
+    def resolve(kind, name):
+        assert (kind, name) in {("table_store", "iceberg"), ("maintenance_executor", "trino")}
+        return SimpleNamespace(provider=provider)
 
-    entry = journal.read("compact:raw.events:main:run-77")
+    monkeypatch.setattr(maintenance_sensor, "resolve_capability", resolve)
+    monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "journal"))
+    monkeypatch.setenv("PHLO_TELEMETRY_PATH", str(tmp_path / "telemetry.jsonl"))
+
+    def run(run_id=None):
+        result = maintenance_sensor.optimize_tables_job.execute_in_process(
+            run_id=run_id,
+            run_config={
+                "ops": {
+                    "optimize_table_files": {
+                        "config": {
+                            "table_names": ["raw.events"],
+                            "ref": "feature/review",
+                            "dry_run": False,
+                        }
+                    }
+                }
+            },
+        )
+        assert result.success
+        return result.output_for_node("optimize_table_files")
+
+    return provider, run
+
+
+@pytest.mark.parametrize("failure", ["timeout", "unknown", "not_submitted", "exception"])
+def test_compaction_job_fences_uncertain_submissions(compaction_job, tmp_path, failure):
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    provider, run = compaction_job
+    provider.failure = failure
+    first = run()
+    operation_id = f"compact:raw.events:feature/review:{first['run_id']}"
+    entry = FileOperationJournalStore(tmp_path / "journal").read(operation_id)
+    replay = run(first["run_id"])
+    fresh = run()
+    # An unsafe fresh-run retry would commit twice, advancing the catalog to 44.
+    assert provider.revision == 43
     assert entry is not None
-    # UNKNOWN is an active claim: a later run cannot re-claim or replay it.
-    assert entry.state == "unknown"
+    assert entry.state == ("failed" if failure == "not_submitted" else "unknown")
+    assert entry.plan_token == "42"
+    if failure == "exception":
+        assert entry.result is None
+    else:
+        assert entry.result is not None
+        assert entry.result == first["results"][0]
+        assert entry.result["operation_id"] == f"{first['run_id']}:raw.events"
+        expected_failure = {"code": "provider_timeout", "retryable": False}
+        if failure != "timeout":
+            expected_failure["outcome"] = failure
+        assert entry.result["failure"] == expected_failure
+        assert entry.result["evidence"] == {
+            "provider_operation_id": f"{first['run_id']}:raw.events",
+            "submitted": failure != "not_submitted",
+        }
+    if failure == "not_submitted":
+        assert replay["results"] == first["results"]
+        assert fresh["results"][0]["status"] == "succeeded"
+        assert provider.submitted_operations == [f"{fresh['run_id']}:raw.events"]
+    else:
+        assert "unknown_outcome_blocks_replay" in " ".join(replay["errors"])
+        assert "conflicting_claim" in " ".join(fresh["errors"])
+        assert provider.submitted_operations == [f"{first['run_id']}:raw.events"]
+        assert len(list((tmp_path / "journal").glob("*.json"))) == 1
+    assert FileOperationJournalStore(tmp_path / "journal").read(operation_id) == entry
+
+
+def test_compaction_job_replays_before_planning(compaction_job):
+    provider, run = compaction_job
+    first = run()
+    assert first["results"][0]["status"] == "succeeded"
+    provider.catalog_available = False
+    replay = run(first["run_id"])
+    assert replay["results"] == first["results"]
+    assert not replay["errors"]
+    assert provider.submitted_operations == [f"{first['run_id']}:raw.events"]
+
+
+@pytest.mark.parametrize(
+    "status, revision",
+    [
+        ("failed", 42),
+        ("blocked", 42),
+        ("noop", 42),
+        ("planned", None),
+    ],
+)
+def test_compaction_job_preserves_plan_refusal(compaction_job, tmp_path, status, revision):
+    provider, run = compaction_job
+    provider.plan_status = MaintenanceOperationState(status)
+    provider.revision = revision
+    result = run()
+    assert result["results"][0]["status"] == status
+    assert result["results"][0]["operation_id"] == f"{result['run_id']}:raw.events:plan"
+    assert provider.submitted_operations == []
+    assert not list((tmp_path / "journal").glob("*.json"))
