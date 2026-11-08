@@ -344,6 +344,69 @@ def test_snapshot_expiry_journals_outcome_unknown(
     assert FileOperationJournalStore(directory).read(operation_id) == entry
 
 
+def test_snapshot_expiry_exception_retains_cause_and_unknown_fence(monkeypatch, tmp_path, capfd):
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    class DisconnectingStore(FakeMaintenanceRetentionStore):
+        def __init__(self):
+            super().__init__()
+            self.submissions = []
+
+        def expire_snapshots(self, **kwargs):
+            if kwargs.get("dry_run"):
+                return super().expire_snapshots(**kwargs)
+            self.submissions.append(kwargs["operation_id"])
+            raise ConnectionError("connection reset after submission")
+
+    store = DisconnectingStore()
+    executor = FakeSnapshotExpiryExecutor()
+    monkeypatch.setattr(
+        iceberg_maintenance,
+        "resolve_capability",
+        lambda kind, name=None: MagicMock(provider=store if kind == "table_store" else executor),
+    )
+    monkeypatch.setattr(iceberg_maintenance, "resolve_namespaces", lambda config: ["raw"])
+    monkeypatch.setattr(iceberg_maintenance, "list_tables", lambda namespace, ref: ["raw.events"])
+    directory = tmp_path / "journal"
+    monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(directory))
+    monkeypatch.setenv("PHLO_TELEMETRY_PATH", str(tmp_path / "telemetry.jsonl"))
+    config = {
+        "ops": {
+            "expire_table_snapshots": {
+                "config": {
+                    "namespace": "raw",
+                    "dry_run": False,
+                    "confirmation_token": "fake-plan-token",
+                }
+            }
+        }
+    }
+
+    first = iceberg_maintenance.expire_snapshots_job.execute_in_process(run_config=config)
+    fresh = iceberg_maintenance.expire_snapshots_job.execute_in_process(run_config=config)
+    assert first.success and fresh.success
+    operation_id = f"expire_snapshots:raw.events:main:{first.run_id}"
+    entry = FileOperationJournalStore(directory).read(operation_id)
+    assert entry is not None and entry.state == "unknown"
+    assert entry.result is None  # No provider result or certainty was invented.
+    assert "conflicting_claim" in " ".join(
+        fresh.output_for_node("expire_table_snapshots")["errors"]
+    )
+    assert store.submissions == [operation_id]
+    assert len(list(directory.glob("*.json"))) == 1
+
+    errors = first.output_for_node("expire_table_snapshots")["errors"]
+    assert len(errors) == 1
+    for detail in (
+        "apply_outcome_unknown",
+        operation_id,
+        "ConnectionError",
+        "connection reset after submission",
+    ):
+        assert detail in errors[0]
+    assert errors[0] in capfd.readouterr().err
+
+
 def test_snapshot_expiry_replays_journaled_result_without_provider_access(monkeypatch) -> None:
     """A stored result replays even when planning and executor resolution fail."""
     from phlo.operations.journal import (

@@ -73,7 +73,12 @@ def plan_maintenance(
             max_affected_objects=max_affected_objects,
             max_affected_bytes=max_affected_bytes,
         )
-    result = method(**kwargs)
+    try:
+        result = method(**kwargs)
+    except ValueError as exc:
+        # Providers reject planning inputs with ValueError, including the
+        # MaintenancePreconditionError subtype. Result conversion is separate.
+        raise MaintenanceError("invalid_maintenance_input", operation, str(exc)) from exc
     plan = result.to_dict() if hasattr(result, "to_dict") else dict(result)
     if token := maintenance_plan_token(plan):
         plan["plan_token"] = token
