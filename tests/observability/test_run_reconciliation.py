@@ -421,6 +421,94 @@ def test_mutable_stage_state_changes_create_a_new_decision() -> None:
     assert second.evidence_completeness is EvidenceCompleteness.COMPLETE
 
 
+@pytest.mark.parametrize(
+    "observed_status, expected_decision",
+    [
+        ("running", "running"),
+        ("queued", "queued"),
+        ("starting", "starting"),
+        ("not_started", "not_started"),
+        ("canceling", "canceling"),
+        (None, "unknown"),
+        ("new_provider_status", "unsupported"),
+        ("failed", "failed"),
+    ],
+)
+@pytest.mark.parametrize(
+    "evidence_state, expected_completeness",
+    [
+        (None, EvidenceCompleteness.COMPLETE),
+        (EvidenceCompleteness.REDACTED, EvidenceCompleteness.REDACTED),
+    ],
+)
+def test_terminal_run_retains_outcome_but_records_later_observation(
+    observed_status: str | None,
+    expected_decision: str,
+    evidence_state: EvidenceCompleteness | None,
+    expected_completeness: EvidenceCompleteness,
+) -> None:
+    with SQLiteRunEvidenceStore() as store:
+        source = _Source(_observation(_event("run.terminal", payload={"status": "success"})))
+        reconciler = RunReconciler(store, source)
+        first = reconciler.reconcile("project", "run", _profile(), now=NOW)
+        source.observation = _observation(
+            _event(
+                "provider.observed", event_id="late", payload={"provider_status": observed_status}
+            ),
+            status=observed_status,
+            finished_at=NOW + timedelta(seconds=1),
+            evidence_state=evidence_state,
+        )
+        later = reconciler.reconcile("project", "run", _profile(), now=NOW + timedelta(minutes=1))
+
+        row = store.get_run("project", "run")
+        assert row["status"] == "success"
+        assert datetime.fromisoformat(row["finished_at"]) == NOW
+        assert row["evidence_completeness"] == expected_completeness.value
+        assert later.status == expected_decision
+        assert {
+            row["decision_id"] for row in store.list_reconciliation_decisions("project", "run")
+        } == {
+            first.decision_id,
+            later.decision_id,
+        }
+        assert {row["event_id"] for row in store.list_events("project", "run")} == {
+            "run.terminal",
+            "late",
+        }
+
+
+def test_reconciliation_retry_replaces_terminal_outcome_and_ignores_older_attempt() -> None:
+    with SQLiteRunEvidenceStore() as store:
+        source = _Source(_observation(_event("run.terminal"), status="failed"))
+        reconciler = RunReconciler(store, source)
+        reconciler.reconcile("project", "run", _profile(), now=NOW)
+        source.observation = _observation(status="queued", attempt=2, started_at=None)
+        reconciler.reconcile("project", "run", _profile(), now=NOW)
+        retry = store.get_run("project", "run")
+        assert retry["attempt"] == 2
+        assert retry["status"] == "queued"
+        assert retry["finished_at"] is None
+
+        source.observation = _observation(
+            _event("run.terminal", attempt=2, event_id="retry-terminal"), attempt=2
+        )
+        reconciler.reconcile("project", "run", _profile(), now=NOW)
+        completed = store.get_run("project", "run")
+        assert completed["status"] == "success"
+        assert completed["evidence_completeness"] == "complete"
+
+        source.observation = _observation(
+            _event("provider.late", payload={"status": "running"}), status="running"
+        )
+        reconciler.reconcile("project", "run", _profile(), now=NOW)
+        row = store.get_run("project", "run")
+        for field in ("attempt", "status", "finished_at", "evidence_completeness"):
+            assert row[field] == completed[field]
+        assert len(store.list_reconciliation_decisions("project", "run")) == 4
+        assert len(store.list_events("project", "run", attempt=1)) == 2
+
+
 def test_reconciliation_is_project_and_attempt_scoped() -> None:
     store = SQLiteRunEvidenceStore(":memory:")
     one = replace(_observation(replace(_event("run.terminal"), project_id="one")), project_id="one")

@@ -459,7 +459,12 @@ def _resolve_run_outcome(
     if not known_status:
         status = RunStatus.UNSUPPORTED
         reason = "unsupported_provider_status"
-        completeness = EvidenceCompleteness.INCOMPLETE
+        if explicit_state not in {
+            EvidenceCompleteness.MISSING,
+            EvidenceCompleteness.EXPIRED,
+            EvidenceCompleteness.REDACTED,
+        }:
+            completeness = EvidenceCompleteness.INCOMPLETE
     elif status is None:
         status = RunStatus.UNKNOWN
         reason = "missing_provider_status"

@@ -12,7 +12,7 @@ import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -1251,6 +1251,59 @@ def test_child_primary_keys_include_project_and_run() -> None:
                 row[1] for row in sorted(cursor.fetchall(), key=lambda row: row[5]) if row[5]
             ]
             assert primary_key == columns, table
+
+
+@pytest.mark.parametrize("writer", ["append_pipeline_run", "append_event", "update_run"])
+@pytest.mark.parametrize(
+    "terminal_status",
+    ["success", "failed", "error", "cancelled", "skipped", "no_data", "abandoned"],
+)
+def test_run_writers_preserve_same_attempt_terminal_outcome(
+    writer: str, terminal_status: str
+) -> None:
+    finished = datetime(2026, 7, 13, 12, 0, tzinfo=UTC)
+    with SQLiteRunEvidenceStore() as store:
+        terminal = PipelineRun(
+            project_id="project",
+            run_id="run",
+            status=terminal_status,
+            finished_at=finished,
+            failure_summary="original outcome",
+        )
+        store.append_pipeline_run(terminal)
+        late = replace(
+            terminal,
+            status="queued",
+            finished_at=finished + timedelta(minutes=1),
+            failure_summary="late outcome",
+        )
+        if writer == "append_pipeline_run":
+            store.append_pipeline_run(late)
+        elif writer == "append_event":
+            store.append_event(
+                RunEvent(
+                    project_id="project",
+                    run_id="run",
+                    event_id="late",
+                    event_type="provider.observed",
+                    producer="test",
+                    payload={"status": "queued"},
+                ),
+                run=late,
+            )
+            assert store.count_events("project", "run") == 1
+        else:
+            store.update_run(
+                "project",
+                "run",
+                status="queued",
+                finished_at=late.finished_at,
+                failure_summary=late.failure_summary,
+            )
+        row = store.get_run("project", "run")
+        assert row["status"] == terminal_status
+        assert datetime.fromisoformat(row["finished_at"]) == finished
+        assert row["failure_summary"] == "original outcome"
 
 
 def test_run_attempt_and_terminal_status_are_monotonic() -> None:
