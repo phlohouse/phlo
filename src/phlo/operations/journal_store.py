@@ -11,7 +11,6 @@ import hashlib
 import json
 import os
 from contextlib import contextmanager
-from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -33,7 +32,10 @@ else:
 from phlo.operations.journal import (
     OperationJournalEntry,
     OperationJournalState,
-    canonical_maintenance_action,
+    claims_conflict,
+    expire_claim,
+    new_claim,
+    transition_entry,
 )
 
 _MSVCRT_LOCK_SIZE = 1
@@ -110,36 +112,38 @@ class FileOperationJournalStore:
         # An atomic rename prevents torn records, but it does not make the
         # read/check/write claim sequence atomic. Serialize that sequence
         # across CLI processes so only one active claim can own a target.
-        entry = replace(entry, action=canonical_maintenance_action(entry.action))
+        entry = new_claim(entry)
         with self._locked():
             if self._path(entry.operation_id).exists():
                 return False
-            active_order = {
-                OperationJournalState.CLAIMED,
-                OperationJournalState.SUBMITTED,
-                OperationJournalState.UNKNOWN,
-            }
             for record in self._iter_records():
-                if (
-                    canonical_maintenance_action(record["action"]) == entry.action
-                    and record["target"] == entry.target
-                    and OperationJournalState(record["state"]) in active_order
-                ):
+                record["state"] = OperationJournalState(record["state"])
+                previous = OperationJournalEntry(**record)
+                current = expire_claim(previous)
+                if current != previous:
+                    self._write_atomic(current)
+                if claims_conflict(current, entry):
                     return False
             self._write_atomic(entry)
             return True
 
-    def transition(
-        self, operation_id: str, state: OperationJournalState, result: dict[str, Any] | None = None
+    def compare_and_set(
+        self,
+        operation_id: str,
+        expected: OperationJournalState,
+        state: OperationJournalState,
+        result: dict[str, Any] | None = None,
     ) -> bool:
         with self._locked():
             path = self._path(operation_id)
             if not path.is_file():
                 return False
             record = json.loads(path.read_text(encoding="utf-8"))
-            record["state"] = state.value
-            record["result"] = result
-            self._write_json_atomic(path, record)
+            record["state"] = OperationJournalState(record["state"])
+            entry = OperationJournalEntry(**record)
+            if entry.state is not expected:
+                return False
+            self._write_atomic(transition_entry(entry, state, result))
             return True
 
     def read(self, operation_id: str) -> OperationJournalEntry | None:

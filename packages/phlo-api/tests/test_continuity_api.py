@@ -34,7 +34,7 @@ from phlo.capabilities.continuity import (
 )
 from phlo.capabilities.registry import clear_capabilities, register_capability
 from phlo.capabilities.interfaces import Principal
-from phlo.operations.journal import claim_operation, mark_unknown
+from phlo.operations.journal import OperationJournal
 from phlo.operations.journal_store import FileOperationJournalStore
 from phlo.operations.upgrade import (
     SUPPORTED_FROM_VERSION,
@@ -473,27 +473,45 @@ def test_apply_is_exactly_once_and_reused_conflicting_keys_are_rejected(
     assert conflict.json()["detail"]["error"] == "idempotency_key_conflict"
 
 
-def test_unknown_outcome_blocks_new_key_replay(
+@pytest.mark.parametrize(
+    "state,error",
+    [
+        ("claimed", "operation_in_progress"),
+        ("submitted", "operation_in_progress"),
+        ("unknown", "unknown_outcome_blocks_replay"),
+    ],
+)
+def test_active_journal_blocks_new_key_replay(
     client,
     contributors,
+    regulated_api_boundary,
     journal_dir: Path,
     tmp_path: Path,  # noqa: ANN001
+    state,
+    error,
 ) -> None:
     set_dir, _ = _create_backup(client, tmp_path, "bk-unknown")
     planned = _plan_restore(client, set_dir, tmp_path / "unknown-target")
     operation_id = planned["operation_id"]
 
-    # Simulate a submission whose outcome was never observed.
+    # Simulate an interrupted operation, without an outer API idempotency claim.
     journal = FileOperationJournalStore(journal_dir)
-    claim_operation(
-        journal,
+    owner = OperationJournal(journal)
+    owner.claim(
         operation_id=operation_id,
-        subject="operator",
+        subject="test:admin",
         action="restore.apply",
         target=planned["plan"]["target"]["target_id"],
         plan_token=planned["plan_token"],
     )
-    mark_unknown(journal, operation_id)
+    if state != "claimed":
+        owner.submit(operation_id)
+    if state == "unknown":
+        owner.unknown(operation_id)
+
+    verified = client.get(f"/api/continuity/verifications/{operation_id}")
+    assert verified.status_code == 200
+    assert verified.json()["replay_blocked"] is True
 
     response = client.post(
         "/api/continuity/apply",
@@ -506,7 +524,7 @@ def test_unknown_outcome_blocks_new_key_replay(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["error"] == "unknown_outcome_blocks_replay"
+    assert response.json()["detail"]["error"] == error
     assert all(contributor.restore_calls == 0 for contributor in contributors.values())
 
 
@@ -1020,6 +1038,27 @@ def test_verification_is_canonical_and_restart_safe(
     missing = client.get("/api/continuity/verifications/restore.apply:nowhere:000000")
     assert missing.status_code == 404
     assert missing.json()["detail"]["error"] == "unknown_operation"
+
+
+def test_verification_reports_expired_claim_receipt_as_replay_blocked(
+    client, journal_dir: Path
+) -> None:
+    owner = OperationJournal(FileOperationJournalStore(journal_dir))
+    binding = {
+        "subject": "operator",
+        "action": "restore.apply",
+        "target": "expired-target",
+        "plan_token": "plan",
+    }
+    owner.claim(operation_id="expired-claim", claim_expiry="2000-01-01T00:00:00+00:00", **binding)
+    owner.claim(operation_id="replacement", **binding)
+
+    response = client.get("/api/continuity/verifications/expired-claim")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "failed"
+    assert response.json()["result"]["failure"]["reason"] == "claim_expired"
+    assert response.json()["replay_blocked"] is True
 
 
 # --- adapter boundary -------------------------------------------------------

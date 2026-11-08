@@ -285,7 +285,11 @@ def test_snapshot_expiry_journals_outcome_unknown(
     monkeypatch, tmp_path, failure, accepted, executed
 ) -> None:
     """A submitted-but-unconfirmed provider result records UNKNOWN, not FAILED."""
-    from phlo.operations.journal import OperationJournalError, claim_operation, reconcile_unknown
+    from phlo.operations.journal import (
+        OperationJournal,
+        OperationJournalError,
+        OperationJournalState,
+    )
     from phlo.operations.journal_store import FileOperationJournalStore
 
     plan_result = {
@@ -331,8 +335,7 @@ def test_snapshot_expiry_journals_outcome_unknown(
     assert entry.state == "unknown"
     assert entry.result == unknown_result
     with pytest.raises(OperationJournalError, match="conflicting_claim"):
-        claim_operation(
-            journal,
+        OperationJournal(journal).claim(
             operation_id="snapshot_expiry:raw.events:main:fresh-plan",
             subject="cli",
             action="snapshot_expiry",
@@ -340,7 +343,9 @@ def test_snapshot_expiry_journals_outcome_unknown(
             plan_token="fresh-plan",
         )
     with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
-        reconcile_unknown(journal, operation_id, {"accepted": True})
+        OperationJournal(journal).reconcile(
+            operation_id, state=OperationJournalState.SUCCEEDED, result={"accepted": True}
+        )
     assert FileOperationJournalStore(directory).read(operation_id) == entry
 
 
@@ -407,13 +412,15 @@ def test_snapshot_expiry_exception_retains_cause_and_unknown_fence(monkeypatch, 
     assert errors[0] in capfd.readouterr().err
 
 
-def test_snapshot_expiry_replays_journaled_result_without_provider_access(monkeypatch) -> None:
+@pytest.mark.parametrize("confirmation_token", ["fake-plan-token", None, "other-token"])
+def test_snapshot_expiry_replays_journaled_result_without_provider_access(
+    monkeypatch, confirmation_token
+) -> None:
     """A stored result replays even when planning and executor resolution fail."""
     from phlo.operations.journal import (
         InMemoryOperationJournalStore,
-        claim_operation,
-        complete_operation,
-        mark_submitted,
+        OperationJournal,
+        OperationJournalState,
     )
 
     stored = {
@@ -425,16 +432,16 @@ def test_snapshot_expiry_replays_journaled_result_without_provider_access(monkey
     }
     journal = InMemoryOperationJournalStore()
     operation_id = "expire_snapshots:raw.events:main:run-1"
-    claim_operation(
-        journal,
+    owner = OperationJournal(journal)
+    owner.claim(
         operation_id=operation_id,
         subject="dagster:maintenance-policy",
         action="expire_snapshots",
         target="raw.events",
         plan_token="fake-plan-token",
     )
-    mark_submitted(journal, operation_id)
-    complete_operation(journal, operation_id, stored)
+    owner.submit(operation_id)
+    owner.complete(operation_id, state=OperationJournalState.SUCCEEDED, result=stored)
 
     # Any provider access (planning dry-run or executor resolution) must not be
     # reached: the journaled result replays first.
@@ -455,7 +462,7 @@ def test_snapshot_expiry_replays_journaled_result_without_provider_access(monkey
             ref="main",
             dry_run=False,
             catalog="iceberg",
-            confirmation_token="fake-plan-token",
+            confirmation_token=confirmation_token,
         ),
     )
 

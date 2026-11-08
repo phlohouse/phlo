@@ -19,11 +19,11 @@ from phlo.capabilities import (
 from phlo.logging import get_logger
 
 from phlo.operations.journal import (
+    OperationJournal,
     OperationJournalError,
     OperationJournalStore,
     execute_maintenance,
     maintenance_plan_token,
-    read_or_replay,
 )
 
 from phlo_dagster.iceberg_maintenance_utils import (
@@ -101,7 +101,14 @@ def _run_retention_resource_operation(
     # when the catalog or executor is temporarily unavailable.
     operation_id = f"{operation}:{table_name}:{config.ref}:{run_id}"
     if journal is not None and run_id is not None:
-        stored = read_or_replay(journal, operation_id)
+        previous = journal.read(operation_id)
+        stored = OperationJournal(journal).replay(
+            operation_id,
+            subject="dagster:maintenance-policy",
+            action=operation,
+            target=table_name,
+            plan_token=previous.plan_token if previous is not None else "",
+        )
         if stored is not None:
             return dict(stored)
 
