@@ -2,4 +2,4 @@
 3:[["children",{"s":"__PAGE__","h":160}]]
 2:[["children",{"s":{"n":"slug","t":"oc","k":"guides/set-up-observatory-locally","s":[]},"h":64,"c":"$Q3"}]]
 1:[["children",{"s":"docs","h":32,"c":"$Q2"}]]
-0:{"b":"8MVBS5K9DlGacN8jUUdKf","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"duQk3irxc25mvqlYsuolg","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
