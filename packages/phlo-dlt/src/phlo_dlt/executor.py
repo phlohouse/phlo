@@ -64,6 +64,7 @@ from typing import Any, Callable, Dict, Sequence
 
 import pandas as pd
 
+from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
 from phlo.operations.ingestion import BaseIngester, IngestionResult
 from phlo.operations.parquet_validation import ValidationMode
@@ -92,6 +93,7 @@ from phlo_dlt.dlt_helpers import (
     inject_metadata_columns,
     merge_to_table_store,
     validate_interval_options,
+    validate_merge_config,
 )
 from phlo_dlt.evidence import (
     dlt_execution_identity,
@@ -107,6 +109,30 @@ from phlo_dlt.pandera_checks import (
     pandera_contract_asset_check_result,
 )
 from phlo_dlt.registry import TableConfig
+
+
+def validate_runtime_options(
+    *,
+    merge_strategy: str,
+    unique_key: str,
+    merge_config: dict[str, Any] | None,
+    validation_mode: ValidationMode,
+    validation_batch_size: int,
+    validation_sample_size: int,
+    interval_column: str | None,
+    interval_lookback: timedelta,
+) -> None:
+    """Check runtime configuration before registration or source execution.
+
+    No schema is required here: direct no-data runs need not resolve one.
+    Merge defaults remain the caller's policy rather than being expanded here.
+    """
+    validate_interval_options(interval_column, interval_lookback, merge_strategy, unique_key)
+    validate_merge_config(merge_strategy, unique_key, merge_config)
+    if validation_mode not in {"materialized", "full", "sample"}:
+        raise PhloConfigError(message=f"Unknown validation mode: {validation_mode}")
+    if validation_batch_size <= 0 or validation_sample_size <= 0:
+        raise PhloConfigError(message="Validation batch and sample sizes must be positive")
 
 
 @dataclass
@@ -287,8 +313,15 @@ class DltIngester(BaseIngester):
         interval_lookback: timedelta = timedelta(0),
     ):
         """Store the ingester's collaborators and validation/merge options."""
-        validate_interval_options(
-            interval_column, interval_lookback, merge_strategy, table_config.unique_key
+        validate_runtime_options(
+            merge_strategy=merge_strategy,
+            unique_key=table_config.unique_key,
+            merge_config=merge_config,
+            validation_mode=validation_mode,
+            validation_batch_size=validation_batch_size,
+            validation_sample_size=validation_sample_size,
+            interval_column=interval_column,
+            interval_lookback=interval_lookback,
         )
         super().__init__(context, logger)
         self.table_config = table_config

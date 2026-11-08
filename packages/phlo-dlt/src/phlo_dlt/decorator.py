@@ -65,7 +65,6 @@ from phlo.capabilities import (
     resolve_capability,
 )
 from phlo.capabilities.specs import IsolatedWriteSpec
-from phlo.capabilities.history import HistoryPolicy
 from phlo.capabilities.runtime import RuntimeContext, routing_from_context
 from phlo.contracts import SLA, Consumer, normalize_consumers, serialize_consumers, serialize_sla
 from phlo.exceptions import PhloConfigError
@@ -76,9 +75,8 @@ from phlo_dlt.dlt_helpers import (
     get_branch_from_context,
     get_catalog_system_from_context,
     get_write_branch_from_context,
-    validate_interval_options,
 )
-from phlo_dlt.executor import DomainQualityValidationError
+from phlo_dlt.executor import DomainQualityValidationError, validate_runtime_options
 from phlo_dlt.pandera_checks import (
     PANDERA_CONTRACT_CHECK_NAME,
     PanderaContractValidationError,
@@ -156,88 +154,6 @@ def _validate_unique_key_in_schema(unique_key: str, schema: type[Any] | None) ->
                 f"Add `{unique_key}` to {schema.__name__} schema annotations",
                 "Or update unique_key to match an existing schema field",
             ],
-        )
-
-
-def _validate_merge_config(
-    merge_strategy: str,
-    unique_key: str,
-    merge_config: dict[str, Any] | None,
-) -> None:
-    """Validate merge strategy and merge configuration semantics.
-
-    `merge_strategy` must be `append`, `merge` or `history`; history requires
-    explicit entity/version and payload configuration. For other modes, `merge_config`
-    must be a dict of supported keys only: `deduplication` (bool, requires a
-    non-empty `unique_key` when true), `deduplication_method` (`first` or
-    `last`), and `deduplication_order_by` (ordering column name used by
-    `last`). Unknown keys or malformed values are rejected.
-
-    Raises: PhloConfigError when the strategy or config values are invalid.
-    """
-    if merge_strategy not in ("append", "merge", "history"):
-        raise PhloConfigError(
-            message=f"Invalid merge_strategy: {merge_strategy}",
-            suggestions=["Use merge_strategy='append', 'merge' or 'history'"],
-        )
-
-    if merge_strategy == "history":
-        if merge_config is not None and not isinstance(merge_config, dict):
-            raise PhloConfigError(message="merge_config must be a dict")
-        try:
-            HistoryPolicy.from_config(merge_config)
-        except ValueError as exc:
-            raise PhloConfigError(message=str(exc)) from exc
-        return
-
-    if merge_config is None:
-        return
-
-    if not isinstance(merge_config, dict):
-        raise PhloConfigError(
-            message="merge_config must be a dict",
-            suggestions=["Pass merge_config={'deduplication': True, ...}"],
-        )
-
-    supported_keys = ("deduplication", "deduplication_method", "deduplication_order_by")
-    unknown_keys = sorted(set(merge_config) - set(supported_keys))
-    if unknown_keys:
-        raise PhloConfigError(
-            message=f"Unsupported merge_config option(s): {', '.join(unknown_keys)}",
-            suggestions=[f"Use only supported keys: {', '.join(supported_keys)}"],
-        )
-
-    if "deduplication" in merge_config and not isinstance(merge_config["deduplication"], bool):
-        raise PhloConfigError(
-            message="merge_config['deduplication'] must be a boolean",
-            suggestions=["Use true or false for the deduplication option"],
-        )
-
-    supported_methods = ("first", "last")
-    method = merge_config.get("deduplication_method")
-    if method is not None and (not isinstance(method, str) or method not in supported_methods):
-        raise PhloConfigError(
-            message=f"Unsupported merge_config deduplication_method: {method!r}",
-            suggestions=[
-                f"Use one of: {', '.join(supported_methods)} "
-                "(optionally with deduplication_order_by set to an ordering column)"
-            ],
-        )
-
-    order_by = merge_config.get("deduplication_order_by")
-    if order_by is not None and not isinstance(order_by, str):
-        raise PhloConfigError(
-            message="merge_config['deduplication_order_by'] must be a column name string",
-            suggestions=[
-                'Use e.g. {"deduplication": true, "deduplication_method": "last", '
-                '"deduplication_order_by": "updated_at"}'
-            ],
-        )
-
-    if merge_config.get("deduplication") and not unique_key:
-        raise PhloConfigError(
-            message="deduplication requires a unique_key",
-            suggestions=["Set unique_key parameter to a valid column name"],
         )
 
 
@@ -337,15 +253,12 @@ def _ingestion_partition(runtime: RuntimeContext, partitioned: bool) -> str:
     return partition_date
 
 
-def _validate_ingestion_options(
+def _validate_registration_options(
     layer: str | None,
     table_schema: Any,
     validation_schema: type[Any] | None,
-    validation_mode: ValidationMode,
-    validation_batch_size: int,
-    validation_sample_size: int,
 ) -> None:
-    """Reject unsupported ingestion and validation configuration before registration."""
+    """Require registration metadata without restricting schema-less direct runs."""
     if layer is not None and layer not in ("bronze", "silver", "gold"):
         raise PhloConfigError(message="layer must be bronze, silver, or gold")
     if table_schema is None and validation_schema is None:
@@ -356,10 +269,6 @@ def _validate_ingestion_options(
                 "Or add explicit table_schema parameter: table_schema=<Schema>(...)",
             ],
         )
-    if validation_mode not in {"materialized", "full", "sample"}:
-        raise PhloConfigError(message=f"Unknown validation mode: {validation_mode}")
-    if validation_batch_size <= 0 or validation_sample_size <= 0:
-        raise PhloConfigError(message="Validation batch and sample sizes must be positive")
 
 
 def _require_reviewed_actor(runtime: RuntimeContext, required_actor: str | None) -> None:
@@ -554,16 +463,21 @@ def phlo_ingestion(
         :mod:`phlo.contracts`: Consumer and SLA classes
 
     """
-    validate_interval_options(interval_column, interval_lookback, merge_strategy, unique_key)
+    validate_runtime_options(
+        merge_strategy=merge_strategy,
+        unique_key=unique_key,
+        merge_config=merge_config,
+        validation_mode=validation_mode,
+        validation_batch_size=validation_batch_size,
+        validation_sample_size=validation_sample_size,
+        interval_column=interval_column,
+        interval_lookback=interval_lookback,
+    )
     _validate_unique_key_in_schema(unique_key, validation_schema)
-    _validate_merge_config(merge_strategy, unique_key, merge_config)
-    _validate_ingestion_options(
+    _validate_registration_options(
         layer,
         table_schema,
         validation_schema,
-        validation_mode,
-        validation_batch_size,
-        validation_sample_size,
     )
 
     merge_cfg = _default_merge_config(merge_strategy, merge_config)

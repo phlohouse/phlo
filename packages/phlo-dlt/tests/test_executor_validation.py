@@ -18,8 +18,10 @@ import pytest
 from pandera.pandas import DataFrameModel
 from pandera.typing import Series  # type: ignore[possibly-missing-import]
 
+from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 from phlo.hooks.events import IngestionEvent, TelemetryEvent
+from phlo_dlt.decorator import phlo_ingestion
 from phlo_dlt.dlt_helpers import DltStagingResult
 from phlo_dlt.executor import DltIngester
 from phlo_dlt.pandera_checks import PanderaContractValidationError
@@ -31,6 +33,65 @@ class StrictExecutorSchema(DataFrameModel):
 
     name: Series[str]
     value: Series[int]
+
+
+@pytest.mark.parametrize("registered", [False, True])
+@pytest.mark.parametrize("validate", [True, False])
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({"merge_strategy": "typo"}, "Invalid merge_strategy"),
+        ({"merge_config": {"unknown": True}}, "Unsupported merge_config option"),
+        ({"merge_config": {"deduplication_method": "typo"}}, "deduplication_method"),
+        ({"merge_config": {"deduplication": "yes"}}, "must be a boolean"),
+        ({"merge_config": []}, "merge_config must be a dict"),
+        ({"merge_strategy": "history"}, "entity_key"),
+        ({"validation_mode": "typo"}, "Unknown validation mode"),
+        ({"validation_batch_size": 0}, "sizes must be positive"),
+        ({"validation_sample_size": -1}, "sizes must be positive"),
+    ],
+)
+def test_invalid_runtime_options_are_rejected_before_run(
+    registered, validate, options, message
+) -> None:
+    """Even disabled validation cannot defer malformed options until extraction."""
+    with pytest.raises(PhloConfigError, match=message):
+        if registered:
+            phlo_ingestion(
+                table_name="entries",
+                unique_key="name",
+                group="raw",
+                validation_schema=StrictExecutorSchema,
+                validate=validate,
+                **options,
+            )
+            return
+        DltIngester(
+            context=None,
+            logger=get_logger("test_dlt_preflight"),
+            table_config=TableConfig("entries", None, None, "name", "raw"),
+            table_store_resource=cast(Any, SimpleNamespace()),
+            dlt_source_func=lambda partition_date: pytest.fail("source must not run"),
+            validate=validate,
+            **options,
+        )
+
+
+@pytest.mark.parametrize("validate", [True, False])
+def test_direct_no_data_run_does_not_require_a_schema(validate) -> None:
+    ingester = DltIngester(
+        context=None,
+        logger=get_logger("test_dlt_schema_less_no_data"),
+        table_config=TableConfig("entries", None, None, "name", "raw"),
+        table_store_resource=cast(Any, SimpleNamespace()),
+        dlt_source_func=lambda partition_date: None,
+        validate=validate,
+    )
+
+    result = ingester.run_ingestion(partition_key="2026-03-05")
+
+    assert result.status == "no_data"
+    assert result.check_results == ()
 
 
 def test_strict_validation_blocks_visible_write(monkeypatch, tmp_path) -> None:
@@ -121,12 +182,14 @@ def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tm
     assert merge_called is False
 
 
-@pytest.mark.parametrize("batch_size", [65_536, 0])
+@pytest.mark.parametrize("corrupt_staging", [False, True])
 def test_non_strict_validation_only_allows_evaluated_rows(
-    monkeypatch, tmp_path, batch_size
+    monkeypatch, tmp_path, corrupt_staging
 ) -> None:
     invalid_path = tmp_path / "invalid.parquet"
     pd.DataFrame([{"name": "test", "value": "not_an_int"}]).to_parquet(invalid_path)
+    if corrupt_staging:
+        invalid_path.write_bytes(b"not a parquet file")
     writes: list[int] = []
 
     monkeypatch.setattr(
@@ -152,16 +215,16 @@ def test_non_strict_validation_only_allows_evaluated_rows(
         dlt_source_func=lambda partition_date: object(),
         validate=True,
         strict_validation=False,
-        validation_batch_size=batch_size,
+        add_metadata_columns=False,
     )
 
-    if batch_size == 0:
+    if corrupt_staging:
         with pytest.raises(PanderaContractValidationError) as error:
             ingester.run_ingestion(partition_key="2026-03-05")
         check = error.value.check_results[0]
         assert check.passed is False
         assert check.severity == "error"
-        assert "must be positive" in check.metadata["error"]
+        assert "Parquet" in check.metadata["error"]
         assert writes == []
         return
 
