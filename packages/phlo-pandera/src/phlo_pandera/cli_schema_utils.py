@@ -87,6 +87,15 @@ def _scan_schema_file(path: Path, py_file: Path, data_frame_model: type, schemas
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
 
+        module_file = getattr(module, "__file__", None)
+        if module_file is None or Path(module_file).resolve() != py_file.resolve():
+            logger.warning(
+                "schema_discovery_origin_mismatch",
+                schema_file=str(py_file),
+                module_file=module_file,
+            )
+            return
+
         for name, obj in inspect.getmembers(module):
             if (
                 inspect.isclass(obj)
@@ -121,10 +130,8 @@ def discover_pandera_schemas(
             continue
 
         import_root = str(path.parent.resolve())
-        added_import_root = False
-        if import_root not in sys.path:
-            sys.path.insert(0, import_root)
-            added_import_root = True
+        old_path = list(sys.path)
+        sys.path.insert(0, import_root)
 
         # Isolate the whole package once, including preloaded descendants.
         # Imports share class identities within this root's discovery session;
@@ -146,11 +153,7 @@ def discover_pandera_schemas(
             for module_name, module in old_modules.items():
                 if sys.modules.get(module_name) is not module:
                     sys.modules[module_name] = module
-            if added_import_root:
-                try:
-                    sys.path.remove(import_root)
-                except ValueError:
-                    pass
+            sys.path[:] = old_path
 
     return schemas
 

@@ -92,8 +92,21 @@ class InMemoryOperationJournalStore:
         self.entries: dict[str, OperationJournalEntry] = {}
 
     def claim(self, entry: OperationJournalEntry) -> bool:
+        entry = replace(entry, action=canonical_maintenance_action(entry.action))
         existing = self.entries.get(entry.operation_id)
         if existing is not None and existing.state is not OperationJournalState.SUCCEEDED:
+            return False
+        if entry.action == "snapshot_expiry" and any(
+            canonical_maintenance_action(record.action) == entry.action
+            and record.target == entry.target
+            and record.state
+            in {
+                OperationJournalState.CLAIMED,
+                OperationJournalState.SUBMITTED,
+                OperationJournalState.UNKNOWN,
+            }
+            for record in self.entries.values()
+        ):
             return False
         self.entries[entry.operation_id] = entry
         return True
@@ -119,6 +132,18 @@ class InMemoryOperationJournalStore:
 
     def read(self, operation_id: str) -> OperationJournalEntry | None:
         return self.entries.get(operation_id)
+
+
+def canonical_maintenance_action(action: str) -> str:
+    """Unify scheduled and interactive expiry without changing other identities."""
+    return "snapshot_expiry" if action == "expire_snapshots" else action
+
+
+def maintenance_action_aliases(action: str) -> tuple[str, ...]:
+    """Persisted action spellings that must share a claim, including legacy rows."""
+    if canonical_maintenance_action(action) == "snapshot_expiry":
+        return ("snapshot_expiry", "expire_snapshots")
+    return (action,)
 
 
 def maintenance_operation_id(operation: str, table: str, ref: str, plan_token: str) -> str:
@@ -148,7 +173,8 @@ def maintenance_plan_token(plan: Mapping[str, Any]) -> str:
 def _maintenance_state(result: Mapping[str, Any]) -> OperationJournalState:
     failure = result.get("failure")
     outcome = failure.get("outcome") if isinstance(failure, Mapping) else None
-    if outcome == "unknown":
+    code = str(failure.get("code", "")) if isinstance(failure, Mapping) else ""
+    if outcome == "unknown" or "outcome_unknown" in code:
         return OperationJournalState.UNKNOWN
     if result.get("status") in {"failed", "blocked"}:
         if result.get("accepted") is False and (
@@ -177,14 +203,17 @@ def execute_maintenance(
     plan_token: str,
     subject: str,
     execute: Callable[[str], MaintenanceOperationResult | Mapping[str, Any]],
+    operation_id: str | None = None,
 ) -> OperationJournalEntry:
     """Claim and execute one maintenance plan, retaining uncertain submission fences.
 
     The adapter supplies provider invocation and translates errors/output. Neither
     an accepted submission nor a failed response proves a definitive outcome.
     Preserve returned evidence even when it cannot release the durable claim.
+    Scheduled adapters may retain an existing run-bound verification handle.
     """
-    operation_id = maintenance_operation_id(operation, table, ref, plan_token)
+    if operation_id is None:
+        operation_id = maintenance_operation_id(operation, table, ref, plan_token)
     entry = claim_operation(
         store,
         operation_id=operation_id,
@@ -221,7 +250,7 @@ def claim_operation(
     entry = OperationJournalEntry(
         operation_id=operation_id,
         subject=subject,
-        action=action,
+        action=canonical_maintenance_action(action),
         target=target,
         plan_token=plan_token,
         state=OperationJournalState.CLAIMED,
@@ -262,7 +291,10 @@ def reconcile_unknown(
 ) -> None:
     """Explicitly reconcile an unknown outcome after operator-driven verification."""
     entry = store.read(operation_id)
-    if entry is not None and entry.action in {"compact", "snapshot_expiry"}:
+    if entry is not None and canonical_maintenance_action(entry.action) in {
+        "compact",
+        "snapshot_expiry",
+    }:
         state = _maintenance_state(result)
         if state is OperationJournalState.UNKNOWN:
             raise OperationJournalError("unknown_outcome_blocks_replay", (operation_id,))

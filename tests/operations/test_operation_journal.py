@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from multiprocessing import Event, Process, Queue
 from pathlib import Path
 
@@ -64,10 +65,18 @@ def test_claim_succeeds_and_state_is_claimed(store) -> None:
     assert entry.operation_id == "op:1"
 
 
-def test_conflicting_claim_is_rejected(store) -> None:
-    _claim(store)
+@pytest.mark.parametrize(
+    "first_action, second_action, second_id",
+    [
+        ("compact", "compact", "op:1"),
+        ("expire_snapshots", "snapshot_expiry", "fresh-plan"),
+        ("snapshot_expiry", "expire_snapshots", "fresh-plan"),
+    ],
+)
+def test_conflicting_claim_is_rejected(store, first_action, second_action, second_id) -> None:
+    _claim(store, action=first_action)
     with pytest.raises(OperationJournalError, match="conflicting_claim"):
-        _claim(store, subject="other-operator")
+        _claim(store, subject="other-operator", action=second_action, operation_id=second_id)
 
 
 def test_mark_submitted_moves_to_submitted(store) -> None:
@@ -114,7 +123,7 @@ def test_reconcile_unknown_resolves_to_succeeded(store) -> None:
     assert store.read("op:1").state is OperationJournalState.SUCCEEDED
 
 
-@pytest.mark.parametrize("operation", ["compact", "snapshot_expiry"])
+@pytest.mark.parametrize("operation", ["compact", "snapshot_expiry", "expire_snapshots"])
 @pytest.mark.parametrize(
     "observed",
     [
@@ -129,6 +138,11 @@ def test_maintenance_reconciliation_requires_definitive_evidence(tmp_path, opera
     directory = tmp_path / "journal"
     store = FileOperationJournalStore(directory)
     _claim(store, action=operation)
+    # Preserve the historical action as persisted by older scheduled writers.
+    path = next(directory.glob("*.json"))
+    record = json.loads(path.read_text())
+    record["action"] = operation
+    path.write_text(json.dumps(record))
     mark_submitted(store, "op:1")
     mark_unknown(store, "op:1")
     ambiguous = {
@@ -157,6 +171,53 @@ def test_maintenance_reconciliation_requires_definitive_evidence(tmp_path, opera
 
 def test_read_or_replay_returns_none_for_new_operation(store) -> None:
     assert read_or_replay(store, "nonexistent") is None
+
+
+@pytest.mark.parametrize("persisted_action", ["expire_snapshots", "snapshot_expiry"])
+@pytest.mark.parametrize("state", ["claimed", "submitted", "unknown"])
+def test_persisted_snapshot_expiry_alias_fences_fresh_plans(tmp_path, persisted_action, state):
+    from phlo.operations.journal import OperationJournalEntry
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    directory = tmp_path / "journal"
+    store = FileOperationJournalStore(directory)
+    # Write the on-disk format from an older writer, without normalising its action.
+    record = OperationJournalEntry(
+        "legacy-retention",
+        "scheduler",
+        persisted_action,
+        "raw.events",
+        "old-plan",
+        OperationJournalState(state),
+        result={"accepted": True},
+    ).to_dict()
+    path = directory / "legacy-retention.json"
+    path.write_text(json.dumps(record))
+    original = path.read_bytes()
+    other_action = (
+        "snapshot_expiry" if persisted_action == "expire_snapshots" else "expire_snapshots"
+    )
+    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+        _claim(store, operation_id="fresh", action=other_action, target="raw.events", token="new")
+    assert path.read_bytes() == original
+    # Different targets and unrelated actions do not become equivalent.
+    _claim(store, operation_id="other-table", action=other_action, target="raw.other")
+    _claim(store, operation_id="compact", action="compact", target="raw.events")
+    store.transition("legacy-retention", OperationJournalState.UNKNOWN, record["result"])
+    reconcile_unknown(store, "legacy-retention", {"accepted": True, "status": "succeeded"})
+    # Direct store claims must normalise new rows too, not only claim_operation.
+    assert store.claim(
+        OperationJournalEntry(
+            "fresh",
+            "cli",
+            other_action,
+            "raw.events",
+            "new",
+            OperationJournalState.CLAIMED,
+        )
+    )
+    assert store.read("fresh").action == "snapshot_expiry"
+    assert store.read("legacy-retention").action == persisted_action
 
 
 def test_read_or_replay_returns_stored_result_for_succeeded(store) -> None:

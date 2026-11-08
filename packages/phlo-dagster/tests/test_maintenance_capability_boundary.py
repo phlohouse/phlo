@@ -9,6 +9,8 @@ import ast
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from phlo_dagster import iceberg_maintenance
 from phlo_dagster.iceberg_maintenance_utils import MaintenanceConfig
 
@@ -271,9 +273,20 @@ def _wire_expire_op(
     return finish
 
 
-def test_snapshot_expiry_journals_outcome_unknown(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "failure, accepted, executed",
+    [
+        ({"code": "outcome_unknown_after_submission", "outcome": "unknown"}, True, True),
+        ({"code": "provider_timeout"}, True, True),
+        ({"code": "outcome_unknown_after_submission"}, False, False),
+    ],
+)
+def test_snapshot_expiry_journals_outcome_unknown(
+    monkeypatch, tmp_path, failure, accepted, executed
+) -> None:
     """A submitted-but-unconfirmed provider result records UNKNOWN, not FAILED."""
-    from phlo.operations.journal import InMemoryOperationJournalStore
+    from phlo.operations.journal import OperationJournalError, claim_operation, reconcile_unknown
+    from phlo.operations.journal_store import FileOperationJournalStore
 
     plan_result = {
         "status": "planned",
@@ -285,20 +298,17 @@ def test_snapshot_expiry_journals_outcome_unknown(monkeypatch) -> None:
     }
     unknown_result = {
         "status": "failed",
-        "accepted": True,
-        "executed": True,
+        "accepted": accepted,
+        "executed": executed,
         "before_revision": 41,
         "plan_token": "fake-plan-token",
-        "failure": {
-            "code": "outcome_unknown_after_submission",
-            "outcome": "unknown",
-            "retryable": False,
-        },
+        "failure": failure,
         "retry_safe": False,
     }
     store = FakeMaintenanceRetentionStore()
     store.expire_snapshots = MagicMock(side_effect=[plan_result, unknown_result])
-    journal = InMemoryOperationJournalStore()
+    directory = tmp_path / "journal"
+    journal = FileOperationJournalStore(directory)
     _wire_expire_op(monkeypatch, store, journal, executor=FakeSnapshotExpiryExecutor())
     context = MagicMock(run_id="run-1", job_name="maintenance")
 
@@ -313,10 +323,25 @@ def test_snapshot_expiry_journals_outcome_unknown(monkeypatch) -> None:
         ),
     )
 
-    entry = journal.read("expire_snapshots:raw.events:main:run-1")
+    journal = FileOperationJournalStore(directory)
+    operation_id = "expire_snapshots:raw.events:main:run-1"
+    entry = journal.read(operation_id)
     assert entry is not None
     # UNKNOWN is an active claim: a later run cannot re-claim or replay it.
     assert entry.state == "unknown"
+    assert entry.result == unknown_result
+    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+        claim_operation(
+            journal,
+            operation_id="snapshot_expiry:raw.events:main:fresh-plan",
+            subject="cli",
+            action="snapshot_expiry",
+            target="raw.events",
+            plan_token="fresh-plan",
+        )
+    with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
+        reconcile_unknown(journal, operation_id, {"accepted": True})
+    assert FileOperationJournalStore(directory).read(operation_id) == entry
 
 
 def test_snapshot_expiry_replays_journaled_result_without_provider_access(monkeypatch) -> None:
