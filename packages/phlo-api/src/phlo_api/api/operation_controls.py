@@ -458,7 +458,9 @@ def replay_or_execute(
         )
     elif claim.state == _STATE_UNKNOWN:
         raise IdempotencyConflict({"error": "idempotency_outcome_unknown"})
-    elif claim.state in {"target_mismatch", "operation_pending", "operation_unknown"}:
+    elif claim.state == "target_mismatch":
+        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
+    elif claim.state in {"operation_pending", "operation_unknown"}:
         raise IdempotencyConflict({"error": claim.state})
     else:
         raise IdempotencyConflict({"error": "idempotency_outcome_failed"})
@@ -518,7 +520,9 @@ async def replay_or_execute_async(
         )
     elif claim.state == _STATE_UNKNOWN:
         raise IdempotencyConflict({"error": "idempotency_outcome_unknown"})
-    elif claim.state in {"target_mismatch", "operation_pending", "operation_unknown"}:
+    elif claim.state == "target_mismatch":
+        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
+    elif claim.state in {"operation_pending", "operation_unknown"}:
         raise IdempotencyConflict({"error": claim.state})
     else:
         raise IdempotencyConflict({"error": "idempotency_outcome_failed"})

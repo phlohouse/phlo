@@ -106,7 +106,6 @@ def test_executor_applies_hints_before_staging(monkeypatch, tmp_path: Path) -> N
         ),
         table_store_resource=object(),
         dlt_source_func=lambda **_kwargs: resource,
-        validation_schema=StagedRecords,
     )
 
     with pytest.raises(RuntimeError, match="staging boundary reached"):

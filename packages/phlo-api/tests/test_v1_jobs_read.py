@@ -654,6 +654,13 @@ def test_job_launch_is_ref_pinned_and_idempotently_replayed(api, monkeypatch, tm
     assert replay.status_code == 200, replay.text
     assert replay.json() == first.json()
     assert len(state["calls"]) == call_count
+    changed = client.post(
+        "/api/v1/jobs/orders/launch?env=prod",
+        json={**body, "partition_key": "2026-08-21"},
+    )
+    assert changed.status_code == 409, changed.text
+    assert changed.json() == {"detail": {"error": "idempotency_key_conflict"}}
+    assert len(state["calls"]) == call_count
 
 
 def test_retry_replay_survives_status_change_without_reinvoking_provider(

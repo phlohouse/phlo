@@ -59,6 +59,7 @@ from phlo.cli.output import json_envelope, service_unavailable_error
 from phlo.config_schema import WapConfig
 from phlo.infrastructure import load_wap_config
 from phlo.logging import get_logger
+from phlo.wap_evidence import WapEvidence
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
@@ -72,7 +73,6 @@ from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import (
     WapLaunchError,
     prepare_wap_launch,
-    read_wap_report,
     submit_wap_launch,
 )
 
@@ -561,7 +561,9 @@ def _wait_for_wap_lifecycle(
                     dagster_url=dagster_url, run_id=dagster_run_id, access_token=access_token
                 )
             ).upper()
-            report = read_wap_report(logical_run_id)
+            report = WapEvidence(
+                Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
+            ).read_report(logical_run_id)
         except Exception as exc:
             poll_failures += 1
             # Transient poll failures (Dagster restarts, network blips) are

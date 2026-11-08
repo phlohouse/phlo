@@ -459,8 +459,8 @@ def test_wap_lifecycle_rejects_failed_promotion(monkeypatch):
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", successful_run)
     monkeypatch.setattr(
-        "phlo_dagster.cli_backfill.read_wap_report",
-        lambda _logical_run_id: {
+        "phlo_dagster.cli_backfill.WapEvidence.read_report",
+        lambda _self, _logical_run_id: {
             "status": "promotion_failed",
             "failure_reason": "merge_branch_returned_false",
         },
@@ -487,7 +487,8 @@ def test_wap_lifecycle_accepts_promoted_report(monkeypatch):
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", successful_run)
     monkeypatch.setattr(
-        "phlo_dagster.cli_backfill.read_wap_report", lambda _logical_run_id: {"status": "promoted"}
+        "phlo_dagster.cli_backfill.WapEvidence.read_report",
+        lambda _self, _logical_run_id: {"status": "promoted"},
     )
 
     _wait_for_wap_lifecycle(
@@ -512,7 +513,8 @@ def test_wap_lifecycle_retries_transient_poll_failure(monkeypatch):
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", eventually_successful_run)
     monkeypatch.setattr(
-        "phlo_dagster.cli_backfill.read_wap_report", lambda _logical_run_id: {"status": "promoted"}
+        "phlo_dagster.cli_backfill.WapEvidence.read_report",
+        lambda _self, _logical_run_id: {"status": "promoted"},
     )
     monkeypatch.setattr("phlo_dagster.cli_backfill._sleep", lambda _seconds: None)
 

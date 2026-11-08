@@ -528,7 +528,7 @@ def post_continuity_apply(request: ContinuityApplyRequest, http_request: Request
             "operation_unknown",
         }:
             raise _error(409, "conflicting_claim", (target,)) from exc
-        if isinstance(exc.detail, dict) and exc.detail.get("error") == "target_mismatch":
+        if isinstance(exc.detail, dict) and exc.detail.get("error") == "idempotency_key_conflict":
             raise _error(409, "idempotency_key_conflict", (target,)) from exc
         raise
     except OperationJournalError as exc:

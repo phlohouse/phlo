@@ -104,7 +104,7 @@ def test_two_api_instances_replay_and_exclude_distinct_intents(apps, postgres_ds
     requests[1].put((path, first))
     assert results[1].get(timeout=10) == completed
     requests[1].put((path, {**first, "target": "changed", "resource": resource + "-other"}))
-    assert results[1].get(timeout=10) == (409, {"detail": {"error": "target_mismatch"}})
+    assert results[1].get(timeout=10) == (409, {"detail": {"error": "idempotency_key_conflict"}})
     uncertain = {
         "key": "uncertain",
         "target": "lost-response",

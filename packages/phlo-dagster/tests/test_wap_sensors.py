@@ -25,7 +25,7 @@ from phlo_dagster.wap_sensors import (
     _quality_check_records,
     _quality_evidence,
     _project_identity_for_run,
-    _verify_wap_launch_manifest,
+    _migrate_launch_hashes,
     _wap_branch_name,
     wap_auto_promotion_sensor,
     wap_branch_cleanup_sensor,
@@ -33,14 +33,14 @@ from phlo_dagster.wap_sensors import (
 )
 from phlo_dagster.wap_launch import (
     _write_launch_manifest as _write_immutable_launch_manifest,
-    read_wap_report,
 )
+from phlo.wap_evidence import WapEvidence
 from phlo.hooks import HookBus
 from phlo.run_evidence import SQLiteRunEvidenceStore
 from phlo.run_evidence.hooks import CoreRunEvidenceHookProvider
 
 pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
-TEST_CONTEXT = WapContext("test", "main", "phlo_dagster", "test-backend")
+TEST_CONTEXT = WapContext("test", "main", "phlo_dagster", "a" * 64)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,6 +84,8 @@ def _write_launch_manifest(
         launch_source_hash=source_hash,
         launch_target_hash_before=target_hash_before,
         context=TEST_CONTEXT.to_dict(),
+        strategy=TEST_CONTEXT.strategy,
+        target_branch=TEST_CONTEXT.target_ref,
     )
 
 
@@ -114,14 +116,14 @@ def test_wap_launch_manifest_requires_immutable_project_and_attempt_tags(monkeyp
         },
     )
 
-    assert _verify_wap_launch_manifest(run, branch) is not None
+    assert _migrate_launch_hashes(run) is not None
 
     run.tags["phlo/project_id"] = "other-project"
-    assert _verify_wap_launch_manifest(run, branch) is None
+    assert _migrate_launch_hashes(run) is None
 
     run.tags["phlo/project_id"] = "warehouse"
     run.tags.pop("phlo/attempt")
-    assert _verify_wap_launch_manifest(run, branch) is None
+    assert _migrate_launch_hashes(run) is None
 
 
 def test_wap_launch_manifest_uses_launch_hashes_after_lifecycle_hashes_advance(
@@ -156,7 +158,7 @@ def test_wap_launch_manifest_uses_launch_hashes_after_lifecycle_hashes_advance(
         target_hash_before="main-h1",
     )
 
-    assert _verify_wap_launch_manifest(run, branch) is not None
+    assert _migrate_launch_hashes(run) is not None
 
 
 @pytest.mark.parametrize("tamper", ["tag", "dagster_run_id", "launch_hash", "checksum"])
@@ -193,7 +195,7 @@ def test_wap_launch_manifest_fails_closed_when_immutable_binding_is_tampered(
     else:
         write_wap_report(logical_run_id, launch_manifest_checksum="0" * 64)
 
-    assert _verify_wap_launch_manifest(run, branch) is None
+    assert _migrate_launch_hashes(run) is None
 
 
 def test_wap_launch_manifest_backfills_hashes_for_existing_reports(monkeypatch, tmp_path):
@@ -230,7 +232,7 @@ def test_wap_launch_manifest_backfills_hashes_for_existing_reports(monkeypatch, 
         },
     )
 
-    assert _verify_wap_launch_manifest(run, branch) is not None
+    assert _migrate_launch_hashes(run) is not None
     migrated = json.loads(report_path.read_text())
     assert migrated["launch_source_hash"] == "launch-h0"
     assert migrated["launch_target_hash_before"] == "main-h0"
@@ -262,6 +264,53 @@ def test_write_wap_report_updates_run_json(monkeypatch, tmp_path):
     assert payload["created_at"]
 
 
+@pytest.mark.parametrize(
+    "damage", ["oversized_update", "oversized_existing", "malformed", "unreadable"]
+)
+def test_report_write_failure_preserves_existing_evidence(monkeypatch, tmp_path, caplog, damage):
+    from pathlib import Path
+    from phlo_dagster.wap_launch import WapLaunch
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    launch = WapLaunch(
+        logical_run_id="preserved",
+        branch="pipeline-run-preserved",
+        catalog=None,
+        created_branch=False,
+        source_hash="initial",
+        target_hash_before="target",
+        project_id="warehouse",
+        attempt=1,
+        context=TEST_CONTEXT,
+    ).seal()
+    assert launch.record_launch_result(status="launched", dagster_run_id="physical")
+    evidence = WapEvidence(tmp_path)
+    path = evidence.report_path("preserved")
+    if damage == "oversized_existing":
+        path.write_bytes(b'{"padding":"' + b"x" * (2 * 1024 * 1024) + b'"}')
+    elif damage == "malformed":
+        path.write_bytes(b"{")
+    before = path.read_bytes()
+    snapshots = set(evidence.directory.rglob("*.json"))
+    original_open = Path.open
+
+    def open_report(self, *args, **kwargs):
+        if damage == "unreadable" and self == path and args == ("rb",):
+            raise PermissionError("cannot read existing evidence")
+        return original_open(self, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "open", open_report)
+        updates = {"padding": "é" * 400000} if damage == "oversized_update" else {}
+        assert not write_wap_report("preserved", status="promotion_pending", **updates)
+    assert path.read_bytes() == before
+    assert set(evidence.directory.rglob("*.json")) == snapshots
+    if damage == "oversized_update":
+        assert evidence.verify("preserved", "physical", launch.tags) is not None
+    else:
+        assert "wap_report_recovery_required" in caplog.text
+
+
 def test_promoted_wap_report_replaces_failure_only_outcome_fields(monkeypatch, tmp_path):
     """A successful retry cannot retain a previous terminal failure reason."""
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
@@ -283,7 +332,7 @@ def test_promoted_wap_report_replaces_failure_only_outcome_fields(monkeypatch, t
         target_hash_after="target-after",
     )
 
-    report = read_wap_report(logical_run_id)
+    report = WapEvidence(tmp_path).read_report(logical_run_id)
 
     assert report is not None
     assert report["status"] == "promoted"
@@ -306,7 +355,7 @@ def test_read_wap_report_treats_null_failure_reason_as_absent(monkeypatch, tmp_p
         encoding="utf-8",
     )
 
-    report = read_wap_report("run-null-reason")
+    report = WapEvidence(tmp_path).read_report("run-null-reason")
 
     assert report is not None
     assert "failure_reason" not in report
@@ -678,7 +727,7 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(
         )
         catalog.delete_branch.assert_not_called()
         query_catalog_manager.drop_ref_query_catalog.assert_not_called()
-        report = read_wap_report(logical_run_id)
+        report = WapEvidence(tmp_path).read_report(logical_run_id)
         assert report["status"] == "promotion_pending"
         assert report["merge_state"] == "merge_started"
         assert report["failure_reason"] == "merge_outcome_unknown"
@@ -1798,7 +1847,7 @@ def test_wap_unacknowledged_merge_retains_branch_without_replay(monkeypatch, tmp
     wap_auto_promotion_sensor._raw_fn(context)
     wap_auto_promotion_sensor._raw_fn(context)
 
-    report = read_wap_report(run_id)
+    report = WapEvidence(tmp_path).read_report(run_id)
     assert report["status"] == "promotion_pending"
     assert report["merge_state"] == "merge_started"
     assert report["failure_reason"] == "merge_outcome_unknown"
@@ -1834,6 +1883,6 @@ def test_wap_cleanup_retains_unacknowledged_merge_past_retention(monkeypatch, tm
 
     catalog.delete_branch.assert_not_called()
     manager.drop_ref_query_catalog.assert_not_called()
-    report = read_wap_report(logical_run_id)
+    report = WapEvidence(tmp_path).read_report(logical_run_id)
     assert report["status"] == "promotion_pending"
     assert report["merge_state"] == "merge_started"

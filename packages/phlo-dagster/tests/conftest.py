@@ -7,6 +7,7 @@ local fixture modules resolve without installation.
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,8 +26,9 @@ def synthetic_wap_context(monkeypatch):
     fixture in test_wap_environment.py.
     """
     from phlo_dagster import wap_context, wap_launch, wap_sensors
+    import phlo.infrastructure
 
-    context = wap_context.WapContext("test", "main", "phlo_dagster", "test-backend")
+    context = wap_context.WapContext("test", "main", "phlo_dagster", "a" * 64)
     monkeypatch.setattr(
         wap_context,
         "select_wap_target",
@@ -35,8 +37,12 @@ def synthetic_wap_context(monkeypatch):
             SimpleNamespace(dagster_location=context.location, nessie_ref=context.target_ref),
         ),
     )
-    monkeypatch.setattr(wap_context, "resolve_wap_context", lambda *a, **k: context)
-    monkeypatch.setattr(wap_launch, "resolve_wap_context", lambda *a, **k: context)
+
+    def resolved_context(*args, **kwargs):
+        return replace(context, strategy=phlo.infrastructure.load_wap_config().strategy)
+
+    monkeypatch.setattr(wap_context, "resolve_wap_context", resolved_context)
+    monkeypatch.setattr(wap_launch, "resolve_wap_context", resolved_context)
     monkeypatch.setattr(wap_context, "run_location", lambda run: context.location)
     monkeypatch.setattr(
         wap_context,

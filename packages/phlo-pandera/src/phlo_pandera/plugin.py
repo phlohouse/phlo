@@ -50,9 +50,6 @@ directly; contributes the Pandera quality and schema-discovery providers.
 
 from __future__ import annotations
 
-import hashlib
-import importlib.util
-import inspect
 from pathlib import Path
 from typing import Any, Callable
 
@@ -65,8 +62,6 @@ from phlo.capabilities import (
     WorkflowWizardField,
 )
 from phlo.plugins.base import PluginMetadata, QualityProviderPlugin
-from phlo.config.process import get_process_settings
-from phlo_pandera.settings import get_settings
 
 
 def get_workflow_wizard_contributions() -> list[WorkflowWizardContribution]:
@@ -453,47 +448,7 @@ class PanderaSchemaDiscoveryProvider:
         return PanderaSchemaExtractor().extract(native_schema)
 
     def discover_schemas(self) -> dict[str, Any]:
-        """Return discovered Pandera schemas by name, merging registry entries
-        with schemas found under project search paths."""
+        """Use the same schema discovery and provenance as the schema CLI."""
         from phlo_pandera.cli_schema_utils import discover_pandera_schemas
 
-        schemas = discover_pandera_schemas()
-        for name, schema in self._discover_schemas_from_files().items():
-            schemas.setdefault(name, schema)
-        return schemas
-
-    @staticmethod
-    def _discover_schemas_from_files() -> dict[str, type[Any]]:
-        from pandera.pandas import DataFrameModel
-
-        env_paths = get_settings().schema_search_paths
-        if env_paths is not None:
-            search_paths = [Path(path) for path in env_paths]
-        else:
-            project_root = get_process_settings().phlo_project_path
-            root = Path(project_root) if project_root else Path()
-            search_paths = [root / "examples", root / "workflows"]
-
-        discovered: dict[str, type[Any]] = {}
-        for root in search_paths:
-            if not root.exists():
-                continue
-            for schema_file in root.glob("**/schemas/*.py"):
-                if schema_file.name.startswith("_"):
-                    continue
-                module_name = (
-                    "phlo_schema_fallback_"
-                    f"{hashlib.sha256(str(schema_file.resolve()).encode()).hexdigest()[:16]}"
-                )
-                spec = importlib.util.spec_from_file_location(module_name, schema_file)
-                if spec is None or spec.loader is None:
-                    continue
-                module = importlib.util.module_from_spec(spec)
-                try:
-                    spec.loader.exec_module(module)
-                except Exception:
-                    continue
-                for name, obj in inspect.getmembers(module, inspect.isclass):
-                    if issubclass(obj, DataFrameModel) and obj is not DataFrameModel:
-                        discovered[name] = obj
-        return discovered
+        return discover_pandera_schemas()

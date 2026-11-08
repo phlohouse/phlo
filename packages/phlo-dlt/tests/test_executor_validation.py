@@ -22,6 +22,7 @@ from phlo.logging import get_logger
 from phlo.hooks.events import IngestionEvent, TelemetryEvent
 from phlo_dlt.dlt_helpers import DltStagingResult
 from phlo_dlt.executor import DltIngester
+from phlo_dlt.pandera_checks import PanderaContractValidationError
 from phlo_dlt.registry import TableConfig
 
 
@@ -61,7 +62,6 @@ def test_strict_validation_blocks_visible_write(monkeypatch, tmp_path) -> None:
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=True,
         strict_validation=True,
     )
@@ -109,7 +109,6 @@ def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tm
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=True,
         strict_validation=True,
         quality_checks=[reject_later_file],
@@ -122,9 +121,13 @@ def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tm
     assert merge_called is False
 
 
-def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("batch_size", [65_536, 0])
+def test_non_strict_validation_only_allows_evaluated_rows(
+    monkeypatch, tmp_path, batch_size
+) -> None:
     invalid_path = tmp_path / "invalid.parquet"
     pd.DataFrame([{"name": "test", "value": "not_an_int"}]).to_parquet(invalid_path)
+    writes: list[int] = []
 
     monkeypatch.setattr(
         "phlo_dlt.executor.extract_to_parquet",
@@ -132,7 +135,7 @@ def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, 
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.merge_to_table_store",
-        lambda **_kwargs: {"rows_inserted": 1, "rows_deleted": 0},
+        lambda **_kwargs: writes.append(1) or {"rows_inserted": 1, "rows_deleted": 0},
     )
 
     ingester = DltIngester(
@@ -147,15 +150,28 @@ def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, 
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=True,
         strict_validation=False,
+        validation_batch_size=batch_size,
     )
+
+    if batch_size == 0:
+        with pytest.raises(PanderaContractValidationError) as error:
+            ingester.run_ingestion(partition_key="2026-03-05")
+        check = error.value.check_results[0]
+        assert check.passed is False
+        assert check.severity == "error"
+        assert "must be positive" in check.metadata["error"]
+        assert writes == []
+        return
 
     result = ingester.run_ingestion(partition_key="2026-03-05")
 
     assert result.status == "success"
-    assert result.metadata["pandera_evaluation"]["passed"] is False
+    assert len(result.check_results) == 1
+    assert result.check_results[0].passed is False
+    assert result.check_results[0].severity == "warn"
+    assert writes == [1]
 
 
 def test_dlt_failure_events_carry_runtime_correlation(monkeypatch, tmp_path) -> None:
@@ -186,7 +202,6 @@ def test_dlt_failure_events_carry_runtime_correlation(monkeypatch, tmp_path) -> 
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=False,
     )
 

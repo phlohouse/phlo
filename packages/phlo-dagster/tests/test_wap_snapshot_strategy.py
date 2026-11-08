@@ -19,8 +19,10 @@ import pytest
 import phlo.infrastructure
 from phlo.capabilities.interfaces import CandidateSnapshot
 from phlo.config_schema import WapConfig
+from phlo.wap_evidence import WapEvidence
 from phlo_dagster.wap_context import WapContext
 from phlo_dagster.wap_launch import (
+    WapLaunch,
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
     WAP_PROJECT_ID_TAG,
@@ -41,7 +43,7 @@ from phlo_dagster.wap_launch import (
 )
 
 pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
-TEST_CONTEXT = WapContext("test", "main", "phlo_dagster", "test-backend")
+TEST_CONTEXT = WapContext("test", "main", "phlo_dagster", "a" * 64, strategy="snapshot")
 
 
 class _PromotionCatalog:
@@ -148,6 +150,7 @@ def _write_snapshot_launch(
         launch_source_hash=revision,
         launch_target_hash_before=revision,
         context=TEST_CONTEXT.to_dict(),
+        target_branch=TEST_CONTEXT.target_ref,
     )
 
 
@@ -330,7 +333,10 @@ def test_snapshot_promotion_refuses_revision_changed_since_launch(monkeypatch, t
 
     assert catalog.promoted == []
     assert catalog.aborted == []
-    assert _read(logical_run_id)["failure_reason"] == "release_pointer_conflict"
+    assert (
+        WapEvidence(tmp_path).read_report(logical_run_id)["failure_reason"]
+        == "release_pointer_conflict"
+    )
 
 
 def test_snapshot_promotion_release_conflict_fails_without_promotion(monkeypatch, tmp_path) -> None:
@@ -371,7 +377,9 @@ def test_snapshot_run_under_branch_strategy_is_blocked(monkeypatch, tmp_path) ->
 
     report = json.loads((tmp_path / ".phlo" / "wap-reports" / f"{logical_run_id}.json").read_text())
     assert report["status"] == "promotion_blocked"
-    assert report["failure_reason"] == "wap_strategy_mismatch"
+    # Strategy is frozen in the real launch context, so live drift is rejected
+    # before choosing a promotion strategy.
+    assert report["failure_reason"] == "wap_launch_context_invalid"
     catalog.merge_branch.assert_not_called()
 
 
@@ -399,7 +407,7 @@ def test_advance_snapshot_promotion_resumes_conflicted_intent_when_release_resol
         run=SimpleNamespace(run_id="run-resume"),
         branch_name=namespace,
         logical_run_id=logical_run_id,
-        prior_report=_read(logical_run_id),
+        prior_report=WapEvidence(tmp_path).read_report(logical_run_id),
         quality_decision_id="q",
         quality_metadata={},
     )
@@ -411,16 +419,10 @@ def test_advance_snapshot_promotion_resumes_conflicted_intent_when_release_resol
         "source_deleted": True,
     }
     assert catalog.aborted == [namespace]
-    report = _read(logical_run_id)
+    report = WapEvidence(tmp_path).read_report(logical_run_id)
     assert report["merge_state"] == "merged"
     assert report["source_deleted"] is True
     assert report["target_hash_after"] == "3"
-
-
-def _read(logical_run_id: str):
-    from phlo_dagster.wap_launch import read_wap_report
-
-    return read_wap_report(logical_run_id)
 
 
 def test_snapshot_intent_retries_when_release_revision_is_unchanged(monkeypatch, tmp_path):
@@ -441,7 +443,7 @@ def test_snapshot_intent_retries_when_release_revision_is_unchanged(monkeypatch,
         run=SimpleNamespace(run_id="retry-run"),
         branch_name=namespace,
         logical_run_id=logical_run_id,
-        prior_report=_read(logical_run_id),
+        prior_report=WapEvidence(tmp_path).read_report(logical_run_id),
         quality_decision_id="q",
         quality_metadata={},
     )
@@ -449,6 +451,55 @@ def test_snapshot_intent_retries_when_release_revision_is_unchanged(monkeypatch,
     assert result is not None
     assert catalog.revision == 1
     assert catalog.aborted == [namespace]
+
+
+def test_oversized_snapshot_outbox_preserves_registration_without_publishing(monkeypatch, tmp_path):
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    catalog = _PromotionCatalog()
+    logical_id = "large-outbox"
+    namespace = f"pipeline-run-{logical_id}"
+    catalog.candidates = [
+        CandidateSnapshot(
+            table_name=f"bronze.table_{index:05d}_{'x' * 100}",
+            snapshot_id=index,
+            run_id=logical_id,
+            namespace=namespace,
+        )
+        for index in range(16000)
+    ]
+    launch = WapLaunch(
+        logical_run_id=logical_id,
+        branch=namespace,
+        catalog=catalog,
+        created_branch=False,
+        source_hash="0",
+        target_hash_before="0",
+        project_id="warehouse",
+        attempt=1,
+        strategy="snapshot",
+        context=TEST_CONTEXT,
+    ).seal()
+    assert launch.record_launch_result(status="launched", dagster_run_id="large-run")
+    evidence = WapEvidence(tmp_path)
+    path = evidence.report_path(logical_id)
+    before = path.read_bytes()
+
+    result = _advance_snapshot_promotion(
+        catalog=catalog,
+        run=SimpleNamespace(run_id="large-run"),
+        branch_name=namespace,
+        logical_run_id=logical_id,
+        prior_report=evidence.read_report(logical_id),
+        quality_decision_id="quality",
+        quality_metadata={},
+    )
+
+    assert result is None
+    assert catalog.promoted == []
+    assert catalog.aborted == []
+    assert catalog.revision == 0
+    assert path.read_bytes() == before
+    assert evidence.verify(logical_id, "large-run", launch.tags) is not None
 
 
 # ---------------------------------------------------------------------------
