@@ -5757,7 +5757,7 @@
           "type": "text"
         },
         {
-          "default": "iceberg",
+          "default": "Sentinel.UNSET",
           "envvar": null,
           "help": "Catalog identifier recorded in the plan (snapshot_expiry execute requires it).",
           "is_flag": false,
@@ -5773,7 +5773,39 @@
           "type": "text"
         },
         {
-          "default": 1000,
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Retention window recorded in the expiry plan.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "retention_hours",
+          "nargs": 1,
+          "options": [
+            "--retention-hours"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "help": "Snapshot count retention recorded in the expiry plan.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "retain_last",
+          "nargs": 1,
+          "options": [
+            "--retain-last"
+          ],
+          "required": false,
+          "secondary_options": [],
+          "type": "integer"
+        },
+        {
+          "default": "Sentinel.UNSET",
           "envvar": null,
           "help": "Safety limit recorded in the plan (snapshot_expiry execute requires it).",
           "is_flag": false,
@@ -5789,7 +5821,7 @@
           "type": "integer"
         },
         {
-          "default": 1073741824,
+          "default": "Sentinel.UNSET",
           "envvar": null,
           "help": "Safety limit recorded in the plan (snapshot_expiry execute requires it).",
           "is_flag": false,

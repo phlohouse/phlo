@@ -2,4 +2,4 @@
 3:[["children",{"s":"__PAGE__","h":160}]]
 2:[["children",{"s":{"n":"slug","t":"oc","k":"architecture/decisions/0040-centralized-logging-layer","s":[]},"h":64,"c":"$Q3"}]]
 1:[["children",{"s":"docs","h":32,"c":"$Q2"}]]
-0:{"b":"duQk3irxc25mvqlYsuolg","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"fqyc0yJm3hlXCiLdr0OZY","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
