@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,8 +13,9 @@ from phlo.capabilities.continuity import RestoreTarget
 from phlo.operations.backup import create_backup_set
 from phlo.operations.journal import (
     InMemoryOperationJournalStore,
+    OperationJournal,
     OperationJournalError,
-    claim_operation,
+    OperationJournalState,
 )
 from phlo.operations.upgrade import (
     ROLLBACK_SAFE_LAST_STEP,
@@ -25,6 +28,7 @@ from phlo.operations.upgrade import (
     migration_digest,
     plan_upgrade,
     upgrade_apply,
+    upgrade_operation_id,
     validate_upgrade_pair,
 )
 
@@ -239,15 +243,14 @@ def test_apply_conflicting_claim_is_rejected(tmp_path) -> None:
 
     operation_id = upgrade_module._operation_id(plan)
     journal = InMemoryOperationJournalStore()
-    claim_operation(
-        journal,
+    OperationJournal(journal).claim(
         operation_id=operation_id,
         subject="other",
         action="upgrade.apply",
         target=plan.target.target_id,
         plan_token=plan.plan_token,
     )
-    with pytest.raises(UpgradeError, match="conflicting_claim"):
+    with pytest.raises(UpgradeError, match="binding_mismatch"):
         upgrade_apply(
             plan=plan,
             confirmation_token=plan.plan_token,
@@ -320,7 +323,8 @@ def test_apply_reconcile_exception_marks_unknown_and_blocks_replay(tmp_path) -> 
     set_dir = _make_set(tmp_path)
     plan = _plan(set_dir, tmp_path)
     journal = InMemoryOperationJournalStore()
-    providers = {defn.owner: ThrowingReconcileStub(defn.owner) for defn in UPGRADE_PIPELINE}
+    providers = _providers()
+    providers["nessie"] = ThrowingReconcileStub("nessie")
     result = upgrade_apply(
         plan=plan,
         confirmation_token=plan.plan_token,
@@ -329,12 +333,15 @@ def test_apply_reconcile_exception_marks_unknown_and_blocks_replay(tmp_path) -> 
     )
     assert result.accepted is False
     assert result.state == "unknown"
+    assert result.reconciliation["checks"] == {"postgres.schema": True}
     assert result.failure is not None and result.failure.get("requires_manual_reconciliation")
     from phlo.operations import upgrade as upgrade_module
 
-    assert journal.read(upgrade_module._operation_id(plan)).state.name == "UNKNOWN"
+    entry = journal.read(upgrade_module._operation_id(plan))
+    assert entry.state is OperationJournalState.UNKNOWN
+    assert entry.result == result.to_dict()
     # Replay is blocked once unknown, not silently retried.
-    with pytest.raises(OperationJournalError):
+    with pytest.raises(UpgradeError):
         upgrade_apply(
             plan=plan,
             confirmation_token=plan.plan_token,
@@ -367,3 +374,99 @@ def test_forward_repair_lists_only_steps_after_failure(
     assert result.forward_repair is not None
     assert result.forward_repair["remaining_steps"] == expected_remaining
     assert result.forward_repair["must_not_rollback"] is True
+
+
+def test_submission_exception_preserves_unknown_result_and_target_fence(tmp_path) -> None:
+    plan = _plan(_make_set(tmp_path), tmp_path)
+    providers = _providers()
+    journal = InMemoryOperationJournalStore()
+
+    def uncertain(*args, **kwargs):
+        raise RuntimeError("connection lost after migration accepted")
+
+    providers["nessie"].upgrade_step = uncertain
+    result = upgrade_apply(
+        plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+    )
+    assert result.state == "unknown"
+    assert not result.accepted
+    assert [step.name for step in result.steps] == ["postgres.schema"]
+    assert result.rollback_action is None and result.forward_repair is None
+    assert result.failure["requires_manual_reconciliation"] is True
+    entry = journal.read(upgrade_operation_id(plan))
+    assert entry.state is OperationJournalState.UNKNOWN
+    assert entry.result == result.to_dict()
+    with pytest.raises(UpgradeError):
+        upgrade_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+        )
+    with pytest.raises(OperationJournalError):
+        OperationJournal(journal).claim(
+            operation_id="replacement",
+            subject="operator",
+            action="upgrade.apply",
+            target=plan.target.target_id,
+            plan_token="new",
+        )
+
+
+def test_reconciliation_failure_agrees_with_journal(tmp_path) -> None:
+    plan = _plan(_make_set(tmp_path), tmp_path)
+    providers = _providers()
+    providers["nessie"].upgrade_reconcile = lambda *args: {"ok": False, "reason": "not migrated"}
+    journal = InMemoryOperationJournalStore()
+    result = upgrade_apply(
+        plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+    )
+    assert result.state == "failed"
+    assert not result.accepted
+    assert result.reconciliation["checks"]["postgres.schema"] is True
+    assert result.reconciliation["checks"]["nessie.catalog"] is False
+    entry = journal.read(upgrade_operation_id(plan))
+    assert entry.state is OperationJournalState.FAILED
+    assert entry.result == result.to_dict()
+
+
+@pytest.mark.parametrize("expiry", ["2000-01-01T00:00:00", "2999-01-01T00:00:00"])
+def test_naive_expiry_fails_closed(tmp_path, expiry) -> None:
+    plan = replace(_plan(_make_set(tmp_path), tmp_path), expires_at=expiry)
+    providers = _providers()
+    assert plan.is_expired()
+    with pytest.raises(UpgradeError, match="plan_expired"):
+        upgrade_apply(
+            plan=plan,
+            confirmation_token=plan.plan_token,
+            contributors=providers,
+            journal=InMemoryOperationJournalStore(),
+        )
+    assert all(provider.upgrade_calls == 0 for provider in providers.values())
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_expired_completed_plan_replays_but_requires_token(tmp_path, monkeypatch, failed) -> None:
+    plan = replace(
+        _plan(_make_set(tmp_path), tmp_path),
+        expires_at=datetime(2000, 1, 1, tzinfo=UTC).isoformat(),
+    )
+    providers = _providers(fail_step="nessie.catalog" if failed else None)
+    journal = InMemoryOperationJournalStore()
+    with pytest.raises(UpgradeError, match="plan_expired"):
+        upgrade_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+        )
+    with monkeypatch.context() as patch:
+        patch.setattr(type(plan), "is_expired", lambda self: False)
+        first = upgrade_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+        )
+    assert first.accepted is not failed
+    assert first.state == ("failed" if failed else "succeeded")
+    assert plan.is_expired()
+    assert (
+        upgrade_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors={}, journal=journal
+        )
+        == first
+    )
+    with pytest.raises(UpgradeError, match="token_mismatch"):
+        upgrade_apply(plan=plan, confirmation_token="wrong", contributors={}, journal=journal)

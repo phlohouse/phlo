@@ -27,9 +27,9 @@ from phlo.capabilities.continuity import (
 from phlo.operations.backup import create_backup_set, verify_backup_set
 from phlo.operations.journal import (
     InMemoryOperationJournalStore,
+    OperationJournal,
     OperationJournalError,
     OperationJournalState,
-    claim_operation,
 )
 
 
@@ -194,7 +194,9 @@ def test_create_records_submitted_before_mutation(tmp_path, monkeypatch) -> None
     def tracking_mkdir(self, *args: Any, **kwargs: Any) -> None:
         nonlocal state_at_first_write
         order.append("mkdir")
-        state_at_first_write = next(iter(journal.entries.values())).state
+        entry = journal.read("backup.create:set-submission")
+        assert entry is not None
+        state_at_first_write = entry.state
         return original_mkdir(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "mkdir", tracking_mkdir)
@@ -203,7 +205,7 @@ def test_create_records_submitted_before_mutation(tmp_path, monkeypatch) -> None
         order.append("quiesce")
         return {"quiesced": True}
 
-    result = _create(tmp_path, journal=journal, quiesce=quiesce)
+    result = _create(tmp_path, journal=journal, quiesce=quiesce, set_id="set-submission")
     assert result.accepted
     assert order[:2] == ["quiesce", "mkdir"]
     assert state_at_first_write is OperationJournalState.SUBMITTED
@@ -212,24 +214,28 @@ def test_create_records_submitted_before_mutation(tmp_path, monkeypatch) -> None
 
 
 def test_create_replays_stored_result_without_rerunning(tmp_path) -> None:
-    journal = InMemoryJournalWithResult()
+    journal = InMemoryOperationJournalStore()
     contributors = _contributors()
-    result = _create(tmp_path, journal=journal, contributors=contributors, set_id="set-fixed")
-    assert result.accepted is True
-    assert all(contributor.calls == 0 for _, contributor in contributors)
+    first = _create(tmp_path, journal=journal, contributors=contributors, set_id="set-fixed")
+    second = _create(tmp_path, journal=journal, contributors=contributors, set_id="set-fixed")
+    assert second == first
+    assert all(contributor.calls == 1 for _, contributor in contributors)
+
+    with pytest.raises(OperationJournalError):
+        _create(tmp_path, journal=journal, set_id="set-fixed", target=tmp_path / "other")
+    assert not (tmp_path / "other").exists()
 
 
 def test_create_with_conflicting_claim_is_rejected(tmp_path) -> None:
     journal = InMemoryOperationJournalStore()
-    claim_operation(
-        journal,
+    OperationJournal(journal).claim(
         operation_id="backup.create:set-fixed",
         subject="other-operator",
         action="backup.create",
         target=str(tmp_path / "backup"),
         plan_token="set-fixed",
     )
-    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+    with pytest.raises(OperationJournalError, match="binding_mismatch"):
         _create(tmp_path, journal=journal, set_id="set-fixed")
 
 
@@ -245,6 +251,7 @@ def test_quiesce_failure_leaves_no_set_and_records_failure(tmp_path) -> None:
     assert not (Path(result.target) / "set-q").exists()
     entry = journal.read("backup.create:set-q")
     assert entry is not None and entry.state is OperationJournalState.FAILED
+    assert entry.result == result.to_dict()
 
 
 # --- create: failure injection ---------------------------------------------
@@ -502,35 +509,6 @@ def test_verify_rejects_extra_artifact(tmp_path) -> None:
 
 
 # --- helpers -----------------------------------------------------------------
-
-
-class InMemoryJournalWithResult(InMemoryOperationJournalStore):
-    """Journal pre-loaded with a succeeded result for replay tests."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        entry = claim_operation(
-            self,
-            operation_id="backup.create:set-fixed",
-            subject="operator",
-            action="backup.create",
-            target="unused",
-            plan_token="set-fixed",
-        )
-        self.transition(entry.operation_id, OperationJournalState.SUBMITTED)
-        self.transition(
-            entry.operation_id,
-            OperationJournalState.SUCCEEDED,
-            {
-                "set_id": "set-fixed",
-                "target": "unused",
-                "state": "succeeded",
-                "accepted": True,
-                "manifest": None,
-                "contributors": [],
-                "failure": None,
-            },
-        )
 
 
 def _rewrite_manifest(set_dir: Path, manifest: dict[str, Any]) -> None:
