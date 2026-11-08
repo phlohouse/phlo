@@ -638,7 +638,7 @@ def compaction_job(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("failure", ["timeout", "unknown", "not_submitted", "exception"])
-def test_compaction_job_fences_uncertain_submissions(compaction_job, tmp_path, failure):
+def test_compaction_job_fences_uncertain_submissions(compaction_job, tmp_path, failure, capfd):
     from phlo.operations.journal_store import FileOperationJournalStore
 
     provider, run = compaction_job
@@ -655,6 +655,17 @@ def test_compaction_job_fences_uncertain_submissions(compaction_job, tmp_path, f
     assert entry.plan_token == "42"
     if failure == "exception":
         assert entry.result is None
+        synthetic_failure = first["results"][0]["failure"]
+        assert synthetic_failure["type"] == "OperationJournalError"
+        for detail in (
+            "apply_outcome_unknown",
+            operation_id,
+            "ConnectionError",
+            "provider response lost after commit",
+        ):
+            assert detail in first["errors"][0]
+            assert detail in synthetic_failure["message"]
+        assert first["errors"][0] in capfd.readouterr().err
     else:
         assert entry.result is not None
         assert entry.result == first["results"][0]

@@ -190,6 +190,14 @@ class MutationRejected(HTTPException):
     """
 
 
+class MutationDeferred(MutationRejected):
+    """A proven pre-submission refusal permits retry, but never key rebinding.
+
+    Retry safety does not guarantee eventual success: a retained terminal
+    journal entry can permanently refuse the same operation id.
+    """
+
+
 class IdempotencyConflict(HTTPException):
     """Stable 409 raised when an idempotency key is pending or has an unknown outcome."""
 
@@ -467,9 +475,12 @@ def replay_or_execute(
 
     try:
         response = execute()
-    except MutationRejected:
+    except MutationRejected as exc:
         _fail_idempotency_claim(
-            key_hash=key_hash, operation=operation, target=target, state=_STATE_FAILED
+            key_hash=key_hash,
+            operation=operation,
+            target=target,
+            state=_STATE_SAFE_TO_RETRY if isinstance(exc, MutationDeferred) else _STATE_FAILED,
         )
         raise
     except BaseException:
@@ -529,13 +540,13 @@ async def replay_or_execute_async(
 
     try:
         response = await execute()
-    except MutationRejected:
+    except MutationRejected as exc:
         await asyncio.to_thread(
             _fail_idempotency_claim,
             key_hash=key_hash,
             operation=operation,
             target=target,
-            state=_STATE_FAILED,
+            state=_STATE_SAFE_TO_RETRY if isinstance(exc, MutationDeferred) else _STATE_FAILED,
         )
         raise
     except BaseException:
