@@ -29,6 +29,8 @@ the branch-based catalog, Polaris the snapshot-promotion catalog.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -139,6 +141,7 @@ class IcebergReleaseStore:
                 NestedField(6, "run_id", StringType(), required=False),
                 NestedField(7, "status", StringType(), required=False),
                 NestedField(8, "recorded_at", TimestamptzType(), required=False),
+                NestedField(9, "request_fingerprint", StringType(), required=False),
             )
             return catalog.create_table_if_not_exists(self._full_table_name, schema)
 
@@ -424,11 +427,6 @@ class PolarisSnapshotPromotionCatalog:
     ) -> list[ReleaseRecord]:
         """Publish audited snapshots while holding the warehouse publication lock."""
         with self.store.publication_lock():
-            if get_operational_settings().second_gold_reviewer:
-                raise IndependentReviewRequired(
-                    "Independent review is required. Snapshot promotion cannot prove non-gold "
-                    "classification or consume human review evidence; retain the candidates."
-                )
             return self._promote_candidates(
                 namespace=namespace,
                 release_id=release_id,
@@ -477,6 +475,17 @@ class PolarisSnapshotPromotionCatalog:
         converges on retry (the repeated overwrite is identical).
         """
         rows, ledger_version = self.store.read_for_update()
+        request_fingerprint = hashlib.sha256(
+            json.dumps(
+                [
+                    namespace,
+                    release_id,
+                    expected_revision,
+                    sorted(set(tables)) if tables is not None else None,
+                ],
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
         current_revision = max(
             (
                 int(row["revision"])
@@ -485,27 +494,16 @@ class PolarisSnapshotPromotionCatalog:
             ),
             default=0,
         )
-        if expected_revision is not None and int(expected_revision) != current_revision:
-            raise ReleaseConflictError(
-                message=(
-                    f"Release pointer moved: expected revision {expected_revision}, "
-                    f"current revision {current_revision}."
-                ),
-                suggestions=[
-                    "Re-run the audit against the current release state before promoting.",
-                ],
-            )
         run_id = run_id_from_namespace(namespace)
         # Acknowledgement loss must not overwrite tables a second time.
         released = [
             row
             for row in rows
-            if row.get("kind") == "release"
-            and row.get("release_id") == release_id
-            and row.get("run_id") == run_id
-            and (tables is None or row.get("table_name") in tables)
+            if row.get("kind") == "release" and row.get("release_id") == release_id
         ]
         if released:
+            if any(row.get("request_fingerprint") != request_fingerprint for row in released):
+                raise ReleaseConflictError(message="Release ID belongs to a different request.")
             return [
                 ReleaseRecord(
                     table_name=str(row["table_name"]),
@@ -517,12 +515,26 @@ class PolarisSnapshotPromotionCatalog:
                 )
                 for row in released
             ]
-        pending = _pending_promotions(rows)
-        if any(
-            row.get("release_id") != release_id or row.get("run_id") != run_id for row in pending
-        ):
+        if get_operational_settings().second_gold_reviewer:
+            raise IndependentReviewRequired(
+                "Independent review is required. Snapshot promotion cannot prove non-gold "
+                "classification or consume human review evidence; retain the candidates."
+            )
+        if expected_revision is not None and int(expected_revision) != current_revision:
             raise ReleaseConflictError(
-                message="An interrupted promotion must be resumed before another release."
+                message=(
+                    f"Release pointer moved: expected revision {expected_revision}, "
+                    f"current revision {current_revision}."
+                ),
+                suggestions=[
+                    "Re-run the audit against the current release state before promoting."
+                ],
+            )
+        pending = _pending_promotions(rows)
+        if any(row.get("request_fingerprint") != request_fingerprint for row in pending):
+            raise ReleaseConflictError(
+                message="An interrupted promotion belongs to a different request "
+                "and must be resumed before another release."
             )
         selected = [
             row
@@ -566,6 +578,7 @@ class PolarisSnapshotPromotionCatalog:
                         "run_id": run_id,
                         "status": "pending",
                         "recorded_at": promoted_at,
+                        "request_fingerprint": request_fingerprint,
                     }
                     for row, _, tip, _ in prepared
                 ],
@@ -611,6 +624,7 @@ class PolarisSnapshotPromotionCatalog:
                     "run_id": record.run_id,
                     "status": "released",
                     "recorded_at": promoted_at,
+                    "request_fingerprint": request_fingerprint,
                 }
             )
         rows_to_append.append(
