@@ -230,89 +230,33 @@ def test_dagster_repeated_pagination_cursor_is_unavailable() -> None:
         source.observe_run("project", "dagster-run")
 
 
-@pytest.mark.parametrize("attempt", ["", "2"], ids=["untagged", "explicit-attempt"])
-def test_missing_parent_is_unavailable(attempt: str) -> None:
-    run = _run(attempt=attempt, parent_run_id="missing")
-    source = DagsterRunEvidenceSource(_Instance(run, []), project_id="project")
+@pytest.mark.parametrize("attempt", ["garbage", "0", "", True])
+def test_invalid_logical_attempt_never_falls_back_to_physical_ancestry(attempt) -> None:
+    run = _run(attempt=attempt, parent_run_id="physical-parent", tags={"dagster/attempt": "2"})
+    parent = _run(attempt="1", run_id="physical-parent")
 
-    with pytest.raises(RunEvidenceUnavailable, match="parent was missing"):
+    class ParentInstance(_Instance):
+        def get_run_by_id(self, run_id):
+            return parent if run_id == parent.run_id else super().get_run_by_id(run_id)
+
+    source = DagsterRunEvidenceSource(ParentInstance(run, []), project_id="project")
+
+    with pytest.raises(RunEvidenceUnavailable, match="invalid_attempt"):
         source.observe_run("project", run.run_id)
 
 
-@pytest.mark.parametrize("tagged_attempt", ["1", "3"])
-def test_explicit_attempt_tag_must_match_known_parent_chain(tagged_attempt: str) -> None:
-    root = _run(attempt="1", run_id="root", parent_run_id=None)
-    child = _run(attempt=tagged_attempt, run_id="child", parent_run_id="root")
+@pytest.mark.parametrize("tagged_attempt", ["1", "2", "4", None])
+def test_logical_attempt_is_independent_of_physical_ancestry(tagged_attempt) -> None:
+    from phlo._attempt import attempt_from_tags
 
-    class ChainInstance(_Instance):
-        def __init__(self):
-            super().__init__(child, [])
-            self.runs = {"root": root, "child": child}
-
-        def get_run_by_id(self, run_id):
-            return self.runs.get(run_id)
-
-    source = DagsterRunEvidenceSource(ChainInstance(), project_id="project")
-
-    with pytest.raises(RunEvidenceUnavailable, match="disagreed"):
-        source.observe_run("project", "child")
-
-
-def test_explicit_attempt_tag_matching_parent_chain_is_accepted() -> None:
-    root = _run(attempt="1", run_id="root", parent_run_id=None)
-    child = _run(attempt="2", run_id="child", parent_run_id="root")
-
-    class ChainInstance(_Instance):
-        def __init__(self):
-            super().__init__(child, [])
-            self.runs = {"root": root, "child": child}
-
-        def get_run_by_id(self, run_id):
-            return self.runs.get(run_id)
-
-    observation = DagsterRunEvidenceSource(ChainInstance(), project_id="project").observe_run(
+    child = _run(attempt=tagged_attempt, run_id="child", parent_run_id="not-retained")
+    if tagged_attempt is None:
+        child.tags.pop("phlo/attempt")
+    observation = DagsterRunEvidenceSource(_Instance(child, []), project_id="project").observe_run(
         "project", "child"
     )
-
-    assert observation.attempt == 2
-
-
-def test_dagster_retry_chain_cycle_is_unavailable() -> None:
-    first = _run(attempt="", run_id="first", parent_run_id="second")
-    second = _run(attempt="", run_id="second", parent_run_id="first")
-
-    class CycleInstance(_Instance):
-        def __init__(self):
-            super().__init__(first, [])
-            self.runs = {"first": first, "second": second}
-
-        def get_run_by_id(self, run_id):
-            return self.runs.get(run_id)
-
-    source = DagsterRunEvidenceSource(CycleInstance(), project_id="project")
-
-    with pytest.raises(RunEvidenceUnavailable, match="cycle"):
-        source.observe_run("project", "first")
-
-
-def test_dagster_retry_attempt_traverses_the_full_parent_chain() -> None:
-    root = _run(attempt="1", run_id="root", parent_run_id=None)
-    parent = _run(attempt="", run_id="parent", parent_run_id="root")
-    child = _run(attempt="", run_id="child", parent_run_id="parent")
-
-    class ChainInstance(_Instance):
-        def __init__(self):
-            super().__init__(child, [])
-            self.runs = {"root": root, "parent": parent, "child": child}
-
-        def get_run_by_id(self, run_id):
-            return self.runs.get(run_id)
-
-    source = DagsterRunEvidenceSource(ChainInstance(), project_id="project")
-
-    observation = source.observe_run("project", "child")
-
-    assert observation.attempt == 3
+    assert observation.attempt == (int(tagged_attempt) if tagged_attempt is not None else 1)
+    assert attempt_from_tags(child.tags) == (observation.attempt, None)
     assert observation.run_id == "root-run"
     assert observation.provider_run_id == "child"
 

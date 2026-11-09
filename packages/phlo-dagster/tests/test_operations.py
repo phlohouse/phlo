@@ -223,10 +223,27 @@ def test_launch_materialize_uses_the_explicit_user_access_token(monkeypatch) -> 
     }
 
 
-def test_wap_materialize_tags_survive_retry(monkeypatch) -> None:
+@pytest.mark.parametrize("wap", [False, True])
+def test_retry_advances_logical_attempt_or_requires_new_wap_binding(monkeypatch, wap) -> None:
     payloads: list[dict[str, object]] = []
 
     async def fake_post(self, url, json=None, headers=None):  # noqa: ANN001, ANN202, ARG001
+        if "RunStatus" in json["query"]:
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url),
+                json={
+                    "data": {
+                        "runOrError": {
+                            "__typename": "Run",
+                            "runId": "dagster-run",
+                            "status": "FAILURE",
+                            "rootRunId": "physical-root",
+                            "tags": [{"key": key, "value": value} for key, value in tags.items()],
+                        }
+                    }
+                },
+            )
         if "ExistingMaterializationRun" in json["query"]:
             return httpx.Response(
                 200,
@@ -251,10 +268,11 @@ def test_wap_materialize_tags_survive_retry(monkeypatch) -> None:
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     tags = {
         "phlo/run_id": "request-42",
-        "phlo/wap_branch": "pipeline-run-request-42",
         "phlo/project_id": "warehouse",
-        "phlo/attempt": "1",
+        "phlo/attempt": "3",
     }
+    if wap:
+        tags["phlo/wap_branch"] = "pipeline-run-request-42"
 
     asyncio.run(
         launch_materialize(
@@ -265,6 +283,18 @@ def test_wap_materialize_tags_survive_retry(monkeypatch) -> None:
             tags=tags,
         )
     )
+    if wap:
+        with pytest.raises(ValueError, match="newly prepared launch"):
+            asyncio.run(
+                launch_retry(
+                    dagster_url="http://dagster.test/graphql",
+                    run_id="dagster-run",
+                    strategy="FROM_FAILURE",
+                    tags=tags,
+                )
+            )
+        assert len(payloads) == 1
+        return
     asyncio.run(
         launch_retry(
             dagster_url="http://dagster.test/graphql",
@@ -277,12 +307,12 @@ def test_wap_materialize_tags_survive_retry(monkeypatch) -> None:
     launch_tags = payloads[0]["variables"]["executionParams"]["executionMetadata"]["tags"]  # type: ignore[index]
     retry = payloads[1]["variables"]["reexecutionParams"]  # type: ignore[index]
     launch_tag_map = {tag["key"]: tag["value"] for tag in launch_tags}
-    assert launch_tag_map["phlo/wap_branch"] == "pipeline-run-request-42"
     assert launch_tag_map["phlo/idempotency_key"] == "request-42"
     assert launch_tag_map["phlo/project_id"] == "warehouse"
-    assert launch_tag_map["phlo/attempt"] == "1"
+    assert launch_tag_map["phlo/attempt"] == "3"
     assert retry["useParentRunTags"] is True
     assert {tag["key"]: tag["value"] for tag in retry["extraTags"]}["phlo/run_id"] == "request-42"
+    assert {tag["key"]: tag["value"] for tag in retry["extraTags"]}["phlo/attempt"] == "4"
 
 
 def test_wap_materialize_reconciles_a_lost_response_without_a_duplicate_launch(

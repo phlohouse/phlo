@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from phlo._attempt import attempt_from_tags
 from phlo.security.mode import requires_http_authorization
 from phlo.security.service_identity import (
     build_scoped_service_headers,
@@ -50,7 +51,7 @@ RUN_STATUS_QUERY = """
 query RunStatus($runId: ID!) {
     runOrError(runId: $runId) {
         __typename
-        ... on Run { runId status }
+        ... on Run { runId status rootRunId tags { key value } }
         ... on RunNotFoundError { message }
         ... on PythonError { message }
     }
@@ -247,10 +248,24 @@ async def launch_retry(
     tags: dict[str, str] | None = None,
 ) -> DagsterOperationResult:
     """Launch a Dagster re-execution of a failed run using the given retry strategy."""
+    observed = await _graphql(dagster_url, RUN_STATUS_QUERY, {"runId": run_id})
+    parent = observed.get("data", {}).get("runOrError", {})
+    if parent.get("__typename") != "Run":
+        raise RuntimeError(_error_message(parent))
+    parent_tags = {tag["key"]: tag["value"] for tag in parent.get("tags", [])}
+    attempt, error = attempt_from_tags(parent_tags)
+    if error or attempt is None:
+        raise ValueError("Cannot retry a run with invalid_attempt")
+    if parent_tags.get("phlo/wap_branch"):
+        raise ValueError("WAP retry requires a newly prepared launch and execution binding")
     execution_tags = {"phlo/operation": "retry_failed_run", "phlo/parent_run_id": run_id}
     if idempotency_key:
         execution_tags["phlo/idempotency_key"] = idempotency_key
     execution_tags.update(tags or {})
+    execution_tags["phlo/attempt"] = str(attempt + 1)
+    execution_tags["phlo/run_id"] = (
+        parent_tags.get("phlo/run_id") or parent.get("rootRunId") or run_id
+    )
     result = await _graphql(
         dagster_url,
         LAUNCH_PIPELINE_REEXECUTION_MUTATION,
@@ -267,7 +282,6 @@ async def launch_retry(
     return _launch_result(
         operation="retry_failed_run",
         payload=result.get("data", {}).get("launchPipelineReexecution", {}),
-        fallback_run_id=run_id,
     )
 
 

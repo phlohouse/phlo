@@ -18,6 +18,7 @@ from phlo.hooks.bus import HookBus, get_hook_bus
 from phlo.hooks.events import (
     DataMigrationEvent,
     HookCorrelation,
+    HookEvent,
     IngestionEvent,
     LineageEvent,
     PublishEvent,
@@ -78,18 +79,19 @@ class _ContextEmitterBase:
         | DataMigrationEvent,
         *,
         correlation_overrides: dict[str, Any] | None = None,
+        identity_parts: tuple[str, ...] = (),
     ) -> None:
         """Emit a hook event with merged correlation."""
         event.correlation = _merge_correlation(
             base=self._context.correlation,
             overrides=correlation_overrides,
         )
+        if not event.event_id:
+            event.event_id = self._event_id(event, *identity_parts)
         self._hook_bus.emit(event)
 
-    def _event_id(self, event_type: str, explicit: str | None, *identity_parts: str) -> str:
-        """Return an explicit or deterministic identity for retryable events."""
-        if explicit:
-            return explicit
+    def _event_id(self, event: HookEvent, *identity_parts: str) -> str:
+        """Hash the same resolved run coordinates the handlers receive."""
         # Derive a stable identity from the run coordinates so retries of the
         # same work produce the same event_id and downstream consumers can
         # deduplicate. Tags are excluded from the hash: they annotate events
@@ -97,7 +99,7 @@ class _ContextEmitterBase:
         context = asdict(self._context)
         context.pop("tags", None)
         context.pop("correlation", None)
-        correlation = asdict(self._context.correlation)
+        correlation = asdict(event.correlation)
         correlation = {
             key: correlation.get(key)
             for key in (
@@ -111,7 +113,7 @@ class _ContextEmitterBase:
         }
         identity = json.dumps(
             {
-                "event_type": event_type,
+                "event_type": event.event_type,
                 "context": context,
                 "correlation": correlation,
                 "identity_parts": identity_parts,
@@ -136,7 +138,7 @@ class IngestionEventContext:
     branch_name: str | None = None
     catalog_system: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
     producer: str = "phlo"
 
 
@@ -179,7 +181,7 @@ class IngestionEventEmitter(_ContextEmitterBase):
         self._emit_event(
             IngestionEvent(
                 event_type=event_type,
-                event_id=self._event_id(event_type, event_id),
+                event_id=event_id or "",
                 producer=self._context.producer,
                 asset_key=self._context.asset_key,
                 table_name=self._context.table_name,
@@ -215,7 +217,7 @@ class TransformEventContext:
     run_id: str | None = None
     model_names: list[str] = field(default_factory=list)
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
     producer: str = "phlo"
 
 
@@ -258,7 +260,7 @@ class TransformEventEmitter(_ContextEmitterBase):
         self._emit_event(
             TransformEvent(
                 event_type=event_type,
-                event_id=self._event_id(event_type, event_id),
+                event_id=event_id or "",
                 producer=self._context.producer,
                 tool=self._context.tool,
                 project_dir=self._context.project_dir,
@@ -291,7 +293,7 @@ class PublishEventContext:
     target_system: str | None = None
     tables: dict[str, str] = field(default_factory=dict)
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
     producer: str = "phlo"
 
 
@@ -330,7 +332,7 @@ class PublishEventEmitter(_ContextEmitterBase):
         self._emit_event(
             PublishEvent(
                 event_type=event_type,
-                event_id=self._event_id(event_type, event_id),
+                event_id=event_id or "",
                 producer=self._context.producer,
                 asset_key=self._context.asset_key,
                 target_system=self._context.target_system,
@@ -358,7 +360,7 @@ class QualityResultEventContext:
     run_id: str | None = None
     partition_key: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
     producer: str = "phlo"
 
 
@@ -379,7 +381,7 @@ class QualityResultEventEmitter(_ContextEmitterBase):
         self._emit_event(
             QualityResultEvent(
                 event_type="quality.result",
-                event_id=self._event_id("quality.result", event_id, check_name),
+                event_id=event_id or "",
                 producer=self._context.producer,
                 asset_key=self._context.asset_key,
                 check_name=check_name,
@@ -397,6 +399,7 @@ class QualityResultEventEmitter(_ContextEmitterBase):
                 "partition_key": self._context.partition_key,
                 "check_name": check_name,
             },
+            identity_parts=(check_name,),
         )
 
 
@@ -407,7 +410,7 @@ class LineageEventContext:
     project_id: str | None = None
     run_id: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
     producer: str = "phlo"
     operation_id: str | None = None
 
@@ -430,13 +433,15 @@ class LineageEventEmitter(_ContextEmitterBase):
         # id is required whenever emission happens inside a tracked run;
         # without one each retry would mint a distinct event_id for the same
         # edges.
-        if logical_operation_id is None and self._context.correlation.run_id is not None:
+        if logical_operation_id is None and (
+            self._context.run_id or _merge_correlation(base=self._context.correlation).run_id
+        ):
             raise ValueError("lineage event requires operation_id or event_id for retry identity")
         logical_operation_id = logical_operation_id or "uncorrelated"
         self._emit_event(
             LineageEvent(
                 event_type="lineage.edges",
-                event_id=self._event_id("lineage.edges", event_id, logical_operation_id),
+                event_id=event_id or "",
                 producer=self._context.producer,
                 edges=list(edges),
                 asset_keys=list(asset_keys) if asset_keys else [],
@@ -447,6 +452,7 @@ class LineageEventEmitter(_ContextEmitterBase):
                 "project_id": self._context.project_id,
                 "run_id": self._context.run_id,
             },
+            identity_parts=(logical_operation_id,),
         )
 
 
@@ -455,7 +461,7 @@ class TelemetryEventContext:
     """Shared context for telemetry event emissions."""
 
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
 
 
 class TelemetryEventEmitter(_ContextEmitterBase):
@@ -546,7 +552,7 @@ class ServiceLifecycleEventContext:
     project_root: str | None = None
     container_name: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
 
 
 class ServiceLifecycleEventEmitter(_ContextEmitterBase):
@@ -584,7 +590,7 @@ class SchemaMigrationEventContext:
 
     table_name: str
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
 
 
 class SchemaMigrationEventEmitter(_ContextEmitterBase):
@@ -626,7 +632,7 @@ class DataMigrationEventContext:
     destination_table: str
     run_id: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
-    correlation: HookCorrelation = field(default_factory=HookCorrelation)
+    correlation: HookCorrelation | None = None
 
 
 class DataMigrationEventEmitter(_ContextEmitterBase):
