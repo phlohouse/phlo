@@ -174,6 +174,24 @@ class WapEvidence:
         snapshot = self.read_report_snapshot(logical_id)
         return snapshot[1] if snapshot is not None else None
 
+    def pending_publication_run_ids(self) -> list[str]:
+        """Enumerate durable pending work independently of run discovery time."""
+        run_ids: set[str] = set()
+        for path in self.directory.glob("*.json"):
+            report = self.read_report(path.stem)
+            if report is None or report.get("status") in {
+                "promoted",
+                "failed",
+                "cancelled",
+                "launch_rejected",
+                "cleanup_complete",
+            }:
+                continue
+            run_id = report.get("dagster_run_id")
+            if isinstance(run_id, str) and run_id:
+                run_ids.add(run_id)
+        return sorted(run_ids)
+
     def read_report_snapshot(
         self, logical_id: str, *, strict: bool = False
     ) -> tuple[bytes, dict[str, Any]] | None:

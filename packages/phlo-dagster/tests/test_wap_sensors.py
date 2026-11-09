@@ -632,7 +632,7 @@ def _register_wap_contributions() -> None:
         )
 
 
-@pytest.mark.parametrize("checkpoint_failure", [None, "merge_receipt", "cleanup"])
+@pytest.mark.parametrize("checkpoint_failure", [None, "merge_receipt", "cleanup", "aged_pending"])
 def test_wap_successful_promotion_uses_recorded_check_event_identity(
     monkeypatch, tmp_path, checkpoint_failure
 ):
@@ -709,10 +709,18 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(
             return write_wap_report(logical_run_id, **updates)
 
         monkeypatch.setattr("phlo_dagster.wap_sensors.write_wap_report", fail_merge_receipt)
-    elif checkpoint_failure == "cleanup":
+    elif checkpoint_failure in {"cleanup", "aged_pending"}:
         catalog.delete_branch.side_effect = [False, True]
 
     wap_auto_promotion_sensor._raw_fn(context)
+    if checkpoint_failure == "aged_pending":
+        pending_run = instance.get_runs.return_value[0]
+        # Recent-run discovery no longer contains this publication. Only its
+        # durable pending receipt can bring it back on a subsequent tick.
+        instance.get_runs.side_effect = lambda *, filters: (
+            [pending_run] if filters.run_ids == [dagster_run_id] else []
+        )
+        context.cursor = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
     if checkpoint_failure:
         wap_auto_promotion_sensor._raw_fn(context)
     if checkpoint_failure == "merge_receipt":
@@ -741,7 +749,7 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(
         expected_target_hash="target-before",
         expected_source_hash="source-before",
     )
-    expected_cleanup_attempts = 2 if checkpoint_failure == "cleanup" else 1
+    expected_cleanup_attempts = 2 if checkpoint_failure in {"cleanup", "aged_pending"} else 1
     assert query_catalog_manager.drop_ref_query_catalog.call_count == expected_cleanup_attempts
     query_catalog_manager.drop_ref_query_catalog.assert_called_with(branch)
     assert catalog.delete_branch.call_count == expected_cleanup_attempts

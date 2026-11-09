@@ -1085,23 +1085,33 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
         (cursor_ts - timedelta(minutes=5)) if cursor_ts else (evaluation_time - timedelta(hours=1))
     )
 
-    terminal_runs = list(
+    terminal_statuses = [
+        dg.DagsterRunStatus.SUCCESS,
+        dg.DagsterRunStatus.FAILURE,
+        dg.DagsterRunStatus.CANCELED,
+    ]
+    discovered = list(
         instance.get_runs(
             filters=dg.RunsFilter(
-                statuses=[
-                    dg.DagsterRunStatus.SUCCESS,
-                    dg.DagsterRunStatus.FAILURE,
-                    dg.DagsterRunStatus.CANCELED,
-                ],
+                statuses=terminal_statuses,
                 updated_after=cutoff,
             )
         )
     )
+    terminal_runs = {run.run_id: run for run in discovered}
+    pending = sorted(set(_evidence().pending_publication_run_ids()) - terminal_runs.keys())
+    if pending:
+        terminal_runs.update(
+            (run.run_id, run)
+            for run in instance.get_runs(
+                filters=dg.RunsFilter(run_ids=pending, statuses=terminal_statuses)
+            )
+        )
 
     promoted = 0
     blocked = 0
 
-    for run in terminal_runs:
+    for run in terminal_runs.values():
         try:
             run_promoted, run_blocked = _promote_terminal_run(
                 run, instance, configured_strategy, catalog, query_catalog_manager
