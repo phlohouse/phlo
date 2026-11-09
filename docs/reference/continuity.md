@@ -2,6 +2,27 @@
 
 Phlo can create and verify a backup set for the frozen v1 state owners. Restore and deployment upgrade apply are not live operational procedures: the current provider adapters write files and version markers beneath an empty fixture target.
 
+## Shared operation journal
+
+[`OperationJournal`](../../src/phlo/operations/journal.py) owns the execution lifecycle. Memory, file, and PostgreSQL adapters apply its transition rules under an atomic expected-state write.
+
+| Command | Required state | New state |
+| --- | --- | --- |
+| `claim` | No record and no conflicting active claim | `claimed` |
+| `submit` | `claimed`, with an unexpired lease | `submitted` |
+| `reject` | `claimed` | `failed` |
+| `complete` | `submitted` | Explicit `succeeded` or `failed` |
+| `unknown` | `submitted` | `unknown` |
+| `reconcile` | `unknown` | Explicit `succeeded` or `failed` |
+
+Terminal records have no outgoing transitions. Their result evidence cannot be replaced or erased. Completion requires an explicit outcome, not the truthiness of an `accepted` field. Conflicting result state or acceptance fields are rejected.
+
+Claims fence the same canonical action and target. Snapshot-expiry action aliases share that fence; unrelated actions do not become a global target lock. A claim has a five-minute pre-submission lease by default. A new operation can replace an expired claim atomically, retaining the old operation's failed expiry receipt. The old owner cannot submit after expiry. Neither `submitted` nor `unknown` expires automatically.
+
+`replay` returns a terminal receipt only when subject, action, target, and plan token match. An absent record returns `None`. Active work, unknown outcomes, expired claims, missing terminal evidence, and changed bindings raise journal errors. Completed restore and upgrade plans replay after plan expiry, but still require their confirmation token. Expiry continues to prevent a new execution.
+
+Unclassified restore or upgrade exceptions after submission record `unknown` with the available evidence. They retain the target fence until explicit reconciliation. A provider's definitive failed step records `failed`; a failed upgrade reconciliation returns a failed result and journal state together. Restore validates every required contributor and the fixed provider order before claiming or writing the target.
+
 ## Backup contributors and captured state
 
 Every set must contain all four contributors in this exact order. Missing, additional, duplicate, or reordered contributors prevent finalisation or verification.

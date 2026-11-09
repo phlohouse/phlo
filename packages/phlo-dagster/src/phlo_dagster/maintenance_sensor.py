@@ -32,10 +32,10 @@ from phlo.plugins.observatory_settings import (
     operational_schedule_slot,
 )
 from phlo.operations.journal import (
+    OperationJournal,
     OperationJournalError,
     OperationJournalStore,
     execute_maintenance,
-    read_or_replay,
 )
 
 from phlo_dagster.iceberg_maintenance_utils import (
@@ -181,7 +181,14 @@ def _compact_table_journaled(
     base_id = f"{context.run_id}:{table_name}"
     operation_id = f"compact:{table_name}:{ref}:{context.run_id}"
 
-    stored = read_or_replay(journal, operation_id)
+    previous = journal.read(operation_id)
+    stored = OperationJournal(journal).replay(
+        operation_id,
+        subject="dagster:maintenance-policy",
+        action="compact",
+        target=table_name,
+        plan_token=previous.plan_token if previous is not None else "",
+    )
     if stored is not None:
         context.log.info(f"Compaction for {table_name} already journaled; replaying result")
         return dict(stored)

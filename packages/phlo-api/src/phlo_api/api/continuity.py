@@ -37,8 +37,8 @@ from phlo.capabilities.continuity import (
 from phlo.config.process import get_process_settings
 from phlo.operations.backup import create_backup_set, default_backup_contributors
 from phlo.operations.journal import (
+    OperationJournal,
     OperationJournalError,
-    OperationJournalState,
     OperationJournalStore,
     maintenance_operation_id,
     maintenance_plan_token,
@@ -215,7 +215,15 @@ def _error(status_code: int, code: str, identifiers: tuple[str, ...] = ()) -> HT
 
 
 _CONFLICT_CODES = frozenset(
-    {"conflicting_claim", "unknown_outcome_blocks_replay", "unknown_operation"}
+    {
+        "conflicting_claim",
+        "unknown_outcome_blocks_replay",
+        "unknown_operation",
+        "operation_in_progress",
+        "binding_mismatch",
+        "claim_expired",
+        "invalid_transition",
+    }
 )
 
 
@@ -550,5 +558,5 @@ def get_continuity_verification(operation_id: str, http_request: Request) -> dic
     if entry is None:
         raise _error(404, "unknown_operation", (operation_id,))
     payload = entry.to_dict()
-    payload["replay_blocked"] = entry.state is OperationJournalState.UNKNOWN
+    payload["replay_blocked"] = OperationJournal.replay_block_reason(entry) is not None
     return payload

@@ -38,11 +38,9 @@ from phlo.capabilities.continuity import (
 from phlo.capabilities.resolver import list_capabilities
 from phlo.logging import get_logger
 from phlo.operations.journal import (
+    OperationJournal,
+    OperationJournalState,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    read_or_replay,
 )
 from phlo.operations.runtime import get_deployment_id, get_package_versions
 
@@ -133,7 +131,14 @@ def create_backup_set(
             f"backup contributor roster is out of canonical ADR 0049 order: {provided_order}",
         )
 
-    stored = read_or_replay(journal, operation_id)
+    owner = OperationJournal(journal)
+    stored = owner.replay(
+        operation_id,
+        subject=subject,
+        action="backup.create",
+        target=str(target),
+        plan_token=resolved_set_id,
+    )
     if stored is not None:
         return _result_from_dict(stored)
 
@@ -142,8 +147,7 @@ def create_backup_set(
     quiesce_hook = quiesce or _default_quiesce
     set_dir = target / resolved_set_id
 
-    claim_operation(
-        journal,
+    owner.claim(
         operation_id=operation_id,
         subject=subject,
         action="backup.create",
@@ -153,9 +157,6 @@ def create_backup_set(
 
     try:
         quiesce_evidence = dict(quiesce_hook())
-        # Fail-before-mutation: nothing is written until the claim is held
-        # and the journal records submitted.
-        mark_submitted(journal, operation_id)
     except Exception as exc:
         return _failed_result(
             journal=journal,
@@ -164,8 +165,11 @@ def create_backup_set(
             target=target,
             contributor_results=(),
             failure=_sanitize_failure(exc),
+            rejected=True,
         )
 
+    # Fail-before-mutation: nothing is written until submission is recorded.
+    owner.submit(operation_id)
     contributor_results: list[BackupContributorResult] = []
     artifacts: list[BackupArtifact] = []
 
@@ -227,7 +231,7 @@ def create_backup_set(
         manifest=manifest.to_dict(),
         contributors=tuple(record.to_dict() for record in contributor_results),
     )
-    complete_operation(journal, operation_id, result.to_dict())
+    owner.complete(operation_id, state=OperationJournalState.SUCCEEDED, result=result.to_dict())
     return result
 
 
@@ -419,6 +423,7 @@ def _failed_result(
     target: Path,
     contributor_results: Sequence[BackupContributorResult],
     failure: dict[str, Any],
+    rejected: bool = False,
 ) -> BackupCreateResult:
     result = BackupCreateResult(
         set_id=set_id,
@@ -429,17 +434,12 @@ def _failed_result(
         contributors=tuple(record.to_dict() for record in contributor_results),
         failure=failure,
     )
-    _record_result(journal, operation_id, result.to_dict())
+    owner = OperationJournal(journal)
+    if rejected:
+        owner.reject(operation_id, result=result.to_dict())
+    else:
+        owner.complete(operation_id, state=OperationJournalState.FAILED, result=result.to_dict())
     return result
-
-
-def _record_result(
-    journal: OperationJournalStore, operation_id: str, result: dict[str, Any]
-) -> None:
-    entry = journal.read(operation_id)
-    if entry is None:
-        return
-    complete_operation(journal, operation_id, result)
 
 
 def _ensure_failed_record(

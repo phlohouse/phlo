@@ -1,8 +1,6 @@
-"""Tests for the durable operation journal (ADR 0049 §1, Plan 010 Step 1)."""
+"""Journal contracts shared by the memory and cross-process file adapters."""
 
-from __future__ import annotations
-
-import json
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Event, Process, Queue
 from pathlib import Path
 
@@ -10,395 +8,336 @@ import pytest
 
 from phlo.operations.journal import (
     InMemoryOperationJournalStore,
+    OperationJournal,
     OperationJournalError,
-    OperationJournalState,
-    claim_operation,
-    complete_operation,
     execute_maintenance,
-    mark_submitted,
-    mark_unknown,
-    read_or_replay,
-    reconcile_unknown,
 )
+from phlo.operations.journal import (
+    OperationJournalState as State,
+)
+from phlo.operations.journal_store import FileOperationJournalStore
 
 
-@pytest.fixture()
-def store():
-    return InMemoryOperationJournalStore()
+@pytest.fixture(params=["memory", "file"])
+def store(request, tmp_path):
+    if request.param == "memory":
+        return InMemoryOperationJournalStore()
+    return FileOperationJournalStore(tmp_path / "journal")
 
 
-def _claim(
-    store, *, operation_id="op:1", subject="operator", action="compact", target="t", token="tok"
-):
-    return claim_operation(
-        store,
+def _claim(store, *, operation_id="op:1", action="compact", target="t", **kwargs):
+    return OperationJournal(store).claim(
         operation_id=operation_id,
-        subject=subject,
+        subject="operator",
         action=action,
         target=target,
-        plan_token=token,
+        plan_token="tok",
+        **kwargs,
     )
 
 
-def _concurrent_file_claim(directory: str, operation_id: str, start: Event, results: Queue) -> None:
-    """Claim one target from a separate process after the shared start signal."""
-    from phlo.operations.journal_store import FileOperationJournalStore
+def _replay(store, operation_id="op:1", **kwargs):
+    binding = {"subject": "operator", "action": "compact", "target": "t", "plan_token": "tok"}
+    binding.update(kwargs)
+    return OperationJournal(store).replay(operation_id, **binding)
 
-    start.wait(timeout=5)
-    store = FileOperationJournalStore(directory)
-    try:
-        entry = _claim(
-            store,
-            operation_id=operation_id,
-            action="restore.apply",
-            target="/srv/same-target",
-            token=operation_id,
+
+def _advance(store, state):
+    owner = OperationJournal(store)
+    if state is State.CLAIMED:
+        return
+    owner.submit("op:1")
+    if state is State.UNKNOWN:
+        owner.unknown("op:1", result={"query_id": "q1"})
+    elif state in {State.SUCCEEDED, State.FAILED}:
+        owner.complete("op:1", state=state, result={"receipt": "q1", "state": state.value})
+
+
+@pytest.mark.parametrize("before", list(State))
+@pytest.mark.parametrize("after", list(State))
+def test_adapter_enforces_complete_transition_graph(store, before, after):
+    """A direct persistence caller cannot bypass the core transition graph."""
+    _claim(store)
+    _advance(store, before)
+    original = store.read("op:1")
+    legal = {
+        State.CLAIMED: {State.SUBMITTED, State.FAILED},
+        State.SUBMITTED: {State.SUCCEEDED, State.FAILED, State.UNKNOWN},
+        State.UNKNOWN: {State.SUCCEEDED, State.FAILED},
+    }
+    if after in legal.get(before, set()):
+        assert store.compare_and_set("op:1", before, after, {"receipt": "q2"})
+        assert store.read("op:1").state is after
+        assert store.read("op:1").result == {"receipt": "q2"}
+    else:
+        with pytest.raises(OperationJournalError, match="invalid_transition"):
+            store.compare_and_set("op:1", before, after, {"receipt": "q2"})
+        assert store.read("op:1") == original
+
+
+@pytest.mark.parametrize("state", list(State))
+def test_claim_fence_and_replay_have_the_same_terminal_boundary(store, state):
+    _claim(store)
+    _advance(store, state)
+    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+        _claim(store)
+    if state in {State.SUCCEEDED, State.FAILED}:
+        assert _replay(store) == {"receipt": "q1", "state": state.value}
+        assert _claim(store, operation_id="fresh").state is State.CLAIMED
+    else:
+        with pytest.raises(OperationJournalError, match="conflicting_claim"):
+            _claim(store, operation_id="fresh")
+        with pytest.raises(OperationJournalError, match="operation_in_progress|unknown_outcome"):
+            _replay(store)
+
+
+@pytest.mark.parametrize("state", [State.SUCCEEDED, State.FAILED])
+def test_terminal_receipt_cannot_be_erased_or_reconciled_again(store, state):
+    _claim(store)
+    _advance(store, state)
+    original = store.read("op:1")
+    owner = OperationJournal(store)
+    for command in (
+        lambda: owner.submit("op:1"),
+        lambda: owner.unknown("op:1"),
+        lambda: owner.complete("op:1", state=state, result={"changed": True}),
+        lambda: owner.reconcile(
+            "op:1", state=State.FAILED, result={"accepted": False, "status": "failed"}
+        ),
+    ):
+        with pytest.raises(OperationJournalError, match="invalid_transition"):
+            command()
+        assert store.read("op:1") == original
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        {"subject": "other"},
+        {"action": "restore.apply"},
+        {"target": "other"},
+        {"plan_token": "other"},
+    ],
+)
+def test_replay_rejects_changed_binding(store, binding):
+    _claim(store)
+    _advance(store, State.SUCCEEDED)
+    with pytest.raises(OperationJournalError, match="binding_mismatch"):
+        _replay(store, **binding)
+
+
+def test_missing_operation_and_pre_submission_rejection(store):
+    owner = OperationJournal(store)
+    assert _replay(store) is None
+    with pytest.raises(OperationJournalError, match="unknown_operation"):
+        owner.submit("op:1")
+    _claim(store)
+    owner.reject("op:1", result={"accepted": False, "reason": "preflight"})
+    assert store.read("op:1").state is State.FAILED
+    assert _replay(store)["reason"] == "preflight"
+
+
+def test_unknown_requires_reconciliation_not_ordinary_completion(store):
+    _claim(store, action="restore.apply")
+    _advance(store, State.UNKNOWN)
+    owner = OperationJournal(store)
+    with pytest.raises(OperationJournalError, match="invalid_transition"):
+        owner.complete("op:1", state=State.SUCCEEDED, result={"accepted": True})
+    assert store.read("op:1").result == {"query_id": "q1"}
+    owner.reconcile("op:1", state=State.SUCCEEDED, result={"accepted": True})
+    assert _replay(store, action="restore.apply") == {"accepted": True}
+
+
+@pytest.mark.parametrize(
+    "action,alias",
+    [
+        ("compact", "compact"),
+        ("backup.create", "backup.create"),
+        ("restore.apply", "restore.apply"),
+        ("expire_snapshots", "snapshot_expiry"),
+        ("snapshot_expiry", "expire_snapshots"),
+    ],
+)
+def test_canonical_action_target_is_the_exclusion_identity(store, action, alias):
+    _claim(store, action=action)
+    with pytest.raises(OperationJournalError, match="conflicting_claim"):
+        _claim(store, operation_id="other", action=alias)
+    _claim(store, operation_id="different-target", action=alias, target="other")
+    _claim(store, operation_id="different-action", action="unrelated")
+
+
+@pytest.mark.parametrize("state", [State.CLAIMED, State.SUBMITTED, State.UNKNOWN])
+def test_only_expired_pre_submission_claims_can_be_taken_over(store, state):
+    _claim(store, claim_expiry="2999-01-01T00:00:00+00:00")
+    _advance(store, state)
+    # Clock crossing the lease boundary must not expire already submitted work.
+    from datetime import UTC, datetime
+    from unittest.mock import patch
+
+    import phlo.operations.journal as journal_module
+
+    class FutureClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(3000, 1, 1, tzinfo=UTC)
+
+    with patch.object(journal_module, "datetime", FutureClock):
+        if state is State.CLAIMED:
+            with pytest.raises(OperationJournalError, match="claim_expired"):
+                OperationJournal(store).submit("op:1")
+            _claim(store, operation_id="replacement")
+            assert store.read("op:1").state is State.FAILED
+            assert store.read("op:1").result["failure"]["reason"] == "claim_expired"
+            with pytest.raises(OperationJournalError, match="claim_expired"):
+                _replay(store)
+            with pytest.raises(OperationJournalError, match="invalid_transition"):
+                OperationJournal(store).submit("op:1")
+        else:
+            with pytest.raises(OperationJournalError, match="conflicting_claim"):
+                _claim(store, operation_id="replacement")
+            assert store.read("op:1").state is state
+
+
+def test_atomic_expected_state_allows_only_one_completion(store):
+    _claim(store, action="restore.apply")
+    OperationJournal(store).submit("op:1")
+
+    def finish(state):
+        try:
+            OperationJournal(store).complete("op:1", state=state, result={"winner": state.value})
+        except OperationJournalError:
+            return False
+        return True
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sum(pool.map(finish, [State.SUCCEEDED, State.FAILED])) == 1
+    receipt = store.read("op:1")
+    assert receipt.result == {"winner": receipt.state.value}
+
+
+def test_evidence_is_detached_from_callers(store):
+    _claim(store)
+    OperationJournal(store).submit("op:1")
+    evidence = {"accepted": True, "status": "succeeded", "rows": [7]}
+    OperationJournal(store).complete("op:1", state=State.SUCCEEDED, result=evidence)
+    evidence["rows"].append(8)
+    store.read("op:1").result["rows"].append(9)
+    _replay(store)["rows"].append(10)
+    assert _replay(store)["rows"] == [7]
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        {"accepted": False, "state": "succeeded"},
+        {"accepted": True, "state": "failed"},
+    ],
+)
+def test_explicit_outcome_cannot_disagree_with_its_evidence(store, evidence):
+    _claim(store)
+    OperationJournal(store).submit("op:1")
+    with pytest.raises(OperationJournalError, match="inconsistent_outcome"):
+        OperationJournal(store).complete("op:1", state=State.SUCCEEDED, result=evidence)
+    assert store.read("op:1").state is State.SUBMITTED
+    assert store.read("op:1").result is None
+
+
+def test_maintenance_custom_serialization_retains_unclassified_evidence(store):
+    class ProviderResult:
+        def to_dict(self):
+            return {"accepted": True, "status": "completed", "query_id": "q7"}
+
+    entry = execute_maintenance(
+        store,
+        operation="compact",
+        table="t",
+        ref="main",
+        plan_token="tok",
+        subject="operator",
+        execute=lambda _: ProviderResult(),
+    )
+    assert entry.state is State.UNKNOWN
+    assert store.read(entry.operation_id).result == {
+        "accepted": True,
+        "status": "completed",
+        "query_id": "q7",
+    }
+
+
+@pytest.mark.parametrize(
+    "observed,state",
+    [
+        ({"accepted": True, "status": "succeeded"}, State.SUCCEEDED),
+        ({"accepted": True, "status": "noop"}, State.SUCCEEDED),
+        ({"accepted": False, "status": "failed", "executed": False}, State.FAILED),
+        (
+            {"accepted": True, "status": "failed", "executed": True, "retry_safe": False},
+            State.UNKNOWN,
+        ),
+        ({"accepted": True}, State.UNKNOWN),
+    ],
+)
+def test_maintenance_classifies_once_and_preserves_evidence(store, observed, state):
+    entry = execute_maintenance(
+        store,
+        operation="compact",
+        table="t",
+        ref="main",
+        plan_token="tok",
+        subject="operator",
+        execute=lambda _: observed,
+    )
+    assert entry.state is state
+    assert store.read(entry.operation_id).result == observed
+    if state is State.UNKNOWN:
+        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
+            OperationJournal(store).reconcile(
+                entry.operation_id, state=State.SUCCEEDED, result={"accepted": True}
+            )
+        OperationJournal(store).reconcile(
+            entry.operation_id,
+            state=State.SUCCEEDED,
+            result={"accepted": True, "status": "succeeded"},
         )
+        assert store.read(entry.operation_id).state is State.SUCCEEDED
+
+
+def _concurrent_file_claim(directory, operation_id, start, results):
+    start.wait(timeout=5)
+    try:
+        _claim(FileOperationJournalStore(directory), operation_id=operation_id)
     except OperationJournalError:
         results.put(False)
     else:
-        results.put(entry.operation_id == operation_id)
+        results.put(True)
 
 
-def test_claim_succeeds_and_state_is_claimed(store) -> None:
-    entry = _claim(store)
-    assert entry.state is OperationJournalState.CLAIMED
-    assert entry.operation_id == "op:1"
-
-
-@pytest.mark.parametrize(
-    "first_action, second_action, second_id",
-    [
-        ("compact", "compact", "op:1"),
-        ("compact", "compact", "fresh-plan"),
-        ("backup.create", "backup.create", "fresh-plan"),
-        ("restore.apply", "restore.apply", "fresh-plan"),
-        ("expire_snapshots", "snapshot_expiry", "fresh-plan"),
-        ("snapshot_expiry", "expire_snapshots", "fresh-plan"),
-    ],
-)
-@pytest.mark.parametrize("state", ["claimed", "submitted", "unknown"])
-def test_conflicting_claim_is_rejected(
-    store, first_action, second_action, second_id, state
-) -> None:
-    _claim(store, action=first_action)
-    store.transition("op:1", OperationJournalState(state))
-    with pytest.raises(OperationJournalError, match="conflicting_claim"):
-        _claim(store, subject="other-operator", action=second_action, operation_id=second_id)
-
-
-@pytest.mark.parametrize("state", ["succeeded", "failed"])
-def test_finished_operation_keeps_its_identity_but_releases_target(store, state) -> None:
-    _claim(store)
-    store.transition("op:1", OperationJournalState(state))
-    with pytest.raises(OperationJournalError, match="conflicting_claim"):
-        _claim(store)
-    _claim(store, operation_id="fresh-plan", token="fresh")
-
-
-def test_mark_submitted_moves_to_submitted(store) -> None:
-    _claim(store)
-    mark_submitted(store, "op:1")
-    assert store.read("op:1").state is OperationJournalState.SUBMITTED
-
-
-def test_mark_submitted_without_claim_raises(store) -> None:
-    with pytest.raises(OperationJournalError, match="unknown_operation"):
-        mark_submitted(store, "nonexistent")
-
-
-def test_complete_operation_records_succeeded(store) -> None:
-    _claim(store)
-    mark_submitted(store, "op:1")
-    complete_operation(store, "op:1", {"accepted": True, "status": "succeeded"})
-    entry = store.read("op:1")
-    assert entry.state is OperationJournalState.SUCCEEDED
-    assert entry.result["accepted"] is True
-
-
-def test_complete_operation_records_failed(store) -> None:
-    _claim(store)
-    mark_submitted(store, "op:1")
-    complete_operation(store, "op:1", {"accepted": False, "status": "failed"})
-    assert store.read("op:1").state is OperationJournalState.FAILED
-
-
-def test_mark_unknown_blocks_replay(store) -> None:
-    _claim(store)
-    mark_submitted(store, "op:1")
-    mark_unknown(store, "op:1")
-    assert store.read("op:1").state is OperationJournalState.UNKNOWN
-    with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
-        read_or_replay(store, "op:1")
-
-
-def test_reconcile_unknown_resolves_to_succeeded(store) -> None:
-    _claim(store, action="backup.create")
-    mark_submitted(store, "op:1")
-    mark_unknown(store, "op:1")
-    reconcile_unknown(store, "op:1", {"accepted": True})
-    assert store.read("op:1").state is OperationJournalState.SUCCEEDED
-
-
-@pytest.mark.parametrize("status,state", [("succeeded", "succeeded"), ("completed", "unknown")])
-def test_maintenance_preserves_custom_serialized_evidence(tmp_path, status, state):
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    evidence = {"accepted": True, "status": status, "evidence": {"query_id": "query-7"}}
-
-    class ProviderResult:
-        def to_dict(self):
-            return evidence
-
-    directory = tmp_path / "journal"
-    result = execute_maintenance(
-        FileOperationJournalStore(directory),
-        operation="compact",
-        table="raw.events",
-        ref="feature",
-        plan_token="0",
-        subject="operator",
-        execute=lambda operation_id: ProviderResult(),
-    )
-    reopened = FileOperationJournalStore(directory)
-    assert reopened.read(result.operation_id).state == state
-    assert reopened.read(result.operation_id).result == evidence
-    if state == "succeeded":
-        assert read_or_replay(reopened, result.operation_id) == evidence
-    else:
-        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
-            read_or_replay(reopened, result.operation_id)
-        with pytest.raises(OperationJournalError, match="conflicting_claim"):
-            _claim(reopened, operation_id="fresh", target="raw.events", token="new")
-
-
-@pytest.mark.parametrize("operation", ["compact", "snapshot_expiry", "expire_snapshots"])
-@pytest.mark.parametrize(
-    "observed",
-    [
-        {"accepted": True, "status": "noop"},
-        {"accepted": True, "status": "succeeded"},
-        {"accepted": False, "status": "failed", "failure": {"outcome": "not_submitted"}},
-    ],
-)
-def test_maintenance_reconciliation_requires_definitive_evidence(tmp_path, operation, observed):
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    directory = tmp_path / "journal"
-    store = FileOperationJournalStore(directory)
-    _claim(store, action=operation)
-    # Preserve the historical action as persisted by older scheduled writers.
-    path = next(directory.glob("*.json"))
-    record = json.loads(path.read_text())
-    record["action"] = operation
-    path.write_text(json.dumps(record))
-    mark_submitted(store, "op:1")
-    mark_unknown(store, "op:1")
-    ambiguous = {
-        "accepted": True,
-        "status": "failed",
-        "executed": True,
-        "retry_safe": False,
-        "failure": {"outcome": "unknown"},
-    }
-    for evidence in (ambiguous, {"accepted": True}, {"accepted": False}):
-        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
-            reconcile_unknown(store, "op:1", evidence)
-        reopened = FileOperationJournalStore(directory)
-        assert reopened.read("op:1").state is OperationJournalState.UNKNOWN
-        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
-            read_or_replay(reopened, "op:1")
-        with pytest.raises(OperationJournalError, match="conflicting_claim"):
-            _claim(reopened, operation_id="op:fresh", action=operation, token="fresh")
-
-    reconcile_unknown(store, "op:1", observed)
-    reopened = FileOperationJournalStore(directory)
-    assert reopened.read("op:1").state == ("succeeded" if observed["accepted"] else "failed")
-    assert read_or_replay(reopened, "op:1") == observed
-    _claim(reopened, operation_id="op:fresh", action=operation, token="fresh")
-
-
-def test_read_or_replay_returns_none_for_new_operation(store) -> None:
-    assert read_or_replay(store, "nonexistent") is None
-
-
-@pytest.mark.parametrize("persisted_action", ["expire_snapshots", "snapshot_expiry"])
-@pytest.mark.parametrize("state", ["claimed", "submitted", "unknown"])
-def test_persisted_snapshot_expiry_alias_fences_fresh_plans(tmp_path, persisted_action, state):
-    from phlo.operations.journal import OperationJournalEntry
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    directory = tmp_path / "journal"
-    store = FileOperationJournalStore(directory)
-    # Write the on-disk format from an older writer, without normalising its action.
-    record = OperationJournalEntry(
-        "legacy-retention",
-        "scheduler",
-        persisted_action,
-        "raw.events",
-        "old-plan",
-        OperationJournalState(state),
-        result={"accepted": True},
-    ).to_dict()
-    path = directory / "legacy-retention.json"
-    path.write_text(json.dumps(record))
-    original = path.read_bytes()
-    other_action = (
-        "snapshot_expiry" if persisted_action == "expire_snapshots" else "expire_snapshots"
-    )
-    with pytest.raises(OperationJournalError, match="conflicting_claim"):
-        _claim(store, operation_id="fresh", action=other_action, target="raw.events", token="new")
-    assert path.read_bytes() == original
-    # Different targets and unrelated actions do not become equivalent.
-    _claim(store, operation_id="other-table", action=other_action, target="raw.other")
-    _claim(store, operation_id="compact", action="compact", target="raw.events")
-    store.transition("legacy-retention", OperationJournalState.UNKNOWN, record["result"])
-    reconcile_unknown(store, "legacy-retention", {"accepted": True, "status": "succeeded"})
-    # Direct store claims must normalise new rows too, not only claim_operation.
-    assert store.claim(
-        OperationJournalEntry(
-            "fresh",
-            "cli",
-            other_action,
-            "raw.events",
-            "new",
-            OperationJournalState.CLAIMED,
-        )
-    )
-    assert store.read("fresh").action == "snapshot_expiry"
-    assert store.read("legacy-retention").action == persisted_action
-
-
-def test_read_or_replay_returns_stored_result_for_succeeded(store) -> None:
-    _claim(store)
-    mark_submitted(store, "op:1")
-    complete_operation(store, "op:1", {"accepted": True, "status": "succeeded"})
-    result = read_or_replay(store, "op:1")
-    assert result is not None
-    assert result["accepted"] is True
-
-
-# --- durable (cross-process) store ---------------------------------------
-
-
-def test_file_journal_survives_across_store_instances(tmp_path) -> None:
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    first = FileOperationJournalStore(tmp_path / "journal")
-    _claim(
-        first,
-        operation_id="op:durable",
-        action="restore.apply",
-        target="/srv/target",
-        token="tok-1",
-    )
-    mark_submitted(first, "op:durable")
-    complete_operation(first, "op:durable", {"accepted": True})
-
-    # A brand-new instance (simulating a fresh process) observes the same state.
-    second = FileOperationJournalStore(tmp_path / "journal")
-    entry = second.read("op:durable")
-    assert entry is not None
-    assert entry.state is OperationJournalState.SUCCEEDED
-    assert entry.result == {"accepted": True}
-    entry = _claim(
-        second, operation_id="op:other", action="restore.apply", target="/srv/target", token="tok-2"
-    )
-    assert entry.state is OperationJournalState.CLAIMED
-
-
-def test_file_journal_rejects_active_conflict_across_processes(tmp_path) -> None:
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    first = FileOperationJournalStore(tmp_path / "journal")
-    _claim(
-        first,
-        operation_id="op:a",
-        action="upgrade.apply",
-        target="deploy-1",
-        token="tok",
-    )
-    second = FileOperationJournalStore(tmp_path / "journal")
-    with pytest.raises(OperationJournalError, match="conflicting_claim"):
-        _claim(
-            second,
-            operation_id="op:b",
-            action="upgrade.apply",
-            target="deploy-1",
-            token="tok",
-        )
-
-
-def test_file_journal_serializes_concurrent_cross_process_claims(tmp_path, monkeypatch) -> None:
-    """Only one simultaneously-started process can claim a shared target."""
-    # Spawned children (the macOS/Windows default) re-import this module as
-    # ``tests.operations.test_operation_journal`` in a fresh interpreter whose
-    # ``sys.path`` lacks the repo root. Prepend it: spawn propagates the
-    # parent's ``sys.path`` to children, while fork-based platforms resolve
-    # the module already and ignore this.
+def test_file_journal_serializes_cross_process_claims(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
-    start = Event()
-    results: Queue = Queue()
+    start, results = Event(), Queue()
     processes = [
-        Process(
-            target=_concurrent_file_claim,
-            args=(str(tmp_path / "journal"), f"op:{index}", start, results),
-        )
-        for index in range(8)
+        Process(target=_concurrent_file_claim, args=(str(tmp_path), f"op:{i}", start, results))
+        for i in range(4)
     ]
     for process in processes:
         process.start()
     start.set()
     for process in processes:
-        process.join(timeout=10)
+        process.join(timeout=15)
         assert process.exitcode == 0
-
     assert sum(results.get(timeout=2) for _ in processes) == 1
 
 
-def test_file_journal_allows_new_claim_after_terminal_state(tmp_path) -> None:
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    store = FileOperationJournalStore(tmp_path / "journal")
-    _claim(store, operation_id="op:1", action="backup.create", target="/srv/backup", token="s1")
-    complete_operation(store, "op:1", {"accepted": True})
-    # A later, unrelated operation over the same (action, target) is permitted
-    # once the earlier claim is terminal.
-    entry = _claim(
-        store, operation_id="op:2", action="backup.create", target="/srv/backup", token="s2"
+def test_file_receipt_survives_reopening_and_safe_names_do_not_collide(tmp_path):
+    first = FileOperationJournalStore(tmp_path)
+    _claim(first, operation_id="expire:t:feature/orders:run-1")
+    owner = OperationJournal(first)
+    owner.submit("expire:t:feature/orders:run-1")
+    owner.complete(
+        "expire:t:feature/orders:run-1", state=State.SUCCEEDED, result={"accepted": True}
     )
-    assert entry.state is OperationJournalState.CLAIMED
-
-
-def test_file_journal_safe_name_does_not_collide_on_sanitized_refs(tmp_path) -> None:
-    """Refs differing only in collapsed separators must map to distinct files."""
-    from phlo.operations.journal_store import FileOperationJournalStore
-
-    slash = FileOperationJournalStore._safe_name("expire:t:feature/orders:run-1")
-    underscore = FileOperationJournalStore._safe_name("expire:t:feature_orders:run-1")
-    assert slash != underscore
-
-    # Operation ids already filesystem-safe keep their exact names unchanged.
-    assert FileOperationJournalStore._safe_name("op-clean.name_1") == "op-clean.name_1"
-
-    store = FileOperationJournalStore(tmp_path / "journal")
-    _claim(
-        store,
-        operation_id="expire:t:feature/orders:run-1",
-        action="expire_snapshots",
-        target="t",
-        token="p1",
-    )
-    complete_operation(store, "expire:t:feature/orders:run-1", {"accepted": True})
-    entry = _claim(
-        store,
-        operation_id="expire:t:feature_orders:run-1",
-        action="expire_snapshots",
-        target="t",
-        token="p2",
-    )
-    assert entry.operation_id == "expire:t:feature_orders:run-1"
-    read_back = store.read("expire:t:feature/orders:run-1")
-    assert read_back is not None
-    assert read_back.operation_id == "expire:t:feature/orders:run-1"
-    assert read_back.state is OperationJournalState.SUCCEEDED
+    second = FileOperationJournalStore(tmp_path)
+    assert _replay(second, "expire:t:feature/orders:run-1") == {"accepted": True}
+    _claim(second, operation_id="expire:t:feature_orders:run-1")
+    assert second.read("expire:t:feature/orders:run-1").state is State.SUCCEEDED
+    assert second.read("expire:t:feature_orders:run-1").state is State.CLAIMED

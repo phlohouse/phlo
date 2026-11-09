@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,17 +14,22 @@ import pytest
 from phlo.capabilities.continuity import (
     RESTORE_PROVIDER_ORDER,
     BackupContributorState,
+    RestoreStepPhase,
+    RestoreStepResult,
     RestoreTarget,
 )
 from phlo.operations.backup import create_backup_set
 from phlo.operations.journal import (
     InMemoryOperationJournalStore,
-    claim_operation,
+    OperationJournal,
+    OperationJournalError,
+    OperationJournalState,
 )
 from phlo.operations.restore import (
     RestoreError,
     plan_restore,
     restore_apply,
+    restore_operation_id,
 )
 
 
@@ -262,18 +269,112 @@ def test_apply_conflicting_claim_is_rejected(tmp_path) -> None:
 
     operation_id = restore_module._operation_id(plan)
     journal = InMemoryOperationJournalStore()
-    claim_operation(
-        journal,
+    OperationJournal(journal).claim(
         operation_id=operation_id,
         subject="other",
         action="restore.apply",
         target=plan.target.target_id,
         plan_token=plan.plan_token,
     )
-    with pytest.raises(RestoreError, match="conflicting_claim"):
+    with pytest.raises(RestoreError, match="binding_mismatch"):
         restore_apply(
             plan=plan,
             confirmation_token=plan.plan_token,
             contributors=providers,
             journal=journal,
         )
+
+
+@pytest.mark.parametrize("invalid", ["missing", "reversed", "duplicate"])
+def test_apply_preflights_all_providers_before_submission(tmp_path, invalid) -> None:
+    set_dir, providers = _make_set(tmp_path)
+    plan = _plan(set_dir, tmp_path)
+    if invalid == "missing":
+        del providers["postgres"]
+        code = "missing_restore_provider"
+    else:
+        order = (
+            tuple(reversed(RESTORE_PROVIDER_ORDER)) if invalid == "reversed" else ("iceberg",) * 4
+        )
+        plan = replace(plan, provider_order=order)
+        code = "invalid_provider_order"
+    counts = {name: _wrap_calls(provider) for name, provider in providers.items()}
+    journal = InMemoryOperationJournalStore()
+    with pytest.raises(RestoreError, match=code):
+        restore_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+        )
+    assert all(counter["calls"] == 0 for counter in counts.values())
+    assert not Path(plan.target.location).exists()
+    assert journal.read(restore_operation_id(plan)) is None
+
+
+@pytest.mark.parametrize("phase", ["restore", "reconcile"])
+def test_arbitrary_submission_exception_preserves_unknown_evidence_and_fence(
+    tmp_path, phase
+) -> None:
+    set_dir, providers = _make_set(tmp_path)
+    plan = _plan(set_dir, tmp_path)
+    journal = InMemoryOperationJournalStore()
+
+    def uncertain(*args, **kwargs):
+        raise RuntimeError("connection lost after accepted")
+
+    setattr(providers["minio"], phase, uncertain)
+    result = restore_apply(
+        plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+    )
+    assert result.state == "unknown"
+    assert not result.accepted
+    assert result.steps[0].provider == "iceberg"
+    assert result.failure["requires_manual_reconciliation"] is True
+    entry = journal.read(restore_operation_id(plan))
+    assert entry.state is OperationJournalState.UNKNOWN
+    assert entry.result == result.to_dict()
+    with pytest.raises(RestoreError):
+        restore_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+        )
+    with pytest.raises(OperationJournalError):
+        OperationJournal(journal).claim(
+            operation_id="replacement",
+            subject="operator",
+            action="restore.apply",
+            target=plan.target.target_id,
+            plan_token="new",
+        )
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_expired_completed_plan_replays_but_requires_token(tmp_path, monkeypatch, failed) -> None:
+    set_dir, providers = _make_set(tmp_path)
+    plan = plan_restore(
+        backup_set_dir=set_dir,
+        target=RestoreTarget.of(tmp_path / "target"),
+        now=datetime(2000, 1, 1, tzinfo=UTC),
+    )
+    if failed:
+        providers["minio"].restore = lambda *args: RestoreStepResult.fail_step(
+            "minio", RestoreStepPhase.SUBMISSION, "restore failed", retry_safe=False
+        )
+    journal = InMemoryOperationJournalStore()
+    with pytest.raises(RestoreError, match="plan_expired"):
+        restore_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+        )
+    with monkeypatch.context() as patch:
+        patch.setattr(type(plan), "is_expired", lambda self: False)
+        first = restore_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors=providers, journal=journal
+        )
+    assert first.accepted is not failed
+    assert first.state == ("failed" if failed else "succeeded")
+    assert plan.is_expired()
+    assert (
+        restore_apply(
+            plan=plan, confirmation_token=plan.plan_token, contributors={}, journal=journal
+        )
+        == first
+    )
+    with pytest.raises(RestoreError, match="token_mismatch"):
+        restore_apply(plan=plan, confirmation_token="wrong", contributors={}, journal=journal)

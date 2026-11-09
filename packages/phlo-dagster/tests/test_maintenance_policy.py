@@ -435,9 +435,8 @@ def test_optimize_table_files_execute_replays_journaled_result(monkeypatch) -> N
     """A completed journal entry replays instead of re-executing the mutation."""
     from phlo.operations.journal import (
         InMemoryOperationJournalStore,
-        claim_operation,
-        complete_operation,
-        mark_submitted,
+        OperationJournal,
+        OperationJournalState,
     )
     from phlo_dagster import maintenance_sensor
 
@@ -446,16 +445,16 @@ def test_optimize_table_files_execute_replays_journaled_result(monkeypatch) -> N
     stored = {"operation": "compact", "status": "succeeded", "accepted": True, "executed": True}
     journal = InMemoryOperationJournalStore()
     operation_id = "compact:raw.events:main:run-77"
-    claim_operation(
-        journal,
+    owner = OperationJournal(journal)
+    owner.claim(
         operation_id=operation_id,
         subject="dagster:maintenance-policy",
         action="compact",
         target="raw.events",
         plan_token="42",
     )
-    mark_submitted(journal, operation_id)
-    complete_operation(journal, operation_id, stored)
+    owner.submit(operation_id)
+    owner.complete(operation_id, state=OperationJournalState.SUCCEEDED, result=stored)
 
     table_store = MagicMock()
     _journaled_op_mocks(monkeypatch, table_store, journal)

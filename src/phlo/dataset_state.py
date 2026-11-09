@@ -151,14 +151,14 @@ class MemoryDatasetStateStore:
     def compare_and_set(
         self,
         *,
+        resource_id: str,
         writes: tuple[StoreWrite, ...],
         action_id: str,
         action: str,
         fingerprint: str,
     ) -> StoreWriteResult:
         with self._lock:
-            last = writes[-1]
-            committed = self._actions.get(last.record_id, {}).get(action_id)
+            committed = self._actions.get(resource_id, {}).get(action_id)
             if committed is not None:
                 if committed["fingerprint"] == fingerprint:
                     stored = tuple(
@@ -193,9 +193,9 @@ class MemoryDatasetStateStore:
             for write in writes:
                 self._records[write.record_id] = write.next_record.to_read_model()
                 committed_records.append(write.next_record)
-            self._actions.setdefault(last.record_id, {})[action_id] = {
+            self._actions.setdefault(resource_id, {})[action_id] = {
                 "action_id": action_id,
-                "resource_id": last.record_id,
+                "resource_id": resource_id,
                 "action": action,
                 "fingerprint": fingerprint,
                 "outcome_status": StoreWriteStatus.COMMITTED.value,
@@ -205,7 +205,7 @@ class MemoryDatasetStateStore:
                 status=StoreWriteStatus.COMMITTED,
                 records=tuple(committed_records),
                 committed_fingerprint=fingerprint,
-                detail=f"{action!r} committed for {last.record_id}.",
+                detail=f"{action!r} committed for {resource_id}.",
             )
 
     def append_audit(self, event: TransitionAuditEvent) -> None:
