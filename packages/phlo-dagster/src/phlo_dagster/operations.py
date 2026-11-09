@@ -36,7 +36,7 @@ mutation LaunchPipelineExecution($executionParams: ExecutionParams!) {
 
 EXISTING_MATERIALIZATION_RUN_QUERY = """
 query ExistingMaterializationRun($filter: RunsFilter!) {
-    runsOrError(filter: $filter, limit: 1) {
+    runsOrError(filter: $filter, limit: 2) {
         __typename
         ... on Runs {
             results { runId status }
@@ -131,6 +131,35 @@ class DagsterOperationResult:
         }
 
 
+async def find_materialization_run(
+    *, dagster_url: str, idempotency_key: str, access_token: str | None = None
+) -> dict[str, Any] | None:
+    """Read an accepted launch without ever submitting another one."""
+    existing = await _graphql(
+        dagster_url,
+        EXISTING_MATERIALIZATION_RUN_QUERY,
+        {
+            "filter": {
+                "tags": _tags_for_execution(
+                    {"phlo/operation": "materialize_asset", "phlo/idempotency_key": idempotency_key}
+                )
+            }
+        },
+        access_token=access_token,
+    )
+    payload = existing.get("data", {}).get("runsOrError", {})
+    if payload.get("__typename") != "Runs":
+        raise RuntimeError(_error_message(payload))
+    runs = payload.get("results") or []
+    if len(runs) > 1:
+        raise RuntimeError(
+            "Multiple Dagster runs share this operation key; reconciliation required"
+        )
+    if runs and not runs[0].get("runId"):
+        raise RuntimeError("Dagster returned an existing run without a run ID")
+    return runs[0] if runs else None
+
+
 async def launch_materialize(
     *,
     dagster_url: str,
@@ -164,35 +193,15 @@ async def launch_materialize(
         # Reconcile against any run already tagged with this idempotency key
         # before launching, so a client retry after a lost GraphQL response
         # reuses the prior run instead of materializing twice.
-        existing = await _graphql(
-            dagster_url,
-            EXISTING_MATERIALIZATION_RUN_QUERY,
-            {
-                "filter": {
-                    "tags": _tags_for_execution(
-                        {
-                            "phlo/operation": "materialize_asset",
-                            "phlo/idempotency_key": idempotency_key,
-                        }
-                    )
-                }
-            },
-            access_token=access_token,
+        run = await find_materialization_run(
+            dagster_url=dagster_url, idempotency_key=idempotency_key, access_token=access_token
         )
-        runs_or_error = existing.get("data", {}).get("runsOrError", {})
-        if runs_or_error.get("__typename") != "Runs":
-            raise RuntimeError(_error_message(runs_or_error))
-        results = runs_or_error.get("results") or []
-        if results:
-            run = results[0]
-            run_id = str(run.get("runId") or "")
-            if not run_id:
-                raise RuntimeError("Dagster returned an existing run without a run ID")
+        if run is not None:
             return DagsterOperationResult(
                 operation="materialize_asset",
                 dry_run=False,
                 accepted=True,
-                run_id=run_id,
+                run_id=str(run["runId"]),
                 asset_key_path=asset_key_path,
                 partition_key=partition_key,
                 status=str(run.get("status") or "UNKNOWN"),

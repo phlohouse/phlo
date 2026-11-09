@@ -191,9 +191,15 @@ def test_wap_launch_manifest_fails_closed_when_immutable_binding_is_tampered(
     elif tamper == "dagster_run_id":
         run.run_id = "different-dagster-run"
     elif tamper == "launch_hash":
-        write_wap_report(logical_run_id, launch_source_hash="tampered-hash")
+        path = WapEvidence(tmp_path).report_path(logical_run_id)
+        payload = json.loads(path.read_text())
+        payload["launch_source_hash"] = "tampered-hash"
+        path.write_text(json.dumps(payload))
     else:
-        write_wap_report(logical_run_id, launch_manifest_checksum="0" * 64)
+        path = WapEvidence(tmp_path).report_path(logical_run_id)
+        payload = json.loads(path.read_text())
+        payload["launch_manifest_checksum"] = "0" * 64
+        path.write_text(json.dumps(payload))
 
     assert _migrate_launch_hashes(run) is None
 
@@ -254,6 +260,8 @@ def test_write_wap_report_updates_run_json(monkeypatch, tmp_path):
         source_hash="source",
         target_hash_before="before",
         target_hash_after="after",
+        merge_state="merged",
+        source_deleted=True,
     )
 
     payload = json.loads((tmp_path / ".phlo" / "wap-reports" / "run-1.json").read_text())
@@ -262,6 +270,41 @@ def test_write_wap_report_updates_run_json(monkeypatch, tmp_path):
     assert payload["target_hash_after"] == "after"
     assert payload["run_id"] == "run-1"
     assert payload["created_at"]
+
+
+@pytest.mark.parametrize(
+    "late_update",
+    [
+        {"status": "launched"},
+        {"status": "promotion_failed"},
+        {"merge_state": "merge_failed"},
+        {"source_deleted": False},
+        {"branch": "pipeline-run-other"},
+        {"status": "cleanup_incomplete"},
+        {"expected_version": 0, "note": "stale writer"},
+    ],
+)
+def test_report_owner_rejects_late_writes_without_erasing_receipts(
+    monkeypatch, tmp_path, late_update
+):
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    assert write_wap_report("guarded", status="launched", branch="pipeline-run-guarded")
+    assert write_wap_report(
+        "guarded", expected_version=1, status="promotion_pending", merge_state="merge_started"
+    )
+    assert write_wap_report(
+        "guarded", expected_version=2, status="promoted", merge_state="merged", source_deleted=True
+    )
+    evidence = WapEvidence(tmp_path)
+    before = evidence.report_path("guarded").read_bytes()
+    assert not write_wap_report("guarded", **late_update)
+    assert evidence.report_path("guarded").read_bytes() == before
+    assert write_wap_report("guarded", status="cleanup_complete", source_deleted=True)
+    report = evidence.read_report("guarded")
+    assert report["status"] == "promoted"
+    assert report["publication_state"] == "promoted"
+    assert report["cleanup_state"] == "cleanup_complete"
+    assert report["version"] == 4
 
 
 @pytest.mark.parametrize(
@@ -308,7 +351,7 @@ def test_report_write_failure_preserves_existing_evidence(monkeypatch, tmp_path,
     if damage == "oversized_update":
         assert evidence.verify("preserved", "physical", launch.tags) is not None
     else:
-        assert "wap_report_recovery_required" in caplog.text
+        assert "wap_report_update_refused" in caplog.text
 
 
 def test_promoted_wap_report_replaces_failure_only_outcome_fields(monkeypatch, tmp_path):
@@ -330,6 +373,8 @@ def test_promoted_wap_report_replaces_failure_only_outcome_fields(monkeypatch, t
         logical_run_id,
         status="promoted",
         target_hash_after="target-after",
+        merge_state="merged",
+        source_deleted=True,
     )
 
     report = WapEvidence(tmp_path).read_report(logical_run_id)
@@ -632,7 +677,9 @@ def _register_wap_contributions() -> None:
         )
 
 
-@pytest.mark.parametrize("checkpoint_failure", [None, "merge_receipt", "cleanup", "aged_pending"])
+@pytest.mark.parametrize(
+    "checkpoint_failure", [None, "merge_receipt", "cleanup", "aged_pending", "observation"]
+)
 def test_wap_successful_promotion_uses_recorded_check_event_identity(
     monkeypatch, tmp_path, checkpoint_failure
 ):
@@ -711,9 +758,26 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(
         monkeypatch.setattr("phlo_dagster.wap_sensors.write_wap_report", fail_merge_receipt)
     elif checkpoint_failure in {"cleanup", "aged_pending"}:
         catalog.delete_branch.side_effect = [False, True]
+    elif checkpoint_failure == "observation":
+        from phlo_dagster import wap_sensors
+
+        emit = wap_sensors._emit_wap_observation
+        failed = False
+
+        def emit_after_recovery(**kwargs):
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise RuntimeError("evidence sink unavailable")
+            return emit(**kwargs)
+
+        monkeypatch.setattr(wap_sensors, "_emit_wap_observation", emit_after_recovery)
+        instance.add_run_tags.side_effect = lambda _id, tags: instance.get_runs.return_value[
+            0
+        ].tags.update(tags)
 
     wap_auto_promotion_sensor._raw_fn(context)
-    if checkpoint_failure == "aged_pending":
+    if checkpoint_failure in {"aged_pending", "observation"}:
         pending_run = instance.get_runs.return_value[0]
         # Recent-run discovery no longer contains this publication. Only its
         # durable pending receipt can bring it back on a subsequent tick.
@@ -773,11 +837,7 @@ def test_wap_successful_promotion_uses_recorded_check_event_identity(
     assert run is not None
     assert run["status"] == "success"
     assert run["finished_at"] is not None
-    reconciler.reconcile.assert_called_once_with(
-        "project-promote",
-        dagster_run_id,
-        ANY,
-    )
+    reconciler.reconcile.assert_called_with("project-promote", dagster_run_id, ANY)
 
 
 @pytest.mark.parametrize(

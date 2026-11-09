@@ -36,13 +36,17 @@ Example:
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from pathlib import Path
 from time import sleep as _sleep
 from typing import Any
@@ -67,18 +71,36 @@ from rich.table import Table
 from phlo_dagster.cli_materialize import wait_for_dagster_runtime
 from phlo_dagster.containers import find_dagster_container
 from phlo_dagster.materialization_command import build_materialization_command
-from phlo_dagster.operations import get_run_status, wait_for_dagster_http
+from phlo_dagster.operations import find_materialization_run, get_run_status, wait_for_dagster_http
 from phlo_dagster.settings import WapBackfillSettings, get_process_settings
 from phlo_dagster.wap_endpoint import resolve_wap_dagster_url
 from phlo_dagster.wap_launch import (
+    WapLaunch,
     WapLaunchError,
     prepare_wap_launch,
     submit_wap_launch,
+    wap_lifecycle_lock,
 )
 
 console = Console()
 logger = get_logger(__name__)
 BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
+
+
+def _serialize_backfill(callback: Callable[..., Any]) -> Callable[..., Any]:
+    """One CLI owns the checkpoint and its external effects until it exits."""
+
+    @wraps(callback)
+    def execute(*args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("dry_run"):
+            return callback(*args, **kwargs)
+        try:
+            with wap_lifecycle_lock(BACKFILL_STATE_FILE, blocking=False):
+                return callback(*args, **kwargs)
+        except BlockingIOError as exc:
+            raise click.ClickException("Another backfill owns this project's checkpoint") from exc
+
+    return execute
 
 
 @click.command(
@@ -126,6 +148,7 @@ BACKFILL_STATE_FILE = Path(".phlo/backfill_state.json")
 )
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured result.")
 @click.option("--environment", help="Configured WAP environment, otherwise default_environment.")
+@_serialize_backfill
 def backfill(
     asset_name: str | None,
     start_date: str | None,
@@ -402,8 +425,8 @@ def _run_wap_backfill(
     overlap, even when the caller requested multiple workers.
     """
     console = Console(stderr=True) if output_json else globals()["console"]
-    completed_partitions = completed_partitions or []
-    remaining = [date for date in partition_dates if date not in completed_partitions]
+    completed = completed_partitions or []
+    remaining = [date for date in partition_dates if date not in completed]
     successful: list[str] = []
     runs: list[dict[str, str]] = []
     in_flight_wap = dict(in_flight_wap or {})
@@ -424,6 +447,16 @@ def _run_wap_backfill(
             "[yellow]WAP backfills serialize partitions through promotion; "
             "--parallel is limited to 1 for this target.[/yellow]"
         )
+
+    def checkpoint() -> None:
+        _save_backfill_state(
+            asset_name,
+            [date for date in partition_dates if date not in completed + successful],
+            completed + successful,
+            in_flight_wap=in_flight_wap,
+            wap_context=context.to_dict(),
+        )
+
     # A GraphQL launch carries no env vars — the worker sees the
     # file-sourced project environment and decides pretty/console itself at
     # scope entry, where whether the SDK can drive the drain is knowable.
@@ -432,15 +465,23 @@ def _run_wap_backfill(
             lifecycle = in_flight_wap.get(partition_date)
             if lifecycle:
                 logical_run_id = lifecycle["logical_run_id"]
-                dagster_run_id = lifecycle["dagster_run_id"]
+                dagster_run_id = _recover_wap_partition(
+                    lifecycle, dagster_url=dagster_url, access_token=access_token
+                )
+                checkpoint()
                 console.print(
                     f"Reconciling WAP backfill {partition_date} from logical run {logical_run_id}"
                 )
             else:
                 logical_run_id = f"backfill-{uuid.uuid4().hex}"
+                lifecycle = {"logical_run_id": logical_run_id, "phase": "preparing"}
+                in_flight_wap[partition_date] = lifecycle
+                checkpoint()
                 launch = prepare_wap_launch(
                     logical_run_id=logical_run_id, environment=context.environment
                 )
+                lifecycle["phase"] = "submitting"
+                checkpoint()
                 try:
                     dagster_run_id = asyncio.run(
                         submit_wap_launch(
@@ -453,26 +494,13 @@ def _run_wap_backfill(
                         )
                     )
                 except WapLaunchError as exc:
+                    lifecycle["phase"] = "submission_unknown"
+                    if exc.run_id:
+                        lifecycle["dagster_run_id"] = exc.run_id
+                    checkpoint()
                     raise click.ClickException(f"WAP partition {partition_date}: {exc}") from exc
-                in_flight_wap[partition_date] = {
-                    "logical_run_id": logical_run_id,
-                    "dagster_run_id": dagster_run_id,
-                }
-                # Persist the in-flight mapping immediately after Dagster
-                # accepts the run, so an interrupted CLI resumes by
-                # reconciling that run instead of launching a duplicate.
-                _save_backfill_state(
-                    asset_name,
-                    [
-                        date
-                        for date in partition_dates
-                        if date not in completed_partitions + successful
-                    ],
-                    completed_partitions + successful,
-                    in_flight_wap=in_flight_wap,
-                    emit_log=False,
-                    wap_context=context.to_dict(),
-                )
+                lifecycle.update(phase="launched", dagster_run_id=dagster_run_id)
+                checkpoint()
             runs.append(
                 {
                     "partition": partition_date,
@@ -491,35 +519,14 @@ def _run_wap_backfill(
             )
         except WapLifecycleTerminalError:
             in_flight_wap.pop(partition_date, None)
-            _save_backfill_state(
-                asset_name,
-                [date for date in partition_dates if date not in completed_partitions + successful],
-                completed_partitions + successful,
-                in_flight_wap=in_flight_wap,
-                emit_log=True,
-                wap_context=context.to_dict(),
-            )
+            checkpoint()
             raise
         except Exception:
-            _save_backfill_state(
-                asset_name,
-                [date for date in partition_dates if date not in completed_partitions + successful],
-                completed_partitions + successful,
-                in_flight_wap=in_flight_wap,
-                emit_log=True,
-                wap_context=context.to_dict(),
-            )
+            checkpoint()
             raise
         successful.append(partition_date)
         in_flight_wap.pop(partition_date, None)
-        _save_backfill_state(
-            asset_name,
-            [date for date in partition_dates if date not in completed_partitions + successful],
-            completed_partitions + successful,
-            in_flight_wap=in_flight_wap,
-            emit_log=False,
-            wap_context=context.to_dict(),
-        )
+        checkpoint()
     _remove_backfill_state()
     if output_json:
         click.echo(
@@ -527,7 +534,7 @@ def _run_wap_backfill(
                 data={
                     "asset_name": asset_name,
                     "successful": successful,
-                    "completed_partitions": completed_partitions,
+                    "completed_partitions": completed,
                     "promoted": True,
                     "runs": runs,
                 },
@@ -542,6 +549,36 @@ class WapLifecycleTerminalError(click.ClickException):
     """A run or promotion reached a terminal failure state."""
 
 
+def _recover_wap_partition(
+    lifecycle: dict[str, str], *, dagster_url: str, access_token: str | None
+) -> str:
+    """Reconcile a retained identity without ever submitting a second run."""
+    run_id = lifecycle.get("dagster_run_id")
+    if lifecycle.get("phase") == "preparing":
+        raise click.ClickException(
+            "WAP preparation was interrupted; retained identity needs review"
+        )
+    if not run_id:
+        run = asyncio.run(
+            find_materialization_run(
+                dagster_url=dagster_url,
+                idempotency_key=lifecycle["logical_run_id"],
+                access_token=access_token,
+            )
+        )
+        if run is None:
+            raise click.ClickException(
+                "WAP submission outcome remains unknown; retained identity needs reconciliation"
+            )
+        run_id = run["runId"]
+    if lifecycle.get("phase") not in {None, "launched"}:
+        launch = WapLaunch.recover(lifecycle["logical_run_id"])
+        if not launch.record_launch_result(status="launched", dagster_run_id=run_id):
+            raise click.ClickException("Cannot persist recovered WAP acknowledgement; run retained")
+    lifecycle.update(phase="launched", dagster_run_id=run_id)
+    return run_id
+
+
 def _wait_for_wap_lifecycle(
     *, logical_run_id: str, dagster_run_id: str, dagster_url: str, access_token: str | None
 ) -> None:
@@ -552,8 +589,7 @@ def _wait_for_wap_lifecycle(
     deadline = time.monotonic() + timeout_seconds
     max_poll_failures = 5
     poll_failures = 0
-    terminal_run_failures = {"FAILURE", "CANCELED", "CANCELING", "ABORTED"}
-    terminal_promotion_failures = {"promotion_failed", "promotion_blocked", "launch_ambiguous"}
+    terminal_run_failures = {"FAILURE", "CANCELED", "ABORTED"}
     while time.monotonic() < deadline:
         try:
             status = asyncio.run(
@@ -584,10 +620,10 @@ def _wait_for_wap_lifecycle(
         report_status = report.get("status") if report else None
         if report_status == "promoted":
             return
-        if report_status in terminal_promotion_failures:
+        if report_status in {"promotion_failed", "promotion_blocked", "launch_ambiguous"}:
             reason = report.get("failure_reason", report_status) if report else report_status
-            raise WapLifecycleTerminalError(
-                f"WAP promotion failed for logical run {logical_run_id}: {reason}"
+            raise click.ClickException(
+                f"WAP publication needs reconciliation for logical run {logical_run_id}: {reason}"
             )
         _sleep(poll_seconds)
     raise click.ClickException(
@@ -978,7 +1014,18 @@ def _save_backfill_state(
         )
 
     try:
-        BACKFILL_STATE_FILE.write_text(json.dumps(state, indent=2))
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=state_dir, delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            try:
+                handle.write(json.dumps(state, indent=2))
+                handle.flush()
+                os.fsync(handle.fileno())
+                handle.close()
+                temporary.replace(BACKFILL_STATE_FILE)
+            finally:
+                temporary.unlink(missing_ok=True)
         if emit_log:
             logger.info(
                 "dagster_backfill_state_save_completed",

@@ -180,12 +180,13 @@ class WapEvidence:
         for path in self.directory.glob("*.json"):
             report = self.read_report(path.stem)
             if report is None or report.get("status") in {
-                "promoted",
                 "failed",
                 "cancelled",
                 "launch_rejected",
                 "cleanup_complete",
             }:
+                continue
+            if report.get("status") == "promoted" and report.get("delivery_complete") is True:
                 continue
             run_id = report.get("dagster_run_id")
             if isinstance(run_id, str) and run_id:
