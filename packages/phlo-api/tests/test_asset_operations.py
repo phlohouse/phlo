@@ -21,6 +21,7 @@ def operations(client, monkeypatch, tmp_path):
     for name in ("SINGLE_REPLICA", "SINGLE_PROCESS", "REF_TAG_CONTRACT"):
         monkeypatch.setenv(f"PHLO_V1_ACTIONS_{name}", "1")
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "journal"))
     monkeypatch.setattr(
         operation_controls,
         "require_scope",
@@ -309,6 +310,42 @@ def test_adapter_checks_every_selected_asset_permission(monkeypatch):
                 "orders", dagster.MaterializeAssetRequest(asset_selection=["summary"])
             )
         )
+
+
+def test_adapter_uses_shared_launch_journal_without_local_fallback(monkeypatch, tmp_path):
+    import asyncio
+    from phlo.operations.journal_store import FileOperationJournalStore
+    from phlo_api.observatory_api import dagster
+    from phlo_dagster import operations as provider
+
+    monkeypatch.delenv("PHLO_OPERATIONS_JOURNAL_DIR", raising=False)
+    store = FileOperationJournalStore(tmp_path / "shared-journal")
+    monkeypatch.setattr(dagster, "durable_operation_journal", lambda: store)
+    launches = 0
+
+    async def details(key):
+        return {"has_materialize_permission": True, "op_names": [key]}
+
+    async def graphql(*args, **kwargs):
+        nonlocal launches
+        launches += 1
+        return {
+            "data": {
+                "launchPipelineExecution": {
+                    "__typename": "LaunchRunSuccess",
+                    "run": {"runId": "shared-run", "status": "STARTED"},
+                }
+            }
+        }
+
+    monkeypatch.setattr(dagster, "get_asset_details", details)
+    monkeypatch.setattr(provider, "_graphql", graphql)
+    request = dagster.MaterializeAssetRequest(
+        dry_run=False, job_name="orders_job", idempotency_key="shared-key"
+    )
+    assert asyncio.run(dagster.materialize_asset("orders", request)).run_id == "shared-run"
+    assert asyncio.run(dagster.materialize_asset("orders", request)).run_id == "shared-run"
+    assert launches == 1
 
 
 def test_time_range_rejects_partial_partition_and_naive_boundaries():

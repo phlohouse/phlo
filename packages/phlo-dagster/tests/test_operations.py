@@ -24,6 +24,157 @@ from phlo_dagster.operations import (
 )
 
 
+@pytest.fixture(autouse=True)
+def launch_journal(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "journal"))
+
+
+@pytest.mark.parametrize("visible", [False, True])
+def test_materialize_claim_prevents_concurrent_duplicate_submission(monkeypatch, visible):
+    launches = 0
+    request = dict(
+        dagster_url="http://dagster.test/graphql",
+        asset_key_path="silver/orders",
+        job_name="orders_job",
+        idempotency_key="concurrent-launch",
+    )
+
+    async def exercise():
+        submitted = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_post(self, url, json=None, headers=None):
+            nonlocal launches
+            if "ExistingMaterializationRun" in json["query"]:
+                runs = [{"runId": "physical-1", "status": "STARTED"}] if visible else []
+                data = {"runsOrError": {"__typename": "Runs", "results": runs}}
+            else:
+                launches += 1
+                run_id = f"physical-{launches}"
+                submitted.set()
+                if launches == 1:
+                    await release.wait()
+                data = {
+                    "launchPipelineExecution": {
+                        "__typename": "LaunchRunSuccess",
+                        "run": {"runId": run_id, "status": "STARTED"},
+                    }
+                }
+            return httpx.Response(200, request=httpx.Request("POST", url), json={"data": data})
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+        first = asyncio.create_task(launch_materialize(**request))
+        await submitted.wait()
+        try:
+            if visible:
+                assert (await launch_materialize(**request)).run_id == "physical-1"
+            else:
+                with pytest.raises(RuntimeError, match="in progress|unknown"):
+                    await launch_materialize(**request)
+        finally:
+            release.set()
+            result = await first
+        assert result.run_id == "physical-1"
+        assert (await launch_materialize(**request)).run_id == "physical-1"
+
+    asyncio.run(exercise())
+    assert launches == 1
+
+
+@pytest.mark.parametrize("failure", ["timeout", "cancellation", "PythonError", "missing_run_id"])
+def test_materialize_unknown_without_visible_run_never_resubmits(monkeypatch, failure):
+    launches = 0
+
+    async def fake_post(self, url, json=None, headers=None):
+        nonlocal launches
+        if "ExistingMaterializationRun" in json["query"]:
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url),
+                json={"data": {"runsOrError": {"__typename": "Runs", "results": []}}},
+            )
+        launches += 1
+        if failure == "timeout":
+            raise httpx.ReadTimeout("response lost")
+        if failure == "cancellation":
+            raise asyncio.CancelledError
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "data": {
+                    "launchPipelineExecution": {
+                        "__typename": "PythonError"
+                        if failure == "PythonError"
+                        else "LaunchRunSuccess",
+                        "message": "uncertain outcome",
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    request = dict(
+        dagster_url="http://dagster.test/graphql",
+        asset_key_path="silver/orders",
+        job_name="orders_job",
+        idempotency_key="unknown-launch",
+    )
+    expected = {"timeout": httpx.ReadTimeout, "cancellation": asyncio.CancelledError}.get(
+        failure, RuntimeError
+    )
+    with pytest.raises(expected):
+        asyncio.run(launch_materialize(**request))
+    with pytest.raises(RuntimeError, match="unknown"):
+        asyncio.run(launch_materialize(**request))
+    assert launches == 1
+
+
+def test_materialize_replay_is_bound_to_exact_request(monkeypatch):
+    launches = 0
+
+    async def fake_post(self, url, json=None, headers=None):
+        nonlocal launches
+        if "ExistingMaterializationRun" in json["query"]:
+            data = {"runsOrError": {"__typename": "Runs", "results": []}}
+        else:
+            launches += 1
+            data = {
+                "launchPipelineExecution": {
+                    "__typename": "LaunchRunSuccess",
+                    "run": {"runId": f"physical-{launches}", "status": "STARTED"},
+                }
+            }
+        return httpx.Response(200, request=httpx.Request("POST", url), json={"data": data})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    request = dict(
+        dagster_url="http://dagster.test/graphql",
+        asset_key_path="silver/orders",
+        job_name="orders_job",
+        partition_key="2026-09-24",
+        idempotency_key="bound-launch",
+    )
+    original = asyncio.run(launch_materialize(**request))
+    assert asyncio.run(launch_materialize(**request)) == original
+    with pytest.raises(RuntimeError, match="binding_mismatch"):
+        asyncio.run(launch_materialize(**{**request, "partition_key": "2026-09-25"}))
+    assert launches == 1
+
+
+def test_keyed_materialize_requires_durable_store_before_contacting_dagster(monkeypatch):
+    monkeypatch.delenv("PHLO_OPERATIONS_JOURNAL_DIR")
+    with pytest.raises(RuntimeError, match="requires PHLO_OPERATIONS_JOURNAL_DIR"):
+        asyncio.run(
+            launch_materialize(
+                dagster_url="http://dagster.invalid/graphql",
+                asset_key_path="orders",
+                job_name="orders_job",
+                idempotency_key="requires-store",
+            )
+        )
+
+
 def test_launch_materialize_posts_asset_selection(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -359,20 +510,11 @@ def test_wap_materialize_reconciles_a_lost_response_without_a_duplicate_launch(
     assert reconciled.run_id == "dagster-run"
     assert reconciled.status == "STARTED"
     assert reconciled.details["reconciled"] is True
-    assert lookup_filters == [
-        {
-            "tags": [
-                {"key": "phlo/operation", "value": "materialize_asset"},
-                {"key": "phlo/idempotency_key", "value": "request-42"},
-            ]
-        },
-        {
-            "tags": [
-                {"key": "phlo/operation", "value": "materialize_asset"},
-                {"key": "phlo/idempotency_key", "value": "request-42"},
-            ]
-        },
-    ]
+    assert len(lookup_filters) == 1
+    lookup_tags = {tag["key"]: tag["value"] for tag in lookup_filters[0]["tags"]}
+    assert lookup_tags["phlo/operation"] == "materialize_asset"
+    assert lookup_tags["phlo/idempotency_key"] == "request-42"
+    assert len(lookup_tags["phlo/launch_request"]) == 64
 
 
 def test_terminate_maps_dagster_error(monkeypatch) -> None:

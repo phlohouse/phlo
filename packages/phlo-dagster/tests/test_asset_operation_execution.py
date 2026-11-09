@@ -13,6 +13,7 @@ from phlo_dagster import operations
 
 
 def test_materialization_executes_partition_config_and_downstream_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "journal"))
     definitions = tmp_path / "assets.py"
     definitions.write_text("""
 import json
