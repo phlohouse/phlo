@@ -141,6 +141,7 @@ def test_enabled_wap_materialize_uses_graphql_launch_and_retains_a_rejected_bran
     records: list[dict[str, str | None]] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {
@@ -187,7 +188,7 @@ def test_enabled_wap_materialize_uses_graphql_launch_and_retains_a_rejected_bran
         lambda: type("ID", (), {"hex": "request-42"})(),
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", rejected_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", rejected_launch)
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
     monkeypatch.setenv("PHLO_DAGSTER_ACCESS_TOKEN", "user-access-token")
 
@@ -211,6 +212,7 @@ def test_enabled_wap_materialize_retains_new_branch_after_ambiguous_transport_fa
     records: list[dict[str, str | None]] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {
@@ -244,7 +246,7 @@ def test_enabled_wap_materialize_retains_new_branch_after_ambiguous_transport_fa
         )(),
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", timeout_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", timeout_launch)
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
 
     result = CliRunner().invoke(
@@ -287,6 +289,7 @@ def test_enabled_wap_materialize_uses_project_configuration(
     discovery_calls: list[bool] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {
@@ -339,7 +342,7 @@ def test_enabled_wap_materialize_uses_project_configuration(
         "phlo_dagster.cli_materialize.discover_capabilities", lambda: discovery_calls.append(True)
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", prepared_launch)
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", accepted_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", accepted_launch)
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", _ready)
 
     result = CliRunner().invoke(
@@ -366,6 +369,7 @@ def test_enabled_wap_materialize_waits_for_http_before_launch(monkeypatch) -> No
     calls: list[tuple[str, str]] = []
 
     class Launch:
+        context = None
         logical_run_id = "request-42"
         branch = "pipeline-run-request-42"
         tags = {"phlo/run_id": logical_run_id}
@@ -396,7 +400,7 @@ def test_enabled_wap_materialize_waits_for_http_before_launch(monkeypatch) -> No
     )
     monkeypatch.setattr("phlo_dagster.cli_materialize.wait_for_dagster_http", recording_wait)
     monkeypatch.setattr("phlo_dagster.cli_materialize.prepare_wap_launch", lambda **_: Launch())
-    monkeypatch.setattr("phlo_dagster.cli_materialize.launch_materialize", recording_launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", recording_launch)
 
     result = CliRunner().invoke(materialize, ["dlt_orders"])
 
@@ -525,7 +529,26 @@ def test_materialize_can_skip_default_partition(mock_project, mock_container) ->
     assert "docker exec" in result.output
 
 
-def test_materialize_json_dry_run_preserves_selection_partition_and_backend(monkeypatch) -> None:
+@pytest.mark.parametrize("host_platform", ["Linux", "Darwin", "Windows"])
+@pytest.mark.parametrize("refresh_contracts", [True, False])
+def test_materialize_json_dry_run_preserves_selection_partition_and_backend(
+    monkeypatch, tmp_path, host_platform, refresh_contracts
+) -> None:
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    (tmp_path / "phlo.yaml").write_text(
+        'env:\n  PHLO_OBSERVE_PRETTY: "1"\n  PHLO_OBSERVE_PRETTY_VERBOSE: ""\n'
+        '  OBSERVE_DRAINS: "console,file"\n  UNRELATED: "not-forwarded"\n'
+    )
+    monkeypatch.setattr("platform.system", lambda: host_platform)
+
+    def host_identity(backend_name):
+        assert host_platform == "Linux", "non-Linux commands must not query host identity"
+        assert backend_name == "podman"
+        return 1234, 5678
+
+    monkeypatch.setattr(
+        "phlo_dagster.materialization_command.container_host_identity", host_identity
+    )
     monkeypatch.setattr(
         "phlo_dagster.cli_materialize.find_dagster_container", lambda _: "dagster-7"
     )
@@ -545,10 +568,10 @@ def test_materialize_json_dry_run_preserves_selection_partition_and_backend(monk
             "tag:silver",
             "--partition",
             "2026-02-03",
-            "--no-contract-refresh",
             "--dry-run",
             "--json",
-        ],
+        ]
+        + ([] if refresh_contracts else ["--no-contract-refresh"]),
     )
 
     assert result.exit_code == 0, result.output
@@ -559,5 +582,16 @@ def test_materialize_json_dry_run_preserves_selection_partition_and_backend(monk
     argv = payload["data"]["argv"]
     assert argv[:2] == ["podman", "exec"]
     assert "dagster-7" in argv
-    assert "PHLO_AUTO_REFRESH_CONTRACTS=0" in argv
+    assert f"PHLO_HOST_PLATFORM={host_platform}" in argv
+    assert "PHLO_PROJECT_PATH=/app" in argv
+    assert argv[argv.index("-w") + 1] == "/app"
+    assert "PHLO_OBSERVE_PRETTY=1" in argv
+    assert "OBSERVE_DRAINS=console,file" in argv
+    assert not any(arg.startswith(("PHLO_OBSERVE_PRETTY_VERBOSE=", "UNRELATED=")) for arg in argv)
+    assert f"PHLO_AUTO_REFRESH_CONTRACTS={int(refresh_contracts)}" in argv
+    assert "PHLO_CONTRACT_REFRESH_SELECTION=tag:silver" in argv
+    if host_platform == "Linux":
+        assert argv[argv.index("--user") + 1] == "1234:5678"
+    else:
+        assert "--user" not in argv
     assert argv[-4:] == ["--select", "tag:silver", "--partition", "2026-02-03"]

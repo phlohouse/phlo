@@ -11,9 +11,9 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from phlo.capabilities.specs import CheckResult, MaterializeResult, RunGroupResult
+from phlo.capabilities.specs import RunGroupResult
 from phlo.capabilities.runtime import RuntimeContext
-from phlo_dbt.asset_checks import extract_dbt_asset_checks
+from phlo_dbt.asset_checks import dbt_asset_outcomes
 from phlo_dbt.runtime_config import resolve_dbt_target_name
 from phlo_dbt.transformer import DbtTransformer
 from phlo_dbt.translator import DbtSpecTranslator
@@ -29,7 +29,6 @@ def run_dbt_group(
     asset_keys: dict[str, str],
     tests: dict[str, tuple[str, ...]],
     translator: DbtSpecTranslator,
-    key_prefix: str | None,
 ) -> RunGroupResult:
     """Build selected models and owned tests using one isolated dbt invocation."""
     nodes = {
@@ -50,7 +49,7 @@ def run_dbt_group(
         project_dir=project_dir,
         profiles_dir=profiles_dir,
         target=target,
-        key_prefix=key_prefix,
+        translator=translator,
     )
     build = transformer.run_transform(
         partition_key=runtime.partition_key,
@@ -62,64 +61,15 @@ def run_dbt_group(
             + sha256("\n".join(sorted(selected)).encode()).hexdigest()[:16],
         },
     )
-    payload = transformer.build_run_results
-    checks = extract_dbt_asset_checks(
-        run_results=payload or {},
+    outcomes = dbt_asset_outcomes(
+        run_results=transformer.build_run_results,
         manifest=manifest,
+        selected=selected,
         translator=translator,
-        partition_key=runtime.partition_key,
+        runtime=runtime,
+        target=target,
+        error=build.error,
     )
-    by_id = {item["unique_id"]: item for item in (payload or {}).get("results", [])}
-    outcomes: dict[str, list[MaterializeResult | CheckResult]] = {}
-    for uid, props in nodes.items():
-        key = asset_keys[uid]
-        node = by_id.get(uid, {})
-        if node.get("status") in {"skip", "skipped"}:
-            continue
-        owned = [
-            check
-            for check in checks
-            if check.asset_key == key and check.metadata.get("status") not in {"skip", "skipped"}
-        ]
-        missing_tests = [
-            test_id
-            for test_id, test_props in manifest["nodes"].items()
-            if test_props.get("resource_type") == "test"
-            and test_props.get("name") in tests.get(key, ())
-            and test_id not in by_id
-        ]
-        failed = (
-            node.get("status") != "success"
-            or bool(missing_tests)
-            or any(
-                check.metadata.get("status") in {"fail", "error", "runtime error"}
-                for check in owned
-            )
-        )
-        status = "failure" if failed else "success"
-        outcomes[key] = [
-            *owned,
-            MaterializeResult(
-                status=status,
-                metadata={
-                    "model": props["name"],
-                    "dbt_target": target,
-                    "dbt_status": node.get("status", "missing"),
-                    "dbt_metadata": {
-                        "invocation_id": (payload or {}).get("metadata", {}).get("invocation_id"),
-                        "error": (node.get("message") or build.error) if failed else None,
-                        "missing_tests": missing_tests,
-                    },
-                    "transform_status": status,
-                    "transform_run_id": runtime.run_id,
-                    "transform_duration_ms": round(float(node.get("execution_time", 0)) * 1000),
-                    "transform_counts": {
-                        "passed": sum(check.passed for check in owned),
-                        "failed": sum(not check.passed for check in owned),
-                    },
-                },
-            ),
-        ]
     return RunGroupResult(
         outcomes=outcomes,
         error=(build.error or "dbt invocation failed") if build.status != "success" else None,

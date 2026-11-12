@@ -16,12 +16,15 @@ import yaml
 from click.testing import CliRunner
 from pyiceberg.exceptions import NoSuchTableError
 
+from phlo.capabilities.registry import CapabilityRegistry
 from phlo.capabilities.specs import (
     FieldSpec,
     NormalizedSchema,
     SchemaChange,
+    SchemaDiscoverySpec,
     SchemaMigrationPlan,
     SchemaMigrationSpec,
+    TableStoreSpec,
 )
 from phlo.cli.commands import schema_migrate as schema_migrate_commands
 from phlo.cli.main import cli
@@ -45,7 +48,11 @@ def test_schema_migrate_history_renders_timestamp_ms(monkeypatch) -> None:
                 }
             ]
 
-    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", lambda: FakeMigrator())
+    monkeypatch.setattr(
+        schema_migrate_commands,
+        "_resolve_migrator",
+        lambda: SchemaMigrationSpec(name="iceberg", provider=FakeMigrator()),
+    )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -63,7 +70,11 @@ def test_schema_migrate_history_backend_failure_is_clean_error(monkeypatch) -> N
         def get_schema_history(self, *, table_name: str, limit: int = 10) -> list[dict]:
             raise RuntimeError("backend unavailable")
 
-    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", lambda: FakeMigrator())
+    monkeypatch.setattr(
+        schema_migrate_commands,
+        "_resolve_migrator",
+        lambda: SchemaMigrationSpec(name="iceberg", provider=FakeMigrator()),
+    )
 
     result = CliRunner().invoke(cli, ["schema-migrate", "history", "warehouse.customers"])
 
@@ -100,7 +111,7 @@ def test_resolve_migrator_prefers_matching_table_store_default(monkeypatch) -> N
 
     resolved = schema_migrate_commands._resolve_migrator()
 
-    assert resolved is iceberg_migrator
+    assert resolved.provider is iceberg_migrator
 
 
 def test_resolve_migrator_prefers_explicit_schema_migrator_default(monkeypatch) -> None:
@@ -128,7 +139,7 @@ def test_resolve_migrator_prefers_explicit_schema_migrator_default(monkeypatch) 
 
     resolved = schema_migrate_commands._resolve_migrator()
 
-    assert resolved is delta_migrator
+    assert resolved.provider is delta_migrator
 
 
 @pytest.mark.parametrize(
@@ -208,7 +219,11 @@ def _patch_schema_resolution(monkeypatch) -> None:
         __name__ = "CustomerSchema"
 
     monkeypatch.setattr(schema_migrate_commands, "_resolve_extractor", lambda: FakeExtractor())
-    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", lambda: FakeMigrator())
+    monkeypatch.setattr(
+        schema_migrate_commands,
+        "_resolve_migrator",
+        lambda: SchemaMigrationSpec(name="iceberg", provider=FakeMigrator()),
+    )
     monkeypatch.setattr(
         schema_migrate_commands,
         "_find_native_schema",
@@ -217,7 +232,6 @@ def _patch_schema_resolution(monkeypatch) -> None:
     monkeypatch.setattr(
         schema_migrate_commands, "_select_default_table_store_name", lambda: "iceberg"
     )
-    monkeypatch.setattr(schema_migrate_commands, "_select_default_migrator_name", lambda: "iceberg")
     monkeypatch.setattr(
         schema_migrate_commands,
         "_collect_contract_metadata",
@@ -246,6 +260,72 @@ def test_schema_migrate_export_contract_writes_default_path(monkeypatch) -> None
         assert payload["schema_migrator"] == "iceberg"
         assert payload["contract_version"] == 1
         assert payload["contract_metadata"]["owner"] == "platform-team"
+
+
+@pytest.mark.parametrize(
+    ("installed", "explicit_migrator", "expected_migrator"),
+    [
+        (("delta", "iceberg"), None, "iceberg"),
+        (("delta", "iceberg"), "delta", "delta"),
+        (("delta",), None, "delta"),
+    ],
+    ids=["table-store-fallback", "explicit-precedence", "singleton-fallback"],
+)
+def test_export_contract_records_the_migrator_that_built_its_plan(
+    monkeypatch, tmp_path, installed, explicit_migrator, expected_migrator
+) -> None:
+    """Contract metadata names the provider selected by real capability resolution."""
+
+    class CustomerSchema:
+        pass
+
+    class Extractor:
+        def discover_schemas(self):
+            return {"CustomerSchema": CustomerSchema}
+
+        def extract(self, native_schema):
+            assert native_schema is CustomerSchema
+            return NormalizedSchema(fields=[FieldSpec(name="id", dtype="int64")])
+
+    class Migrator:
+        def __init__(self, name):
+            self.name = name
+
+        def diff_schema(self, *, table_name, desired):
+            assert table_name == "warehouse.customers"
+            assert desired == NormalizedSchema(fields=[FieldSpec(name="id", dtype="int64")])
+            return SchemaMigrationPlan(
+                table_name=table_name,
+                changes=[],
+                classification="safe",
+                recommendations=[f"Review plan from {self.name}"],
+            )
+
+    registry = CapabilityRegistry()
+    for name in installed:
+        registry.register(
+            "schema_migrator", SchemaMigrationSpec(name=name, provider=Migrator(name))
+        )
+    registry.register("table_store", TableStoreSpec(name="iceberg", provider=object()))
+    registry.register("schema_discovery", SchemaDiscoverySpec(name="test", provider=Extractor()))
+    monkeypatch.setattr("phlo.capabilities.registry._GLOBAL_REGISTRY", registry)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
+    monkeypatch.setattr(schema_migrate_commands, "discover_capabilities", lambda: None)
+    monkeypatch.chdir(tmp_path)
+    defaults = {"table_store": "iceberg"}
+    if explicit_migrator is not None:
+        defaults["schema_migrator"] = explicit_migrator
+    monkeypatch.setenv("PHLO_DEFAULT_CAPABILITIES", json.dumps(defaults))
+
+    destination = schema_migrate_commands.export_contract_for_table(
+        table_name="warehouse.customers", schema_class="CustomerSchema"
+    )
+
+    assert destination == Path(".phlo/contracts/warehouse__customers.json")
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    assert payload["table_store"] == "iceberg"
+    assert payload["migration_plan"]["recommendations"] == [f"Review plan from {expected_migrator}"]
+    assert payload["schema_migrator"] == expected_migrator
 
 
 def test_schema_migrate_scaffold_yaml_reads_contract(monkeypatch) -> None:
@@ -289,7 +369,7 @@ def test_schema_migrate_scaffold_yaml_backend_failure_is_clean_error(monkeypatch
         )
         monkeypatch.setattr(
             schema_migrate_commands,
-            "_build_scaffold_payload_from_contract",
+            "_resolve_migrator",
             lambda **kwargs: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
         )
 
@@ -339,7 +419,11 @@ def test_schema_migrate_plan_passes_yaml_and_cli_renames(monkeypatch) -> None:
         pass
 
     monkeypatch.setattr(schema_migrate_commands, "_resolve_extractor", lambda: FakeExtractor())
-    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", lambda: FakeMigrator())
+    monkeypatch.setattr(
+        schema_migrate_commands,
+        "_resolve_migrator",
+        lambda: SchemaMigrationSpec(name="iceberg", provider=FakeMigrator()),
+    )
     monkeypatch.setattr(
         schema_migrate_commands,
         "_find_native_schema",
@@ -449,7 +533,11 @@ def test_schema_migrate_apply_refuses_rename_when_migrator_does_not_support_it(
         pass
 
     monkeypatch.setattr(schema_migrate_commands, "_resolve_extractor", lambda: FakeExtractor())
-    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", lambda: FakeMigrator())
+    monkeypatch.setattr(
+        schema_migrate_commands,
+        "_resolve_migrator",
+        lambda: SchemaMigrationSpec(name="iceberg", provider=FakeMigrator()),
+    )
     monkeypatch.setattr(
         schema_migrate_commands,
         "_find_native_schema",
@@ -510,7 +598,11 @@ def test_schema_migrate_apply_dry_run_refuses_unsupported_rename(monkeypatch) ->
         pass
 
     monkeypatch.setattr(schema_migrate_commands, "_resolve_extractor", lambda: FakeExtractor())
-    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", lambda: FakeMigrator())
+    monkeypatch.setattr(
+        schema_migrate_commands,
+        "_resolve_migrator",
+        lambda: SchemaMigrationSpec(name="iceberg", provider=FakeMigrator()),
+    )
     monkeypatch.setattr(
         schema_migrate_commands,
         "_find_native_schema",
@@ -847,23 +939,50 @@ def test_collect_transform_refs_filters_and_deduplicates(monkeypatch) -> None:
     assert refs == ["transform_a", "transform_b"]
 
 
-def test_build_scaffold_payload_from_contract_rejects_table_mismatch(monkeypatch) -> None:
-    """A contract file whose table name does not match the request should fail."""
+@pytest.mark.parametrize(
+    ("contract", "error"),
+    [
+        (
+            {"table_name": "warehouse.other"},
+            "Contract table mismatch: expected 'warehouse.customers', found 'warehouse.other'",
+        ),
+        ({"table_name": "warehouse.customers"}, "Contract missing normalized_schema payload"),
+        (
+            {"table_name": "warehouse.customers", "normalized_schema": {"fields": {}}},
+            "Invalid normalized_schema payload in contract",
+        ),
+        (
+            {"table_name": "warehouse.customers", "normalized_schema": {"metadata": []}},
+            "Invalid normalized_schema payload in contract",
+        ),
+    ],
+)
+def test_schema_migrate_scaffold_rejects_invalid_contract_before_discovery(
+    monkeypatch, contract, error
+) -> None:
+    """Malformed contracts fail cleanly before provider discovery or output writes."""
 
-    monkeypatch.setattr(
-        schema_migrate_commands.schema_migrate_contracts,
-        "read_contract",
-        lambda path: {
-            "table_name": "warehouse.other",
-            "normalized_schema": {"fields": [], "metadata": {}},
-        },
-    )
+    def unexpected_resolution():
+        pytest.fail("Malformed contracts must be rejected before resolving the migrator")
 
-    with pytest.raises(ValueError, match="Contract table mismatch"):
-        schema_migrate_commands._build_scaffold_payload_from_contract(
-            table_name="warehouse.customers",
-            contract_path=Path(".phlo/contracts/warehouse__customers.json"),
+    monkeypatch.setattr(schema_migrate_commands, "_resolve_migrator", unexpected_resolution)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        source = Path("contract.json")
+        source.write_text(json.dumps(contract), encoding="utf-8")
+        result = runner.invoke(
+            cli,
+            [
+                "schema-migrate",
+                "scaffold-yaml",
+                "warehouse.customers",
+                "--from-contract",
+                str(source),
+            ],
         )
+        assert result.exit_code == 1
+        assert error in result.output.replace("\n", "")
+        assert not Path(".phlo/migrations").exists()
 
 
 def test_refresh_contracts_skips_missing_tables_without_warning(monkeypatch) -> None:

@@ -203,7 +203,25 @@ def _image_default(value: str) -> str:
     return value
 
 
-def affected_images(changed: Iterable[str], root: Path) -> dict[str, list[dict[str, str]]]:
+def image_build_inputs_changed(paths: set[str], package: str, service: str) -> bool:
+    """Select image sources and shared wheel inputs without selecting unrelated images."""
+    if any(
+        path.startswith(package + "/src/") or path == package + "/pyproject.toml" for path in paths
+    ):
+        return True
+    # API and Dagster consume the workspace wheelhouse and core dependency graph.
+    # MinIO compiles independent Go sources; Observatory builds its own Node app.
+    return service in {"phlo-api", "dagster"} and any(
+        path in {"pyproject.toml", "uv.lock"}
+        or path.startswith("src/phlo/")
+        or re.match(r"packages/[^/]+/(src/|pyproject\.toml$)", path)
+        for path in paths
+    )
+
+
+def affected_images(
+    changed: Iterable[str], root: Path, *, build_inputs_only: bool = False
+) -> dict[str, list[dict[str, str]]]:
     """Map changed paths to the generated service images CI must scan as GitHub matrix output."""
     paths = set(changed)
     service_files = sorted((root / "packages").glob("*/src/*/service.yaml"))
@@ -217,9 +235,13 @@ def affected_images(changed: Iterable[str], root: Path) -> dict[str, list[dict[s
             continue
         package_root = service_file.parents[2]
         relative = package_root.relative_to(root).as_posix()
-        if not broad_change and not any(
-            path == relative or path.startswith(relative + "/") for path in paths
-        ):
+        selected = (
+            image_build_inputs_changed(paths, relative, str(service.get("name")))
+            if build_inputs_only
+            else broad_change
+            or any(path == relative or path.startswith(relative + "/") for path in paths)
+        )
+        if not selected:
             continue
         image = service.get("image")
         if not isinstance(image, str) or not _image_default(image).startswith(
@@ -848,6 +870,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Return every generated service image for the nightly validation lane.",
     )
     affected.add_argument("--head", default="HEAD")
+    affected.add_argument(
+        "--build-inputs-only",
+        action="store_true",
+        help="Select changed image sources and shared runtime inputs, not container-contract paths.",
+    )
     fleet = sub.add_parser("published-fleet")
     fleet.add_argument("--root", type=Path, default=Path.cwd())
     assemble = sub.add_parser("assemble-rescan-manifest")
@@ -935,7 +962,14 @@ def _cmd_affected_images(args: argparse.Namespace) -> int:
         changed = subprocess.check_output(
             ["git", "diff", "--name-only", f"{args.base}...{args.head}"], text=True
         ).splitlines()
-    print(json.dumps(affected_images(changed, Path.cwd()), separators=(",", ":")))
+    print(
+        json.dumps(
+            affected_images(
+                changed, Path.cwd(), build_inputs_only=args.build_inputs_only and not args.all
+            ),
+            separators=(",", ":"),
+        )
+    )
     return 0
 
 

@@ -47,9 +47,8 @@ def test_grouped_dbt_builds_real_models_with_partial_selection_and_failure(monke
     )
     monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
     monkeypatch.setenv("PATH", str(Path(sys.executable).parent), prepend=":")
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_profile", lambda *a, **kw: None)
     monkeypatch.setattr("phlo_dbt.transformer.ensure_dbt_profile", lambda *a, **kw: None)
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_manifest", lambda *a, **kw: True)
+    monkeypatch.setattr("phlo_dbt.assets.ensure_compiled", lambda *a, **kw: True)
     monkeypatch.setattr("phlo.hooks.bus.HookBus.emit", lambda *a, **kw: None)
     monkeypatch.setattr(
         "phlo_dbt.assets.get_settings", lambda: DbtSettings(dbt_project_dir=str(project))

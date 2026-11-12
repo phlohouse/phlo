@@ -19,11 +19,9 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from phlo.capabilities.continuity import canonical_json_bytes, sha256_bytes
 from phlo.operations.journal import (
+    OperationJournal,
     OperationJournalError,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    mark_unknown,
+    OperationJournalState,
 )
 from pydantic import Field
 
@@ -33,7 +31,6 @@ from phlo_api.api.operation_controls import (
     MutationRejected,
     audit_operation,
     enforce_rate_limit,
-    idempotency_key_target,
     replay_or_execute,
     require_scope,
 )
@@ -103,7 +100,7 @@ def _operation_id(plan: PackageInstallPlan, plan_token: str) -> str:
 
 # Every idempotency claim state that blocks this request maps to one stable code.
 _IDEMPOTENCY_CONFLICTS = {
-    "target_mismatch": (
+    "idempotency_key_conflict": (
         "idempotency_key_conflict",
         "The idempotency key is bound to another plan.",
     ),
@@ -172,10 +169,7 @@ def v1_package_install(
     }:
         raise BadInputError("The plan is for another package.", code="package_mismatch")
     operation_id = _operation_id(plan, plan_token)
-    if idempotency_key_target(payload.idempotency_key, _ACTION) not in {None, operation_id}:
-        code, message = _IDEMPOTENCY_CONFLICTS["target_mismatch"]
-        raise ConflictError(message, code=code)
-    journal = durable_operation_journal()
+    journal = OperationJournal(durable_operation_journal())
 
     def execute() -> dict[str, Any]:
         # Every check here proves the installer has not started, so a
@@ -205,8 +199,7 @@ def v1_package_install(
                 BackendUnavailableError(str(exc), code="installer_unavailable")
             ) from exc
         try:
-            claim_operation(
-                journal,
+            journal.claim(
                 operation_id=operation_id,
                 subject=auth["subject"],
                 action=_ACTION,
@@ -217,13 +210,13 @@ def v1_package_install(
             raise _rejected(
                 ConflictError("This plan was already applied.", code="conflicting_claim")
             ) from exc
-        mark_submitted(journal, operation_id)
+        journal.submit(operation_id)
         try:
             succeeded, message = package_install.run_package_install(package.package_spec)
         except Exception as exc:
             # The installer may have changed the environment; block replay
             # until an operator reconciles the journal entry.
-            mark_unknown(journal, operation_id)
+            journal.unknown(operation_id)
             raise BadGatewayError(
                 f"The install outcome is unknown; reconcile journal entry {operation_id}.",
                 code="apply_outcome_unknown",
@@ -247,7 +240,11 @@ def v1_package_install(
                 else [package.registry_name]
             ),
         ).model_dump(mode="json")
-        complete_operation(journal, operation_id, result)
+        journal.complete(
+            operation_id,
+            state=OperationJournalState.SUCCEEDED if succeeded else OperationJournalState.FAILED,
+            result=result,
+        )
         return result
 
     try:

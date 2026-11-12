@@ -728,14 +728,9 @@ def expand_service_dependencies(
     if not services:
         return []
 
-    all_services = {
-        **discovery.discover(),
-        **{service.name: service for service in additional_services or []},
-        **{service.name: service for service in services},
-    }
     return ServiceManifestResolver.expand_dependencies(
-        list(all_services.values()),
-        [service.name for service in services],
+        services,
+        available_services=[*discovery.discover().values(), *(additional_services or [])],
     )
 
 

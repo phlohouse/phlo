@@ -21,12 +21,11 @@ from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 from phlo_dlt.decorator import (
     _default_merge_config,
-    _validate_merge_config,
     clear_ingestion_assets,
     get_ingestion_assets,
     phlo_ingestion,
 )
-from phlo_dlt.dlt_helpers import merge_to_table_store
+from phlo_dlt.dlt_helpers import DltStagingResult, merge_to_table_store, validate_merge_config
 from phlo_dlt.executor import DltIngester
 from phlo_dlt.registry import TableConfig
 from phlo_iceberg import catalog as catalog_module
@@ -82,7 +81,7 @@ def test_history_config_rejects_invalid_or_ambiguous_policy(config):
     [CONFIG, {"entity_key": "entity", "version_key": "version", "payload_hash_column": "hash"}],
 )
 def test_history_config_has_no_merge_deduplication_defaults(config):
-    _validate_merge_config("history", "entity", config)
+    validate_merge_config("history", "entity", config)
     assert _default_merge_config("history", config) == config
 
 
@@ -96,7 +95,7 @@ def test_unsupported_provider_rejects_history_before_ensure_or_write(tmp_path, a
 
     with pytest.raises(PhloConfigError, match="does not support atomic history"):
         merge_to_table_store(
-            context=SimpleNamespace(log=get_logger("test-history")),
+            log=get_logger("test-history"),
             table_store=UnsupportedStore(),
             table_config=TableConfig("versions", SCHEMA, None, "entity", "raw"),
             parquet_paths=[tmp_path / "unused.parquet"],
@@ -135,7 +134,7 @@ def test_history_negotiates_selected_write_signature_before_ensure(tmp_path, acc
 
     def write():
         return merge_to_table_store(
-            context=SimpleNamespace(log=get_logger("test-history-policy")),
+            log=get_logger("test-history-policy"),
             table_store=provider,
             table_config=TableConfig(
                 "versions", SCHEMA, None, "entity", "raw", schema_policy="additive"
@@ -172,7 +171,7 @@ def test_public_decorator_runs_real_dlt_staging_replay_and_late_versions(
             pipelines_dir=str(tmp_path / "pipelines"),
         ), tmp_path / "pipelines" / pipeline_name
 
-    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", setup)
+    monkeypatch.setattr("phlo_dlt.dlt_helpers.setup_dlt_pipeline", setup)
     rows = [{"entity": "E1", "version": "V1", "payload": "original"}]
     events = []
     monkeypatch.setattr("phlo_dlt.executor.emit_observation", lambda **event: events.append(event))
@@ -247,9 +246,9 @@ def test_multifile_executor_preserves_counts_and_reconciliation_evidence(
         right,
     )
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline", lambda **kw: (SimpleNamespace(), tmp_path)
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **kw: DltStagingResult([left, right], 0.01, None),
     )
-    monkeypatch.setattr("phlo_dlt.executor.stage_to_parquet", lambda **kw: ([left, right], 0.01))
     captured = []
     monkeypatch.setattr(
         "phlo_dlt.executor.emit_observation", lambda **event: captured.append(event)

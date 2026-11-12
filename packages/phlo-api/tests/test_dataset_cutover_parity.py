@@ -154,6 +154,7 @@ def test_blocked_publish_returns_identical_ordered_reasons_on_every_surface(
 
     authority = observatory_module._dataset_authority()
     seed = authority.service.store.compare_and_set(
+        resource_id="gold.orders",
         writes=(
             StoreWrite(
                 record_id="gold.orders",
@@ -246,6 +247,7 @@ def test_authorized_publish_is_idempotent_audited_and_durable(
     )
     authority = observatory_module._dataset_authority()
     seed = authority.service.store.compare_and_set(
+        resource_id="gold.orders",
         writes=(
             StoreWrite(
                 record_id="gold.orders",
@@ -324,6 +326,7 @@ def test_publish_against_exact_version_conflicts_on_mismatch_and_replays_on_matc
     )
     authority = observatory_module._dataset_authority()
     seed = authority.service.store.compare_and_set(
+        resource_id="gold.orders",
         writes=(
             StoreWrite(
                 record_id="gold.orders",

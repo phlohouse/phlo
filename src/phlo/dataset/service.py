@@ -169,6 +169,10 @@ class DatasetService:
         for _attempt in range(MAX_CAS_ATTEMPTS):
             record = self._store.load(resource_id)
             before_state = record.current_state if record else WORKFLOW_STATE_OPEN
+            committed = self._store.committed_action(resource_id, request.action_id)
+            if committed is not None:
+                return self._replay_outcome(request, committed, before_state)
+
             if request.expected_state is not None and request.expected_state != before_state:
                 return self._failed_outcome(
                     request,
@@ -179,10 +183,6 @@ class DatasetService:
                         f"found {before_state!r}."
                     ),
                 )
-
-            committed = self._store.committed_action(resource_id, request.action_id)
-            if committed is not None:
-                return self._replay_outcome(request, committed, before_state)
 
             allowed, message = _state_machine_check(resource_id, request.action, before_state)
             if not allowed:
@@ -215,6 +215,7 @@ class DatasetService:
 
             writes = _plan_writes(resource_id, request, record, verdict.policy_version)
             result = self._store.compare_and_set(
+                resource_id=resource_id,
                 writes=writes,
                 action_id=request.action_id,
                 action=request.action,
@@ -224,17 +225,8 @@ class DatasetService:
                 continue
             if result.status is StoreWriteStatus.REPLAYED:
                 committed = self._store.committed_action(resource_id, request.action_id)
-                after = result.records[-1] if result.records else None
-                after_state = after.current_state if after else before_state
-                return self._outcome(
-                    request,
-                    TransitionStatus.REPLAYED,
-                    before_state=before_state,
-                    after_state=after_state,
-                    record=after,
-                    message=result.detail or "Transition already committed; replaying outcome.",
-                    audit_outcome="replayed",
-                )
+                assert committed is not None  # a store replay always has a committed receipt
+                return self._replay_outcome(request, committed, before_state)
             if result.status is StoreWriteStatus.ACTION_CONFLICT:
                 return self._failed_outcome(
                     request,
@@ -278,12 +270,17 @@ class DatasetService:
         before_state: str | None,
     ) -> TransitionOutcome:
         if committed.fingerprint == request.fingerprint():
+            outcome_id = (
+                dataset_table_id(request.resource_id)
+                if request.action == "promote"
+                else request.resource_id
+            )
             return self._outcome(
                 request,
                 TransitionStatus.REPLAYED,
                 before_state=before_state,
                 after_state=committed.after_state,
-                record=self._store.load(request.resource_id),
+                record=self._store.load(outcome_id),
                 message=f"Action {request.action!r} already committed; replaying outcome.",
                 audit_outcome="replayed",
             )

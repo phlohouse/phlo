@@ -10,8 +10,15 @@ expanding provider behavior or importing any provider/CLI code in the adapter.
 from __future__ import annotations
 
 import json
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,8 +34,7 @@ from phlo.capabilities.continuity import (
 )
 from phlo.capabilities.registry import clear_capabilities, register_capability
 from phlo.capabilities.interfaces import Principal
-from phlo.capabilities.specs import MaintenanceExecutorSpec
-from phlo.operations.journal import claim_operation, mark_unknown
+from phlo.operations.journal import OperationJournal
 from phlo.operations.journal_store import FileOperationJournalStore
 from phlo.operations.upgrade import (
     SUPPORTED_FROM_VERSION,
@@ -152,6 +158,79 @@ def journal_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     return authenticated_client("admin")
+
+
+@pytest.fixture()
+def maintenance_backend(monkeypatch):
+    """Shipped Iceberg/Trino registration, with metadata and SQL transport controlled."""
+    from phlo_iceberg.plugin import IcebergResourceProvider
+    from phlo_iceberg.resource import IcebergResource
+    from phlo_trino.plugin import TrinoResourceProvider
+    from phlo_trino.resource import TrinoResource
+
+    state = SimpleNamespace(revision=41, expired=False, failure=None, sql=[])
+    store_spec = IcebergResourceProvider().get_table_stores()[0]
+    engine_spec = TrinoResourceProvider().get_maintenance_executors()[0]
+    clear_capabilities("table_store")
+    clear_capabilities("maintenance_executor")
+    register_capability("table_store", store_spec)
+    register_capability("maintenance_executor", engine_spec)
+    monkeypatch.setattr("phlo.operations.maintenance.discover_capabilities", lambda: None)
+
+    def snapshots():
+        ids = [state.revision] if state.expired else [1, 2, 3, 4, state.revision]
+        return [
+            SimpleNamespace(
+                snapshot_id=value,
+                timestamp_ms=int(datetime.now(UTC).timestamp() * 1000)
+                if value == state.revision
+                else 1,
+                summary=SimpleNamespace(
+                    operation=SimpleNamespace(value="append"), additional_properties={}
+                ),
+                manifests=lambda _io: [],
+            )
+            for value in ids
+        ]
+
+    table = SimpleNamespace(
+        snapshots=snapshots,
+        current_snapshot=lambda: snapshots()[-1],
+        refs=lambda: {"main": SimpleNamespace(snapshot_id=state.revision)},
+        io=None,
+    )
+    monkeypatch.setattr(
+        IcebergResource,
+        "get_catalog",
+        lambda self, override_ref=None: SimpleNamespace(load_table=lambda _name: table),
+    )
+
+    def stats(**_):
+        return {"current_snapshot_id": state.revision, "file_count": 4, "snapshot_count": 5}
+
+    monkeypatch.setattr("phlo_iceberg.resource.get_table_stats", stats)
+    monkeypatch.setattr(
+        IcebergResource, "_compaction_metadata", lambda self, *_: (state.revision, stats())
+    )
+
+    def execute(self, sql, **_kwargs):
+        state.sql.append((self._resolved_ref(), sql))
+        if sql.startswith("SELECT"):
+            if state.failure == "preflight":
+                raise ConnectionError("preflight disconnected")
+            return [(state.revision,)]
+        if state.failure == "submission":
+            raise ConnectionError("submission disconnected")
+        if "EXECUTE optimize" in sql:
+            state.revision += 1
+        else:
+            state.expired = True
+        return []
+
+    monkeypatch.setattr(TrinoResource, "execute", execute)
+    yield state
+    clear_capabilities("table_store")
+    clear_capabilities("maintenance_executor")
 
 
 def _create_backup(client: TestClient, tmp_path: Path, key: str) -> tuple[Path, dict[str, Any]]:
@@ -394,27 +473,45 @@ def test_apply_is_exactly_once_and_reused_conflicting_keys_are_rejected(
     assert conflict.json()["detail"]["error"] == "idempotency_key_conflict"
 
 
-def test_unknown_outcome_blocks_new_key_replay(
+@pytest.mark.parametrize(
+    "state,error",
+    [
+        ("claimed", "operation_in_progress"),
+        ("submitted", "operation_in_progress"),
+        ("unknown", "unknown_outcome_blocks_replay"),
+    ],
+)
+def test_active_journal_blocks_new_key_replay(
     client,
     contributors,
+    regulated_api_boundary,
     journal_dir: Path,
     tmp_path: Path,  # noqa: ANN001
+    state,
+    error,
 ) -> None:
     set_dir, _ = _create_backup(client, tmp_path, "bk-unknown")
     planned = _plan_restore(client, set_dir, tmp_path / "unknown-target")
     operation_id = planned["operation_id"]
 
-    # Simulate a submission whose outcome was never observed.
+    # Simulate an interrupted operation, without an outer API idempotency claim.
     journal = FileOperationJournalStore(journal_dir)
-    claim_operation(
-        journal,
+    owner = OperationJournal(journal)
+    owner.claim(
         operation_id=operation_id,
-        subject="operator",
+        subject="test:admin",
         action="restore.apply",
         target=planned["plan"]["target"]["target_id"],
         plan_token=planned["plan_token"],
     )
-    mark_unknown(journal, operation_id)
+    if state != "claimed":
+        owner.submit(operation_id)
+    if state == "unknown":
+        owner.unknown(operation_id)
+
+    verified = client.get(f"/api/continuity/verifications/{operation_id}")
+    assert verified.status_code == 200
+    assert verified.json()["replay_blocked"] is True
 
     response = client.post(
         "/api/continuity/apply",
@@ -427,7 +524,7 @@ def test_unknown_outcome_blocks_new_key_replay(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["error"] == "unknown_outcome_blocks_replay"
+    assert response.json()["detail"]["error"] == error
     assert all(contributor.restore_calls == 0 for contributor in contributors.values())
 
 
@@ -451,115 +548,400 @@ def test_apply_fails_closed_without_durable_journal(
     assert response.json()["detail"]["error"] == "journal_unconfigured"
 
 
-def test_maintenance_plan_apply_and_unknown_outcome_is_unreplayable(
-    client,
-    journal_dir: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
-) -> None:
-    executed: list[str] = []
-    revisions = iter([0, *range(101, 200)])
+def _maintenance_plan(client, operation="compact", **options):
+    response = client.post(
+        "/api/continuity/plan",
+        json={
+            "operation": "maintenance.plan",
+            "maintenance_operation": operation,
+            "table": "raw.events",
+            **options,
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
 
-    class FakeExecutor:
-        # Compaction plans carry the snapshot revision, not a plan_token.
-        def plan(self, *, table_name: str, ref: str) -> dict[str, Any]:
-            return {
-                "operation": "compact",
-                "table_name": table_name,
-                "ref": ref,
-                "before_revision": next(revisions),
-            }
 
-        def execute(self, *, table_name: str, ref: str, plan_token: str) -> dict[str, Any]:
-            if table_name == "silver.customers":
-                raise RuntimeError("provider died after submission")
-            executed.append(f"{table_name}:{ref}:{plan_token}")
-            return {"status": "completed", "operation": "compact", "table": table_name}
+def _maintenance_apply(client, plan, key="first", **options):
+    return client.post(
+        "/api/continuity/apply",
+        json={
+            "operation": "maintenance.apply",
+            "plan": plan["plan"],
+            "confirmation_token": plan["plan_token"],
+            "idempotency_key": key,
+            **options,
+        },
+    )
 
-    def plan_for(table: str, ref: str = "main") -> dict[str, Any]:
-        planned = client.post(
+
+@pytest.mark.parametrize("operation", ["compact", "snapshot_expiry"])
+def test_maintenance_planning_rejects_bad_identifiers_before_metadata(
+    client, maintenance_backend, journal_dir, monkeypatch, operation
+):
+    from phlo_iceberg.resource import IcebergResource
+
+    monkeypatch.setattr(client._transport, "raise_server_exceptions", False)
+
+    def unexpected_metadata(*_args, **_kwargs):
+        raise AssertionError("Invalid planning input must not reach metadata")
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(IcebergResource, "_compaction_metadata", unexpected_metadata)
+        guarded.setattr(IcebergResource, "get_catalog", unexpected_metadata)
+        rejected = client.post(
             "/api/continuity/plan",
             json={
                 "operation": "maintenance.plan",
-                "maintenance_operation": "compact",
-                "table": table,
-                "ref": ref,
+                "maintenance_operation": operation,
+                "table": "raw.events.extra",
             },
         )
-        assert planned.status_code == 200, planned.text
-        return planned.json()
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"]["error"] == "invalid_maintenance_input"
+    assert rejected.json()["detail"]["identifiers"][0] == operation
+    valid = _maintenance_plan(client, operation)
+    assert valid["plan"]["accepted"] is True
+    assert valid["plan"]["dry_run"] is True
+    assert valid["plan"]["table_name"] == "raw.events"
+    assert maintenance_backend.sql == []
+    assert not journal_dir.exists()
 
-    def apply_body(key: str, planned: dict[str, Any], **extra: Any) -> dict[str, Any]:
-        return {
-            "operation": "maintenance.apply",
-            "idempotency_key": key,
-            "plan": planned["plan"],
-            "confirmation_token": planned["plan_token"],
-            **extra,
-        }
 
-    register_capability(
-        "maintenance_executor",
-        MaintenanceExecutorSpec(name="compact", provider=FakeExecutor()),
+@pytest.mark.parametrize(
+    "failure,status",
+    [("precondition", 400), ("provider_failure", 500), ("malformed_result", 500)],
+)
+def test_maintenance_planning_distinguishes_precondition_rejection_from_server_failure(
+    client, maintenance_backend, journal_dir, monkeypatch, failure, status
+):
+    from phlo_iceberg.resource import IcebergResource
+
+    from phlo.capabilities.maintenance import MaintenancePreconditionError
+
+    monkeypatch.setattr(client._transport, "raise_server_exceptions", False)
+
+    def broken_plan(self, **_kwargs):
+        if failure == "precondition":
+            raise MaintenancePreconditionError("Catalog cannot satisfy the requested precondition")
+        if failure == "provider_failure":
+            raise RuntimeError("Unexpected backend failure")
+        # Result normalization raises ValueError, not a provider input rejection.
+        return [("malformed",)]
+
+    monkeypatch.setattr(IcebergResource, "compact", broken_plan)
+    response = client.post(
+        "/api/continuity/plan",
+        json={
+            "operation": "maintenance.plan",
+            "maintenance_operation": "compact",
+            "table": "raw.events",
+        },
     )
-    try:
-        # A zero snapshot revision is still a real token.
-        assert plan_for("silver.zero")["operation_id"] == "compact:silver.zero:main:0"
+    assert response.status_code == status, response.text
+    if status == 400:
+        assert response.json()["detail"]["error"] == "invalid_maintenance_input"
+    assert maintenance_backend.sql == []
+    assert not journal_dir.exists()
 
-        planned = plan_for("silver.orders")
-        # The revision becomes the token, exactly as the CLI derives it.
-        assert planned["plan_token"] == "101"
-        assert planned["operation_id"] == "compact:silver.orders:main:101"
 
-        applied = client.post("/api/continuity/apply", json=apply_body("mt-1", planned))
+def test_maintenance_compact_uses_shipped_providers_and_plan_owned_target(
+    client, maintenance_backend, journal_dir
+):
+    backend = maintenance_backend
+    backend.revision = 0
+    planned = _maintenance_plan(client, ref="feature")
+    assert planned["operation_id"] == "compact:raw.events:feature:0"
+    assert planned["plan_token"] == "0"
+    assert backend.sql == []  # Planning never invokes the engine.
+    for options, error in [
+        ({"ref": "main"}, "ref_mismatch"),
+        ({"table": "raw.other"}, "table_mismatch"),
+        ({"confirmation_token": "wrong"}, "token_mismatch"),
+    ]:
+        refused = _maintenance_apply(client, planned, **options)
+        assert refused.status_code == 400, refused.text
+        assert refused.json()["detail"]["error"] == error
+    assert backend.sql == []
+
+    applied = _maintenance_apply(client, planned)
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "succeeded"
+    assert applied.json()["operation"] == "maintenance.apply"
+    assert applied.json()["operation_id"] == planned["operation_id"]
+    assert applied.json()["before_revision"] == 0
+    assert backend.revision == 1
+    assert {ref for ref, _sql in backend.sql} == {"feature"}
+    assert backend.sql[-1][1] == 'ALTER TABLE "raw"."events" EXECUTE optimize'
+    count = len(backend.sql)
+    assert _maintenance_apply(client, planned).json() == applied.json()
+    assert _maintenance_apply(client, planned, "another-key").status_code == 409
+    assert len(backend.sql) == count
+    fresh = _maintenance_plan(client, ref="feature")
+    assert fresh["operation_id"] == "compact:raw.events:feature:1"
+    assert _maintenance_apply(client, fresh, "fresh").status_code == 200
+    assert backend.revision == 2
+
+
+def test_maintenance_http_key_binds_equal_revisions_to_the_exact_ref(
+    client, maintenance_backend, tmp_path
+):
+    backend = maintenance_backend
+    backend.revision = 0
+    branch_a = _maintenance_plan(client, ref="branch_a")
+    branch_b = _maintenance_plan(client, ref="branch_b")
+    assert branch_a["plan_token"] == branch_b["plan_token"] == "0"
+    assert branch_a["operation_id"] != branch_b["operation_id"]
+    applied = _maintenance_apply(client, branch_a, "shared-key")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "succeeded"
+    count = len(backend.sql)
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    audit = audit_path.read_bytes()
+
+    # A new client still sees the persisted identity, not just an in-memory cache.
+    with closing(authenticated_client("admin")) as reopened:
+        conflict = _maintenance_apply(reopened, branch_b, "shared-key")
+        assert conflict.status_code == 409, conflict.text
+        assert conflict.json()["detail"]["error"] == "idempotency_key_conflict"
+        assert _maintenance_apply(reopened, branch_a, "shared-key").json() == applied.json()
+    assert len(backend.sql) == count
+    assert audit_path.read_bytes() == audit
+    with closing(sqlite3.connect(tmp_path / ".phlo" / "state" / "operations.sqlite")) as conn:
+        rows = conn.execute("SELECT target, exclusion_target FROM operations").fetchall()
+    assert rows == [(branch_a["operation_id"], branch_a["operation_id"])]
+
+    # The other ref has not advanced. Its own key may execute its own plan.
+    backend.revision = 0
+    other = _maintenance_apply(client, branch_b, "branch-b-key")
+    assert other.status_code == 200, other.text
+    assert other.json()["operation_id"] == branch_b["operation_id"]
+    assert other.json()["status"] == "succeeded"
+    assert backend.sql[-1][0] == "branch_b"
+
+
+@pytest.fixture(scope="module")
+def maintenance_postgres_dsn():
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:16", password="test") as postgres:
+        yield postgres.get_connection_url(driver=None)
+
+
+@pytest.mark.parametrize(
+    "storage", ["sqlite", pytest.param("postgres", marks=pytest.mark.integration)]
+)
+def test_maintenance_claim_refusal_keeps_bound_key_retryable(
+    client, maintenance_backend, monkeypatch, request, storage
+):
+    from phlo_trino.resource import TrinoResource
+
+    if storage == "postgres":
+        monkeypatch.setenv(
+            "PHLO_API_OPERATION_CONTROLS_DB_URL",
+            request.getfixturevalue("maintenance_postgres_dsn"),
+        )
+        monkeypatch.setenv("PHLO_API_OPERATION_CONTROLS_NAMESPACE", str(uuid4()))
+    backend = maintenance_backend
+    backend.revision = 0
+    first_plan = _maintenance_plan(client, ref="branch_a")
+    second_plan = _maintenance_plan(client, ref="branch_b")
+    assert first_plan["plan_token"] == second_plan["plan_token"] == "0"
+    entered, release = Event(), Event()
+    execute = TrinoResource.execute
+
+    def held_execute(self, sql, **kwargs):
+        if self._resolved_ref() == "branch_a":
+            entered.set()
+            assert release.wait(15), "First operation was not released"
+        return execute(self, sql, **kwargs)
+
+    monkeypatch.setattr(TrinoResource, "execute", held_execute)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(_maintenance_apply, client, first_plan, "branch-a-key")
+        try:
+            assert entered.wait(15), "First operation did not enter provider execution"
+            refused = _maintenance_apply(client, second_plan, "branch-b-key")
+            assert refused.status_code == 409, refused.text
+            assert refused.json()["detail"]["error"] == "conflicting_claim"
+            assert backend.sql == []
+            again = _maintenance_apply(client, second_plan, "branch-b-key")
+            assert again.status_code == 409, again.text
+            assert again.json()["detail"]["error"] == "conflicting_claim"
+        finally:
+            release.set()
+        applied = first.result()
         assert applied.status_code == 200, applied.text
-        assert applied.json()["status"] == "completed"
-        assert applied.json()["operation_id"] == "compact:silver.orders:main:101"
-        assert executed == ["silver.orders:main:101"]
+        assert applied.json()["status"] == "succeeded"
+    count = len(backend.sql)
+    # The second ref has not advanced. The transport fixture models revisions
+    # globally, so restore that ref's original revision before its first apply.
+    backend.revision = 0
+    with closing(authenticated_client("admin")) as reopened:
+        rebound = _maintenance_apply(reopened, first_plan, "branch-b-key")
+        assert rebound.status_code == 409, rebound.text
+        assert rebound.json()["detail"]["error"] == "idempotency_key_conflict"
+        retried = _maintenance_apply(reopened, second_plan, "branch-b-key")
+        assert retried.status_code == 200, retried.text
+        assert retried.json()["status"] == "succeeded"
+        assert retried.json()["operation_id"] == second_plan["operation_id"]
+        after = len(backend.sql)
+        assert after > count
+        assert _maintenance_apply(reopened, second_plan, "branch-b-key").json() == retried.json()
+        assert len(backend.sql) == after
+    assert {ref for ref, _sql in backend.sql[count:]} == {"branch_b"}
 
-        # The same table and ref can be maintained again under a fresh plan;
-        # the journal id binds to the exact plan, not to the table alone.
-        fresh = client.post(
-            "/api/continuity/apply", json=apply_body("mt-1b", plan_for("silver.orders"))
-        )
-        assert fresh.status_code == 200, fresh.text
-        assert fresh.json()["operation_id"] == "compact:silver.orders:main:102"
-        assert executed[-1] == "silver.orders:main:102"
 
-        # A plan for another ref applies to that ref without repeating it, and
-        # a request ref that disagrees with the plan is refused unexecuted.
-        feature = plan_for("silver.orders", ref="feature")
-        mismatch = client.post(
-            "/api/continuity/apply", json=apply_body("mt-ref", feature, ref="main")
+@pytest.mark.parametrize("failure", ["provider", "audit"])
+def test_maintenance_uncertain_failures_do_not_authorize_same_key_retry(
+    client, maintenance_backend, monkeypatch, failure
+):
+    from phlo_iceberg.resource import IcebergResource
+    from phlo_api.api import continuity
+
+    planned = _maintenance_plan(client)
+
+    def unavailable(*args, **kwargs):
+        raise ConnectionError("Response lost")
+
+    if failure == "provider":
+        # Fail outside the executor's structured result handling, after the
+        # core journal has marked submitted. This must never become retryable.
+        monkeypatch.setattr(IcebergResource, "compact", unavailable)
+    else:
+        monkeypatch.setattr(continuity, "audit_operation", unavailable)
+    first = _maintenance_apply(client, planned)
+    assert first.status_code == (502 if failure == "provider" else 500), first.text
+    assert first.json()["detail"]["error"] == (
+        "apply_outcome_unknown" if failure == "provider" else "mutation_succeeded_audit_failed"
+    )
+    count = len(maintenance_backend.sql)
+    retried = _maintenance_apply(client, planned)
+    assert retried.status_code == 409, retried.text
+    assert retried.json()["detail"]["error"] == "idempotency_outcome_unknown"
+    assert len(maintenance_backend.sql) == count
+
+
+@pytest.mark.parametrize("legacy_state", ["completed", "safe_to_retry"])
+def test_maintenance_legacy_token_only_key_fails_closed_without_rebinding(
+    client, maintenance_backend, tmp_path, legacy_state
+):
+    maintenance_backend.revision = 0
+    planned = _maintenance_plan(client, ref="branch_a")
+    applied = _maintenance_apply(client, planned, "legacy-key")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "succeeded"
+    database = tmp_path / ".phlo" / "state" / "operations.sqlite"
+    # Preserve a real provider response, but restore the historical token-only
+    # binding. Even a retry-authorized old key cannot establish the new identity.
+    with closing(sqlite3.connect(database)) as conn:
+        conn.execute(
+            "UPDATE operations SET target=?, exclusion_target=?, state=? WHERE operation=?",
+            (planned["plan_token"], planned["plan_token"], legacy_state, "maintenance.apply"),
         )
-        assert mismatch.status_code == 400
-        assert mismatch.json()["detail"] == {
-            "error": "ref_mismatch",
-            "identifiers": ["main", "feature"],
+        conn.commit()
+        before = conn.execute("SELECT target, state, response_json FROM operations").fetchall()
+    count = len(maintenance_backend.sql)
+    audit_path = tmp_path / ".phlo" / "audit" / "operations.jsonl"
+    audit = audit_path.read_bytes()
+    with closing(authenticated_client("admin")) as reopened:
+        refused = _maintenance_apply(reopened, planned, "legacy-key")
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["error"] == "idempotency_key_conflict"
+    assert len(maintenance_backend.sql) == count
+    assert audit_path.read_bytes() == audit
+    with closing(sqlite3.connect(database)) as conn:
+        assert (
+            conn.execute("SELECT target, state, response_json FROM operations").fetchall() == before
+        )
+
+
+@pytest.mark.parametrize("phase,state", [("preflight", "failed"), ("submission", "unknown")])
+def test_maintenance_real_provider_failure_evidence_owns_replay_fence(
+    client, maintenance_backend, journal_dir, phase, state
+):
+    backend = maintenance_backend
+    planned = _maintenance_plan(client)
+    backend.failure = phase
+    first = _maintenance_apply(client, planned)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "failed"
+    assert first.json()["failure"]["outcome"] == (
+        "unknown" if state == "unknown" else "not_submitted"
+    )
+    entry = FileOperationJournalStore(journal_dir).read(planned["operation_id"])
+    assert entry.state == state
+    assert entry.result["failure"] == first.json()["failure"]
+    verified = client.get(f"/api/continuity/verifications/{planned['operation_id']}")
+    assert verified.json()["replay_blocked"] is (state == "unknown")
+    count = len(backend.sql)
+    assert _maintenance_apply(client, planned).json() == first.json()
+    assert _maintenance_apply(client, planned, "other-key").status_code == 409
+    assert len(backend.sql) == count
+    backend.revision += 1
+    fresh = _maintenance_plan(client)
+    result = _maintenance_apply(client, fresh, "fresh-key")
+    assert result.status_code == (409 if state == "unknown" else 200), result.text
+    if state == "unknown":
+        assert len(backend.sql) == count
+
+
+@pytest.mark.parametrize("custom", [False, True])
+def test_maintenance_expiry_replays_real_plan_parameters(client, maintenance_backend, custom):
+    options = (
+        {
+            "catalog": "iceberg_review",
+            "retention_hours": 720,
+            "retain_last": 2,
+            "max_affected_objects": 17,
+            "max_affected_bytes": 123456,
         }
-        assert executed[-1] == "silver.orders:main:102"
-        on_feature = client.post("/api/continuity/apply", json=apply_body("mt-feat", feature))
-        assert on_feature.status_code == 200, on_feature.text
-        assert on_feature.json()["operation_id"] == feature["operation_id"]
-        assert executed[-1] == "silver.orders:feature:103"
+        if custom
+        else {}
+    )
+    planned = _maintenance_plan(client, "snapshot_expiry", ref="review", **options)
+    assert planned["plan"]["operation"] == "expire_snapshots"
+    assert planned["operation_id"].startswith("snapshot_expiry:raw.events:review:")
+    parameters = planned["plan"]["planned"]
+    assert parameters["retention_hours"] == (720 if custom else 168)
+    assert parameters["retain_last"] == (2 if custom else 5)
+    assert parameters["max_affected_objects"] == (17 if custom else 1000)
+    assert parameters["max_affected_bytes"] == (123456 if custom else 1 << 30)
+    assert maintenance_backend.sql == []
+    applied = _maintenance_apply(client, planned)
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == ("succeeded" if custom else "noop"), applied.text
+    assert applied.json()["operation_id"] == planned["operation_id"]
+    assert applied.json()["planned"]["retention_hours"] == parameters["retention_hours"]
+    assert applied.json()["planned"]["retain_last"] == parameters["retain_last"]
+    if custom:
+        assert maintenance_backend.sql[-1] == (
+            "review",
+            'ALTER TABLE "raw"."events" EXECUTE expire_snapshots(retention_threshold => \'720h\')',
+        )
+    else:
+        assert maintenance_backend.sql == []
 
-        # A provider crash after submission records UNKNOWN; the verification
-        # handle shows it and no new key can replay the operation.
-        doomed = plan_for("silver.customers")
-        crashing = client.post("/api/continuity/apply", json=apply_body("mt-2", doomed))
-        assert crashing.status_code == 502
-        assert crashing.json()["detail"]["error"] == "apply_outcome_unknown"
 
-        verification = client.get(f"/api/continuity/verifications/{doomed['operation_id']}")
-        assert verification.status_code == 200
-        assert verification.json()["state"] == "unknown"
-        assert verification.json()["replay_blocked"] is True
-
-        replay = client.post("/api/continuity/apply", json=apply_body("mt-3", doomed))
-        assert replay.status_code == 409
-        assert replay.json()["detail"]["error"] == "conflicting_claim"
-    finally:
-        clear_capabilities("maintenance_executor")
+@pytest.mark.parametrize("hours", [0, 1])
+def test_maintenance_real_provider_rejects_stale_revision_and_unsafe_retention(
+    client, maintenance_backend, hours
+):
+    maintenance_backend.revision = 0
+    stale = _maintenance_plan(client)
+    maintenance_backend.revision += 1
+    refused = _maintenance_apply(client, stale)
+    assert refused.status_code == 200, refused.text
+    assert refused.json()["status"] == "blocked"
+    assert refused.json()["failure"]["code"] == "concurrent_change_detected"
+    unsafe = _maintenance_plan(client, "snapshot_expiry", retention_hours=hours)
+    assert unsafe["plan"]["accepted"] is False
+    assert unsafe["plan"]["failure"]["code"] == "retention_floor_violation"
+    applied = _maintenance_apply(client, unsafe, "unsafe")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "blocked"
+    assert applied.json()["planned"]["retention_hours"] == hours
+    assert maintenance_backend.sql == []
 
 
 def test_upgrade_plan_and_apply_prove_the_supported_pair(
@@ -656,6 +1038,27 @@ def test_verification_is_canonical_and_restart_safe(
     missing = client.get("/api/continuity/verifications/restore.apply:nowhere:000000")
     assert missing.status_code == 404
     assert missing.json()["detail"]["error"] == "unknown_operation"
+
+
+def test_verification_reports_expired_claim_receipt_as_replay_blocked(
+    client, journal_dir: Path
+) -> None:
+    owner = OperationJournal(FileOperationJournalStore(journal_dir))
+    binding = {
+        "subject": "operator",
+        "action": "restore.apply",
+        "target": "expired-target",
+        "plan_token": "plan",
+    }
+    owner.claim(operation_id="expired-claim", claim_expiry="2000-01-01T00:00:00+00:00", **binding)
+    owner.claim(operation_id="replacement", **binding)
+
+    response = client.get("/api/continuity/verifications/expired-claim")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "failed"
+    assert response.json()["result"]["failure"]["reason"] == "claim_expired"
+    assert response.json()["replay_blocked"] is True
 
 
 # --- adapter boundary -------------------------------------------------------

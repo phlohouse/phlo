@@ -120,16 +120,12 @@ class CandidateLoad(WireModel):
     retry_of_run_id: str | None = None
 
 
-def _legacy():
-    return project_root() / ".phlo/csv-candidates.json"
-
-
 def _all() -> list[CandidateReceipt]:
-    values = load_collection(project_root(), _COLLECTION, _legacy())
+    values = _known_receipts()
     retained_ids = {item.upload_id for item in uploads._records() if not item.reclaimed_at}
-    if sum(value.get("upload_id") in retained_ids for value in values) > 100:
+    if sum(value.upload_id in retained_ids for value in values) > 100:
         raise BackendUnavailableError("CSV candidate collection exceeds its configured limit.")
-    return [CandidateReceipt.model_validate(value) for value in values]
+    return values
 
 
 def _recipe(record: uploads.CsvUpload) -> str:
@@ -142,6 +138,62 @@ def _recipe(record: uploads.CsvUpload) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _require_frozen_recipe(record: uploads.CsvUpload, receipt: CandidateReceipt) -> None:
+    if (
+        record.actor != receipt.actor
+        or record.env != receipt.env
+        or record.destination_table != receipt.table
+        or record.version != receipt.review_version
+        or record.checksum != receipt.checksum
+        or _recipe(record) != receipt.recipe_digest
+    ):
+        raise ConflictError("The retained review differs from the immutable candidate recipe.")
+
+
+def _known_receipts() -> list[CandidateReceipt]:
+    values = load_collection(project_root(), _COLLECTION, require_known_state=True)
+    if any(set(item) - CandidateReceipt.model_fields.keys() for item in values):
+        raise ConflictError("Unknown candidate evidence prevents lifecycle changes.")
+    return [CandidateReceipt.model_validate(item) for item in values]
+
+
+def legacy_destination_tables(records: list[uploads.CsvUpload]) -> dict[str, str]:
+    """Fence historical destinations without attesting their retained review.
+
+    Before reservations were atomic, a review could advance after preparation.
+    Keep that upload frozen, not the entire inventory unavailable. Candidate
+    actions and reclamation still require every immutable recipe binding.
+    """
+    tables: dict[str, str] = {}
+    upload_ids = {record.upload_id for record in records}
+    for receipt in _known_receipts():
+        if receipt.upload_id not in upload_ids or receipt.upload_id in tables:
+            raise ConflictError("Legacy candidate ownership is unavailable or ambiguous.")
+        tables[receipt.upload_id] = receipt.table
+    return tables
+
+
+def reclamation_targets(record: uploads.CsvUpload) -> list[tuple[str, str]]:
+    """Authorize local disposal only when every reserved candidate outcome is known."""
+    matches = [item for item in _known_receipts() if item.upload_id == record.upload_id]
+    if not matches and record.destination_table is None:
+        return []
+    if len(matches) != 1:
+        raise ConflictError("Incomplete candidate preparation must retain its local inputs.")
+    receipt = matches[0]
+    _require_frozen_recipe(record, receipt)
+    if (
+        receipt.status not in {"prepared", "planned", "loaded"}
+        or (receipt.attempts and not receipt.loaded)
+        or (receipt.loaded and not receipt.snapshot_id)
+    ):
+        raise ConflictError("Unresolved candidate mutations must retain their local inputs.")
+    return [
+        (operation, f"{record.env}:{receipt.asset_id}@{receipt.base_ref}")
+        for operation in ("v1_materialize_asset", "v1_backfill_asset")
+    ]
 
 
 def _receipt(
@@ -162,8 +214,7 @@ def _receipt(
     )
     if receipt is None:
         raise NotFoundError("CSV destination has not been prepared.")
-    if record.version != receipt.review_version or _recipe(record) != receipt.recipe_digest:
-        raise ConflictError("The retained review differs from the immutable candidate recipe.")
+    _require_frozen_recipe(record, receipt)
     if receipt.contract_digest and receipt.source_digest:
         expected = (
             (f"contracts/uploads/{upload_id}.json", receipt.contract_digest),
@@ -177,6 +228,9 @@ def _receipt(
 
 
 def _save(receipt: CandidateReceipt, *, previous: CandidateReceipt | None) -> CandidateReceipt:
+    record = next(item for item in uploads._records() if item.upload_id == receipt.upload_id)
+    _require_frozen_recipe(record, receipt)
+
     def update(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         current = next((item for item in items if item.get("upload_id") == receipt.upload_id), None)
         if previous is None:
@@ -198,7 +252,7 @@ def _save(receipt: CandidateReceipt, *, previous: CandidateReceipt | None) -> Ca
             raise ConflictError("CSV candidate changed; reload before continuing.")
         return [receipt.model_dump() if item is current else item for item in items]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy(), update)
+    mutate_collection(project_root(), _COLLECTION, update, require_known_state=True)
     return receipt
 
 
@@ -281,13 +335,10 @@ async def v1_csv_destination(
         _, count, _ = uploads._review_rows(header, rows, record.columns)
         if errors or count or not rows:
             raise ConflictError("The complete retained file must validate and contain rows.")
+        record = uploads.reserve_destination(record, payload.table)
         existing = next((item for item in _all() if item.upload_id == upload_id), None)
         if existing:
             _, receipt = _receipt(request, env, upload_id)
-            if receipt.table != payload.table:
-                raise ConflictError(
-                    "This upload already has an immutable destination. Upload again for a different destination."
-                )
             if receipt.status != "preparing":
                 return receipt
         else:

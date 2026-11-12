@@ -17,9 +17,10 @@ from anyio.to_thread import run_sync
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, Field
 
-from phlo_api.api.operation_controls import shared_operation_controls
+from phlo_api.api import operation_controls
 from phlo_api.api.v1 import _run_on_ref, _target
 from phlo_api.errors import BackendUnavailableError, BadGatewayError, ConflictError, NotFoundError
+from phlo_api.observatory_api import run_action_contract
 from phlo_api.observatory_api.dagster import graphql_request, resolve_dagster_url
 from phlo_api.settings import get_deployment_settings, get_process_settings
 from phlo_api.v1_contract import Environment, ProviderActionResult, RunStatus, WireModel
@@ -1130,7 +1131,7 @@ async def v1_maintenance_windows(
 def _require_single_replica_actions() -> None:
     settings = get_deployment_settings()
     if (
-        shared_operation_controls() is None
+        operation_controls.shared_operation_controls() is None
         and (not settings.actions_single_replica or not settings.actions_single_process)
     ) or not settings.actions_ref_tag_contract:
         raise BackendUnavailableError("Environment-pinned job actions are not enabled.")
@@ -1139,27 +1140,6 @@ def _require_single_replica_actions() -> None:
 async def _serialize_action(execute: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
     async with _V1_ACTION_LOCK:
         return await execute()
-
-
-def _action_helpers(request: Request, operation: str) -> tuple[dict[str, Any], Any, Any, Any, Any]:
-    from phlo_api.api.operation_controls import (
-        audit_operation,
-        enforce_rate_limit,
-        idempotency_key_target,
-        replay_or_execute_async,
-        require_scope,
-    )
-    from phlo_api.observatory_api.run_action_contract import require_idempotency_key
-
-    auth = require_scope(request, "lakehouse:operate")
-    enforce_rate_limit(auth["subject"], operation)
-    return (
-        auth,
-        audit_operation,
-        idempotency_key_target,
-        replay_or_execute_async,
-        require_idempotency_key,
-    )
 
 
 def _digest(payload: WireModel) -> str:
@@ -1186,15 +1166,14 @@ async def v1_job_launch(
     payload: JobLaunchRequest,
     env: Environment = Query(),
 ) -> ActionResult:
-    auth, audit, key_target, replay, require_key = _action_helpers(request, "launch_job")
+    auth = operation_controls.require_scope(request, "lakehouse:operate")
+    operation_controls.enforce_rate_limit(auth["subject"], "launch_job")
     _require_single_replica_actions()
-    require_key(payload.idempotency_key)
+    run_action_contract.require_idempotency_key(payload.idempotency_key)
     if not payload.dry_run and not payload.confirmed:
         raise HTTPException(status_code=422, detail="Live job launch requires confirmation.")
     target = _target(request, env)
     action_target = f"{auth['subject']}:{env}:{target.dagster_location}:{job_id}@{target.nessie_ref}:{_digest(payload)}"
-    if key_target(payload.idempotency_key, "v1_job_launch") not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         if payload.dry_run:
@@ -1246,13 +1225,13 @@ async def v1_job_launch(
             raise BadGatewayError("Dagster returned an invalid launch result.")
         return {"status": "accepted", "run_id": run["runId"], "run_status": run.get("status")}
 
-    outcome = await replay(
+    outcome = await operation_controls.replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation="v1_job_launch",
         target=action_target,
         exclusion_target=f"{env}:{target.dagster_location}:{job_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
-        audit=lambda value: audit(
+        audit=lambda value: operation_controls.audit_operation(
             operation="v1_job_launch",
             target=action_target,
             dry_run=payload.dry_run,
@@ -1278,15 +1257,14 @@ async def v1_schedule_action(
     payload: ScheduleActionRequest,
     env: Environment = Query(),
 ) -> ActionResult:
-    auth, audit, key_target, replay, require_key = _action_helpers(request, f"schedule_{action}")
+    auth = operation_controls.require_scope(request, "lakehouse:operate")
+    operation_controls.enforce_rate_limit(auth["subject"], f"schedule_{action}")
     _require_single_replica_actions()
-    require_key(payload.idempotency_key)
+    run_action_contract.require_idempotency_key(payload.idempotency_key)
     if not payload.confirmed:
         raise HTTPException(status_code=422, detail="Schedule changes require confirmation.")
     target = _target(request, env)
     action_target = f"{auth['subject']}:{env}:{target.dagster_location}:{schedule_id}@{target.nessie_ref}:{_digest(payload)}:{action}"
-    if key_target(payload.idempotency_key, "v1_schedule_action") not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         _, repositories, _ = await _job_data(request, env, frozenset({"env"}))
@@ -1340,13 +1318,13 @@ async def v1_schedule_action(
             raise BadGatewayError("Dagster returned an invalid schedule action result.")
         return {"status": "accepted", "schedule_status": new_state["status"], "changed": True}
 
-    outcome = await replay(
+    outcome = await operation_controls.replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation="v1_schedule_action",
         target=action_target,
         exclusion_target=f"{env}:{target.dagster_location}:{schedule_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
-        audit=lambda value: audit(
+        audit=lambda value: operation_controls.audit_operation(
             operation="v1_schedule_action",
             target=action_target,
             dry_run=False,
@@ -1371,15 +1349,14 @@ async def _run_action(
     env: Environment,
     action: Literal["cancel", "retry"],
 ) -> ActionResult:
-    auth, audit, key_target, replay, require_key = _action_helpers(request, f"run_{action}")
+    auth = operation_controls.require_scope(request, "lakehouse:operate")
+    operation_controls.enforce_rate_limit(auth["subject"], f"run_{action}")
     _require_single_replica_actions()
-    require_key(payload.idempotency_key)
+    run_action_contract.require_idempotency_key(payload.idempotency_key)
     if not payload.dry_run and not payload.confirmed:
         raise HTTPException(status_code=422, detail=f"Live run {action} requires confirmation.")
     target = _target(request, env, allowed_query=frozenset({"env"}))
     action_target = f"{auth['subject']}:{env}:{target.dagster_location}:{run_id}@{target.nessie_ref}:{action}:{_digest(payload)}"
-    if key_target(payload.idempotency_key, f"v1_run_{action}") not in {None, action_target}:
-        raise HTTPException(status_code=409, detail={"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         run, _ = await _run_detail(request, env, run_id, 1)
@@ -1415,13 +1392,13 @@ async def _run_action(
             return result
         raise BadGatewayError("Dagster returned an invalid run action result.")
 
-    outcome = await replay(
+    outcome = await operation_controls.replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation=f"v1_run_{action}",
         target=action_target,
         exclusion_target=f"{env}:{target.dagster_location}:{run_id}@{target.nessie_ref}",
         execute=lambda: _serialize_action(execute),
-        audit=lambda value: audit(
+        audit=lambda value: operation_controls.audit_operation(
             operation=f"v1_run_{action}",
             target=action_target,
             dry_run=payload.dry_run,

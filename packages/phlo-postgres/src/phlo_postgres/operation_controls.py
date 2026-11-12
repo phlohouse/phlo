@@ -15,7 +15,15 @@ from typing import Any
 import psycopg2
 from psycopg2.extensions import cursor
 
-from phlo.operations.journal import OperationJournalEntry, OperationJournalState
+from phlo.operations.journal import (
+    OperationJournalEntry,
+    OperationJournalState,
+    claims_conflict,
+    expire_claim,
+    maintenance_action_aliases,
+    new_claim,
+    transition_entry,
+)
 from phlo.plugins.observatory_settings import StorageUnavailableError
 
 RATE_BUCKET_CAP = 4096
@@ -73,22 +81,27 @@ class PostgresOperationControls:
         conn = None
         try:
             conn = psycopg2.connect(self._db_url, connect_timeout=5)
-            with conn, conn.cursor() as cur:
-                cur.execute("SET LOCAL lock_timeout = '5s'")
-                cur.execute("SET LOCAL statement_timeout = '10s'")
-                # Serialise DDL too: concurrent CREATE IF NOT EXISTS can race
-                # on PostgreSQL's catalog unique constraints on first startup.
-                if not self._schema_ready:
+            if not self._schema_ready:
+                # Commit DDL before waiting for the namespace lock. Otherwise
+                # a cold replica's table locks can deadlock with a warm writer
+                # that already owns the namespace and needs those tables.
+                with conn, conn.cursor() as cur:
+                    cur.execute("SET LOCAL lock_timeout = '5s'")
+                    cur.execute("SET LOCAL statement_timeout = '10s'")
+                    # Concurrent CREATE IF NOT EXISTS can race on catalog keys.
                     cur.execute(
                         "SELECT pg_advisory_xact_lock(hashtext('phlo-api-controls-schema'))"
                     )
                     cur.execute(_SCHEMA)
+                self._schema_ready = True
+            with conn, conn.cursor() as cur:
+                cur.execute("SET LOCAL lock_timeout = '5s'")
+                cur.execute("SET LOCAL statement_timeout = '10s'")
                 cur.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s))",
                     (f"phlo-api-controls:{self._namespace}",),
                 )
                 yield cur
-            self._schema_ready = True
         except psycopg2.Error as exc:
             raise StorageUnavailableError("Shared operation controls are unavailable") from exc
         finally:
@@ -277,14 +290,37 @@ class PostgresOperationControls:
 
     def claim(self, entry: OperationJournalEntry) -> bool:
         """Claim a journal operation and its active target across replicas."""
+        entry = new_claim(entry)
         with self._transaction() as cur:
             cur.execute(
-                "SELECT 1 FROM phlo_api_operation_journal WHERE namespace=%s AND "
-                "(operation_id=%s OR (action=%s AND target=%s AND state IN ('claimed','submitted','unknown'))) LIMIT 1",
-                (self._namespace, entry.operation_id, entry.action, entry.target),
+                "SELECT entry_json FROM phlo_api_operation_journal WHERE namespace=%s AND "
+                "(operation_id=%s OR (action=ANY(%s) AND target=%s AND state IN ('claimed','submitted','unknown')))",
+                (
+                    self._namespace,
+                    entry.operation_id,
+                    list(maintenance_action_aliases(entry.action)),
+                    entry.target,
+                ),
             )
-            if cur.fetchone() is not None:
-                return False
+            for row in cur.fetchall():
+                record = json.loads(row[0])
+                record["state"] = OperationJournalState(record["state"])
+                previous = OperationJournalEntry(**record)
+                if previous.operation_id == entry.operation_id:
+                    return False
+                current = expire_claim(previous)
+                if current != previous:
+                    cur.execute(
+                        "UPDATE phlo_api_operation_journal SET state=%s,entry_json=%s WHERE namespace=%s AND operation_id=%s",
+                        (
+                            current.state.value,
+                            json.dumps(current.to_dict()),
+                            self._namespace,
+                            current.operation_id,
+                        ),
+                    )
+                if claims_conflict(current, entry):
+                    return False
             cur.execute(
                 "INSERT INTO phlo_api_operation_journal(namespace,operation_id,action,target,state,entry_json) "
                 "VALUES (%s,%s,%s,%s,%s,%s)",
@@ -299,9 +335,10 @@ class PostgresOperationControls:
             )
             return True
 
-    def transition(
+    def compare_and_set(
         self,
         operation_id: str,
+        expected: OperationJournalState,
         state: OperationJournalState,
         result: dict[str, Any] | None = None,
     ) -> bool:
@@ -315,10 +352,14 @@ class PostgresOperationControls:
             if row is None:
                 return False
             record = json.loads(row[0])
-            record.update(state=state.value, result=result)
+            record["state"] = OperationJournalState(record["state"])
+            entry = OperationJournalEntry(**record)
+            if entry.state is not expected:
+                return False
+            updated = transition_entry(entry, state, result)
             cur.execute(
                 "UPDATE phlo_api_operation_journal SET state=%s,entry_json=%s WHERE namespace=%s AND operation_id=%s",
-                (state.value, json.dumps(record), self._namespace, operation_id),
+                (state.value, json.dumps(updated.to_dict()), self._namespace, operation_id),
             )
             return True
 

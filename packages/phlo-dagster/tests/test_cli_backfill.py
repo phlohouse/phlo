@@ -8,6 +8,8 @@ management.
 """
 
 import json
+import shlex
+from subprocess import CompletedProcess
 from types import SimpleNamespace
 from datetime import datetime
 from unittest.mock import ANY, patch
@@ -15,6 +17,8 @@ from unittest.mock import ANY, patch
 import click
 import pytest
 from click.testing import CliRunner
+from phlo.cli.infrastructure.container_backend import PodmanBackend
+from rich.console import Console
 
 from phlo_dagster.cli_backfill import (
     _generate_partition_dates,
@@ -28,6 +32,94 @@ pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
 
 async def _ready(*_args, **_kwargs) -> None:
     """Stub the Dagster HTTP readiness wait: the backfill behaviour is under test."""
+
+
+@pytest.mark.parametrize("host_platform", ["Linux", "Darwin", "Windows"])
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_container_backfill_preserves_command_environment(
+    monkeypatch, tmp_path, host_platform, dry_run
+):
+    from phlo_dagster import cli_backfill
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    (tmp_path / "phlo.yaml").write_text(
+        'env:\n  PHLO_OBSERVE_PRETTY: "1"\n  PHLO_OBSERVE_PRETTY_VERBOSE: "1"\n'
+        '  OBSERVE_DRAINS: "console,file"\n  PHLO_AUTO_REFRESH_CONTRACTS: "1"\n'
+        '  PHLO_CONTRACT_REFRESH_SELECTION: "not-forwarded"\n'
+    )
+    monkeypatch.setattr("platform.system", lambda: host_platform)
+
+    def host_identity(backend_name):
+        assert host_platform == "Linux", "non-Linux commands must not query host identity"
+        assert backend_name == "podman"
+        return 1234, 5678
+
+    monkeypatch.setattr(
+        "phlo_dagster.materialization_command.container_host_identity", host_identity
+    )
+    monkeypatch.setattr(cli_backfill, "console", Console(width=2000))
+    monkeypatch.setattr(cli_backfill, "load_wap_config", lambda: SimpleNamespace(enabled=False))
+    monkeypatch.setattr(cli_backfill, "select_project_container_backend", PodmanBackend)
+    monkeypatch.setattr(cli_backfill, "get_project_name", lambda: "demo")
+
+    def find_container(project_name):
+        assert not dry_run, "previews must not discover a running container"
+        assert project_name == "demo"
+        return "demo-dagster-7"
+
+    monkeypatch.setattr(cli_backfill, "find_dagster_container", find_container)
+    monkeypatch.setattr(cli_backfill, "wait_for_dagster_runtime", lambda *a, **kw: None)
+    commands = []
+
+    def run_command(cmd, **kwargs):
+        commands.append(cmd)
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_backfill.subprocess, "run", run_command)
+    result = CliRunner().invoke(
+        backfill,
+        ["orders", "--partitions", "2026-02-03"] + (["--dry-run"] if dry_run else []),
+    )
+
+    assert result.exit_code == 0, result.output
+    if dry_run:
+        assert commands == []
+        argv = shlex.split(
+            next(line for line in result.output.splitlines() if "podman exec" in line)
+        )
+        container_name = "dagster"
+    else:
+        assert len(commands) == 1
+        argv = commands[0]
+        container_name = "demo-dagster-7"
+        assert not (tmp_path / ".phlo/backfill_state.json").exists()
+    assert argv[:2] == ["podman", "exec"]
+    assert argv[argv.index("-w") + 1] == "/app"
+    assert f"PHLO_HOST_PLATFORM={host_platform}" in argv
+    assert "PHLO_PROJECT_PATH=/app" in argv
+    assert "PHLO_OBSERVE_PRETTY=1" in argv
+    assert "PHLO_OBSERVE_PRETTY_VERBOSE=1" in argv
+    assert "OBSERVE_DRAINS=console,file" in argv
+    assert not any(
+        arg.startswith(("PHLO_AUTO_REFRESH_CONTRACTS=", "PHLO_CONTRACT_REFRESH_SELECTION="))
+        for arg in argv
+    )
+    if host_platform == "Linux":
+        assert argv[argv.index("--user") + 1] == "1234:5678"
+    else:
+        assert "--user" not in argv
+    assert argv[argv.index(container_name) + 1 :] == [
+        "dagster",
+        "asset",
+        "materialize",
+        "-m",
+        "phlo_dagster.framework.definitions",
+        "--select",
+        "orders",
+        "--partition",
+        "2026-02-03",
+    ]
 
 
 @pytest.mark.parametrize("output_json", [False, True])
@@ -202,6 +294,8 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill.prepare_wap_launch",
         lambda **kwargs: SimpleNamespace(
+            context=None,
+            logical_run_id=kwargs["logical_run_id"],
             branch=f"pipeline-run-{kwargs['logical_run_id']}",
             tags={"phlo/wap_branch": "branch", "phlo/ref": "branch"},
             cleanup_if_created=lambda: None,
@@ -213,7 +307,7 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
         launched.append(kwargs)
         return SimpleNamespace(accepted=True, message="ok", run_id=kwargs["partition_key"])
 
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     promoted: list[str] = []
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill._wait_for_wap_lifecycle",
@@ -223,9 +317,11 @@ def test_wap_backfill_creates_branch_before_each_partition(monkeypatch):
         "dlt_events",
         ["2024-01-01", "2024-01-02"],
         dagster_url="http://dagster",
-        job_name="__ASSET_JOB",
-        repository_location_name="phlo_dagster",
-        repository_name="phlo_dagster",
+        wap_config=SimpleNamespace(
+            job_name="__ASSET_JOB",
+            repository_location_name="phlo_dagster",
+            repository_name="phlo_dagster",
+        ),
         access_token="token",
     )
     assert [call["partition_key"] for call in launched] == ["2024-01-01", "2024-01-02"]
@@ -247,6 +343,8 @@ def test_wap_backfill_waits_for_promotion_before_next_branch(monkeypatch, tmp_pa
         nonlocal main_hash
         created_from.append(main_hash)
         return SimpleNamespace(
+            context=None,
+            logical_run_id=kwargs["logical_run_id"],
             branch=f"pipeline-run-{kwargs['logical_run_id']}",
             tags={},
             record_launch_result=lambda **_kwargs: True,
@@ -261,7 +359,7 @@ def test_wap_backfill_waits_for_promotion_before_next_branch(monkeypatch, tmp_pa
         main_hash = f"main-{len(launched)}"
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.prepare_wap_launch", prepare)
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     monkeypatch.setattr("phlo_dagster.cli_backfill._wait_for_wap_lifecycle", wait)
     monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", tmp_path / "state.json")
 
@@ -269,9 +367,9 @@ def test_wap_backfill_waits_for_promotion_before_next_branch(monkeypatch, tmp_pa
         "dlt_events",
         ["2024-01-01", "2024-01-02"],
         dagster_url="http://dagster",
-        job_name="__ASSET_JOB",
-        repository_location_name=None,
-        repository_name=None,
+        wap_config=SimpleNamespace(
+            job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+        ),
         access_token=None,
         requested_parallel=2,
     )
@@ -286,14 +384,18 @@ def test_wap_backfill_persists_failed_partition_for_resume(monkeypatch, tmp_path
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill.prepare_wap_launch",
         lambda **_kwargs: SimpleNamespace(
-            branch="branch", tags={}, record_launch_result=lambda **_kwargs: True
+            context=None,
+            logical_run_id=_kwargs["logical_run_id"],
+            branch="branch",
+            tags={},
+            record_launch_result=lambda **_kwargs: True,
         ),
     )
 
     async def launch(**kwargs):
         return SimpleNamespace(accepted=True, message="ok", run_id=kwargs["partition_key"])
 
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill._wait_for_wap_lifecycle",
         lambda **kwargs: (
@@ -310,9 +412,9 @@ def test_wap_backfill_persists_failed_partition_for_resume(monkeypatch, tmp_path
             "dlt_events",
             ["2024-01-01", "2024-01-02"],
             dagster_url="http://dagster",
-            job_name="__ASSET_JOB",
-            repository_location_name=None,
-            repository_name=None,
+            wap_config=SimpleNamespace(
+                job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+            ),
             access_token=None,
         )
     except click.ClickException as exc:
@@ -357,8 +459,8 @@ def test_wap_lifecycle_rejects_failed_promotion(monkeypatch):
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", successful_run)
     monkeypatch.setattr(
-        "phlo_dagster.cli_backfill.read_wap_report",
-        lambda _logical_run_id: {
+        "phlo_dagster.cli_backfill.WapEvidence.read_report",
+        lambda _self, _logical_run_id: {
             "status": "promotion_failed",
             "failure_reason": "merge_branch_returned_false",
         },
@@ -385,7 +487,8 @@ def test_wap_lifecycle_accepts_promoted_report(monkeypatch):
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", successful_run)
     monkeypatch.setattr(
-        "phlo_dagster.cli_backfill.read_wap_report", lambda _logical_run_id: {"status": "promoted"}
+        "phlo_dagster.cli_backfill.WapEvidence.read_report",
+        lambda _self, _logical_run_id: {"status": "promoted"},
     )
 
     _wait_for_wap_lifecycle(
@@ -410,7 +513,8 @@ def test_wap_lifecycle_retries_transient_poll_failure(monkeypatch):
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", eventually_successful_run)
     monkeypatch.setattr(
-        "phlo_dagster.cli_backfill.read_wap_report", lambda _logical_run_id: {"status": "promoted"}
+        "phlo_dagster.cli_backfill.WapEvidence.read_report",
+        lambda _self, _logical_run_id: {"status": "promoted"},
     )
     monkeypatch.setattr("phlo_dagster.cli_backfill._sleep", lambda _seconds: None)
 
@@ -451,7 +555,11 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
     def prepare(**kwargs):
         prepared.append(kwargs["logical_run_id"])
         return SimpleNamespace(
-            branch="branch", tags={}, record_launch_result=lambda **_kwargs: True
+            context=None,
+            logical_run_id=kwargs["logical_run_id"],
+            branch="branch",
+            tags={},
+            record_launch_result=lambda **_kwargs: True,
         )
 
     async def launch(**kwargs):
@@ -459,7 +567,7 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
         return SimpleNamespace(accepted=True, message="ok", run_id="dagster-1")
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.prepare_wap_launch", prepare)
-    monkeypatch.setattr("phlo_dagster.cli_backfill.launch_materialize", launch)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", launch)
     state_file = tmp_path / ".phlo" / "backfill_state.json"
     monkeypatch.setattr("phlo_dagster.cli_backfill.BACKFILL_STATE_FILE", state_file)
     monkeypatch.setattr(
@@ -472,9 +580,9 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
             "dlt_events",
             ["2024-01-01"],
             dagster_url="http://dagster",
-            job_name="__ASSET_JOB",
-            repository_location_name=None,
-            repository_name=None,
+            wap_config=SimpleNamespace(
+                job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+            ),
             access_token=None,
         )
     except click.ClickException:
@@ -488,9 +596,9 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
         "dlt_events",
         state["remaining_partitions"],
         dagster_url="http://dagster",
-        job_name="__ASSET_JOB",
-        repository_location_name=None,
-        repository_name=None,
+        wap_config=SimpleNamespace(
+            job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+        ),
         access_token=None,
         completed_partitions=state["completed_partitions"],
         in_flight_wap=state["in_flight_wap"],

@@ -87,17 +87,13 @@ def test_executor_applies_hints_before_staging(monkeypatch, tmp_path: Path) -> N
         yield {"observed_at": "2026-01-01T00:00:00Z"}
 
     resource = records()
-    monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (object(), tmp_path),
-    )
 
     def assert_hint_before_staging(**kwargs):
         source = kwargs["dlt_source"]
         assert source.compute_table_schema()["columns"]["observed_at"]["data_type"] == "text"
         raise RuntimeError("staging boundary reached")
 
-    monkeypatch.setattr("phlo_dlt.executor.stage_to_parquet", assert_hint_before_staging)
+    monkeypatch.setattr("phlo_dlt.executor.extract_to_parquet", assert_hint_before_staging)
     ingester = DltIngester(
         context=None,
         logger=get_logger("test_dlt_staging_schema_hints"),
@@ -110,7 +106,6 @@ def test_executor_applies_hints_before_staging(monkeypatch, tmp_path: Path) -> N
         ),
         table_store_resource=object(),
         dlt_source_func=lambda **_kwargs: resource,
-        validation_schema=StagedRecords,
     )
 
     with pytest.raises(RuntimeError, match="staging boundary reached"):

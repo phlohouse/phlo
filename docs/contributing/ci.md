@@ -219,6 +219,19 @@ Ordinary non-release pushes cannot invoke the image publisher. PR, queue and mai
 reuse installed-provider image builds for local scans by image ID, with no
 registry writes or duplicate builds.
 
+Pull requests enforce container vulnerability policy only for images whose
+build inputs change. Image-package sources and metadata select that image.
+Core sources, provider wheel inputs, and the root Python dependency files also
+select API and Dagster because those images consume the workspace wheelhouse.
+Unrelated changes do not select the independently compiled MinIO image or the
+Observatory Node image. Tests, documentation, and scan-policy files alone do not
+select image scans. Missing Git revisions or failed selection fail the PR scan.
+The selected image must pass the complete current policy, not a CVE delta.
+Merge queues, main-branch fallback validation, and manual CI still scan every
+built first-party image. Main can reuse authenticated full merge-queue evidence.
+Scheduled scans handle new findings in unchanged images. Publication continues
+to enforce policy against every immutable architecture digest.
+
 MinIO is an independently published provider dependency. **Publish MinIO Image**
 is a separate manual dispatch on `main`, with its own image version and no PyPI
 publication or whole-release acceptance gate. Both publishers reuse

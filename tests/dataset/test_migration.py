@@ -265,6 +265,7 @@ def test_migrated_records_participate_in_normal_transitions(
     )
     # The imported promoted dataset can retire like any promoted dataset.
     result = store.compare_and_set(
+        resource_id="gold.customer_health",
         writes=(
             StoreWrite(
                 record_id="gold.customer_health",

@@ -52,7 +52,7 @@ def test_ingestion_failure_replay_and_ref_isolation(tmp_path, monkeypatch):
         )
         return pipeline, tmp_path / "pipelines" / pipeline_name
 
-    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", setup_pipeline)
+    monkeypatch.setattr("phlo_dlt.dlt_helpers.setup_dlt_pipeline", setup_pipeline)
     config = TableConfig(
         table_name="atomic_events",
         table_schema=schema,

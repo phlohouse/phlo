@@ -18,9 +18,13 @@ import pytest
 from pandera.pandas import DataFrameModel
 from pandera.typing import Series  # type: ignore[possibly-missing-import]
 
+from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 from phlo.hooks.events import IngestionEvent, TelemetryEvent
+from phlo_dlt.decorator import phlo_ingestion
+from phlo_dlt.dlt_helpers import DltStagingResult
 from phlo_dlt.executor import DltIngester
+from phlo_dlt.pandera_checks import PanderaContractValidationError
 from phlo_dlt.registry import TableConfig
 
 
@@ -31,18 +35,73 @@ class StrictExecutorSchema(DataFrameModel):
     value: Series[int]
 
 
+@pytest.mark.parametrize("registered", [False, True])
+@pytest.mark.parametrize("validate", [True, False])
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({"merge_strategy": "typo"}, "Invalid merge_strategy"),
+        ({"merge_config": {"unknown": True}}, "Unsupported merge_config option"),
+        ({"merge_config": {"deduplication_method": "typo"}}, "deduplication_method"),
+        ({"merge_config": {"deduplication": "yes"}}, "must be a boolean"),
+        ({"merge_config": []}, "merge_config must be a dict"),
+        ({"merge_strategy": "history"}, "entity_key"),
+        ({"validation_mode": "typo"}, "Unknown validation mode"),
+        ({"validation_batch_size": 0}, "sizes must be positive"),
+        ({"validation_sample_size": -1}, "sizes must be positive"),
+    ],
+)
+def test_invalid_runtime_options_are_rejected_before_run(
+    registered, validate, options, message
+) -> None:
+    """Even disabled validation cannot defer malformed options until extraction."""
+    with pytest.raises(PhloConfigError, match=message):
+        if registered:
+            phlo_ingestion(
+                table_name="entries",
+                unique_key="name",
+                group="raw",
+                validation_schema=StrictExecutorSchema,
+                validate=validate,
+                **options,
+            )
+            return
+        DltIngester(
+            context=None,
+            logger=get_logger("test_dlt_preflight"),
+            table_config=TableConfig("entries", None, None, "name", "raw"),
+            table_store_resource=cast(Any, SimpleNamespace()),
+            dlt_source_func=lambda partition_date: pytest.fail("source must not run"),
+            validate=validate,
+            **options,
+        )
+
+
+@pytest.mark.parametrize("validate", [True, False])
+def test_direct_no_data_run_does_not_require_a_schema(validate) -> None:
+    ingester = DltIngester(
+        context=None,
+        logger=get_logger("test_dlt_schema_less_no_data"),
+        table_config=TableConfig("entries", None, None, "name", "raw"),
+        table_store_resource=cast(Any, SimpleNamespace()),
+        dlt_source_func=lambda partition_date: None,
+        validate=validate,
+    )
+
+    result = ingester.run_ingestion(partition_key="2026-03-05")
+
+    assert result.status == "no_data"
+    assert result.check_results == ()
+
+
 def test_strict_validation_blocks_visible_write(monkeypatch, tmp_path) -> None:
     invalid_path = tmp_path / "invalid.parquet"
     pd.DataFrame([{"name": "test", "value": "not_an_int"}]).to_parquet(invalid_path)
     merge_called = False
 
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([invalid_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([invalid_path], 0.01, None),
     )
 
     def _merge_to_table_store(**_kwargs):
@@ -64,7 +123,6 @@ def test_strict_validation_blocks_visible_write(monkeypatch, tmp_path) -> None:
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=True,
         strict_validation=True,
     )
@@ -85,12 +143,8 @@ def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tm
     observed_values: list[int] = []
 
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([accepted_path, rejected_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([accepted_path, rejected_path], 0.01, None),
     )
 
     def _merge_to_table_store(**_kwargs):
@@ -116,7 +170,6 @@ def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tm
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=True,
         strict_validation=True,
         quality_checks=[reject_later_file],
@@ -129,24 +182,23 @@ def test_strict_domain_check_rejects_rows_in_a_later_staged_file(monkeypatch, tm
     assert merge_called is False
 
 
-def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("corrupt_staging", [False, True])
+def test_non_strict_validation_only_allows_evaluated_rows(
+    monkeypatch, tmp_path, corrupt_staging
+) -> None:
     invalid_path = tmp_path / "invalid.parquet"
     pd.DataFrame([{"name": "test", "value": "not_an_int"}]).to_parquet(invalid_path)
+    if corrupt_staging:
+        invalid_path.write_bytes(b"not a parquet file")
+    writes: list[int] = []
 
-    pipeline_setup: dict[str, str] = {}
-
-    def _setup_dlt_pipeline(**kwargs):
-        pipeline_setup.update(kwargs)
-        return SimpleNamespace(), tmp_path
-
-    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", _setup_dlt_pipeline)
     monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([invalid_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([invalid_path], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.merge_to_table_store",
-        lambda **_kwargs: {"rows_inserted": 1, "rows_deleted": 0},
+        lambda **_kwargs: writes.append(1) or {"rows_inserted": 1, "rows_deleted": 0},
     )
 
     ingester = DltIngester(
@@ -161,19 +213,28 @@ def test_non_strict_validation_allows_write_and_records_evaluation(monkeypatch, 
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=True,
         strict_validation=False,
+        add_metadata_columns=False,
     )
+
+    if corrupt_staging:
+        with pytest.raises(PanderaContractValidationError) as error:
+            ingester.run_ingestion(partition_key="2026-03-05")
+        check = error.value.check_results[0]
+        assert check.passed is False
+        assert check.severity == "error"
+        assert "Parquet" in check.metadata["error"]
+        assert writes == []
+        return
 
     result = ingester.run_ingestion(partition_key="2026-03-05")
 
     assert result.status == "success"
-    assert result.metadata["pandera_evaluation"]["passed"] is False
-    assert pipeline_setup == {
-        "pipeline_name": "entries_2026_03_05",
-        "dataset_name": "entries_2026_03_05",
-    }
+    assert len(result.check_results) == 1
+    assert result.check_results[0].passed is False
+    assert result.check_results[0].severity == "warn"
+    assert writes == [1]
 
 
 def test_dlt_failure_events_carry_runtime_correlation(monkeypatch, tmp_path) -> None:
@@ -187,11 +248,7 @@ def test_dlt_failure_events_carry_runtime_correlation(monkeypatch, tmp_path) -> 
     bus = RecordingBus()
     monkeypatch.setattr("phlo.hooks.emitters.get_hook_bus", lambda: bus)
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
+        "phlo_dlt.executor.extract_to_parquet",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("stage failed")),
     )
 
@@ -208,7 +265,6 @@ def test_dlt_failure_events_carry_runtime_correlation(monkeypatch, tmp_path) -> 
         ),
         table_store_resource=cast(Any, SimpleNamespace()),
         dlt_source_func=lambda partition_date: object(),
-        validation_schema=StrictExecutorSchema,
         validate=False,
     )
 
@@ -246,11 +302,7 @@ def test_lifecycle_sink_failures_do_not_mask_provider_failure(
 
     monkeypatch.setattr("phlo.hooks.emitters.get_hook_bus", lambda: RaisingBus())
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
+        "phlo_dlt.executor.extract_to_parquet",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("provider stage failed")),
     )
 
@@ -280,12 +332,8 @@ def test_provider_exception_records_unknown_output_without_claiming_no_write(
     parquet_path = tmp_path / "staged.parquet"
     captured: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([parquet_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([parquet_path], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.staged_object_inventory",
@@ -365,12 +413,8 @@ def test_successful_write_with_contradictory_readback_stays_successful(
         ]
     )
     monkeypatch.setattr(
-        "phlo_dlt.executor.setup_dlt_pipeline",
-        lambda **_kwargs: (SimpleNamespace(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "phlo_dlt.executor.stage_to_parquet",
-        lambda **_kwargs: ([parquet_path], 0.01),
+        "phlo_dlt.executor.extract_to_parquet",
+        lambda **_kwargs: DltStagingResult([parquet_path], 0.01, None),
     )
     monkeypatch.setattr(
         "phlo_dlt.executor.staged_object_inventory",

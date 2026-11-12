@@ -417,52 +417,18 @@ def upgrade_apply_cmd(
         raise SystemExit(1)
 
 
-def _maintenance_store() -> Any:
-    """Resolve the provider-neutral maintenance store.
-
-    Table-store providers implement the plan/execute contracts the CLI
-    drives: ``compact`` (``MaintenanceTableStore``) and ``expire_snapshots``
-    (``MaintenanceRetentionStore``). Engine executors are the delegated
-    submit boundary the store resolves internally.
-    """
-    from phlo.application.discovery import discover_capabilities
-    from phlo.capabilities.resolver import resolve_capability
-
-    discover_capabilities()
-    resolution = resolve_capability("table_store", "iceberg")
-    if resolution is None:
-        raise click.ClickException(
-            "no maintenance store registered: the table_store:iceberg capability "
-            "is required for maintenance operations"
-        )
-    return resolution.provider
-
-
-def _maintenance_executor() -> Any:
-    """Resolve the optional engine executor the store delegates mutation to."""
-    from phlo.application.discovery import discover_capabilities
-    from phlo.capabilities.resolver import resolve_capability
-
-    discover_capabilities()
-    resolution = resolve_capability("maintenance_executor")
-    return resolution.provider if resolution is not None else None
-
-
-_STORE_PLAN_METHOD = {"compact": "compact", "snapshot_expiry": "expire_snapshots"}
-
-# Plan files carry the store's own operation name; translate back to the
-# CLI-facing name before dispatch.
-_STORE_OPERATION_NAME = {"compact": "compact", "expire_snapshots": "snapshot_expiry"}
-
-
 @maintenance_group.command("inventory", cls=PhloCommand)
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="table")
 def maintenance_inventory(output_format: str, output_json: bool = False) -> None:
     """List v1 tables with their provider and maintenance state (read-only)."""
     from phlo.capabilities.interfaces import MaintenanceDiscovery
+    from phlo.operations.maintenance import MaintenanceError, maintenance_store
 
-    store = _maintenance_store()
+    try:
+        store = maintenance_store()
+    except MaintenanceError as exc:
+        raise click.ClickException(str(exc)) from exc
     if not isinstance(store, MaintenanceDiscovery):
         raise click.ClickException(
             "the resolved maintenance store does not implement the discovery contract"
@@ -490,19 +456,20 @@ def maintenance_inventory(output_format: str, output_json: bool = False) -> None
 @click.option("--ref", default="main", help="Catalog ref/branch.")
 @click.option(
     "--catalog",
-    default="iceberg",
     help="Catalog identifier recorded in the plan (snapshot_expiry execute requires it).",
+)
+@click.option("--retention-hours", type=int, help="Retention window recorded in the expiry plan.")
+@click.option(
+    "--retain-last", type=int, help="Snapshot count retention recorded in the expiry plan."
 )
 @click.option(
     "--max-affected-objects",
     type=int,
-    default=1_000,
     help="Safety limit recorded in the plan (snapshot_expiry execute requires it).",
 )
 @click.option(
     "--max-affected-bytes",
     type=int,
-    default=1 << 30,
     help="Safety limit recorded in the plan (snapshot_expiry execute requires it).",
 )
 @click.option("--json", "output_json", is_flag=True, help="Emit a structured command result.")
@@ -511,34 +478,33 @@ def maintenance_plan(
     operation: str,
     table: str,
     ref: str,
-    catalog: str,
-    max_affected_objects: int,
-    max_affected_bytes: int,
+    catalog: str | None,
+    retention_hours: int | None,
+    retain_last: int | None,
+    max_affected_objects: int | None,
+    max_affected_bytes: int | None,
     output_format: str,
     output_json: bool = False,
 ) -> None:
     """Create a deterministic maintenance plan (read-only, no mutation)."""
-    from phlo.operations.journal import maintenance_plan_token
+    from phlo.operations.maintenance import MaintenanceError, plan_maintenance
 
-    store = _maintenance_store()
-    method_name = _STORE_PLAN_METHOD[operation]
-    plan_fn = getattr(store, method_name, None)
-    if not callable(plan_fn):
-        raise click.ClickException(f"maintenance store does not support planning for {operation!r}")
-
-    plan_kwargs: dict[str, Any] = {"table_name": table, "override_ref": ref, "dry_run": True}
-    if operation == "snapshot_expiry":
-        plan_kwargs.update(
-            catalog=catalog,
-            max_affected_objects=max_affected_objects,
-            max_affected_bytes=max_affected_bytes,
+    options: dict[str, Any] = {
+        "catalog": catalog,
+        "retention_hours": retention_hours,
+        "retain_last": retain_last,
+        "max_affected_objects": max_affected_objects,
+        "max_affected_bytes": max_affected_bytes,
+    }
+    try:
+        plan = plan_maintenance(
+            operation=operation,
+            table=table,
+            ref=ref,
+            **{key: value for key, value in options.items() if value is not None},
         )
-    result = plan_fn(**plan_kwargs)
-    plan = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-    # compact binds by revision precondition rather than a plan hash; the
-    # confirmation token the caller echoes is that revision.
-    if plan_token := maintenance_plan_token(plan):
-        plan["plan_token"] = plan_token
+    except MaintenanceError as exc:
+        raise click.ClickException(str(exc)) from exc
     rejected = plan.get("accepted") is False or plan.get("status") in {"blocked", "failed"}
     valid = not rejected and bool(plan.get("plan_token"))
     if output_json or output_format == "json":
@@ -581,89 +547,23 @@ def maintenance_apply(
     from phlo.operations.journal import (
         OperationJournalError,
         OperationJournalState,
-        claim_operation,
-        complete_operation,
-        maintenance_operation_id,
-        mark_submitted,
     )
+    from phlo.operations.maintenance import MaintenanceError, MaintenancePlan
 
     with Path(plan_path).open(encoding="utf-8") as f:
         plan_data = json.load(f)
 
-    plan_token = plan_data.get("plan_token", "")
-    operation = _STORE_OPERATION_NAME.get(
-        plan_data.get("operation", ""), plan_data.get("operation", "")
-    )
-    table = plan_data.get("table_name", "")
-    ref = plan_data.get("ref", "main")
-
-    if not plan_token or plan_token != confirmation_token:
-        raise click.ClickException("confirmation token does not match the plan token")
-
-    if operation == "orphan_delete":
-        raise click.ClickException("orphan deletion is unsupported in v1")
-
-    method_name = _STORE_PLAN_METHOD.get(operation)
-    if method_name is None:
-        raise click.ClickException(f"unknown maintenance operation {operation!r}")
-
-    store = _maintenance_store()
-    execute_fn = getattr(store, method_name, None)
-    if not callable(execute_fn):
-        raise click.ClickException(
-            f"maintenance store does not support execution for {operation!r}"
-        )
-
-    planned = plan_data.get("planned") or {}
-    before_revision = plan_data.get("before_revision") or planned.get("before_snapshot_id")
-    execute_kwargs: dict[str, Any] = {
-        "table_name": table,
-        "override_ref": ref,
-        "dry_run": False,
-        "expected_snapshot_id": before_revision,
-    }
-    if operation == "snapshot_expiry":
-        # The store re-plans and compares plan tokens, so apply must replay
-        # the plan-time parameters exactly or the recomputed token diverges.
-        execute_kwargs.update(
-            confirmation_token=plan_token,
-            retention_hours=int(planned.get("retention_hours") or 168),
-            retain_last=int(planned.get("retain_last") or 5),
-            catalog=planned.get("catalog"),
-            max_affected_objects=planned.get("max_affected_objects"),
-            max_affected_bytes=planned.get("max_affected_bytes"),
-        )
-    executor = _maintenance_executor()
-    if executor is not None:
-        execute_kwargs["executor"] = executor
-
-    journal = _durable_journal()
-    # One id per exact plan: a fresh plan for the same table and ref is a new
-    # operation, while re-applying the same plan conflicts with its entry.
-    operation_id = maintenance_operation_id(operation, table, ref, plan_token)
     try:
-        claim_operation(
-            journal,
-            operation_id=operation_id,
-            subject=CliPrincipalResolver.resolve().subject,
-            action=operation,
-            target=table,
-            plan_token=plan_token,
-        )
-        mark_submitted(journal, operation_id)
-        execute_kwargs["operation_id"] = operation_id
-        result = execute_fn(**execute_kwargs)
-        result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-        rejected = result_dict.get("accepted") is False or result_dict.get("status") in {
-            "blocked",
-            "failed",
-        }
-        if rejected:
-            # Preserve provider evidence while refusing contradictory accepted/status success.
-            if not journal.transition(operation_id, OperationJournalState.FAILED, result_dict):
-                raise OperationJournalError("unknown_operation", (operation_id,))
-        else:
-            complete_operation(journal, operation_id, result_dict)
+        plan = MaintenancePlan.from_dict(plan_data, confirmation_token=confirmation_token)
+    except MaintenanceError as exc:
+        if exc.code == "token_mismatch":
+            raise click.ClickException("confirmation token does not match the plan token") from exc
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        outcome = plan.apply(_durable_journal(), subject=CliPrincipalResolver.resolve().subject)
+        result_dict = outcome.result or {}
+        rejected = outcome.state is not OperationJournalState.SUCCEEDED
         if output_json or output_format == "json":
             _emit(
                 result_dict,
@@ -672,10 +572,12 @@ def maintenance_apply(
             )
         else:
             click.echo(
-                f"Maintenance {operation} on {table}: {result_dict.get('status', 'unknown')}"
+                f"Maintenance {plan.operation} on {plan.table}: {result_dict.get('status', 'unknown')}"
             )
         if rejected:
             raise click.exceptions.Exit(1)
+    except MaintenanceError as exc:
+        raise click.ClickException(str(exc)) from exc
     except OperationJournalError as exc:
         raise click.ClickException(
             f"journal error: {exc.code} ({', '.join(exc.identifiers)})"

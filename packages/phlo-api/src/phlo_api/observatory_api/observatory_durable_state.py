@@ -34,7 +34,7 @@ def state_namespace(project_root: Path, collection: str) -> str:
 
 
 def load_collection(
-    project_root: Path, collection: str, legacy_path: Path, *, require_known_state: bool = False
+    project_root: Path, collection: str, *, require_known_state: bool = False
 ) -> list[dict[str, Any]]:
     """Load a collection, importing its legacy JSON file exactly once when needed."""
     record = get_settings_service().get(
@@ -44,10 +44,9 @@ def load_collection(
         if require_known_state:
             _require_known_state(record.settings)
         return _items_from_state(record.settings, collection)
-    return _mutate_collection(
+    return mutate_collection(
         project_root,
         collection,
-        legacy_path,
         lambda items: items,
         require_known_state=require_known_state,
     )
@@ -56,25 +55,11 @@ def load_collection(
 def mutate_collection(
     project_root: Path,
     collection: str,
-    legacy_path: Path,
     mutation: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
     *,
     require_known_state: bool = False,
 ) -> list[dict[str, Any]]:
     """Apply a collection mutation under the durable store's transaction."""
-    return _mutate_collection(
-        project_root, collection, legacy_path, mutation, require_known_state=require_known_state
-    )
-
-
-def _mutate_collection(
-    project_root: Path,
-    collection: str,
-    legacy_path: Path,
-    mutation: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-    *,
-    require_known_state: bool = False,
-) -> list[dict[str, Any]]:
     namespace = state_namespace(project_root, collection)
     result_items: list[dict[str, Any]] = []
 
@@ -92,13 +77,35 @@ def _mutate_collection(
         items = (
             _items_from_state(current, collection)
             if current is not None
-            else _legacy_items(legacy_path, collection, require_known_state=require_known_state)
+            else _legacy_items(
+                _legacy_path(project_root, collection),
+                collection,
+                require_known_state=require_known_state,
+            )
         )
         result_items = mutation(items)
         return {"schema_version": STATE_SCHEMA_VERSION, "items": result_items}
 
     get_settings_service().mutate(SettingsScope.GLOBAL, namespace, apply)
     return result_items
+
+
+def _legacy_path(project_root: Path, collection: str) -> Path:
+    """Keep historical filenames here rather than in collection callers."""
+    match collection:
+        case "v1_csv_uploads":
+            relative = "csv-uploads.json"
+        case "v1_csv_candidates":
+            relative = "csv-candidates.json"
+        case "v1_owned_candidates":
+            relative = "candidate-bindings.json"
+        case "v1_data_products":
+            relative = "data-products.json"
+        case "v1_metric_models":
+            relative = "metric-models.json"
+        case _:
+            relative = f"observatory/{collection}.json"
+    return project_root / ".phlo" / relative
 
 
 def _items_from_state(state: dict[str, Any], collection: str) -> list[dict[str, Any]]:

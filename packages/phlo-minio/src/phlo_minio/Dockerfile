@@ -22,8 +22,8 @@ RUN go get github.com/apache/thrift@v0.24.0 github.com/buger/jsonparser@v1.1.2 \
         github.com/go-jose/go-jose/v4@v4.1.6 github.com/klauspost/compress@v1.18.7 \
         github.com/prometheus/prometheus@v0.311.3 \
         github.com/rabbitmq/amqp091-go@v1.13.0 go.opentelemetry.io/otel/sdk@v1.44.0 \
-        golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 \
-        golang.org/x/text@v0.42.0 google.golang.org/grpc@v1.83.2 \
+        golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 \
+        golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.83.2 \
     && go get ./... \
     && go mod vendor \
     && go build -mod=vendor -trimpath -tags kqueue -ldflags '-s -w -X github.com/minio/minio/cmd.CopyrightYear=2025 -X github.com/minio/minio/cmd.Version=2025-10-15T17:29:55Z -X github.com/minio/minio/cmd.ReleaseTag=RELEASE.2025-10-15T17-29-55Z -X github.com/minio/minio/cmd.CommitID=9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a -X github.com/minio/minio/cmd.ShortCommitID=9e49d5e7a648' -o /out/minio . \
@@ -35,8 +35,8 @@ WORKDIR /src/mc
 # hadolint ignore=DL3062
 RUN go get github.com/klauspost/compress@v1.18.7 \
         github.com/prometheus/prometheus@v0.311.3 \
-        golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 \
-        golang.org/x/text@v0.42.0 google.golang.org/grpc@v1.83.2 \
+        golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 \
+        golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.83.2 \
     && go get ./... \
     && go mod vendor \
     && go build -mod=vendor -trimpath -ldflags '-s -w -X github.com/minio/mc/cmd.CopyrightYear=2025 -X github.com/minio/mc/cmd.Version=2025-08-13T08:35:41Z -X github.com/minio/mc/cmd.ReleaseTag=RELEASE.2025-08-13T08-35-41Z -X github.com/minio/mc/cmd.CommitID=7394ce0dd2a80935aded936b09fa12cbb3cb8096 -X github.com/minio/mc/cmd.ShortCommitID=7394ce0dd2a8' -o /out/mc . \
@@ -52,7 +52,7 @@ RUN if [ -f /context/Dockerfile ]; then \
         cp /context/src/phlo_minio/Dockerfile /sources/Dockerfile; \
     fi \
     && printf '%s\n' \
-        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-10-28.' \
+        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-11-07.' \
         'These are Phlo builds, not official MinIO binaries. See Dockerfile for the dependency changes.' \
         > /sources/PHLO-NOTICE
 

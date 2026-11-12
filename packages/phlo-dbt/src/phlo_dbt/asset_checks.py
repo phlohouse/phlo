@@ -1,8 +1,8 @@
-"""dbt test result extraction and conversion to Phlo check results.
+"""dbt evidence ownership and conversion to Phlo asset outcomes.
 
 This module provides utilities for extracting dbt test results from run results
-and converting them into Phlo's CheckResult format. It handles test type detection,
-severity mapping, and metadata extraction for quality checks.
+and converting them into Phlo's check and materialization results. It owns test
+identity, severity, and per-node evidence requirements for single and grouped runs.
 
 Example:
     >>> from phlo_dbt.asset_checks import extract_dbt_asset_checks
@@ -24,11 +24,104 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from phlo.capabilities import AssetCheckSpec, CheckResult
+from phlo.capabilities import AssetCheckSpec, CheckResult, MaterializeResult, RuntimeContext
 from phlo.logging import get_logger
 from phlo_dbt.translator import DbtSpecTranslator
 
 logger = get_logger(__name__)
+
+
+def dbt_asset_outcomes(
+    run_results: Mapping[str, Any] | None,
+    manifest: Mapping[str, Any],
+    *,
+    selected: frozenset[str],
+    translator: DbtSpecTranslator,
+    runtime: RuntimeContext,
+    target: str,
+    error: str | None,
+) -> dict[str, list[MaterializeResult | CheckResult]]:
+    """Attribute node evidence to selected assets, independently of invocation success.
+
+    Manifest test IDs, resolved with the same ownership rules as declared checks,
+    must be present in this invocation. Skipped nodes produce no materialization
+    or check, warnings remain non-fatal, and a failed sibling cannot hide a
+    successful node. Invocation errors supply diagnostics, not per-node status.
+    """
+    if run_results is None:
+        logger.warning("dbt_asset_check_results_unavailable")
+    payload = run_results or {}
+    by_id = {item["unique_id"]: item for item in payload.get("results", [])}
+    nodes = _manifest_nodes(manifest)
+    tests_by_asset: dict[str, list[str]] = {}
+    for test_id, props in nodes.items():
+        if not test_id.startswith("test.") or not isinstance(props, Mapping):
+            continue
+        resolved = _resolve_dbt_test(manifest, test_id, props, translator)
+        if resolved is not None:
+            tests_by_asset.setdefault(resolved.asset_key, []).append(test_id)
+    checks = extract_dbt_asset_checks(
+        payload, manifest, translator=translator, partition_key=runtime.partition_key
+    )
+    outcomes: dict[str, list[MaterializeResult | CheckResult]] = {}
+    for uid, props in nodes.items():
+        if not isinstance(props, Mapping) or props.get("resource_type") not in {
+            "model",
+            "seed",
+            "snapshot",
+        }:
+            continue
+        try:
+            key = translator.get_asset_key(props)
+        except Exception:
+            # Discovery omits nodes whose asset keys cannot be translated.
+            continue
+        if key not in selected:
+            continue
+        node = by_id.get(uid, {})
+        if node.get("status") in {"skip", "skipped"}:
+            continue
+        test_ids = tests_by_asset.get(key, [])
+        owned = [
+            check
+            for check in checks
+            if check.metadata["test_unique_id"] in test_ids
+            and check.metadata.get("status") not in {"skip", "skipped"}
+        ]
+        missing_tests = [test_id for test_id in test_ids if test_id not in by_id]
+        failed = (
+            node.get("status") != "success"
+            or bool(missing_tests)
+            or any(
+                check.metadata.get("status") in {"fail", "error", "runtime error"}
+                for check in owned
+            )
+        )
+        status = "failure" if failed else "success"
+        outcomes[key] = [
+            *owned,
+            MaterializeResult(
+                status=status,
+                metadata={
+                    "model": props["name"],
+                    "dbt_target": target,
+                    "dbt_status": node.get("status", "missing"),
+                    "dbt_metadata": {
+                        "invocation_id": payload.get("metadata", {}).get("invocation_id"),
+                        "error": (node.get("message") or error) if failed else None,
+                        "missing_tests": missing_tests,
+                    },
+                    "transform_status": status,
+                    "transform_run_id": runtime.run_id,
+                    "transform_duration_ms": round(float(node.get("execution_time", 0)) * 1000),
+                    "transform_counts": {
+                        "passed": sum(check.passed for check in owned),
+                        "failed": sum(not check.passed for check in owned),
+                    },
+                },
+            ),
+        ]
+    return outcomes
 
 
 @dataclass(frozen=True, slots=True)

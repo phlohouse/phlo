@@ -58,7 +58,6 @@ from phlo.run_evidence.stored import (
     StoredEvent,
     StoredQualityResult,
     StoredResource,
-    StoredRun,
     StoredStage,
     parse_stored_row,
 )
@@ -109,6 +108,26 @@ _REPORT_ORDER_BY = {
 
 class IdempotencyConflict(ValueError):
     """A producer reused an event identity with different content."""
+
+
+def _preserve_run_outcome_sql(
+    existing_attempt: str, existing_status: str, incoming_attempt: str
+) -> str:
+    """Keep older attempts and same-attempt terminal writes from replacing an outcome.
+
+    Arguments are internal SQL expressions, never provider input. Evaluate this
+    in the write statement so concurrent writers use the persisted row.
+    """
+    terminal = ", ".join(f"'{status}'" for status in sorted(TERMINAL_STATUSES | {"canceled"}))
+    return (
+        f"({incoming_attempt} < {existing_attempt} OR "
+        f"({incoming_attempt} = {existing_attempt} AND {existing_status} IN ({terminal})))"
+    )
+
+
+def _preserve_evidence_completeness_sql(existing: str, incoming: str) -> str:
+    """A late incomplete observation cannot discard known evidence state."""
+    return f"({existing} IN ('complete', 'expired', 'redacted') AND {incoming} = 'incomplete')"
 
 
 def _timestamp(value: datetime | None) -> str | None:
@@ -593,16 +612,27 @@ class _SqlRunEvidenceStore:
         evidence_completeness: EvidenceCompleteness | None = None,
     ) -> None:
         """Update terminal run state without changing its identity or history."""
+        preserve_outcome = _preserve_run_outcome_sql("attempt", "status", "attempt")
         fields: list[str] = []
         values: list[Any] = []
         if status is not None:
-            fields.append("status = " + self.placeholder)
+            fields.append(
+                f"status = CASE WHEN {preserve_outcome} THEN status ELSE {self.placeholder} END"
+            )
             values.append(status)
         if finished_at is not None:
-            fields.append("finished_at = " + self.placeholder)
+            fields.append(
+                f"finished_at = CASE WHEN {preserve_outcome} "
+                f"THEN COALESCE(finished_at, {self.placeholder}) ELSE {self.placeholder} END"
+            )
+            values.append(_timestamp(finished_at))
             values.append(_timestamp(finished_at))
         if failure_summary is not None:
-            fields.append("failure_summary = " + self.placeholder)
+            fields.append(
+                f"failure_summary = CASE WHEN {preserve_outcome} "
+                f"THEN COALESCE(failure_summary, {self.placeholder}) ELSE {self.placeholder} END"
+            )
+            values.append(_text(failure_summary))
             values.append(_text(failure_summary))
         if evidence_completeness is not None:
             fields.append("evidence_completeness = " + self.placeholder)
@@ -723,7 +753,6 @@ class _SqlRunEvidenceStore:
             decision = evaluate_reconciliation(
                 observation=observation,
                 profile=profile,
-                run_row=parse_stored_row(StoredRun, run_row),
                 event_rows=[parse_stored_row(StoredEvent, row) for row in event_rows],
                 stage_rows=[parse_stored_row(StoredStage, row) for row in stage_rows],
                 record_rows=record_rows,
@@ -759,40 +788,27 @@ class _SqlRunEvidenceStore:
                 )
                 return decision
 
-            current_attempt = int(run_row["attempt"])
-            current_status = normalize_status(str(run_row["status"])) or RunStatus.RUNNING
-            aggregate_status = decision.status
-            aggregate_finished_at: datetime | str | None = decision.finished_at
-            # A terminal status already stored for this attempt wins over a
-            # contradicting later observation, lower attempts never rewrite a
-            # higher one, and a terminal run may not regress to a non-terminal
-            # status. The guards below encode those three precedence rules.
-            if (
-                current_attempt == observation.attempt
-                and current_status in TERMINAL_STATUSES
-                and decision.status in TERMINAL_STATUSES
-                and decision.status != current_status
-            ):
-                aggregate_status = current_status
-                aggregate_finished_at = run_row.get("finished_at")
-            if observation.attempt >= current_attempt and not (
-                current_attempt == observation.attempt
-                and current_status in TERMINAL_STATUSES
-                and decision.status
-                in {RunStatus.RUNNING, RunStatus.INCOMPLETE, RunStatus.ABANDONED}
-            ):
+            if observation.attempt >= int(run_row["attempt"]):
+                preserve_outcome = _preserve_run_outcome_sql("attempt", "status", "attempt")
+                preserve_completeness = _preserve_evidence_completeness_sql(
+                    "evidence_completeness", self.placeholder
+                )
                 cursor.execute(
-                    f"UPDATE {self._table('pipeline_run')} SET status = {self.placeholder}, "
-                    f"finished_at = {self.placeholder}, evidence_completeness = {self.placeholder}, "
+                    f"UPDATE {self._table('pipeline_run')} SET status = CASE "
+                    f"WHEN {preserve_outcome} THEN status ELSE {self.placeholder} END, "
+                    f"finished_at = CASE WHEN {preserve_outcome} "
+                    f"THEN COALESCE(finished_at, {self.placeholder}) ELSE {self.placeholder} END, "
+                    f"evidence_completeness = CASE WHEN {preserve_completeness} "
+                    f"THEN evidence_completeness ELSE {self.placeholder} END, "
                     f"last_heartbeat_at = {self.placeholder}, reconciled_at = {self.placeholder}, "
                     f"reconciliation_reason = {self.placeholder}, updated_at = {self.placeholder} "
                     f"WHERE project_id = {self.placeholder} AND run_id = {self.placeholder} "
                     f"AND attempt = {self.placeholder}",
                     (
-                        aggregate_status,
-                        _timestamp(aggregate_finished_at)
-                        if isinstance(aggregate_finished_at, datetime)
-                        else aggregate_finished_at,
+                        decision.status,
+                        _timestamp(decision.finished_at),
+                        _timestamp(decision.finished_at),
+                        decision.evidence_completeness.value,
                         decision.evidence_completeness.value,
                         _timestamp(decision.heartbeat_at),
                         _timestamp(decision.decided_at),
@@ -1040,6 +1056,12 @@ class _SqlRunEvidenceStore:
             return [self._row_dict(cursor, row, table=table) for row in cursor.fetchall()]
 
     def _upsert_run(self, cursor: Any, run: PipelineRun) -> None:
+        preserve_outcome = _preserve_run_outcome_sql(
+            "existing_run.attempt", "existing_run.status", "EXCLUDED.attempt"
+        )
+        preserve_completeness = _preserve_evidence_completeness_sql(
+            "existing_run.evidence_completeness", "EXCLUDED.evidence_completeness"
+        )
         cursor.execute(
             f"SELECT project_id FROM {self._table('pipeline_run')} "
             f"WHERE project_id = {self.placeholder} AND run_id = {self.placeholder}",
@@ -1099,32 +1121,25 @@ class _SqlRunEvidenceStore:
                 "THEN existing_run.started_at ELSE COALESCE(existing_run.started_at, EXCLUDED.started_at) END",
                 "attempt = CASE WHEN existing_run.attempt > EXCLUDED.attempt "
                 "THEN existing_run.attempt ELSE EXCLUDED.attempt END",
-                "status = CASE WHEN EXCLUDED.attempt > existing_run.attempt "
-                "THEN EXCLUDED.status WHEN EXCLUDED.attempt < existing_run.attempt "
-                "THEN existing_run.status WHEN existing_run.status IN "
-                "('success', 'failed', 'error', 'cancelled', 'canceled', 'skipped', 'no_data', 'abandoned') "
+                f"status = CASE WHEN {preserve_outcome} "
                 "THEN existing_run.status ELSE EXCLUDED.status END",
                 "trace_id = CASE WHEN EXCLUDED.attempt > existing_run.attempt "
                 "THEN EXCLUDED.trace_id WHEN EXCLUDED.attempt < existing_run.attempt "
                 "THEN existing_run.trace_id ELSE COALESCE(existing_run.trace_id, EXCLUDED.trace_id) END",
                 "finished_at = CASE WHEN EXCLUDED.attempt > existing_run.attempt "
                 "THEN EXCLUDED.finished_at WHEN EXCLUDED.attempt < existing_run.attempt "
-                "THEN existing_run.finished_at WHEN existing_run.status IN "
-                "('success', 'failed', 'error', 'cancelled', 'canceled', 'skipped', 'no_data', 'abandoned') "
+                f"THEN existing_run.finished_at WHEN {preserve_outcome} "
                 "THEN COALESCE(existing_run.finished_at, EXCLUDED.finished_at) "
                 "ELSE COALESCE(EXCLUDED.finished_at, existing_run.finished_at) END",
                 "failure_summary = CASE WHEN EXCLUDED.attempt > existing_run.attempt "
                 "THEN EXCLUDED.failure_summary WHEN EXCLUDED.attempt < existing_run.attempt "
-                "THEN existing_run.failure_summary WHEN existing_run.status IN "
-                "('success', 'failed', 'error', 'cancelled', 'canceled', 'skipped', 'no_data', 'abandoned') "
+                f"THEN existing_run.failure_summary WHEN {preserve_outcome} "
                 "THEN COALESCE(existing_run.failure_summary, EXCLUDED.failure_summary) "
                 "ELSE COALESCE(EXCLUDED.failure_summary, existing_run.failure_summary) END",
                 "evidence_completeness = CASE WHEN EXCLUDED.attempt > existing_run.attempt "
                 "THEN EXCLUDED.evidence_completeness WHEN EXCLUDED.attempt < existing_run.attempt "
-                "THEN existing_run.evidence_completeness WHEN existing_run.status IN "
-                "('success', 'failed', 'error', 'cancelled', 'canceled', 'skipped', 'no_data', 'abandoned') "
-                "THEN existing_run.evidence_completeness WHEN existing_run.evidence_completeness IN "
-                "('complete', 'expired', 'redacted') AND EXCLUDED.evidence_completeness = 'incomplete' "
+                f"THEN existing_run.evidence_completeness WHEN {preserve_outcome} "
+                f"THEN existing_run.evidence_completeness WHEN {preserve_completeness} "
                 "THEN existing_run.evidence_completeness ELSE EXCLUDED.evidence_completeness END",
             ]
         )

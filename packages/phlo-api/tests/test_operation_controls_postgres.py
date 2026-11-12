@@ -17,7 +17,12 @@ import psycopg2
 import pytest
 from testcontainers.postgres import PostgresContainer
 
-from phlo.operations.journal import OperationJournalEntry, OperationJournalState
+from phlo.operations.journal import (
+    OperationJournal,
+    OperationJournalEntry,
+    OperationJournalError,
+    OperationJournalState,
+)
 from phlo.plugins.observatory_settings import StorageUnavailableError
 from phlo_api.api.operation_controls import resolve_idempotency_claim
 from phlo_postgres.operation_controls import (
@@ -104,7 +109,7 @@ def test_two_api_instances_replay_and_exclude_distinct_intents(apps, postgres_ds
     requests[1].put((path, first))
     assert results[1].get(timeout=10) == completed
     requests[1].put((path, {**first, "target": "changed", "resource": resource + "-other"}))
-    assert results[1].get(timeout=10) == (409, {"detail": {"error": "target_mismatch"}})
+    assert results[1].get(timeout=10) == (409, {"detail": {"error": "idempotency_key_conflict"}})
     uncertain = {
         "key": "uncertain",
         "target": "lost-response",
@@ -192,11 +197,166 @@ def test_shared_journal_blocks_unknown_until_reconciled(postgres_dsn):
     )
     assert stores[0].claim(entry)
     assert not stores[1].claim(replace(entry, operation_id="second"))
-    assert stores[0].transition("first", OperationJournalState.UNKNOWN)
+    OperationJournal(stores[0]).submit("first")
+    OperationJournal(stores[0]).unknown("first")
     assert not stores[1].claim(replace(entry, operation_id="second"))
     assert stores[1].read("first").state == OperationJournalState.UNKNOWN
-    assert stores[1].transition("first", OperationJournalState.SUCCEEDED, {"accepted": True})
+    OperationJournal(stores[1]).reconcile(
+        "first", state=OperationJournalState.SUCCEEDED, result={"accepted": True}
+    )
     assert stores[0].claim(replace(entry, operation_id="second"))
+
+
+def test_journal_replicas_atomically_complete_without_terminal_regression(postgres_dsn):
+    namespace = str(uuid4())
+    stores = [PostgresOperationControls(postgres_dsn, namespace) for _ in range(2)]
+    OperationJournal(stores[0]).claim(
+        operation_id="race", subject="actor", action="restore", target="prod", plan_token="plan"
+    )
+    OperationJournal(stores[0]).submit("race")
+
+    def finish(index):
+        state = [OperationJournalState.SUCCEEDED, OperationJournalState.FAILED][index]
+        try:
+            OperationJournal(stores[index]).complete(
+                "race", state=state, result={"state": state.value, "replica": index}
+            )
+        except OperationJournalError:
+            return False
+        return True
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sum(pool.map(finish, range(2))) == 1
+    receipt = stores[0].read("race")
+    assert receipt.result["state"] == receipt.state.value
+    for store in stores:
+        with pytest.raises(OperationJournalError, match="invalid_transition"):
+            OperationJournal(store).submit("race")
+        with pytest.raises(OperationJournalError, match="invalid_transition"):
+            OperationJournal(store).reconcile(
+                "race", state=OperationJournalState.FAILED, result={"accepted": False}
+            )
+        assert store.read("race") == receipt
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        OperationJournalState.CLAIMED,
+        OperationJournalState.SUBMITTED,
+        OperationJournalState.UNKNOWN,
+    ],
+)
+def test_journal_lease_takeover_never_expires_submitted_or_unknown(postgres_dsn, state):
+    namespace = str(uuid4())
+    stores = [PostgresOperationControls(postgres_dsn, namespace) for _ in range(2)]
+    owner = OperationJournal(stores[0])
+    entry = owner.claim(
+        operation_id="lease",
+        subject="actor",
+        action="restore",
+        target="prod",
+        plan_token="p",
+        claim_expiry="2999-01-01T00:00:00+00:00",
+    )
+    if state is not OperationJournalState.CLAIMED:
+        owner.submit(entry.operation_id)
+    if state is OperationJournalState.UNKNOWN:
+        owner.unknown(entry.operation_id, result={"provider": "uncertain"})
+    # Expire the lease field only, including its submitted/unknown controls.
+    # Real provider transactions still perform the takeover and stale-owner check.
+    record = stores[0].read(entry.operation_id).to_dict()
+    record["claim_expiry"] = "2000-01-01T00:00:00+00:00"
+    with psycopg2.connect(postgres_dsn) as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE phlo_api_operation_journal SET entry_json=%s WHERE namespace=%s AND operation_id=%s",
+            (json.dumps(record), namespace, entry.operation_id),
+        )
+    replacement = replace(entry, operation_id="new", plan_token="new")
+    assert stores[1].claim(replacement) is (state is OperationJournalState.CLAIMED)
+    if state is OperationJournalState.CLAIMED:
+        assert stores[0].read(entry.operation_id).state is OperationJournalState.FAILED
+        with pytest.raises(OperationJournalError, match="invalid_transition"):
+            owner.submit(entry.operation_id)
+    else:
+        assert stores[0].read(entry.operation_id).state is state
+
+
+@pytest.mark.parametrize("persisted_action", ["expire_snapshots", "snapshot_expiry"])
+@pytest.mark.parametrize("state", ["claimed", "submitted", "unknown"])
+def test_legacy_retention_journal_alias_fences_replicas(postgres_dsn, persisted_action, state):
+    namespace = str(uuid4())
+    first = PostgresOperationControls(postgres_dsn, namespace)
+    second = PostgresOperationControls(postgres_dsn, namespace)
+    first.initialize()
+    entry = OperationJournalEntry(
+        "expire_snapshots:raw.events:main:old-run",
+        "scheduler",
+        persisted_action,
+        "raw.events",
+        "old-plan",
+        OperationJournalState(state),
+        result={"accepted": True},
+    )
+    # Seed historical SQL and JSON action columns, not a new claim normalised by core.
+    with psycopg2.connect(postgres_dsn) as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO phlo_api_operation_journal(namespace,operation_id,action,target,state,entry_json) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (
+                namespace,
+                entry.operation_id,
+                persisted_action,
+                entry.target,
+                state,
+                json.dumps(entry.to_dict()),
+            ),
+        )
+    other_action = (
+        "snapshot_expiry" if persisted_action == "expire_snapshots" else "expire_snapshots"
+    )
+    contender = replace(
+        entry,
+        operation_id="fresh-plan",
+        action=other_action,
+        plan_token="new",
+        state=OperationJournalState.CLAIMED,
+        result=None,
+    )
+    assert not second.claim(contender)
+    assert second.read(entry.operation_id) == entry
+    assert second.claim(replace(contender, operation_id="other-table", target="raw.other"))
+    assert second.claim(replace(contender, operation_id="compact", action="compact"))
+    owner = OperationJournal(first)
+    if state == "claimed":
+        owner.submit(entry.operation_id)
+    if state != "unknown":
+        owner.unknown(entry.operation_id, result=entry.result)
+    for evidence in (
+        {"accepted": True},
+        {"accepted": False},
+        {
+            "accepted": True,
+            "status": "failed",
+            "failure": {"outcome": "unknown"},
+            "retry_safe": False,
+        },
+    ):
+        with pytest.raises(OperationJournalError, match="unknown_outcome_blocks_replay"):
+            OperationJournal(second).reconcile(
+                entry.operation_id, state=OperationJournalState.SUCCEEDED, result=evidence
+            )
+        assert first.read(entry.operation_id).state is OperationJournalState.UNKNOWN
+        assert first.read(entry.operation_id).result == entry.result
+        assert not first.claim(contender)
+    OperationJournal(second).reconcile(
+        entry.operation_id,
+        state=OperationJournalState.SUCCEEDED,
+        result={"accepted": True, "status": "succeeded"},
+    )
+    assert first.read(entry.operation_id).action == persisted_action
+    assert first.claim(contender)
+    assert second.read("fresh-plan").action == "snapshot_expiry"
 
 
 def test_reclamation_guard_shares_transaction_exclusion_with_remote_claims(postgres_dsn):
@@ -242,7 +402,12 @@ def test_shared_claim_resolution_and_namespace_isolation(postgres_dsn):
     store.initialize()
     assert store.idempotency_target("missing", "restore") is None
     assert store.read("missing") is None
-    assert not store.transition("missing", OperationJournalState.SUCCEEDED)
+    assert not store.compare_and_set(
+        "missing",
+        OperationJournalState.SUBMITTED,
+        OperationJournalState.SUCCEEDED,
+        {"accepted": True},
+    )
     assert store.claim_idempotency("key", "restore", "original", "resource") == (
         True,
         "pending",

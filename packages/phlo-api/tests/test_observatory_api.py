@@ -830,6 +830,7 @@ def test_observatory_publication_action_persists_dataset_state(
 
     authority = observatory._dataset_authority()
     seed = authority.service.store.compare_and_set(
+        resource_id="gold.orders",
         writes=(
             StoreWrite(
                 record_id="gold.orders",

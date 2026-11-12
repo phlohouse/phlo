@@ -42,7 +42,6 @@ Example:
         table_config=table_config,
         table_store_resource=iceberg_store,
         dlt_source_func=fetch_users,
-        validation_schema=UserSchema,
         validate=True,
         strict_validation=True,
     )
@@ -65,6 +64,7 @@ from typing import Any, Callable, Dict, Sequence
 
 import pandas as pd
 
+from phlo.exceptions import PhloConfigError
 from phlo.logging import log_event
 from phlo.operations.ingestion import BaseIngester, IngestionResult
 from phlo.operations.parquet_validation import ValidationMode
@@ -83,15 +83,17 @@ from phlo.run_evidence.redaction import safe_error_summary
 from phlo.capabilities.history import HistoryWriteError
 from phlo.capabilities.interfaces import TableStore
 from phlo.capabilities.runtime import DataInterval, RuntimeRouting, routing_from_context
+from phlo.capabilities.specs import CheckResult
 
+from phlo_dlt.contract_coverage import detect_dropped_source_columns
 from phlo_dlt.dlt_helpers import (
     apply_data_interval,
     apply_validation_schema_hints,
+    extract_to_parquet,
     inject_metadata_columns,
     merge_to_table_store,
-    setup_dlt_pipeline,
-    stage_to_parquet,
     validate_interval_options,
+    validate_merge_config,
 )
 from phlo_dlt.evidence import (
     dlt_execution_identity,
@@ -101,11 +103,43 @@ from phlo_dlt.evidence import (
     table_state,
 )
 from phlo_dlt.pandera_checks import (
+    PanderaContractEvaluation,
     PanderaContractValidationError,
     evaluate_pandera_contract_parquet_files,
-    serialize_pandera_contract_evaluation,
+    pandera_contract_asset_check_result,
 )
 from phlo_dlt.registry import TableConfig
+
+
+def validate_runtime_options(
+    *,
+    merge_strategy: str,
+    unique_key: str,
+    merge_config: dict[str, Any] | None,
+    validation_mode: ValidationMode,
+    validation_batch_size: int,
+    validation_sample_size: int,
+    interval_column: str | None,
+    interval_lookback: timedelta,
+) -> None:
+    """Check runtime configuration before registration or source execution.
+
+    No schema is required here: direct no-data runs need not resolve one.
+    Merge defaults remain the caller's policy rather than being expanded here.
+    """
+    validate_interval_options(interval_column, interval_lookback, merge_strategy, unique_key)
+    validate_merge_config(merge_strategy, unique_key, merge_config)
+    if validation_mode not in {"materialized", "full", "sample"}:
+        raise PhloConfigError(message=f"Unknown validation mode: {validation_mode}")
+    if validation_batch_size <= 0 or validation_sample_size <= 0:
+        raise PhloConfigError(message="Validation batch and sample sizes must be positive")
+
+
+@dataclass
+class DltIngestionResult(IngestionResult):
+    """Return ingestion metrics and checks evaluated before publication."""
+
+    check_results: tuple[CheckResult, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,10 +163,12 @@ class DomainQualityValidationError(RuntimeError):
         *,
         evaluations: tuple[DomainQualityEvaluation, ...],
         parquet_paths: tuple[Path, ...],
+        check_results: tuple[CheckResult, ...],
     ) -> None:
         """Store failed check evidence for the decorator's check-result surface."""
         self.evaluations = evaluations
         self.parquet_paths = parquet_paths
+        self.check_results = check_results
         failed = next(evaluation for evaluation in evaluations if not evaluation.passed)
         super().__init__(f"Domain quality check failed: {failed.check_name}: {failed.violation}")
 
@@ -249,7 +285,6 @@ class DltIngester(BaseIngester):
             table_config=table_config,
             table_store_resource=iceberg_table_store,
             dlt_source_func=lambda partition_date: rest_api_source(...),
-            validation_schema=UserSchema,
             validate=True,
             strict_validation=True,
             merge_strategy="merge",
@@ -265,7 +300,6 @@ class DltIngester(BaseIngester):
         table_config: TableConfig,
         table_store_resource: TableStore,
         dlt_source_func: Callable[..., Any],
-        validation_schema: type[Any] | None = None,
         validate: bool = True,
         strict_validation: bool = True,
         add_metadata_columns: bool = True,
@@ -279,14 +313,20 @@ class DltIngester(BaseIngester):
         interval_lookback: timedelta = timedelta(0),
     ):
         """Store the ingester's collaborators and validation/merge options."""
-        validate_interval_options(
-            interval_column, interval_lookback, merge_strategy, table_config.unique_key
+        validate_runtime_options(
+            merge_strategy=merge_strategy,
+            unique_key=table_config.unique_key,
+            merge_config=merge_config,
+            validation_mode=validation_mode,
+            validation_batch_size=validation_batch_size,
+            validation_sample_size=validation_sample_size,
+            interval_column=interval_column,
+            interval_lookback=interval_lookback,
         )
         super().__init__(context, logger)
         self.table_config = table_config
         self.table_store = table_store_resource
         self.dlt_source_func = dlt_source_func
-        self.validation_schema = validation_schema
         self.validate = validate
         self.strict_validation = strict_validation
         self.add_metadata_columns = add_metadata_columns
@@ -312,7 +352,7 @@ class DltIngester(BaseIngester):
             source = apply_data_interval(
                 self.dlt_source_func(data_interval=interval), self.interval_column, interval
             )
-        return apply_validation_schema_hints(source, self.validation_schema)
+        return apply_validation_schema_hints(source, self.table_config.validation_schema)
 
     def _no_data_result(
         self,
@@ -321,7 +361,7 @@ class DltIngester(BaseIngester):
         context: IngestionEventContext,
         source_identity: str | None,
         correlation_error: str | None,
-    ) -> IngestionResult:
+    ) -> DltIngestionResult:
         """Record empty-source evidence before returning without a write."""
         log_event(self.logger, "info", "ingestion_no_data", partition_key=context.partition_key)
         if attempt is not None:
@@ -362,36 +402,150 @@ class DltIngester(BaseIngester):
                 metrics={"records_read": 0},
                 identity_parts=(context.table_name, context.partition_key, "no_data"),
             )
-        return IngestionResult(
-            status="no_data", rows_inserted=0, rows_deleted=0, metadata={"status": "no_data"}
+        schema = self.table_config.validation_schema
+        checks = (
+            (
+                pandera_contract_asset_check_result(
+                    PanderaContractEvaluation(True, 0, 0, []),
+                    partition_key=context.partition_key,
+                    asset_key=self.table_config.ingestion_asset_key,
+                    schema_class=schema,
+                    query_or_sql="status:no_data",
+                    blocking=self.strict_validation,
+                    validation_mode=self.validation_mode,
+                ),
+            )
+            if self.validate and schema is not None
+            else ()
+        )
+        return DltIngestionResult(
+            status="no_data",
+            rows_inserted=0,
+            rows_deleted=0,
+            metadata={"status": "no_data"},
+            check_results=checks,
         )
 
     def _validate_staged_contract(
-        self, parquet_paths: list[Path]
-    ) -> tuple[dict[str, Any] | None, tuple[DomainQualityEvaluation, ...]]:
+        self, parquet_paths: list[Path], partition_key: str | None
+    ) -> tuple[CheckResult, ...]:
         """Validate staged schemas and domain rules before publication."""
-        evaluation_metadata = None
-        if self.validate and self.validation_schema is not None:
-            evaluation = evaluate_pandera_contract_parquet_files(
-                parquet_paths,
-                schema_class=self.validation_schema,
-                mode=self.validation_mode,
-                batch_size=self.validation_batch_size,
-                sample_size=self.validation_sample_size,
-            )
-            evaluation_metadata = serialize_pandera_contract_evaluation(evaluation)
-            if self.strict_validation and not evaluation.passed:
-                raise PanderaContractValidationError(
-                    evaluation=evaluation, parquet_paths=tuple(parquet_paths)
+        checks: list[CheckResult] = []
+        schema = self.table_config.validation_schema
+        query = ",".join(f"parquet://{path}" for path in parquet_paths)
+        evaluation = None
+        evaluation_error = None
+        if self.validate and schema is not None:
+            details = {
+                "table_name": self.table_config.full_table_name,
+                "partition_date": partition_key,
+                "parquet_path": str(parquet_paths[0]),
+                "parquet_path_count": len(parquet_paths),
+            }
+            log_event(self.logger, "info", "pandera_contract_evaluation_started", **details)
+            try:
+                evaluation = evaluate_pandera_contract_parquet_files(
+                    parquet_paths,
+                    schema_class=schema,
+                    mode=self.validation_mode,
+                    batch_size=self.validation_batch_size,
+                    sample_size=self.validation_sample_size,
                 )
+            except Exception as exc:  # Report evaluator failures as failed checks.
+                evaluation_error = exc
+                evaluation = PanderaContractEvaluation(False, 1, 0, [{"error": str(exc)}], str(exc))
+            log_event(
+                self.logger,
+                "info" if evaluation.passed else "warning",
+                "pandera_contract_evaluation_passed"
+                if evaluation.passed
+                else "pandera_contract_evaluation_failed",
+                **details,
+                total_count=evaluation.total_count,
+                failed_count=evaluation.failed_count,
+                error=evaluation.error,
+            )
+            checks.append(
+                pandera_contract_asset_check_result(
+                    evaluation,
+                    partition_key=partition_key,
+                    asset_key=self.table_config.ingestion_asset_key,
+                    schema_class=schema,
+                    query_or_sql=query,
+                    blocking=self.strict_validation or evaluation_error is not None,
+                    validation_mode=self.validation_mode,
+                )
+            )
         domain = _evaluate_domain_quality_checks(
             parquet_paths=parquet_paths, quality_checks=self.quality_checks
         )
-        if self.strict_validation and any(not evaluation.passed for evaluation in domain):
-            raise DomainQualityValidationError(
-                evaluations=domain, parquet_paths=tuple(parquet_paths)
+        for outcome in domain:
+            checks.append(
+                CheckResult(
+                    passed=outcome.passed,
+                    check_name=f"quality_{outcome.check_name}",
+                    metadata={
+                        "source": "domain",
+                        "partition_key": partition_key,
+                        "violation": outcome.violation,
+                        "staged_parquet": query,
+                    },
+                    severity=None
+                    if outcome.passed
+                    else ("error" if self.strict_validation else "warn"),
+                    asset_key=self.table_config.ingestion_asset_key,
+                )
             )
-        return evaluation_metadata, domain
+            if not outcome.passed:
+                log_event(
+                    self.logger,
+                    "warning",
+                    "domain_quality_check_failed",
+                    table_name=self.table_config.full_table_name,
+                    check=outcome.check_name,
+                    violation=outcome.violation,
+                )
+        results = tuple(checks)
+        # An inability to evaluate is fatal even in warning mode, as before.
+        if evaluation is not None and (
+            evaluation_error is not None or (self.strict_validation and not evaluation.passed)
+        ):
+            raise PanderaContractValidationError(
+                evaluation=evaluation, parquet_paths=tuple(parquet_paths), check_results=results
+            ) from evaluation_error
+        if self.strict_validation and any(not outcome.passed for outcome in domain):
+            raise DomainQualityValidationError(
+                evaluations=domain, parquet_paths=tuple(parquet_paths), check_results=results
+            )
+        return results
+
+    def _source_column_coverage(self, parquet_paths: list[Path]) -> list[str]:
+        """Report advisory source columns omitted by the configured contract."""
+        schema = self.table_config.validation_schema
+        if not self.validate or schema is None:
+            return []
+        try:
+            dropped = detect_dropped_source_columns(parquet_paths, schema)
+        except Exception as exc:  # Coverage is advisory, not a write gate.
+            log_event(
+                self.logger,
+                "warning",
+                "source_column_coverage_check_failed",
+                table_name=self.table_config.full_table_name,
+                error=str(exc),
+            )
+            return []
+        if dropped:
+            log_event(
+                self.logger,
+                "warning",
+                "source_columns_dropped_by_contract",
+                table_name=self.table_config.full_table_name,
+                dropped_columns=dropped,
+                hint="Add these columns to the validation_schema or remove them "
+                "from the source; they will not be written to the table store.",
+            )
+        return dropped
 
     def _annotate_failure(
         self,
@@ -468,7 +622,7 @@ class DltIngester(BaseIngester):
         self,
         partition_key: str | None,
         parameters: Dict[str, Any] | None = None,
-    ) -> IngestionResult:
+    ) -> DltIngestionResult:
         """Run the full DLT -> Parquet -> table_store flow for one partition.
 
         `partition_key` is the partition date (YYYY-MM-DD); `parameters` may
@@ -565,33 +719,14 @@ class DltIngester(BaseIngester):
                     emitter, attempt, event_context, source_identity, project_error
                 )
 
-            pipeline, local_staging_root = setup_dlt_pipeline(
-                pipeline_name=pipeline_name,
-                # DLT's filesystem destination uses dataset_name as a directory.
-                # A Dagster group can contain several assets, so it cannot also
-                # identify a pipeline's staging area.
-                dataset_name=pipeline_name,
-            )
-
-            # dlt_helpers log through a context object exposing ``.log``;
-            # this shim adapts the plain logger to that contract.
-
-            class ContextShim:
-                """Expose a `.log` attribute expected by DLT helpers."""
-
-                def __init__(self, logger):
-                    """Store logger on `.log` to match helper context contract."""
-                    self.log = logger
-
-            shim = ContextShim(self.logger)
-
-            parquet_paths, dlt_elapsed = stage_to_parquet(
-                context=shim,
-                pipeline=pipeline,
+            staged = extract_to_parquet(
                 dlt_source=dlt_source,
-                local_staging_root=local_staging_root,
-                **({"allow_empty": True} if self.interval_column is not None else {}),
+                pipeline_name=pipeline_name,
+                log=self.logger,
+                allow_empty=self.interval_column is not None,
             )
+            parquet_paths = staged.parquet_paths
+            dlt_elapsed = staged.elapsed_seconds
 
             if not parquet_paths:
                 return self._no_data_result(
@@ -604,7 +739,7 @@ class DltIngester(BaseIngester):
                         parquet_path=parquet_path,
                         partition_date=partition_date,
                         run_id=run_id,
-                        context=shim,
+                        log=self.logger,
                     )
 
             # Inventory after Phlo metadata mutation, immediately before
@@ -622,9 +757,9 @@ class DltIngester(BaseIngester):
                 if isinstance(item.get("byte_count"), int)
             )
             execution_identity, execution_identity_observed = dlt_execution_identity(
-                pipeline, dlt_source, parameters, staged_objects
+                staged.load_info, dlt_source, parameters, staged_objects
             )
-            dlt_metrics = dlt_observed_metrics(pipeline)
+            dlt_metrics = dlt_observed_metrics(staged.load_info)
             before_state = table_state(
                 self.table_store, self.table_config.full_table_name, branch_name
             )
@@ -685,9 +820,8 @@ class DltIngester(BaseIngester):
                 },
             ]
 
-            evaluation_metadata, domain_quality_evaluations = self._validate_staged_contract(
-                parquet_paths
-            )
+            check_results = self._validate_staged_contract(parquet_paths, partition_key)
+            dropped_source_columns = self._source_column_coverage(parquet_paths)
 
             output_resource: dict[str, Any] = {
                 "resource_kind": "iceberg_table",
@@ -715,7 +849,7 @@ class DltIngester(BaseIngester):
             evidence_resources.append(output_resource)
 
             merge_metrics = merge_to_table_store(
-                context=shim,
+                log=self.logger,
                 table_store=self.table_store,
                 table_config=self.table_config,
                 parquet_paths=parquet_paths,
@@ -816,24 +950,18 @@ class DltIngester(BaseIngester):
                 execution_identity=execution_identity,
             )
 
-            return IngestionResult(
+            return DltIngestionResult(
                 status="success",
                 rows_inserted=merge_metrics["rows_inserted"],
                 rows_deleted=merge_metrics.get("rows_deleted", 0),
+                check_results=check_results,
                 metadata={
                     **merge_metrics,
                     "snapshot_id": after_state["snapshot_id"],
                     "dlt_elapsed_seconds": dlt_elapsed,
                     "parquet_path": str(parquet_paths[0]),
                     "parquet_paths": [str(parquet_path) for parquet_path in parquet_paths],
-                    "pandera_evaluation": evaluation_metadata,
-                    "domain_quality_evaluations": [
-                        {
-                            "check_name": evaluation.check_name,
-                            "violation": evaluation.violation,
-                        }
-                        for evaluation in domain_quality_evaluations
-                    ],
+                    "dropped_source_columns": dropped_source_columns,
                     "total_elapsed_seconds": total_elapsed,
                     "target_branch_name": target_branch_name,
                     "evidence_execution_id": execution_identity,

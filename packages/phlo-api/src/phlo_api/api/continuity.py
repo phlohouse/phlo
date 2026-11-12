@@ -37,17 +37,14 @@ from phlo.capabilities.continuity import (
 from phlo.config.process import get_process_settings
 from phlo.operations.backup import create_backup_set, default_backup_contributors
 from phlo.operations.journal import (
+    OperationJournal,
     OperationJournalError,
-    OperationJournalState,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
     maintenance_operation_id,
     maintenance_plan_token,
-    mark_submitted,
-    mark_unknown,
 )
 from phlo.operations.journal_store import FileOperationJournalStore
+from phlo.operations.maintenance import MaintenanceError, MaintenancePlan, plan_maintenance
 from phlo.operations.restore import (
     RestoreError,
     RestorePlan,
@@ -66,6 +63,7 @@ from pydantic import BaseModel
 
 from phlo_api.api.operation_controls import (
     IdempotencyConflict,
+    MutationDeferred,
     audit_operation,
     enforce_rate_limit,
     idempotency_key_target,
@@ -158,6 +156,11 @@ class ContinuityPlanRequest(BaseModel):
     maintenance_operation: str | None = None
     table: str | None = None
     ref: str = "main"
+    catalog: str | None = None
+    retention_hours: int | None = None
+    retain_last: int | None = None
+    max_affected_objects: int | None = None
+    max_affected_bytes: int | None = None
 
 
 class ContinuityApplyRequest(BaseModel):
@@ -212,7 +215,15 @@ def _error(status_code: int, code: str, identifiers: tuple[str, ...] = ()) -> HT
 
 
 _CONFLICT_CODES = frozenset(
-    {"conflicting_claim", "unknown_outcome_blocks_replay", "unknown_operation"}
+    {
+        "conflicting_claim",
+        "unknown_outcome_blocks_replay",
+        "unknown_operation",
+        "operation_in_progress",
+        "binding_mismatch",
+        "claim_expired",
+        "invalid_transition",
+    }
 )
 
 
@@ -242,20 +253,6 @@ def _parsed_plan(plan: dict[str, Any] | None, cls: type[RestorePlan] | type[Upgr
         return cls.from_dict(plan)
     except (KeyError, TypeError, ValueError) as exc:
         raise _error(400, "invalid_plan", (type(exc).__name__,)) from exc
-
-
-def _maintenance_executor(operation: str) -> Any:
-    from phlo.application.discovery import discover_capabilities
-    from phlo.capabilities import resolve_capability
-
-    discover_capabilities()
-    resolution = resolve_capability("maintenance_executor", operation)
-    if resolution is None:
-        raise _error(400, "unknown_maintenance_operation", (operation,))
-    execute_fn = getattr(resolution.provider, "execute", None)
-    if not callable(execute_fn):
-        raise _error(400, "maintenance_executor_cannot_execute", (operation,))
-    return resolution.provider
 
 
 # --- inventory --------------------------------------------------------------
@@ -337,15 +334,25 @@ def _plan_operation(request: ContinuityPlanRequest) -> dict[str, Any]:
             raise _error(400, "unknown_maintenance_operation", (maintenance_operation,))
         if not request.table:
             raise _error(400, "missing_field", ("table",))
-        provider = _maintenance_executor(maintenance_operation)
-        plan_fn = getattr(provider, "plan", None)
-        if not callable(plan_fn):
-            raise _error(400, "maintenance_executor_cannot_plan", (maintenance_operation,))
-        plan = dict(plan_fn(table_name=request.table, ref=request.ref))
-        # Echo the token the CLI would derive, so apply journals the same id.
+        try:
+            plan = plan_maintenance(
+                operation=maintenance_operation,
+                table=request.table,
+                ref=request.ref,
+                **request.model_dump(
+                    include={
+                        "catalog",
+                        "retention_hours",
+                        "retain_last",
+                        "max_affected_objects",
+                        "max_affected_bytes",
+                    },
+                    exclude_none=True,
+                ),
+            )
+        except MaintenanceError as exc:
+            raise _error(400, exc.code, exc.identifiers) from exc
         plan_token = maintenance_plan_token(plan)
-        if plan_token:
-            plan["plan_token"] = plan_token
         # Id the plan by the table and ref it names, exactly as apply will.
         return {
             "operation": operation,
@@ -436,44 +443,41 @@ def _backup_execution(
 def _maintenance_execution(
     request: ContinuityApplyRequest, journal: OperationJournalStore, subject: str
 ) -> tuple[str, str, Any]:
-    plan = request.plan or {}
-    maintenance_operation = str(plan.get("operation", ""))
-    if maintenance_operation not in _MAINTENANCE_OPERATIONS:
-        raise _error(400, "unknown_maintenance_operation", (maintenance_operation,))
-    table = request.table or str(plan.get("table_name", ""))
-    # Like the CLI, the plan owns its ref: a request may repeat it but never
-    # redirect the plan to another branch.
-    ref = str(plan.get("ref") or "main")
-    if request.ref is not None and request.ref != ref:
-        raise _error(400, "ref_mismatch", (request.ref, ref))
-    plan_token = maintenance_plan_token(plan)
-    _require_confirmation(request.confirmation_token, plan_token)
-    plan_id = maintenance_operation_id(maintenance_operation, table, ref, plan_token)
+    try:
+        plan = MaintenancePlan.from_dict(
+            request.plan or {},
+            confirmation_token=request.confirmation_token,
+            table=request.table,
+            ref=request.ref,
+        )
+    except MaintenanceError as exc:
+        raise _error(400, exc.code, exc.identifiers) from exc
 
     def execute() -> dict[str, Any]:
-        provider = _maintenance_executor(maintenance_operation)
-        # Claim the durable journal exactly like the CLI surface.
-        claim_operation(
-            journal,
-            operation_id=plan_id,
-            subject=subject,
-            action=maintenance_operation,
-            target=table,
-            plan_token=plan_token,
-        )
-        mark_submitted(journal, plan_id)
         try:
-            result = provider.execute(table_name=table, ref=ref, plan_token=plan_token)
-            result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
-        except Exception as exc:
-            # Submitted but the outcome is unknown: record UNKNOWN so no new
-            # key can replay this operation automatically.
-            mark_unknown(journal, plan_id)
-            raise _error(502, "apply_outcome_unknown", (plan_id,)) from exc
-        complete_operation(journal, plan_id, result_dict)
-        return {"operation": "maintenance.apply", "operation_id": plan_id, **result_dict}
+            outcome = plan.apply(journal, subject=subject)
+        except MaintenanceError as exc:
+            raise _error(400, exc.code, exc.identifiers) from exc
+        except OperationJournalError as exc:
+            if exc.code == "conflicting_claim":
+                # execute_maintenance refuses the claim before marking submitted
+                # or invoking the provider. Keep the key bound, but retryable.
+                raise MutationDeferred(
+                    status_code=409,
+                    detail={"error": exc.code, "identifiers": list(exc.identifiers)},
+                ) from exc
+            if exc.code == "apply_outcome_unknown":
+                raise _error(502, exc.code, exc.identifiers) from exc
+            raise
+        return {
+            **(outcome.result or {}),
+            "operation": "maintenance.apply",
+            "operation_id": plan.operation_id,
+        }
 
-    return plan_token, plan_id, execute
+    # Revisions can coincide across tables and refs. Binding the complete id
+    # also makes historical token-only keys conflict rather than replay or retry.
+    return plan.operation_id, plan.operation_id, execute
 
 
 @router.post("/apply")
@@ -528,7 +532,7 @@ def post_continuity_apply(request: ContinuityApplyRequest, http_request: Request
             "operation_unknown",
         }:
             raise _error(409, "conflicting_claim", (target,)) from exc
-        if isinstance(exc.detail, dict) and exc.detail.get("error") == "target_mismatch":
+        if isinstance(exc.detail, dict) and exc.detail.get("error") == "idempotency_key_conflict":
             raise _error(409, "idempotency_key_conflict", (target,)) from exc
         raise
     except OperationJournalError as exc:
@@ -554,5 +558,5 @@ def get_continuity_verification(operation_id: str, http_request: Request) -> dic
     if entry is None:
         raise _error(404, "unknown_operation", (operation_id,))
     payload = entry.to_dict()
-    payload["replay_blocked"] = entry.state is OperationJournalState.UNKNOWN
+    payload["replay_blocked"] = OperationJournal.replay_block_reason(entry) is not None
     return payload

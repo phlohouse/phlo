@@ -51,8 +51,7 @@ def test_build_dbt_asset_specs_raises_when_manifest_unavailable(monkeypatch, tmp
             },
         )(),
     )
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_profile", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_manifest", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("phlo_dbt.assets.ensure_compiled", lambda *_args, **_kwargs: False)
 
     with pytest.raises(PhloCapabilitySetupError, match="manifest_unavailable"):
         build_dbt_asset_specs()
@@ -79,8 +78,7 @@ def test_build_dbt_asset_specs_raises_when_manifest_shape_is_invalid(monkeypatch
             },
         )(),
     )
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_profile", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_manifest", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("phlo_dbt.assets.ensure_compiled", lambda *_args, **_kwargs: True)
 
     with pytest.raises(PhloCapabilitySetupError, match="manifest_shape_invalid"):
         build_dbt_asset_specs()

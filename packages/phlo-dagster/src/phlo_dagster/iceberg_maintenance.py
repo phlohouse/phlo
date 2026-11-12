@@ -19,20 +19,17 @@ from phlo.capabilities import (
 from phlo.logging import get_logger
 
 from phlo.operations.journal import (
-    OperationJournalState,
+    OperationJournal,
+    OperationJournalError,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    mark_unknown,
-    read_or_replay,
+    execute_maintenance,
+    maintenance_plan_token,
 )
 
 from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
     durable_maintenance_journal,
     finish_maintenance_op,
-    is_outcome_unknown,
     list_tables,
     maintenance_log_extra,
     resolve_namespaces,
@@ -104,7 +101,14 @@ def _run_retention_resource_operation(
     # when the catalog or executor is temporarily unavailable.
     operation_id = f"{operation}:{table_name}:{config.ref}:{run_id}"
     if journal is not None and run_id is not None:
-        stored = read_or_replay(journal, operation_id)
+        previous = journal.read(operation_id)
+        stored = OperationJournal(journal).replay(
+            operation_id,
+            subject="dagster:maintenance-policy",
+            action=operation,
+            target=table_name,
+            plan_token=previous.plan_token if previous is not None else "",
+        )
         if stored is not None:
             return dict(stored)
 
@@ -120,14 +124,13 @@ def _run_retention_resource_operation(
         * 24,
         "max_affected_objects": config.max_affected_objects,
         "max_affected_bytes": config.max_affected_bytes,
-        "operation_id": None,
     }
     method = (
         store.expire_snapshots if operation == "expire_snapshots" else store.cleanup_orphan_files
     )
     if operation == "expire_snapshots":
         common["retain_last"] = config.snapshot_retain_last
-    plan = method(**common, dry_run=True)
+    plan = method(**common, operation_id=None, dry_run=True)
     if config.dry_run:
         return plan
     before_revision = cast(int | str | None, plan.get("before_revision"))
@@ -136,44 +139,30 @@ def _run_retention_resource_operation(
     # against a stale plan.
     if operation == "expire_snapshots":
         common["executor"] = _load_snapshot_expiry_executor()
-    execute = lambda: method(  # noqa: E731
-        **common,
-        dry_run=False,
-        expected_snapshot_id=before_revision,
-        confirmation_token=_confirmation_token_for_table(config, table_name),
-    )
+
+    def execute(operation_id: str | None = None) -> dict[str, Any]:
+        return method(
+            **common,
+            operation_id=operation_id,
+            dry_run=False,
+            expected_snapshot_id=before_revision,
+            confirmation_token=_confirmation_token_for_table(config, table_name),
+        )
+
     if journal is None or run_id is None:
         return execute()
 
-    plan_token = str(plan.get("plan_token") or before_revision or "")
-    claim_operation(
+    entry = execute_maintenance(
         journal,
         operation_id=operation_id,
+        operation=operation,
+        table=table_name,
+        ref=config.ref,
+        plan_token=maintenance_plan_token(plan),
         subject="dagster:maintenance-policy",
-        action=operation,
-        target=table_name,
-        plan_token=plan_token,
+        execute=execute,
     )
-    mark_submitted(journal, operation_id)
-    try:
-        result = execute()
-    except Exception:
-        mark_unknown(journal, operation_id)
-        raise
-    if is_outcome_unknown(result):
-        # The provider may have committed; journaling FAILED would let a
-        # later run re-claim and resubmit the same mutation.
-        mark_unknown(journal, operation_id)
-        return result
-    rejected = result.get("accepted") is False or str(result.get("status")) in {
-        "blocked",
-        "failed",
-    }
-    if rejected:
-        journal.transition(operation_id, OperationJournalState.FAILED, dict(result))
-    else:
-        complete_operation(journal, operation_id, dict(result))
-    return result
+    return entry.result or {}
 
 
 @dg.op
@@ -252,7 +241,10 @@ def expire_table_snapshots(
                     ),
                 )
             except Exception as e:
-                error_msg = f"Failed to expire snapshots for {table_name}: {e}"
+                error = str(e)
+                if isinstance(e, OperationJournalError) and e.__cause__ is not None:
+                    error += f" (caused by {type(e.__cause__).__name__}: {e.__cause__})"
+                error_msg = f"Failed to expire snapshots for {table_name}: {error}"
                 context.log.warning(
                     error_msg,
                     extra=maintenance_log_extra(
@@ -260,7 +252,7 @@ def expire_table_snapshots(
                         config,
                         operation=operation,
                         table_name=table_name,
-                        error=str(e),
+                        error=error,
                     ),
                 )
                 errors.append(error_msg)

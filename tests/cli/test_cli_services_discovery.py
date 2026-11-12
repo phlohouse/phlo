@@ -1,7 +1,7 @@
 """Tests for service dependency resolution.
 
 Focuses on circular dependencies: cycles are detected with reported paths, and
-reported cycle paths stay open (start node not repeated). Runs the resolver
+reported cycle paths stay closed (start node repeated). Runs the resolver
 in-memory, bypassing filesystem discovery.
 """
 
@@ -51,23 +51,29 @@ def test_resolve_dependencies_cycle_path_is_closed() -> None:
     message = str(exc_info.value)
     assert "Circular dependency detected:" in message
     assert "→" in message
-    # c depends on the cycle but is not part of it; the reported path must
-    # stay closed and must not sweep in unrelated services.
+    # The reported path must stay closed rather than concatenate both cycles.
     assert "a → b → c" not in message
 
 
-def test_find_cycles_returns_closed_paths() -> None:
-    from phlo.plugins.discovery.services import _find_cycles
+def test_resolve_dependencies_reports_closed_paths_without_downstream_services(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    discovery = ServiceDiscovery()
+    monkeypatch.setattr(discovery, "discover", dict)
+    a, b, c, downstream = [_service(name) for name in ("a", "b", "c", "downstream")]
+    a.depends_on = ["b"]
+    b.depends_on = ["a", "c"]
+    c.depends_on = ["b"]
+    downstream.depends_on = ["c"]
 
-    graph = {
-        "a": {"b"},
-        "b": {"a", "c"},
-        "c": {"b"},
-    }
-    cycles = _find_cycles({"a", "b", "c"}, graph)
+    with pytest.raises(ValueError, match="Circular dependency detected: ") as exc_info:
+        discovery.resolve_dependencies([downstream, a, b, c])
 
-    assert cycles
-    assert all(len(cycle) > 2 and cycle[0] == cycle[-1] for cycle in cycles)
+    cycles = str(exc_info.value).removeprefix("Circular dependency detected: ").split("; ")
+    paths = [cycle.split(" → ") for cycle in cycles]
+    assert all(len(path) > 2 and path[0] == path[-1] for path in paths)
+    assert {frozenset(path) for path in paths} == {frozenset({"a", "b"}), frozenset({"b", "c"})}
+    assert "downstream" not in str(exc_info.value)
 
 
 def test_resolve_dependencies_no_cycle() -> None:

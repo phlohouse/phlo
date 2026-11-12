@@ -15,7 +15,6 @@ from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
-import re
 import tempfile
 import time
 from collections.abc import Iterator
@@ -28,9 +27,12 @@ from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCata
 from phlo.capabilities.resolver import resolve_capability
 from phlo.config import get_settings
 from phlo.config.process import get_process_settings
+from phlo.config_schema import WapConfig
 from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
+from phlo.wap_evidence import WapEvidence
 import phlo.telemetry as phlo_observe
+from phlo_dagster.operations import launch_materialize
 from phlo_dagster.wap_context import (
     WAP_BINDING_TAG,
     WapContext,
@@ -51,33 +53,65 @@ _PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason", "review_required", "revi
 logger = get_logger(__name__)
 
 
-def _report_path(logical_run_id: str) -> Path:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", logical_run_id):
-        raise ValueError("Invalid WAP logical run ID")
-    root = Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
-    return root / ".phlo" / "wap-reports" / f"{logical_run_id}.json"
+class WapLaunchError(RuntimeError):
+    """Submission failed, optionally after Dagster accepted a physical run."""
+
+    def __init__(self, message: str, *, run_id: str | None = None) -> None:
+        super().__init__(message)
+        self.run_id = run_id
 
 
-def _report_snapshot_path(logical_run_id: str, checksum: str) -> Path:
-    root = (
-        Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
-        / ".phlo"
-        / "wap-reports"
-        / "evidence"
-    )
-    run_key = hashlib.sha256(logical_run_id.encode("utf-8")).hexdigest()[:24]
-    return root / f"{run_key}.{checksum}.json"
+async def submit_wap_launch(
+    launch: WapLaunch,
+    *,
+    config: WapConfig,
+    dagster_url: str,
+    asset_key_path: str,
+    access_token: str | None = None,
+    partition_key: str | None = None,
+) -> str:
+    """Submit a prepared launch and acknowledge its physical identity durably.
+
+    Returns a run ID only after the immutable launch manifest is stored. All
+    failures retain the staging ref. An accepted but unrecorded run is carried
+    on WapLaunchError so callers can report partial success without resubmitting.
+    """
+    try:
+        result = await launch_materialize(
+            dagster_url=dagster_url,
+            asset_key_path=asset_key_path,
+            job_name=config.job_name,
+            repository_location_name=launch.context.location
+            if launch.context
+            else config.repository_location_name,
+            repository_name=config.repository_name,
+            access_token=access_token,
+            partition_key=partition_key,
+            idempotency_key=launch.logical_run_id,
+            tags=launch.tags,
+        )
+    except Exception as exc:
+        launch.record_launch_result(status="launch_ambiguous", error=str(exc))
+        raise WapLaunchError(f"WAP launch outcome is ambiguous: {exc}") from exc
+    if not result.accepted:
+        launch.record_launch_result(status="launch_rejected", error=result.message)
+        raise WapLaunchError(result.message)
+    if not result.run_id:
+        launch.record_launch_result(status="launch_ambiguous", error="Dagster returned no run ID")
+        raise WapLaunchError(
+            "Dagster accepted the request without a run ID; its outcome is unknown."
+        )
+    if not launch.record_launch_result(status="launched", dagster_run_id=result.run_id):
+        raise WapLaunchError(
+            "Dagster accepted the WAP run, but its immutable launch manifest could not be stored. "
+            "The branch was retained.",
+            run_id=result.run_id,
+        )
+    return result.run_id
 
 
-def _launch_manifest_path(logical_run_id: str, checksum: str) -> Path:
-    root = (
-        Path(get_process_settings().get("PHLO_PROJECT_PATH", "."))
-        / ".phlo"
-        / "wap-reports"
-        / "launches"
-    )
-    run_key = hashlib.sha256(logical_run_id.encode("utf-8")).hexdigest()[:24]
-    return root / f"{run_key}.{checksum}.json"
+def _evidence() -> WapEvidence:
+    return WapEvidence(Path(get_process_settings().get("PHLO_PROJECT_PATH", ".")))
 
 
 def _write_launch_manifest(
@@ -106,7 +140,7 @@ def _write_launch_manifest(
         payload["context"] = context.to_dict()
     serialized = json.dumps(payload, indent=2, sort_keys=True)
     checksum = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-    path = _launch_manifest_path(logical_run_id, checksum)
+    path = _evidence().binding_path(logical_run_id, checksum)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
@@ -125,34 +159,33 @@ def _write_launch_manifest(
     return checksum
 
 
-def read_wap_launch_manifest(logical_run_id: str, checksum: str) -> dict[str, Any] | None:
-    """Read a launch binding only when its content matches the recorded digest."""
-    if not re.fullmatch(r"[0-9a-f]{64}", checksum):
-        return None
-    try:
-        raw = _launch_manifest_path(logical_run_id, checksum).read_bytes()
-        if hashlib.sha256(raw).hexdigest() != checksum:
-            return None
-        payload = json.loads(raw.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
 def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
     """Persist the durable WAP launch manifest and lifecycle audit record.
 
     The logical ID is created before GraphQL submission, so this record exists
     even when Dagster rejects a run or a response is lost in transit.
     """
+    evidence = _evidence()
     try:
-        path = _report_path(logical_run_id)
+        path = evidence.report_path(logical_run_id)
     except ValueError:
         return False
     try:
-        payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        snapshot = evidence.read_report_snapshot(logical_run_id, strict=True)
+    except FileNotFoundError:
         payload = {}
+    except (OSError, ValueError, RecursionError):
+        logger.error(
+            "wap_report_recovery_required",
+            path=str(path),
+            reason="Existing evidence is unreadable; operator recovery required; report preserved",
+            exc_info=True,
+        )
+        return False
+    else:
+        if snapshot is None:
+            return False
+        payload = snapshot[1]
     if updates.get("status") == "promoted":
         # Terminal success replaces failure-only outcome fields from prior
         # attempts. Identity and evidence binding fields remain append/update
@@ -172,9 +205,8 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
         }
     )
     try:
+        raw = evidence.encode_report(payload)
         path.parent.mkdir(parents=True, exist_ok=True)
-        serialized = json.dumps(payload, indent=2, sort_keys=True)
-        raw = serialized.encode("utf-8")
         # A promotion report is also the local retry record.  Replacing it
         # atomically prevents a crash from turning a valid prior record into
         # a partially-written JSON document that the next sensor cannot use.
@@ -186,31 +218,16 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
             os.fsync(temporary.fileno())
             temporary_path = Path(temporary.name)
         os.replace(temporary_path, path)
-        snapshot_path = _report_snapshot_path(logical_run_id, hashlib.sha256(raw).hexdigest())
+        snapshot_path = evidence.snapshot_path(logical_run_id, hashlib.sha256(raw).hexdigest())
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         if not snapshot_path.exists():
             snapshot_path.write_bytes(raw)
-    except OSError:
+    except (OSError, ValueError):
         logger.warning(
             "wap_report_write_failed", path=str(path), logical_run_id=logical_run_id, exc_info=True
         )
         return False
     return True
-
-
-def read_wap_report(logical_run_id: str) -> dict[str, Any] | None:
-    """Read the latest durable WAP lifecycle record for a logical run."""
-    try:
-        payload = json.loads(_report_path(logical_run_id).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    # Older writers may have serialized an explicit null; callers should see
-    # it exactly like an absent failure reason.
-    if payload.get("failure_reason") is None:
-        payload.pop("failure_reason", None)
-    return payload
 
 
 @dataclass(frozen=True)
@@ -530,23 +547,18 @@ def verify_wap_execution(run: Any, *, capability_overrides: dict[str, str] | Non
     tags = run.tags or {}
     logical_run_id = tags.get(WAP_RUN_ID_TAG, "")
     checksum = tags.get(WAP_BINDING_TAG, "")
-    binding = read_wap_launch_manifest(logical_run_id, checksum) if checksum else None
-    if not binding or not binding.get("context"):
-        raise PhloConfigError(
-            message="legacy_launch_context_missing: retain branch; review and relaunch"
-        )
-    expected_tags = binding.get("tags", {})
+    evidence = _evidence()
     project = resolve_project_identity(tags, get_settings().phlo_project)
-    if (
-        binding.get("dagster_run_id") != ""
-        or binding.get("logical_run_id") != logical_run_id
-        or binding.get("branch") != f"{WAP_BRANCH_PREFIX}{logical_run_id}"
-        or any(tags.get(key) != value for key, value in expected_tags.items())
-        or not project.project_id
-        or project.project_id != expected_tags.get(WAP_PROJECT_ID_TAG)
-        or capability_overrides
-    ):
-        raise PhloConfigError(message="WAP execution binding or capability routing is invalid")
+    binding = evidence.read_execution_seal(
+        logical_run_id, checksum, tags, project_id=project.project_id or ""
+    )
+    if binding is None:
+        raise PhloConfigError(
+            message="WAP execution binding invalid or legacy_launch_context_missing: "
+            "retain branch; review and relaunch"
+        )
+    if capability_overrides:
+        raise PhloConfigError(message="WAP execution capability routing is invalid")
     validate_wap_context(run, binding)
     # GraphQL assigns physical IDs. A first-claim-wins file would let a run
     # carrying copied tags win a race against the intended run. Only the
@@ -554,21 +566,12 @@ def verify_wap_execution(run: Any, *, capability_overrides: dict[str, str] | Non
     # block execution and retain the branch instead of guessing ownership.
     deadline = time.monotonic() + 30
     while True:
-        report = read_wap_report(logical_run_id) or {}
+        report = evidence.read_report(logical_run_id) or {}
         if report.get("dagster_run_id"):
-            registered = read_wap_launch_manifest(
-                logical_run_id, str(report.get("launch_manifest_checksum", ""))
+            registered = evidence.verify(
+                logical_run_id, run.run_id, tags, project_id=project.project_id
             )
-            expected = {
-                **binding,
-                "dagster_run_id": run.run_id,
-                "tags": {**expected_tags, WAP_BINDING_TAG: checksum},
-            }
-            if (
-                report["dagster_run_id"] != run.run_id
-                or registered != expected
-                or report.get("context") != binding["context"]
-            ):
+            if registered is None:
                 raise PhloConfigError(
                     message="WAP physical run does not match trusted launch registration"
                 )

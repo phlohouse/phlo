@@ -75,8 +75,7 @@ def _stub_settings(monkeypatch, project_paths, *, namespaced: bool) -> None:
             },
         )(),
     )
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_profile", lambda *_a, **_k: None)
-    monkeypatch.setattr("phlo_dbt.assets.ensure_dbt_manifest", lambda *_a, **_k: True)
+    monkeypatch.setattr("phlo_dbt.assets.ensure_compiled", lambda *_a, **_k: True)
 
 
 def test_translator_prefixes_only_own_resources() -> None:
@@ -452,8 +451,26 @@ def test_plain_source_binding_is_recorded_as_external(monkeypatch, tmp_path) -> 
     assert any("upstream.deals" in message for message in warnings)
 
 
-@pytest.mark.parametrize("test_status", ["pass", "fail", "skipped", None])
-def test_grouped_results_require_owned_test_evidence(monkeypatch, tmp_path, test_status):
+@pytest.mark.parametrize(
+    ("model_status", "test_status", "expected"),
+    [
+        ("success", None, "failure"),
+        ("success", "pass", "success"),
+        ("success", "fail", "failure"),
+        ("success", "error", "failure"),
+        ("success", "runtime error", "failure"),
+        ("success", "warn", "success"),
+        ("success", "skipped", "success"),
+        ("success", "skip", "success"),
+        ("error", "pass", "failure"),
+        (None, "pass", "failure"),
+        ("skipped", None, None),
+        ("skip", None, None),
+    ],
+)
+def test_single_and_grouped_results_require_owned_test_evidence(
+    monkeypatch, tmp_path, model_status, test_status, expected
+):
     from phlo.capabilities import CheckResult, MaterializeResult
     from phlo_dbt.transformer import DbtTransformer
 
@@ -467,30 +484,119 @@ def test_grouped_results_require_owned_test_evidence(monkeypatch, tmp_path, test
         "test_metadata": {"name": "not_null"},
         "depends_on": {"nodes": ["model.sales.orders"]},
     }
+    # Same selector, different ID and owner. Its absence must not fail orders,
+    # even when the dependency order names orders before the attached model.
+    manifest["nodes"]["test.sales.not_null_customers_id"] = {
+        "name": "not_null_orders_id",
+        "resource_type": "test",
+        "test_metadata": {"name": "not_null"},
+        "attached_node": "model.sales.customers",
+        "depends_on": {"nodes": ["model.sales.orders", "model.sales.customers"]},
+    }
+    manifest["nodes"]["model.sales.orders"]["depends_on"]["nodes"] = ["model.sales.customers"]
     manifest_path.write_text(json.dumps(manifest))
     _stub_settings(monkeypatch, [project], namespaced=True)
     monkeypatch.setattr("phlo_dbt.transformer.ensure_dbt_profile", lambda *a, **kw: None)
-    monkeypatch.setattr("phlo.hooks.bus.HookBus.emit", lambda *a, **kw: None)
+    events = []
+    monkeypatch.setattr("phlo.hooks.bus.HookBus.emit", lambda self, event: events.append(event))
+    commands = []
 
     def command(self, args):
+        commands.append(args)
         target = Path(args[args.index("--target-path") + 1])
         target.mkdir(parents=True, exist_ok=True)
-        results = [{"unique_id": "model.sales.orders", "status": "success"}]
+        results = [
+            {"unique_id": "model.sales.customers", "status": "success"},
+            {
+                "unique_id": "test.sales.undeclared",
+                "status": "fail",
+                "depends_on": {"nodes": ["model.sales.orders"]},
+            },
+        ]
+        if model_status is not None:
+            results.append(
+                {
+                    "unique_id": "model.sales.orders",
+                    "status": model_status,
+                    "execution_time": 0.125,
+                }
+            )
         if test_status is not None:
             results.append({"unique_id": "test.sales.not_null_orders_id", "status": test_status})
-        (target / "run_results.json").write_text(json.dumps({"results": results}))
+        (target / "run_results.json").write_text(
+            json.dumps({"metadata": {"invocation_id": "dbt-invocation"}, "results": results})
+        )
         (target / "manifest.json").write_text(json.dumps(manifest))
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr(DbtTransformer, "_run_command", command)
     specs = {spec.key: spec for spec in build_dbt_asset_specs()}
     runtime = SimpleNamespace(
-        run_id="group-run", partition_key=None, tags={}, resources={}, logger=get_logger(__name__)
+        run_id="group-run",
+        partition_key="2026-11-01",
+        tags={"phlo/full_refresh_asset": "sales.orders"},
+        resources={},
+        logger=get_logger(__name__),
     )
-    result = specs["sales.orders"].run.group.fn(runtime, frozenset({"sales.orders"}))
-    assert set(result.outcomes) == {"sales.orders"}
-    checks = [item for item in result.outcomes["sales.orders"] if isinstance(item, CheckResult)]
-    mats = [item for item in result.outcomes["sales.orders"] if isinstance(item, MaterializeResult)]
-    assert len(mats) == 1
-    assert mats[0].status == ("failure" if test_status in {None, "fail"} else "success")
-    assert len(checks) == (0 if test_status in {None, "skipped"} else 1)
+    single = specs["sales.orders"].run.fn(runtime)
+    grouped = specs["sales.orders"].run.group.fn(
+        runtime, frozenset({"sales.orders", "sales.customers"})
+    )
+    assert set(grouped.outcomes) == (
+        {"sales.orders", "sales.customers"} if expected is not None else {"sales.customers"}
+    )
+    customer = grouped.outcomes["sales.customers"][-1]
+    assert customer.status == "failure"
+    assert customer.metadata["dbt_metadata"]["missing_tests"] == [
+        "test.sales.not_null_customers_id"
+    ]
+    grouped_orders = grouped.outcomes.get("sales.orders", [])
+    statuses = {
+        mode: [item.status for item in items if isinstance(item, MaterializeResult)]
+        for mode, items in {"single": single, "grouped": grouped_orders}.items()
+    }
+    expected_statuses = [] if expected is None else [expected]
+    assert statuses == {"single": expected_statuses, "grouped": expected_statuses}
+    for items in (single, grouped_orders):
+        checks = [item for item in items if isinstance(item, CheckResult)]
+        assert len(checks) == (
+            0 if expected is None or test_status in {None, "skip", "skipped"} else 1
+        )
+        if checks:
+            assert checks[0].metadata["test_unique_id"] == "test.sales.not_null_orders_id"
+            assert checks[0].metadata["partition_key"] == "2026-11-01"
+        for item in items:
+            if isinstance(item, MaterializeResult):
+                assert item.metadata["dbt_metadata"]["invocation_id"] == "dbt-invocation"
+                assert item.metadata["dbt_metadata"]["missing_tests"] == (
+                    ["test.sales.not_null_orders_id"] if test_status is None else []
+                )
+                assert item.metadata["transform_status"] == expected
+                assert item.metadata["transform_run_id"] == "group-run"
+                assert item.metadata["transform_counts"] == {
+                    "passed": int(test_status == "pass"),
+                    "failed": int(test_status in {"fail", "error", "runtime error", "warn"}),
+                }
+    assert "--full-refresh" in commands[0]
+    assert "--full-refresh" not in commands[1]
+    for command_args, selectors in zip(
+        commands,
+        [
+            ["orders", "not_null_orders_id"],
+            ["orders", "not_null_orders_id", "customers", "not_null_orders_id"],
+        ],
+        strict=True,
+    ):
+        start = command_args.index("--select") + 1
+        end = command_args.index("--indirect-selection")
+        assert command_args[start:end] == selectors
+        assert command_args[end + 1] == "empty"
+    if single:
+        assert "dbt_output" in single[-1].metadata["dbt_metadata"]
+    if grouped_orders:
+        assert grouped_orders[-1].metadata["transform_duration_ms"] == (
+            0 if model_status is None else 125
+        )
+    lineage = [event for event in events if event.event_type == "lineage.edges"]
+    assert len(lineage) == 2
+    assert all(event.edges == [("sales.customers", "sales.orders")] for event in lineage)

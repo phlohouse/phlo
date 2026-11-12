@@ -230,7 +230,7 @@ def test_definitions_builder_resolves_assets_with_shared_resources(monkeypatch, 
         builder, "discover_user_workflows", lambda *_args, **_kwargs: user_definitions
     )
     monkeypatch.setattr(builder, "maybe_refresh_contracts", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(builder, "_collect_dagster_extension_definitions", lambda: None)
+    monkeypatch.setattr(builder.assembly, "collect_dagster_extension_definitions", lambda: None)
     monkeypatch.setattr(builder, "_collect_wap_definitions", lambda: None)
     monkeypatch.setattr(builder, "_ensure_core_resources", lambda definitions: definitions)
     monkeypatch.setattr(builder, "_default_executor", lambda: None)

@@ -156,36 +156,38 @@ class ServiceManifestResolver:
     @staticmethod
     def expand_dependencies(
         services: list[ServiceDefinition],
-        requested_names: list[str],
+        *,
+        available_services: list[ServiceDefinition] | None = None,
     ) -> list[ServiceDefinition]:
-        """Expand the requested services to their full dependency closure in dependency order."""
-        service_by_name = {service.name: service for service in services}
-        missing = [name for name in requested_names if name not in service_by_name]
-        if missing:
-            raise ServiceManifestError(
-                "unknown service dependency request",
-                service_name=", ".join(missing),
-            )
+        """Expand requested definitions, preferring them over available definitions.
+
+        Include dependencies and eligible setup companions in dependency order.
+        """
+        service_by_name = {
+            service.name: service for service in [*(available_services or []), *services]
+        }
 
         selected: dict[str, ServiceDefinition] = {}
 
         def include(service: ServiceDefinition) -> None:
             """Recursively include a service and everything it depends on."""
+            if service.name in selected:
+                return
+            selected[service.name] = service
             for dependency_name in service.depends_on:
                 dependency = service_by_name.get(dependency_name)
                 if dependency is not None:
                     include(dependency)
-            selected[service.name] = service
 
-        for name in requested_names:
-            include(service_by_name[name])
+        for service in services:
+            include(service_by_name[service.name])
         # A "-setup" service is pulled in automatically, but only when every
         # dependency it declares is already part of the selection; a setup job
         # whose dependencies were not requested must not drag in new services.
 
         bootstrap_companions = [
             service
-            for service in services
+            for service in service_by_name.values()
             if service.name.endswith("-setup")
             and service.depends_on
             and all(dependency in selected for dependency in service.depends_on)

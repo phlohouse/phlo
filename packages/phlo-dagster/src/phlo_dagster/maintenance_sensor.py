@@ -32,20 +32,16 @@ from phlo.plugins.observatory_settings import (
     operational_schedule_slot,
 )
 from phlo.operations.journal import (
-    OperationJournalState,
+    OperationJournal,
+    OperationJournalError,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    mark_unknown,
-    read_or_replay,
+    execute_maintenance,
 )
 
 from phlo_dagster.iceberg_maintenance_utils import (
     MaintenanceConfig,
     durable_maintenance_journal as _durable_maintenance_journal,
     finish_maintenance_op,
-    is_outcome_unknown,
     list_tables,
     resolve_maintenance_discovery,
     start_maintenance_op,
@@ -185,7 +181,14 @@ def _compact_table_journaled(
     base_id = f"{context.run_id}:{table_name}"
     operation_id = f"compact:{table_name}:{ref}:{context.run_id}"
 
-    stored = read_or_replay(journal, operation_id)
+    previous = journal.read(operation_id)
+    stored = OperationJournal(journal).replay(
+        operation_id,
+        subject="dagster:maintenance-policy",
+        action="compact",
+        target=table_name,
+        plan_token=previous.plan_token if previous is not None else "",
+    )
     if stored is not None:
         context.log.info(f"Compaction for {table_name} already journaled; replaying result")
         return dict(stored)
@@ -202,41 +205,24 @@ def _compact_table_journaled(
     if status in {"failed", "blocked", "noop"} or before_revision is None:
         return plan_result
 
-    claim_operation(
+    entry = execute_maintenance(
         journal,
         operation_id=operation_id,
+        operation="compact",
+        table=table_name,
+        ref=ref,
         subject="dagster:maintenance-policy",
-        action="compact",
-        target=table_name,
         plan_token=str(before_revision),
-    )
-    mark_submitted(journal, operation_id)
-    try:
-        result = table_store.compact(
+        execute=lambda _journal_id: table_store.compact(
             table_name=table_name,
             override_ref=ref,
             dry_run=False,
             expected_revision=before_revision,
             operation_id=base_id,
             executor=executor,
-        )
-    except Exception:
-        mark_unknown(journal, operation_id)
-        raise
-    if is_outcome_unknown(result):
-        # The provider may have committed; journaling FAILED would let a
-        # later run re-claim and resubmit the same mutation.
-        mark_unknown(journal, operation_id)
-        return result
-    rejected = result.get("accepted") is False or str(result.get("status")) in {
-        "blocked",
-        "failed",
-    }
-    if rejected:
-        journal.transition(operation_id, OperationJournalState.FAILED, dict(result))
-    else:
-        complete_operation(journal, operation_id, dict(result))
-    return result
+        ),
+    )
+    return entry.result or {}
 
 
 @dg.op
@@ -300,7 +286,10 @@ def optimize_table_files(
             else:
                 context.log.info(f"Compaction {status} for {table_name}")
         except Exception as e:
-            error_msg = f"Failed to optimize {table_name}: {e}"
+            error = str(e)
+            if isinstance(e, OperationJournalError) and e.__cause__ is not None:
+                error += f" (caused by {type(e.__cause__).__name__}: {e.__cause__})"
+            error_msg = f"Failed to optimize {table_name}: {error}"
             context.log.warning(error_msg)
             errors.append(error_msg)
             results.append(
@@ -315,7 +304,7 @@ def optimize_table_files(
                     failure={
                         "code": "invalid_request",
                         "type": type(e).__name__,
-                        "message": str(e),
+                        "message": error,
                         "retryable": False,
                     },
                     operation_id=f"{context.run_id}:{table_name}",

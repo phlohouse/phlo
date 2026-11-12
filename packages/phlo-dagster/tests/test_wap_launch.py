@@ -7,18 +7,24 @@ configured project.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from phlo.config_schema import WapConfig
 from phlo.exceptions import PhloConfigError
+from phlo.wap_evidence import WapEvidence
 from phlo_dagster.wap_launch import (
     WAP_ATTEMPT_TAG,
     WAP_BRANCH_TAG,
     WAP_PROJECT_ID_TAG,
     WAP_REF_TAG,
     WAP_RUN_ID_TAG,
+    WapLaunchError,
     prepare_wap_launch,
+    submit_wap_launch,
 )
 
 pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
@@ -130,3 +136,95 @@ def test_prepare_wap_launch_requires_project_before_creating_a_branch(monkeypatc
 
     with pytest.raises(PhloConfigError, match="requires PHLO_PROJECT"):
         prepare_wap_launch(logical_run_id="request-42")
+
+
+@pytest.mark.parametrize(
+    "outcome,report_status",
+    [
+        ("accepted", "launched"),
+        ("rejected", "launch_rejected"),
+        ("transport_failure", "launch_ambiguous"),
+        ("missing_run_id", "launch_ambiguous"),
+        ("manifest_failure", "branch_created"),
+    ],
+)
+def test_submit_wap_launch_binds_only_acknowledged_runs(
+    monkeypatch, tmp_path, outcome, report_status
+) -> None:
+    catalog = _Catalog()
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setattr(
+        "phlo_dagster.wap_launch.get_settings", lambda: SimpleNamespace(phlo_project="warehouse")
+    )
+    monkeypatch.setattr(
+        "phlo_dagster.wap_launch.resolve_capability",
+        lambda _: SimpleNamespace(
+            provider=catalog, support=SimpleNamespace(supports_refs=True, supports_promote=True)
+        ),
+    )
+    launch = prepare_wap_launch(logical_run_id="request-42")
+    if outcome == "manifest_failure":
+        manifests = tmp_path / ".phlo" / "wap-reports" / "launches"
+        manifests.rename(manifests.with_name("retained-launches"))
+        manifests.write_text("blocked storage", encoding="utf-8")
+
+    async def post(self, url, *, json, headers):
+        assert headers["Authorization"] == "Bearer caller-token"
+        if "ExistingMaterializationRun" in json["query"]:
+            data = {"runsOrError": {"__typename": "Runs", "results": []}}
+        else:
+            if outcome == "transport_failure":
+                raise httpx.ReadTimeout("response lost")
+            execution = json["variables"]["executionParams"]
+            assert execution["selector"]["repositoryLocationName"] == "phlo_dagster"
+            assert execution["selector"]["pipelineName"] == "custom-job"
+            assert execution["selector"]["repositoryName"] == "custom-repository"
+            tags = {tag["key"]: tag["value"] for tag in execution["executionMetadata"]["tags"]}
+            assert tags["phlo/idempotency_key"] == "request-42"
+            assert tags["dagster/partition"] == "2025-06-19"
+            assert tags["phlo/wap_binding"] == launch.binding_checksum
+            payload = (
+                {"__typename": "PythonError", "message": "launch rejected"}
+                if outcome == "rejected"
+                else {
+                    "__typename": "LaunchRunSuccess",
+                    "run": {
+                        "runId": None if outcome == "missing_run_id" else "physical-17",
+                        "status": "STARTING",
+                    },
+                }
+            )
+            data = {"launchPipelineExecution": payload}
+        return httpx.Response(200, request=httpx.Request("POST", url), json={"data": data})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    # Submission uses the prepared routing proof, not a subsequently changed location.
+    submission = submit_wap_launch(
+        launch,
+        config=WapConfig(
+            job_name="custom-job",
+            repository_name="custom-repository",
+            repository_location_name="changed-location",
+        ),
+        dagster_url="http://dagster.test/graphql",
+        asset_key_path="silver/orders",
+        access_token="caller-token",
+        partition_key="2025-06-19",
+    )
+    if outcome == "accepted":
+        assert asyncio.run(submission) == "physical-17"
+    else:
+        with pytest.raises(WapLaunchError) as failure:
+            asyncio.run(submission)
+        assert failure.value.run_id == ("physical-17" if outcome == "manifest_failure" else None)
+    evidence = WapEvidence(tmp_path)
+    report = evidence.read_report("request-42")
+    assert report["status"] == report_status
+    assert catalog.get_branch_hash(launch.branch) == "main-hash"
+    assert catalog.deleted == []
+    if outcome == "accepted":
+        manifest = evidence.read_binding("request-42", report["launch_manifest_checksum"])
+        assert manifest["dagster_run_id"] == report["dagster_run_id"] == "physical-17"
+        assert manifest["tags"] == launch.tags
+    else:
+        assert "dagster_run_id" not in report

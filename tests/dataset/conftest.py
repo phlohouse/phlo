@@ -55,6 +55,7 @@ class InMemoryStateStore:
     def compare_and_set(
         self,
         *,
+        resource_id: str,
         writes: tuple[StoreWrite, ...],
         action_id: str,
         action: str,
@@ -76,9 +77,9 @@ class InMemoryStateStore:
             self._records[write.record_id] = write.next_record
             committed.append(write.next_record)
         last = writes[-1]
-        self._actions[(last.record_id, action_id)] = CommittedAction(
+        self._actions[(resource_id, action_id)] = CommittedAction(
             action_id=action_id,
-            resource_id=last.record_id,
+            resource_id=resource_id,
             action=action,
             fingerprint=fingerprint,
             outcome_status=StoreWriteStatus.COMMITTED.value,

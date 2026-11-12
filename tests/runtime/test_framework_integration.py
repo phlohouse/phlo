@@ -43,7 +43,7 @@ def test_discover_workflows_falls_back_when_orchestrator_plugin_missing(tmp_path
     workflows_path.mkdir()
 
     with patch(
-        "phlo_dagster.framework.discovery.get_active_orchestrator",
+        "phlo_dagster.framework.assembly.get_active_orchestrator",
         side_effect=PhloConfigError("Orchestrator adapter 'dagster' is not installed."),
     ):
         defs = discover_user_workflows(workflows_path, clear_registries=True)

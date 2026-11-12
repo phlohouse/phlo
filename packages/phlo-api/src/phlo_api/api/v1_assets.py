@@ -1507,10 +1507,8 @@ async def v1_table_rollback(
     from phlo.compliance.signatures.step_up import RecentMfaClaimsChallenge
     from phlo_api.api.authentication import authenticate_request
     from phlo_api.api.operation_controls import (
-        IdempotencyConflict,
         audit_operation,
         enforce_rate_limit,
-        idempotency_key_target,
         replay_or_execute_async,
         require_scope,
     )
@@ -1537,9 +1535,6 @@ async def v1_table_rollback(
     intent = payload.model_dump(exclude={"idempotency_key"})
     digest = hashlib.sha256(json.dumps(intent, sort_keys=True).encode()).hexdigest()
     action_target = f"{auth['subject']}:{env}:{name}@{target.nessie_ref}:rollback:{digest}"
-    bound = idempotency_key_target(payload.idempotency_key, "v1_table_rollback")
-    if bound is not None and bound != action_target:
-        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
 
     async def execute() -> dict[str, Any]:
         try:
@@ -2614,10 +2609,8 @@ async def v1_asset_materialize(
     env: Environment = Query(),
 ) -> AssetActionResponse:
     from phlo_api.api.operation_controls import (
-        IdempotencyConflict,
         audit_operation,
         enforce_rate_limit,
-        idempotency_key_target,
         replay_or_execute_async,
         require_scope,
     )
@@ -2721,9 +2714,6 @@ async def v1_asset_materialize(
         json.dumps(intent, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     action_target = f"{auth['subject']}:{env}:{asset_id}@{write_ref}:materialize:{intent_digest}"
-    bound_target = idempotency_key_target(payload.idempotency_key, "v1_materialize_asset")
-    if bound_target is not None and bound_target != action_target:
-        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
     result = await replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation="v1_materialize_asset",
@@ -2750,10 +2740,8 @@ async def v1_asset_backfill(
     env: Environment = Query(),
 ) -> AssetActionResponse:
     from phlo_api.api.operation_controls import (
-        IdempotencyConflict,
         audit_operation,
         enforce_rate_limit,
-        idempotency_key_target,
         replay_or_execute_async,
         require_scope,
     )
@@ -2829,9 +2817,6 @@ async def v1_asset_backfill(
     ).encode()
     intent_digest = hashlib.sha256(intent).hexdigest()
     action_target = f"{env}:{asset_id}@{target.nessie_ref}:backfill:{intent_digest}"
-    bound_target = idempotency_key_target(payload.idempotency_key, "v1_backfill_asset")
-    if bound_target is not None and bound_target != action_target:
-        raise IdempotencyConflict({"error": "idempotency_key_conflict"})
     result = await replay_or_execute_async(
         idempotency_key=payload.idempotency_key,
         operation="v1_backfill_asset",

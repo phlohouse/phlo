@@ -43,7 +43,7 @@ def test_public_decorator_real_dlt_staging_and_catalog(tmp_path, monkeypatch, po
         )
         return pipeline, tmp_path / "pipelines" / pipeline_name
 
-    monkeypatch.setattr("phlo_dlt.executor.setup_dlt_pipeline", setup_pipeline)
+    monkeypatch.setattr("phlo_dlt.dlt_helpers.setup_dlt_pipeline", setup_pipeline)
 
     class Watering(DataFrameModel):
         event_id: int
@@ -143,10 +143,9 @@ def test_provider_without_opt_in_retains_default_projection(tmp_path):
         ),
     )
     config = TableConfig("events", pa.schema([pa.field("id", pa.int64())]), None, "id", "raw")
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda *args: None))
+    log = get_logger("test-default-projection")
     assert (
-        merge_to_table_store(context, provider, config, [path], "main", "append")["rows_inserted"]
-        == 1
+        merge_to_table_store(log, provider, config, [path], "main", "append")["rows_inserted"] == 1
     )
     assert written[0].to_pylist() == [{"id": 7}]
     assert "schema_policy" not in provider.ensure_table.call_args.kwargs

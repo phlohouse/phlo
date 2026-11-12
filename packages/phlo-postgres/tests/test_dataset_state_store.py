@@ -19,7 +19,12 @@ import pytest
 
 from phlo.dataset import (
     CandidateRecord,
+    DatasetPolicy,
     DatasetRecord,
+    DatasetService,
+    StaticPolicySource,
+    TransitionRequest,
+    TransitionStatus,
     state_store_namespace,
 )
 from phlo.dataset.models import PublicationState, WorkflowState
@@ -33,6 +38,7 @@ from phlo_postgres.dataset_state_store import (
 from phlo_postgres.plugin import PostgresResourceProvider
 
 from _dataset_test_backends import FileLockSettingsStore
+from _dataset_worker import NoEvidence
 
 WORKER = Path(__file__).parent / "_dataset_worker.py"
 
@@ -71,22 +77,88 @@ def test_resource_provider_exposes_dataset_state_store() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("expected_states", [False, True])
+def test_service_receipts_replay_after_restart(tmp_path: Path, expected_states: bool) -> None:
+    from dataclasses import replace
+
+    path = tmp_path / "state.json"
+    store = make_store(path)
+    service = DatasetService(
+        store=store,
+        evidence_source=NoEvidence(),
+        policy_source=StaticPolicySource(DatasetPolicy(policy_version="test-policy")),
+    )
+    requests = [
+        TransitionRequest(
+            resource_id=resource_id,
+            action=action,
+            action_id=action,
+            expected_state=state if expected_states else None,
+        )
+        for resource_id, action, state in (
+            ("candidate:gold.demo", "claim", "open"),
+            ("candidate:gold.demo", "review", "claimed"),
+            ("candidate:gold.demo", "promote", "review"),
+            ("gold.demo", "publish", "draft"),
+            ("gold.demo", "retire", "published"),
+        )
+    ]
+    for request in requests:
+        first = service.transition(request)
+        assert first.status is TransitionStatus.COMMITTED
+        service = DatasetService(
+            store=make_store(path),
+            evidence_source=NoEvidence(),
+            policy_source=StaticPolicySource(DatasetPolicy(policy_version="changed-policy")),
+        )
+        replay = service.transition(request)
+        assert replay.status is TransitionStatus.REPLAYED
+        assert replay.after_state == first.after_state
+        assert replay.record == first.record
+        conflict = service.transition(replace(request, expected_state="different-state"))
+        assert conflict.status is TransitionStatus.CONFLICT
+        assert "different request" in conflict.message
+        assert service.record(first.record.dataset_id) == first.record
+
+    assert store.committed_action("candidate:gold.demo", "promote") is not None
+    assert store.committed_action("gold.demo", "promote") is None
+    assert service.record("candidate:gold.demo").current_state == "promoted"
+    assert service.record("gold.demo").current_state == "retired"
+    assert [event.outcome for event in store.audit_events()] == [
+        "committed",
+        "replayed",
+        "conflict",
+    ] * 5
+
+
 def test_compare_and_set_commits_and_replays(tmp_path: Path) -> None:
     store = make_store(tmp_path / "state.json")
     write = StoreWrite(record_id="gold.demo", expected_state="open", next_record=draft_record())
     first = store.compare_and_set(
-        writes=(write,), action_id="a1", action="promote", fingerprint="fp-1"
+        resource_id="gold.demo",
+        writes=(write,),
+        action_id="a1",
+        action="promote",
+        fingerprint="fp-1",
     )
     assert first.status is StoreWriteStatus.COMMITTED
 
     replay = store.compare_and_set(
-        writes=(write,), action_id="a1", action="promote", fingerprint="fp-1"
+        resource_id="gold.demo",
+        writes=(write,),
+        action_id="a1",
+        action="promote",
+        fingerprint="fp-1",
     )
     assert replay.status is StoreWriteStatus.REPLAYED
     assert replay.committed_fingerprint == "fp-1"
 
     conflict = store.compare_and_set(
-        writes=(write,), action_id="a1", action="promote", fingerprint="fp-2"
+        resource_id="gold.demo",
+        writes=(write,),
+        action_id="a1",
+        action="promote",
+        fingerprint="fp-2",
     )
     assert conflict.status is StoreWriteStatus.ACTION_CONFLICT
 
@@ -97,7 +169,9 @@ def test_compare_and_set_commits_and_replays(tmp_path: Path) -> None:
 def test_compare_and_set_fails_on_precondition_mismatch(tmp_path: Path) -> None:
     store = make_store(tmp_path / "state.json")
     stale = StoreWrite(record_id="gold.demo", expected_state="open", next_record=draft_record())
-    store.compare_and_set(writes=(stale,), action_id="a1", action="promote", fingerprint="fp")
+    store.compare_and_set(
+        resource_id="gold.demo", writes=(stale,), action_id="a1", action="promote", fingerprint="fp"
+    )
     moved = StoreWrite(
         record_id="gold.demo",
         expected_state="open",
@@ -106,7 +180,11 @@ def test_compare_and_set_fails_on_precondition_mismatch(tmp_path: Path) -> None:
         ),
     )
     result = store.compare_and_set(
-        writes=(moved,), action_id="a2", action="publish", fingerprint="fp2"
+        resource_id="gold.demo",
+        writes=(moved,),
+        action_id="a2",
+        action="publish",
+        fingerprint="fp2",
     )
     assert result.status is StoreWriteStatus.PRECONDITION_FAILED
 
@@ -117,6 +195,7 @@ def test_promote_writes_both_records_atomically(tmp_path: Path) -> None:
     # Seed the candidate in review, the promote pre-state.
     seed = CandidateRecord(dataset_id=f"candidate:{table_id}", table_id=table_id, state="review")
     store.compare_and_set(
+        resource_id=f"candidate:{table_id}",
         writes=(
             StoreWrite(record_id=f"candidate:{table_id}", expected_state="open", next_record=seed),
         ),
@@ -145,7 +224,11 @@ def test_promote_writes_both_records_atomically(tmp_path: Path) -> None:
         ),
     )
     result = store.compare_and_set(
-        writes=writes, action_id="p1", action="promote", fingerprint="fp"
+        resource_id=f"candidate:{table_id}",
+        writes=writes,
+        action_id="p1",
+        action="promote",
+        fingerprint="fp",
     )
     assert result.status is StoreWriteStatus.COMMITTED
     assert len(result.records) == 2
@@ -251,6 +334,7 @@ def test_state_survives_restart(tmp_path: Path) -> None:
     path = tmp_path / "state.json"
     store = make_store(path)
     store.compare_and_set(
+        resource_id="gold.demo",
         writes=(
             StoreWrite(record_id="gold.demo", expected_state="open", next_record=draft_record()),
         ),
@@ -300,6 +384,7 @@ def test_two_processes_race_one_publication_transition(tmp_path: Path) -> None:
     # Seed the draft dataset the way a first worker's promote would.
     seed = make_store(state_file, project_root)
     seed.compare_and_set(
+        resource_id="gold.demo",
         writes=(
             StoreWrite(record_id="gold.demo", expected_state="open", next_record=draft_record()),
         ),

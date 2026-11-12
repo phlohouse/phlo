@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import random
 
+import pytest
+
 from phlo.dataset import (
     DatasetRecord,
     DatasetService,
@@ -121,6 +123,53 @@ class TestLifecycle:
 
 
 class TestIdempotency:
+    @pytest.mark.parametrize("expected_state", [None, "open"])
+    def test_memory_store_replays_claim_before_checking_current_state(
+        self, make_service, expected_state
+    ) -> None:
+        from phlo.dataset_state import MemoryDatasetStateStore
+
+        service = make_service(store=MemoryDatasetStateStore())
+        request = _request(CANONICAL_CANDIDATE_ID, "claim", "a1", expected_state=expected_state)
+        first = service.transition(request)
+        assert first.status is TransitionStatus.COMMITTED
+        service.transition(_request(CANONICAL_CANDIDATE_ID, "review", "a2"))
+        before = service.record(CANONICAL_CANDIDATE_ID)
+        replay = service.transition(request)
+        assert replay.status is TransitionStatus.REPLAYED
+        assert replay.after_state == first.after_state == "claimed"
+        assert service.record(CANONICAL_CANDIDATE_ID) == before
+
+    @pytest.mark.parametrize("expected_state", [None, "review"])
+    def test_memory_store_replays_promotion_under_candidate_identity(
+        self, make_service, expected_state
+    ) -> None:
+        from dataclasses import replace
+
+        from phlo.dataset_state import MemoryDatasetStateStore
+
+        store = MemoryDatasetStateStore()
+        service = make_service(store=store)
+        service.transition(_request(CANONICAL_CANDIDATE_ID, "claim", "a1"))
+        service.transition(_request(CANONICAL_CANDIDATE_ID, "review", "a2"))
+        request = _request(CANONICAL_CANDIDATE_ID, "promote", "a3", expected_state=expected_state)
+        first = service.transition(request)
+        assert first.status is TransitionStatus.COMMITTED
+        candidate = service.record(CANONICAL_CANDIDATE_ID)
+        dataset = service.record(CANONICAL_DATASET_ID)
+        replay = service.transition(request)
+        assert replay.status is TransitionStatus.REPLAYED
+        assert replay.after_state == first.after_state == "draft"
+        assert replay.record == first.record == dataset
+        receipt = store.committed_action(CANONICAL_CANDIDATE_ID, "a3")
+        assert receipt.resource_id == CANONICAL_CANDIDATE_ID
+        assert store.committed_action(CANONICAL_DATASET_ID, "a3") is None
+        conflict = service.transition(replace(request, expected_state="promoted"))
+        assert conflict.status is TransitionStatus.CONFLICT
+        assert "different request" in conflict.message
+        assert service.record(CANONICAL_CANDIDATE_ID) == candidate
+        assert service.record(CANONICAL_DATASET_ID) == dataset
+
     def test_replayed_action_id_returns_the_committed_outcome(self, service) -> None:
         candidate = CANONICAL_CANDIDATE_ID
         first = service.transition(_request(candidate, "claim", "a1"))
@@ -255,7 +304,7 @@ class TestAuditAndAtomicity:
             def load(self, dataset_id: str):
                 return self._inner.load(dataset_id)
 
-            def compare_and_set(self, *, writes, action_id, action, fingerprint):
+            def compare_and_set(self, *, resource_id, writes, action_id, action, fingerprint):
                 if not self._raced:
                     self._raced = True
                     return StoreWriteResult(
@@ -263,6 +312,7 @@ class TestAuditAndAtomicity:
                         detail="simulated concurrent writer",
                     )
                 return self._inner.compare_and_set(
+                    resource_id=resource_id,
                     writes=writes,
                     action_id=action_id,
                     action=action,

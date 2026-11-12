@@ -7,10 +7,15 @@ persistence is a provider-owned adapter (PostgreSQL), never core SQL.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from copy import deepcopy
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from threading import RLock
 from typing import Any, Protocol
+
+from phlo.capabilities.maintenance import MaintenanceOperationResult
 
 
 class OperationJournalState(StrEnum):
@@ -61,21 +66,20 @@ class OperationJournalEntry:
 
 
 class OperationJournalStore(Protocol):
-    """A durable, cross-process operation journal store.
-
-    ``claim`` atomically inserts the entry if no unexpired claim exists for
-    the same (action, target). ``transition`` moves the state forward. Both
-    raise on conflicting binding or stale/expired claims.
-    """
+    """Atomic persistence for the core-owned journal state machine."""
 
     def claim(self, entry: OperationJournalEntry) -> bool:
         """Atomically insert; return False if an unexpired conflicting claim exists."""
         ...
 
-    def transition(
-        self, operation_id: str, state: OperationJournalState, result: dict[str, Any] | None = None
+    def compare_and_set(
+        self,
+        operation_id: str,
+        expected: OperationJournalState,
+        state: OperationJournalState,
+        result: dict[str, Any] | None = None,
     ) -> bool:
-        """Move the operation forward; return False if the state is unknown."""
+        """Apply ``transition_entry`` atomically; False means missing/stale state."""
         ...
 
     def read(self, operation_id: str) -> OperationJournalEntry | None:
@@ -87,36 +91,139 @@ class InMemoryOperationJournalStore:
     """Test/development-only in-memory journal store."""
 
     def __init__(self) -> None:
-        self.entries: dict[str, OperationJournalEntry] = {}
+        self._entries: dict[str, OperationJournalEntry] = {}
+        self._lock = RLock()
 
     def claim(self, entry: OperationJournalEntry) -> bool:
-        existing = self.entries.get(entry.operation_id)
-        if existing is not None and existing.state is not OperationJournalState.SUCCEEDED:
-            return False
-        self.entries[entry.operation_id] = entry
-        return True
+        entry = new_claim(entry)
+        with self._lock:
+            if entry.operation_id in self._entries:
+                return False
+            for operation_id, record in self._entries.items():
+                record = expire_claim(record)
+                self._entries[operation_id] = record
+                if claims_conflict(record, entry):
+                    return False
+            self._entries[entry.operation_id] = deepcopy(entry)
+            return True
 
-    def transition(
-        self, operation_id: str, state: OperationJournalState, result: dict[str, Any] | None = None
+    def compare_and_set(
+        self,
+        operation_id: str,
+        expected: OperationJournalState,
+        state: OperationJournalState,
+        result: dict[str, Any] | None = None,
     ) -> bool:
-        entry = self.entries.get(operation_id)
-        if entry is None:
-            return False
-        self.entries[operation_id] = OperationJournalEntry(
-            operation_id=entry.operation_id,
-            subject=entry.subject,
-            action=entry.action,
-            target=entry.target,
-            plan_token=entry.plan_token,
-            state=state,
-            claim_expiry=entry.claim_expiry,
-            result=result,
-            observation_time=entry.observation_time,
-        )
-        return True
+        with self._lock:
+            entry = self._entries.get(operation_id)
+            if entry is None or entry.state is not expected:
+                return False
+            self._entries[operation_id] = transition_entry(entry, state, result)
+            return True
 
     def read(self, operation_id: str) -> OperationJournalEntry | None:
-        return self.entries.get(operation_id)
+        with self._lock:
+            return deepcopy(self._entries.get(operation_id))
+
+
+def new_claim(entry: OperationJournalEntry) -> OperationJournalEntry:
+    """Validate the only insertion state, including direct adapter callers."""
+    if entry.state is not OperationJournalState.CLAIMED or entry.result is not None:
+        raise OperationJournalError("invalid_claim", (entry.operation_id,))
+    expiry = entry.claim_expiry or (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+    try:
+        timestamp = datetime.fromisoformat(expiry)
+    except ValueError as exc:
+        raise OperationJournalError("invalid_claim_expiry", (entry.operation_id,)) from exc
+    if timestamp.tzinfo is None:
+        raise OperationJournalError("invalid_claim_expiry", (entry.operation_id,))
+    return replace(entry, action=canonical_maintenance_action(entry.action), claim_expiry=expiry)
+
+
+def claims_conflict(record: OperationJournalEntry, entry: OperationJournalEntry) -> bool:
+    """One canonical action/target is fenced until its outcome is definitive."""
+    return (
+        canonical_maintenance_action(record.action) == entry.action
+        and record.target == entry.target
+        and record.state
+        in {
+            OperationJournalState.CLAIMED,
+            OperationJournalState.SUBMITTED,
+            OperationJournalState.UNKNOWN,
+        }
+    )
+
+
+def expire_claim(entry: OperationJournalEntry) -> OperationJournalEntry:
+    """Release only an expired pre-submission lease, retaining its receipt."""
+    if entry.state is not OperationJournalState.CLAIMED or not entry.claim_expiry:
+        return entry
+    expiry = datetime.fromisoformat(entry.claim_expiry)
+    if expiry.tzinfo is None or datetime.now(UTC) >= expiry:
+        return replace(
+            entry,
+            state=OperationJournalState.FAILED,
+            result={"accepted": False, "state": "failed", "failure": {"reason": "claim_expired"}},
+        )
+    return entry
+
+
+def transition_entry(
+    entry: OperationJournalEntry,
+    state: OperationJournalState,
+    result: dict[str, Any] | None,
+) -> OperationJournalEntry:
+    """The complete graph, evaluated while the adapter holds its write lock.
+
+    Terminal records have no outgoing edges. UNKNOWN is resolved only by the
+    owner's reconciliation command, never by completing a submitted operation.
+    """
+    edges = {
+        OperationJournalState.CLAIMED: {
+            OperationJournalState.SUBMITTED,
+            OperationJournalState.FAILED,
+        },
+        OperationJournalState.SUBMITTED: {
+            OperationJournalState.SUCCEEDED,
+            OperationJournalState.FAILED,
+            OperationJournalState.UNKNOWN,
+        },
+        OperationJournalState.UNKNOWN: {
+            OperationJournalState.SUCCEEDED,
+            OperationJournalState.FAILED,
+        },
+    }
+    if state not in edges.get(entry.state, set()):
+        raise OperationJournalError("invalid_transition", (entry.operation_id, entry.state, state))
+    if state is OperationJournalState.SUBMITTED and expire_claim(entry) != entry:
+        raise OperationJournalError("claim_expired", (entry.operation_id,))
+    if state in {OperationJournalState.SUCCEEDED, OperationJournalState.FAILED} and result is None:
+        raise OperationJournalError("missing_result", (entry.operation_id,))
+    if result is not None and state in {
+        OperationJournalState.SUCCEEDED,
+        OperationJournalState.FAILED,
+    }:
+        if "accepted" in result and result["accepted"] is not (
+            state is OperationJournalState.SUCCEEDED
+        ):
+            raise OperationJournalError("inconsistent_outcome", (entry.operation_id, state))
+        if "state" in result and result["state"] != state.value:
+            raise OperationJournalError("inconsistent_outcome", (entry.operation_id, state))
+    return replace(
+        entry, state=state, result=deepcopy(result), observation_time=datetime.now(UTC).isoformat()
+    )
+
+
+def canonical_maintenance_action(action: str) -> str:
+    """Unify scheduled and interactive expiry without changing other identities."""
+    return "snapshot_expiry" if action == "expire_snapshots" else action
+
+
+def maintenance_action_aliases(action: str) -> tuple[str, ...]:
+    """Persisted action spellings that must share a claim, including legacy rows."""
+    if canonical_maintenance_action(action) == "snapshot_expiry":
+        return ("snapshot_expiry", "expire_snapshots")
+    return (action,)
 
 
 def maintenance_operation_id(operation: str, table: str, ref: str, plan_token: str) -> str:
@@ -143,72 +250,214 @@ def maintenance_plan_token(plan: Mapping[str, Any]) -> str:
     return "" if token is None else str(token)
 
 
-def claim_operation(
+def _maintenance_state(result: Mapping[str, Any]) -> OperationJournalState:
+    failure = result.get("failure")
+    outcome = failure.get("outcome") if isinstance(failure, Mapping) else None
+    code = str(failure.get("code", "")) if isinstance(failure, Mapping) else ""
+    if outcome == "unknown" or "outcome_unknown" in code:
+        return OperationJournalState.UNKNOWN
+    if result.get("status") in {"failed", "blocked"}:
+        if result.get("accepted") is False and (
+            outcome == "not_submitted" or result.get("executed") is False
+        ):
+            return OperationJournalState.FAILED
+        if outcome != "not_submitted" and (
+            result.get("retry_safe") is False
+            or result.get("accepted") is True
+            or result.get("executed") is True
+        ):
+            return OperationJournalState.UNKNOWN
+        if result.get("accepted") is False:
+            return OperationJournalState.FAILED
+    if result.get("accepted") is True and result.get("status") in {"succeeded", "noop"}:
+        return OperationJournalState.SUCCEEDED
+    return OperationJournalState.UNKNOWN
+
+
+def execute_maintenance(
     store: OperationJournalStore,
     *,
-    operation_id: str,
-    subject: str,
-    action: str,
-    target: str,
+    operation: str,
+    table: str,
+    ref: str,
     plan_token: str,
+    subject: str,
+    execute: Callable[[str], MaintenanceOperationResult | Mapping[str, Any]],
+    operation_id: str | None = None,
 ) -> OperationJournalEntry:
-    """Atomically claim an operation, or raise on conflict."""
-    entry = OperationJournalEntry(
+    """Claim and execute one maintenance plan, retaining uncertain submission fences.
+
+    The adapter supplies provider invocation and translates errors/output. Neither
+    an accepted submission nor a failed response proves a definitive outcome.
+    Preserve returned evidence even when it cannot release the durable claim.
+    Scheduled adapters may retain an existing run-bound verification handle.
+    """
+    if operation_id is None:
+        operation_id = maintenance_operation_id(operation, table, ref, plan_token)
+    journal = OperationJournal(store)
+    entry = journal.claim(
         operation_id=operation_id,
         subject=subject,
-        action=action,
-        target=target,
+        action=operation,
+        target=table,
         plan_token=plan_token,
-        state=OperationJournalState.CLAIMED,
     )
-    if not store.claim(entry):
-        raise OperationJournalError("conflicting_claim", (operation_id, action, target))
-    return entry
+    journal.submit(operation_id)
+    try:
+        result = execute(operation_id)
+        evidence = dict(result) if isinstance(result, Mapping) else result.to_dict()
+    except Exception as exc:
+        journal.unknown(operation_id)
+        raise OperationJournalError("apply_outcome_unknown", (operation_id,)) from exc
+    state = _maintenance_state(evidence)
+    if state is OperationJournalState.UNKNOWN:
+        journal.unknown(operation_id, result=evidence)
+    else:
+        journal.complete(operation_id, state=state, result=evidence)
+    return replace(entry, state=state, result=evidence)
 
 
-def mark_submitted(store: OperationJournalStore, operation_id: str) -> None:
-    """Record that the provider call was issued (before the result is known)."""
-    if not store.transition(operation_id, OperationJournalState.SUBMITTED):
-        raise OperationJournalError("unknown_operation", (operation_id,))
+class OperationJournal:
+    """The sole command owner for claims, submission, outcomes and recovery.
 
-
-def complete_operation(
-    store: OperationJournalStore, operation_id: str, result: dict[str, Any]
-) -> None:
-    """Record a definitive provider result."""
-    state = (
-        OperationJournalState.SUCCEEDED if result.get("accepted") else OperationJournalState.FAILED
-    )
-    if not store.transition(operation_id, state, result):
-        raise OperationJournalError("unknown_operation", (operation_id,))
-
-
-def mark_unknown(store: OperationJournalStore, operation_id: str) -> None:
-    """Record that the provider call was issued but the outcome is unknown.
-
-    Blocks automatic replay and a new key until explicit reconciliation.
+    Adapters implement atomic compare-and-set, not outcome classification.
+    Only a pre-submission lease can expire; submitted and unknown outcomes
+    retain their exclusion until a definitive result is recorded.
     """
-    if not store.transition(operation_id, OperationJournalState.UNKNOWN):
-        raise OperationJournalError("unknown_operation", (operation_id,))
 
+    def __init__(self, store: OperationJournalStore) -> None:
+        self._store = store
 
-def reconcile_unknown(
-    store: OperationJournalStore, operation_id: str, result: dict[str, Any]
-) -> None:
-    """Explicitly reconcile an unknown outcome after operator-driven verification."""
-    if not store.transition(
-        operation_id,
-        OperationJournalState.SUCCEEDED if result.get("accepted") else OperationJournalState.FAILED,
-        result,
-    ):
-        raise OperationJournalError("unknown_operation", (operation_id,))
+    def claim(
+        self,
+        *,
+        operation_id: str,
+        subject: str,
+        action: str,
+        target: str,
+        plan_token: str,
+        claim_expiry: str | None = None,
+    ) -> OperationJournalEntry:
+        """Acquire a five-minute pre-submission lease for an exact binding."""
+        entry = OperationJournalEntry(
+            operation_id=operation_id,
+            subject=subject,
+            action=canonical_maintenance_action(action),
+            target=target,
+            plan_token=plan_token,
+            state=OperationJournalState.CLAIMED,
+            claim_expiry=claim_expiry or (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        )
+        if not self._store.claim(entry):
+            raise OperationJournalError("conflicting_claim", (operation_id, action, target))
+        return entry
 
+    def submit(self, operation_id: str) -> None:
+        """Fence provider effects before invoking the provider."""
+        self._transition(
+            operation_id, OperationJournalState.CLAIMED, OperationJournalState.SUBMITTED
+        )
 
-def read_or_replay(store: OperationJournalStore, operation_id: str) -> Mapping[str, Any] | None:
-    """Read a stored result for idempotent replay; None if the operation is new."""
-    entry = store.read(operation_id)
-    if entry is None:
+    def reject(self, operation_id: str, *, result: dict[str, Any]) -> None:
+        """Record a definitive pre-submission rejection."""
+        self._transition(
+            operation_id, OperationJournalState.CLAIMED, OperationJournalState.FAILED, result
+        )
+
+    def complete(
+        self,
+        operation_id: str,
+        *,
+        state: OperationJournalState,
+        result: dict[str, Any],
+    ) -> None:
+        """Record an explicitly classified, definitive submitted outcome."""
+        self._require_terminal(operation_id, state)
+        self._transition(operation_id, OperationJournalState.SUBMITTED, state, result)
+
+    def unknown(self, operation_id: str, *, result: dict[str, Any] | None = None) -> None:
+        """Retain uncertainty and any available evidence without releasing the fence."""
+        self._transition(
+            operation_id, OperationJournalState.SUBMITTED, OperationJournalState.UNKNOWN, result
+        )
+
+    def reconcile(
+        self,
+        operation_id: str,
+        *,
+        state: OperationJournalState,
+        result: dict[str, Any],
+    ) -> None:
+        """Resolve only UNKNOWN, using explicit definitive verification evidence."""
+        self._require_terminal(operation_id, state)
+        entry = self._store.read(operation_id)
+        if (
+            entry is not None
+            and canonical_maintenance_action(entry.action) in {"compact", "snapshot_expiry"}
+            and _maintenance_state(result) is not state
+        ):
+            raise OperationJournalError("unknown_outcome_blocks_replay", (operation_id,))
+        self._transition(operation_id, OperationJournalState.UNKNOWN, state, result)
+
+    @staticmethod
+    def replay_block_reason(entry: OperationJournalEntry) -> str | None:
+        """Explain whether a receipt is replayable, independent of caller binding."""
+        if entry.state is OperationJournalState.UNKNOWN:
+            return "unknown_outcome_blocks_replay"
+        if entry.state not in {OperationJournalState.SUCCEEDED, OperationJournalState.FAILED}:
+            return "operation_in_progress"
+        if entry.result is None:
+            return "missing_result"
+        failure = entry.result.get("failure")
+        if isinstance(failure, Mapping) and failure.get("reason") == "claim_expired":
+            return "claim_expired"
         return None
-    if entry.state is OperationJournalState.UNKNOWN:
-        raise OperationJournalError("unknown_outcome_blocks_replay", (operation_id,))
-    return entry.result
+
+    def replay(
+        self,
+        operation_id: str,
+        *,
+        subject: str,
+        action: str,
+        target: str,
+        plan_token: str,
+    ) -> Mapping[str, Any] | None:
+        """Return an exact terminal receipt; active work is never a new operation."""
+        entry = self._store.read(operation_id)
+        if entry is None:
+            return None
+        if (
+            entry.subject,
+            canonical_maintenance_action(entry.action),
+            entry.target,
+            entry.plan_token,
+        ) != (
+            subject,
+            canonical_maintenance_action(action),
+            target,
+            plan_token,
+        ):
+            raise OperationJournalError("binding_mismatch", (operation_id,))
+        if reason := self.replay_block_reason(entry):
+            raise OperationJournalError(reason, (operation_id,))
+        return deepcopy(entry.result)
+
+    @staticmethod
+    def _require_terminal(operation_id: str, state: OperationJournalState) -> None:
+        if state not in {OperationJournalState.SUCCEEDED, OperationJournalState.FAILED}:
+            raise OperationJournalError("invalid_outcome", (operation_id, state))
+
+    def _transition(
+        self,
+        operation_id: str,
+        expected: OperationJournalState,
+        state: OperationJournalState,
+        result: dict[str, Any] | None = None,
+    ) -> None:
+        if not self._store.compare_and_set(operation_id, expected, state, result):
+            code = (
+                "unknown_operation"
+                if self._store.read(operation_id) is None
+                else "invalid_transition"
+            )
+            raise OperationJournalError(code, (operation_id, expected, state))

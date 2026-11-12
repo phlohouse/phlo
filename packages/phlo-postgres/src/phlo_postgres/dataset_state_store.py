@@ -93,6 +93,7 @@ class SettingsDatasetStateStore:
     def compare_and_set(
         self,
         *,
+        resource_id: str,
         writes: tuple[StoreWrite, ...],
         action_id: str,
         action: str,
@@ -100,8 +101,7 @@ class SettingsDatasetStateStore:
     ) -> StoreWriteResult:
         def apply(state: dict[str, Any] | None) -> dict[str, Any]:
             current = _validated_state(state)
-            last = writes[-1]
-            committed = current["actions"].get(last.record_id, {}).get(action_id)
+            committed = current["actions"].get(resource_id, {}).get(action_id)
             if committed is not None:
                 if committed["fingerprint"] == fingerprint:
                     self._result = StoreWriteResult(
@@ -142,9 +142,9 @@ class SettingsDatasetStateStore:
             next_state = _copy_state(current)
             for write in writes:
                 next_state["records"][write.record_id] = write.next_record.to_read_model()
-            next_state["actions"].setdefault(last.record_id, {})[action_id] = {
+            next_state["actions"].setdefault(resource_id, {})[action_id] = {
                 "action_id": action_id,
-                "resource_id": last.record_id,
+                "resource_id": resource_id,
                 "action": action,
                 "fingerprint": fingerprint,
                 "outcome_status": StoreWriteStatus.COMMITTED.value,
@@ -154,7 +154,7 @@ class SettingsDatasetStateStore:
                 status=StoreWriteStatus.COMMITTED,
                 records=tuple(w.next_record for w in writes),
                 committed_fingerprint=fingerprint,
-                detail=f"{action!r} committed for {last.record_id}.",
+                detail=f"{action!r} committed for {resource_id}.",
             )
             return next_state
 

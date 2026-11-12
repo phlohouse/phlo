@@ -11,14 +11,10 @@ command utilities.
 """
 
 from pathlib import Path
-from typing import Any, cast
-
-import yaml
+from typing import Any
 
 from phlo.logging_context import get_logger, log_event
-from phlo.plugins.base.service import ServicePlugin
-from phlo.plugins.discovery._service_cycles import find_cycles as _find_cycles_impl
-from phlo.plugins.discovery._service_definition import ServiceDefinition, service_manifest_paths
+from phlo.plugins.discovery._service_definition import ServiceDefinition
 from phlo.plugins.discovery._service_definition import refresh as refresh_manifests
 from phlo.plugins.discovery._service_dependency_resolution import resolve_service_dependencies
 from phlo.plugins.discovery.registry import get_global_registry
@@ -47,18 +43,6 @@ def _emit_service_discovery_signal(
         services_dir=_services_dir_label(services_dir),
         **fields,
     )
-
-
-def discover_plugins(plugin_type: str = "service", auto_register: bool = True):
-    """Compatibility wrapper for tests and service discovery call sites."""
-    import phlo.plugins.discovery._service_loading as _service_loading
-
-    return _service_loading.discover_plugins(plugin_type=plugin_type, auto_register=auto_register)
-
-
-def _find_cycles(nodes: set[str], graph: dict[str, set[str]]) -> list[list[str]]:
-    """Compatibility wrapper around shared cycle-detection utilities."""
-    return _find_cycles_impl(nodes, graph)
 
 
 class ServiceDiscovery:
@@ -164,77 +148,6 @@ class ServiceDiscovery:
     def refresh(self) -> dict[str, ServiceDefinition]:
         """Force rediscovery and return refreshed service definitions."""
         return self.discover(refresh=True)
-
-    def _load_service_plugins(self) -> int:
-        """Load services from installed plugins."""
-        import phlo.plugins.discovery._service_loading as _service_loading
-
-        loaded_count = 0
-        registry = get_global_registry()
-        discover_plugins(plugin_type="service", auto_register=True)
-
-        for name in registry.list("service"):
-            plugin = cast(ServicePlugin | None, registry.get("service", name))
-            if not plugin:
-                continue
-            if name in self._services:
-                logger.debug("plugin_service_skipped_core_exists", service_name=name)
-                continue
-
-            service_definition = plugin.service_definition
-            source_path = _service_loading.resolve_plugin_source_path(plugin)
-            try:
-                service = ServiceDefinition.from_dict(service_definition, source_path)
-                self._services[service.name] = service
-                loaded_count += 1
-                loaded_count += self._load_companion_service_files(source_path)
-            except (KeyError, ValueError) as exc:
-                _emit_service_discovery_signal(
-                    event_name="service_discovery_plugin_load_failed",
-                    level="warning",
-                    services_dir=self.services_dir,
-                    plugin_name=name,
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
-        return loaded_count
-
-    @staticmethod
-    def _is_service_yaml(filename: str) -> bool:
-        """Check if filename is a recognized service YAML pattern."""
-        return filename == "service.yaml" or filename.endswith(
-            ("-setup.yaml", "-daemon.yaml", "-code.yaml")
-        )
-
-    def _load_companion_service_files(self, source_path: Path | None) -> int:
-        """Load companion service YAMLs (e.g., *-setup.yaml, *-daemon.yaml) from a package."""
-        if not source_path or not source_path.exists():
-            return 0
-
-        loaded_count = 0
-        for yaml_path in service_manifest_paths(source_path):
-            filename = yaml_path.name
-            if filename == "service.yaml":
-                continue
-            if not self._is_service_yaml(filename):
-                continue
-
-            try:
-                service = ServiceDefinition.from_yaml(yaml_path)
-                if service.name in self._services:
-                    continue
-                self._services[service.name] = service
-                loaded_count += 1
-            except (yaml.YAMLError, KeyError, ValueError) as exc:
-                _emit_service_discovery_signal(
-                    event_name="service_discovery_companion_file_load_failed",
-                    level="warning",
-                    services_dir=self.services_dir,
-                    yaml_path=str(yaml_path),
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
-        return loaded_count
 
     def get_service(self, name: str) -> ServiceDefinition | None:
         """Get a service definition by name."""

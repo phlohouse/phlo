@@ -37,12 +37,10 @@ from phlo.capabilities.continuity import (
 from phlo.logging import get_logger
 from phlo.operations.backup import verify_backup_set
 from phlo.operations.journal import (
+    OperationJournal,
     OperationJournalError,
+    OperationJournalState,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    read_or_replay,
 )
 
 logger = get_logger(__name__)
@@ -100,14 +98,32 @@ def restore_apply(
     """Apply a plan only to the bound target after reverification and journal claim."""
     if plan.plan_token != confirmation_token:
         raise RestoreError("token_mismatch", (plan.plan_token,))
-    if plan.is_expired():
-        raise RestoreError("plan_expired", (plan.plan_token,))
 
     operation_id = _operation_id(plan)
-    stored = read_or_replay(journal, operation_id)
+    owner = OperationJournal(journal)
+    try:
+        stored = owner.replay(
+            operation_id,
+            subject=subject,
+            action="restore.apply",
+            target=plan.target.target_id,
+            plan_token=plan.plan_token,
+        )
+    except OperationJournalError as exc:
+        raise RestoreError(exc.code, exc.identifiers) from exc
     if stored is not None:
         # Exactly-once: a stored terminal result means this plan already ran.
         return _result_from_dict(stored)
+    if plan.is_expired():
+        raise RestoreError("plan_expired", (plan.plan_token,))
+
+    if tuple(plan.provider_order) != RESTORE_PROVIDER_ORDER:
+        raise RestoreError("invalid_provider_order", tuple(plan.provider_order))
+    missing = tuple(
+        provider for provider in RESTORE_PROVIDER_ORDER if contributors.get(provider) is None
+    )
+    if missing:
+        raise RestoreError("missing_restore_provider", missing)
 
     backup_set_dir = Path(plan.backup_set_dir)
     verification = (verify_fn or verify_backup_set)(backup_set_dir)
@@ -125,24 +141,21 @@ def restore_apply(
     _validate_target_planning(plan.target, backup_set_dir)
 
     try:
-        claim_operation(
-            journal,
+        owner.claim(
             operation_id=operation_id,
             subject=subject,
             action="restore.apply",
             target=plan.target.target_id,
             plan_token=plan.plan_token,
         )
-        mark_submitted(journal, operation_id)
+        owner.submit(operation_id)
     except OperationJournalError as exc:
         raise RestoreError(exc.code, exc.identifiers) from exc
 
     steps: list[RestoreStepResult] = []
     try:
         for provider in plan.provider_order:
-            contributor = contributors.get(provider)
-            if contributor is None:
-                raise RestoreError("missing_restore_provider", (provider,))
+            contributor = contributors[provider]
             artifacts = _artifacts_for(manifest, provider)
             steps.append(
                 contributor.restore(plan.target, artifacts, plan.plan_token, plan.backup_set_dir)
@@ -156,7 +169,8 @@ def restore_apply(
             operation_id,
             plan,
             steps,
-            {"reason": _safe_reason(exc)},
+            {"reason": _safe_reason(exc), "requires_manual_reconciliation": True},
+            unknown=True,
         )
 
     if not reconciliation.ok:
@@ -177,7 +191,7 @@ def restore_apply(
         steps=tuple(steps),
         reconciliation=reconciliation,
     )
-    complete_operation(journal, operation_id, result.to_dict())
+    owner.complete(operation_id, state=OperationJournalState.SUCCEEDED, result=result.to_dict())
     return result
 
 
@@ -261,9 +275,10 @@ def _failed_result(
     failure: dict[str, Any] | None,
     *,
     reconciliation: RestoreReconciliationResult | None = None,
+    unknown: bool = False,
 ) -> RestoreResult:
     result = RestoreResult(
-        state="failed",
+        state="unknown" if unknown else "failed",
         accepted=False,
         target_id=plan.target.target_id,
         plan_token=plan.plan_token,
@@ -271,7 +286,11 @@ def _failed_result(
         reconciliation=reconciliation,
         failure=failure,
     )
-    complete_operation(journal, operation_id, result.to_dict())
+    owner = OperationJournal(journal)
+    if unknown:
+        owner.unknown(operation_id, result=result.to_dict())
+    else:
+        owner.complete(operation_id, state=OperationJournalState.FAILED, result=result.to_dict())
     return result
 
 

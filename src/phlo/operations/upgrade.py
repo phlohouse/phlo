@@ -27,13 +27,10 @@ from phlo.capabilities.continuity import (
     sha256_bytes,
 )
 from phlo.operations.journal import (
+    OperationJournal,
     OperationJournalError,
+    OperationJournalState,
     OperationJournalStore,
-    claim_operation,
-    complete_operation,
-    mark_submitted,
-    mark_unknown,
-    read_or_replay,
 )
 
 UPGRADE_PLAN_SCHEMA_VERSION = "1"
@@ -219,7 +216,7 @@ class UpgradePlan:
             return True
         reference = now or datetime.now(UTC)
         if expiry.tzinfo is None or reference.tzinfo is None:
-            return False
+            return True
         return reference >= expiry
 
 
@@ -365,7 +362,8 @@ def _run_upgrade_steps(
             operation_id,
             plan,
             steps,
-            failure={"reason": redact_message(str(exc))},
+            failure={"reason": redact_message(str(exc)), "requires_manual_reconciliation": True},
+            unknown=True,
         )
     return steps, None
 
@@ -382,13 +380,23 @@ def upgrade_apply(
     validate_upgrade_pair(plan.from_version, plan.to_version)
     if plan.plan_token != confirmation_token:
         raise UpgradeError("token_mismatch", (plan.plan_token,))
-    if plan.is_expired():
-        raise UpgradeError("plan_expired", (plan.plan_token,))
 
     operation_id = _operation_id(plan)
-    stored = read_or_replay(journal, operation_id)
+    owner = OperationJournal(journal)
+    try:
+        stored = owner.replay(
+            operation_id,
+            subject=subject,
+            action="upgrade.apply",
+            target=plan.target.target_id,
+            plan_token=plan.plan_token,
+        )
+    except OperationJournalError as exc:
+        raise UpgradeError(exc.code, exc.identifiers) from exc
     if stored is not None:
         return _result_from_dict(stored)
+    if plan.is_expired():
+        raise UpgradeError("plan_expired", (plan.plan_token,))
 
     manifest = _verified_manifest(plan.backup_set_dir)
     if manifest.manifest_digest() != plan.backup_digest:
@@ -399,15 +407,14 @@ def upgrade_apply(
     _require_complete_contributors(contributors)
 
     try:
-        claim_operation(
-            journal,
+        owner.claim(
             operation_id=operation_id,
             subject=subject,
             action="upgrade.apply",
             target=plan.target.target_id,
             plan_token=plan.plan_token,
         )
-        mark_submitted(journal, operation_id)
+        owner.submit(operation_id)
     except OperationJournalError as exc:
         raise UpgradeError(exc.code, exc.identifiers) from exc
 
@@ -435,8 +442,7 @@ def upgrade_apply(
         # Migrations may have partially applied; the outcome is not decidable
         # here. Explicitly mark UNKNOWN so automatic replay is blocked and an
         # operator must reconcile by hand (never a silent automatic retry).
-        mark_unknown(journal, operation_id)
-        return UpgradeResult(
+        result = UpgradeResult(
             state="unknown",
             accepted=False,
             plan_token=plan.plan_token,
@@ -446,9 +452,11 @@ def upgrade_apply(
             reconciliation={"ok": False, "checks": checks, "reasons": reasons, "unknown": True},
             failure={"reason": redact_message(str(exc)), "requires_manual_reconciliation": True},
         )
+        owner.unknown(operation_id, result=result.to_dict())
+        return result
 
     final_result = UpgradeResult(
-        state="succeeded",
+        state="failed" if reasons else "succeeded",
         accepted=not reasons,
         plan_token=plan.plan_token,
         from_version=plan.from_version,
@@ -456,7 +464,11 @@ def upgrade_apply(
         steps=tuple(steps),
         reconciliation={"ok": not reasons, "checks": checks, "reasons": reasons},
     )
-    complete_operation(journal, operation_id, final_result.to_dict())
+    owner.complete(
+        operation_id,
+        state=OperationJournalState.FAILED if reasons else OperationJournalState.SUCCEEDED,
+        result=final_result.to_dict(),
+    )
     return final_result
 
 
@@ -519,9 +531,10 @@ def _finish_failed(
     rollback_action: str | None = None,
     forward_repair: dict[str, Any] | None = None,
     failure: dict[str, Any] | None,
+    unknown: bool = False,
 ) -> UpgradeResult:
     result = UpgradeResult(
-        state="failed",
+        state="unknown" if unknown else "failed",
         accepted=False,
         plan_token=plan.plan_token,
         from_version=plan.from_version,
@@ -531,7 +544,11 @@ def _finish_failed(
         forward_repair=forward_repair,
         failure=failure,
     )
-    complete_operation(journal, operation_id, result.to_dict())
+    owner = OperationJournal(journal)
+    if unknown:
+        owner.unknown(operation_id, result=result.to_dict())
+    else:
+        owner.complete(operation_id, state=OperationJournalState.FAILED, result=result.to_dict())
     return result
 
 

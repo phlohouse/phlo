@@ -5,7 +5,9 @@ tables for listings, performs basic schema-file syntax checks, and
 classifies schema changes as SAFE, WARNING, or BREAKING.
 """
 
+import hashlib
 import importlib
+import importlib.util
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -65,14 +67,33 @@ def _scan_schema_file(path: Path, py_file: Path, data_frame_model: type, schemas
     try:
         parts = py_file.relative_to(path.parent).parts[:-1] + (py_file.stem,)
         module_name = ".".join(parts)
-        module_parts = module_name.split(".")
-        for index in range(1, len(module_parts) + 1):
-            sys.modules.pop(".".join(module_parts[:index]), None)
 
         try:
             module = import_module(module_name)
-        except (ImportError, ModuleNotFoundError):
-            logger.debug("schema_discovery_import_failed", module_name=module_name)
+        except ModuleNotFoundError as exc:
+            # A standalone search directory need not be an importable package.
+            # Do not retry a schema whose own dependency import failed.
+            if not exc.name or not (
+                module_name == exc.name or module_name.startswith(f"{exc.name}.")
+            ):
+                raise
+            module_name = (
+                f"phlo_schema_{hashlib.sha256(str(py_file.resolve()).encode()).hexdigest()[:16]}"
+            )
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec is None or spec.loader is None:
+                return
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+
+        module_file = getattr(module, "__file__", None)
+        if module_file is None or Path(module_file).resolve() != py_file.resolve():
+            logger.warning(
+                "schema_discovery_origin_mismatch",
+                schema_file=str(py_file),
+                module_file=module_file,
+            )
             return
 
         for name, obj in inspect.getmembers(module):
@@ -104,22 +125,24 @@ def discover_pandera_schemas(
     schemas = {}
 
     for search_path in search_paths:
-        path = Path(search_path)
+        path = Path(search_path).resolve()
         if not path.exists():
             continue
 
         import_root = str(path.parent.resolve())
-        added_import_root = False
-        if import_root not in sys.path:
-            sys.path.insert(0, import_root)
-            added_import_root = True
-            importlib.invalidate_caches()
+        old_path = list(sys.path)
+        sys.path.insert(0, import_root)
 
-        # Snapshot the module cache: anything imported here is dropped again
-        # in the finally block so repeated discovery re-imports current file
-        # contents instead of serving classes cached by an earlier scan.
+        # Isolate the whole package once, including preloaded descendants.
+        # Imports share class identities within this root's discovery session;
+        # the finally block restores process imports so later sessions refresh.
         old_modules = dict(sys.modules)
         try:
+            package_name = path.name.split(".")[0]
+            for module_name in old_modules:
+                if module_name == package_name or module_name.startswith(f"{package_name}."):
+                    sys.modules.pop(module_name, None)
+            importlib.invalidate_caches()
             for py_file in path.glob("**/schemas/*.py"):
                 if py_file.name.startswith("_"):
                     continue
@@ -130,11 +153,7 @@ def discover_pandera_schemas(
             for module_name, module in old_modules.items():
                 if sys.modules.get(module_name) is not module:
                     sys.modules[module_name] = module
-            if added_import_root:
-                try:
-                    sys.path.remove(import_root)
-                except ValueError:
-                    pass
+            sys.path[:] = old_path
 
     return schemas
 

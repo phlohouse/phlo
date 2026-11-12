@@ -81,6 +81,7 @@ class DatasetStateStore(Protocol):
     def compare_and_set(
         self,
         *,
+        resource_id: str,
         writes: tuple[StoreWrite, ...],
         action_id: str,
         action: str,
@@ -91,8 +92,10 @@ class DatasetStateStore(Protocol):
         The store runs the whole batch inside one transaction (single
         serialized writer per namespace). Each write is a compare-and-set on
         its record's current state (``open`` when the record does not exist).
-        The commit records ``action_id`` and ``fingerprint`` so retries and
-        replays resolve to the committed outcome.
+        The commit records ``action_id`` and ``fingerprint`` under the request's
+        explicit ``resource_id``, independent of batch write order. Receipt
+        lookup precedes write preconditions so identical retries replay even
+        after records move. The last write remains the outcome record.
         """
         ...
 

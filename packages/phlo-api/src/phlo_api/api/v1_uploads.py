@@ -124,6 +124,7 @@ class CsvUpload(WireModel):
     reclaimed_by: str | None = None
     reclaim_reason: str | None = None
     reclaimed_bytes: int = 0
+    destination_table: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,62}$")
 
 
 class UploadReclaim(WireModel):
@@ -193,10 +194,6 @@ class CsvUploadView(CsvUpload):
     )
 
 
-def _legacy_path() -> Path:
-    return project_root() / ".phlo" / "csv-uploads.json"
-
-
 def _file_path(upload_id: str) -> Path:
     if not _ID.fullmatch(upload_id):
         raise NotFoundError("Upload was not found.")
@@ -208,10 +205,62 @@ def _file_path(upload_id: str) -> Path:
 
 
 def _records() -> list[CsvUpload]:
-    items = load_collection(project_root(), _COLLECTION, _legacy_path())
+    items = load_collection(project_root(), _COLLECTION)
     if sum(not item.get("reclaimed_at") for item in items) > MAX_UPLOADS:
         raise BackendUnavailableError("Upload collection exceeds its configured limit.")
+    if any("destination_table" not in item for item in items):
+        # Upgrade old uploads before they can be reviewed. Only the candidate
+        # owner interprets historical receipts; new reservations live here.
+        from phlo_api.api.v1_upload_ingestion import legacy_destination_tables
+
+        tables = legacy_destination_tables([CsvUpload.model_validate(item) for item in items])
+        migrated = [
+            {**item, "destination_table": tables.get(item["upload_id"])}
+            if "destination_table" not in item
+            else item
+            for item in items
+        ]
+        for item in migrated:
+            CsvUpload.model_validate(item)
+
+        def migrate(current):
+            # A concurrent reader may already have committed this exact upgrade.
+            # Any other change, including a newer review or fence, still conflicts.
+            if (current != items and current != migrated) or any(
+                set(item) - CsvUpload.model_fields.keys() for item in current
+            ):
+                raise ConflictError("Upload evidence changed during lifecycle migration.")
+            return migrated
+
+        items = mutate_collection(project_root(), _COLLECTION, migrate, require_known_state=True)
     return [CsvUpload.model_validate(item) for item in items]
+
+
+def reserve_destination(record: CsvUpload, table: str) -> CsvUpload:
+    """Freeze the exact review durably before any awaited destination preparation.
+
+    Failed or interrupted preparation retains this reservation. Only a replay
+    for the same table may proceed; neither review nor reclamation can erase it.
+    """
+    reserved = record.model_copy(update={"destination_table": table})
+
+    def reserve(items):
+        if any(set(item) - CsvUpload.model_fields.keys() for item in items):
+            raise ConflictError("Unknown upload references prevent destination preparation.")
+        current = next((item for item in items if item.get("upload_id") == record.upload_id), None)
+        if (
+            current is None
+            or CsvUpload.model_validate(current) != record
+            or record.archived_at
+            or record.reclaim_started_at
+            or record.reclaimed_at
+            or record.destination_table not in {None, table}
+        ):
+            raise ConflictError("Upload review or destination changed. Reload before preparing.")
+        return [reserved.model_dump() if item is current else item for item in items]
+
+    mutate_collection(project_root(), _COLLECTION, reserve, require_known_state=True)
+    return reserved
 
 
 def _record(request: Request, env: str, upload_id: str) -> CsvUpload:
@@ -387,7 +436,7 @@ async def v1_csv_upload_archive(
                 raise ConflictError("Upload changed before archival; reload before continuing.")
             return [updated.model_dump() if item is current else item for item in items]
 
-        mutate_collection(project_root(), _COLLECTION, _legacy_path(), archive)
+        mutate_collection(project_root(), _COLLECTION, archive)
         audit_operation(
             operation="csv_upload.archive" if payload.archived else "csv_upload.restore",
             target=upload_id,
@@ -459,7 +508,7 @@ async def v1_csv_upload(request: Request, env: Environment = Query()) -> CsvUplo
                     )
                 return [*items, record.model_dump()]
 
-            mutate_collection(project_root(), _COLLECTION, _legacy_path(), append)
+            mutate_collection(project_root(), _COLLECTION, append)
             committed = True
             _audit(auth, record, "csv_upload.retain")
             return _view(record, data)
@@ -480,10 +529,7 @@ async def v1_csv_upload_reclaim(
     auth = _upload_auth(request)
     # Serialize with launch/prepare as well as upload review/archive.
     async with ingestion.candidate_lock(env, upload_id), _UPLOAD_LOCK:
-        load_collection(project_root(), _COLLECTION, _legacy_path(), require_known_state=True)
-        load_collection(
-            project_root(), ingestion._COLLECTION, ingestion._legacy(), require_known_state=True
-        )
+        load_collection(project_root(), _COLLECTION, require_known_state=True)
         record = _record(request, env, upload_id)
         if not record.archived_at or record.checksum != payload.expected_checksum:
             raise ConflictError("Reclamation requires an archived upload and its exact checksum.")
@@ -494,13 +540,7 @@ async def v1_csv_upload_reclaim(
         path = _file_path(upload_id)
         if path.absolute() != path.resolve():
             raise ConflictError("Reclamation requires non-symlink retained upload storage.")
-        receipt = next((item for item in ingestion._all() if item.upload_id == upload_id), None)
-        if receipt and (
-            receipt.status not in {"prepared", "planned", "loaded"}
-            or (receipt.attempts and not receipt.loaded)
-            or (receipt.loaded and not receipt.snapshot_id)
-        ):
-            raise ConflictError("Unresolved candidate mutations must retain their local inputs.")
+        identities = ingestion.reclamation_targets(record)
         started = record.model_copy(
             update={
                 "reclaim_started_at": record.reclaim_started_at or datetime.now(UTC).isoformat(),
@@ -520,21 +560,11 @@ async def v1_csv_upload_reclaim(
                     raise ConflictError("Upload changed during reclamation.")
                 return [updated.model_dump() if item is current else item for item in items]
 
-            mutate_collection(
-                project_root(), _COLLECTION, _legacy_path(), change, require_known_state=True
-            )
+            mutate_collection(project_root(), _COLLECTION, change, require_known_state=True)
 
         if not record.reclaim_started_at:
             _verified_bytes(record)
         # Persist intent before unlink; interruption remains fenced and quota is not freed yet.
-        identities = (
-            [
-                (operation, f"{env}:{receipt.asset_id}@{receipt.base_ref}")
-                for operation in ("v1_materialize_asset", "v1_backfill_asset")
-            ]
-            if receipt
-            else []
-        )
         with reclamation_guard(identities):
             audit_operation(
                 operation="csv_upload.reclaim_requested",
@@ -583,10 +613,7 @@ def v1_csv_upload_review(
     if record.archived_at:
         raise ConflictError("Restore the archived upload before changing its review.")
     data = _verified_bytes(record)
-    candidates = load_collection(
-        project_root(), "v1_csv_candidates", project_root() / ".phlo/csv-candidates.json"
-    )
-    if any(item.get("upload_id") == upload_id for item in candidates):
+    if record.destination_table is not None:
         raise ConflictError(
             "This review has an immutable candidate destination. Upload again to change its recipe."
         )
@@ -625,11 +652,12 @@ def v1_csv_upload_review(
             or current.get("archived_at")
             or current.get("reclaim_started_at")
             or current.get("reclaimed_at")
+            or current.get("destination_table") is not None
             or record.version != payload.expected_version
         ):
             raise ConflictError("Upload review changed. Reload before saving column choices.")
         return [reviewed.model_dump() if item is current else item for item in items]
 
-    mutate_collection(project_root(), _COLLECTION, _legacy_path(), update, require_known_state=True)
+    mutate_collection(project_root(), _COLLECTION, update, require_known_state=True)
     _audit(auth, reviewed, "csv_upload.review")
     return _view(reviewed, data)

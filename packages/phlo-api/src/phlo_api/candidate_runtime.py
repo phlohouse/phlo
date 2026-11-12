@@ -98,13 +98,11 @@ async def _reference(ref: str) -> dict[str, Any]:
 
 
 def _records() -> list[dict[str, Any]]:
-    root = project_root()
-    return load_collection(root, _COLLECTION, root / ".phlo" / "candidate-bindings.json")
+    return load_collection(project_root(), _COLLECTION)
 
 
 def _mutate(change):
-    root = project_root()
-    return mutate_collection(root, _COLLECTION, root / ".phlo" / "candidate-bindings.json", change)
+    return mutate_collection(project_root(), _COLLECTION, change)
 
 
 def _stored(binding: dict[str, Any]) -> dict[str, Any]:
