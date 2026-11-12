@@ -144,6 +144,7 @@ def test_prepare_wap_launch_requires_project_before_creating_a_branch(monkeypatc
         ("accepted", "launched"),
         ("rejected", "launch_rejected"),
         ("transport_failure", "launch_ambiguous"),
+        ("server_failure", "launch_ambiguous"),
         ("missing_run_id", "launch_ambiguous"),
         ("manifest_failure", "branch_created"),
     ],
@@ -153,6 +154,7 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
 ) -> None:
     catalog = _Catalog()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "operations"))
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.get_settings", lambda: SimpleNamespace(phlo_project="warehouse")
     )
@@ -184,8 +186,10 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
             assert tags["dagster/partition"] == "2025-06-19"
             assert tags["phlo/wap_binding"] == launch.binding_checksum
             payload = (
-                {"__typename": "PythonError", "message": "launch rejected"}
+                {"__typename": "RunConfigValidationInvalid", "message": "launch rejected"}
                 if outcome == "rejected"
+                else {"__typename": "PythonError", "message": "server failed"}
+                if outcome == "server_failure"
                 else {
                     "__typename": "LaunchRunSuccess",
                     "run": {
