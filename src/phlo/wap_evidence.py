@@ -186,6 +186,11 @@ class WapEvidence:
                 "cleanup_complete",
             }:
                 continue
+            if (
+                report.get("cleanup_state") == "cleanup_complete"
+                and report.get("status") != "promoted"
+            ):
+                continue
             if report.get("status") == "promoted" and report.get("delivery_complete") is True:
                 continue
             run_id = report.get("dagster_run_id")

@@ -29,6 +29,88 @@ def launch_journal(tmp_path, monkeypatch):
     monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "journal"))
 
 
+def test_materialize_with_empty_journal_does_not_duplicate_an_unbound_run(monkeypatch):
+    async def post(self, url, json=None, headers=None):
+        assert "ExistingMaterializationRun" in json["query"], "must not submit another run"
+        tags = {tag["key"]: tag["value"] for tag in json["variables"]["filter"]["tags"]}
+        runs = [] if "phlo/launch_request" in tags else [{"runId": "existing", "status": "STARTED"}]
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={"data": {"runsOrError": {"__typename": "Runs", "results": runs}}},
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    request = dict(
+        dagster_url="http://dagster.test/graphql",
+        asset_key_path="silver/orders",
+        job_name="orders_job",
+        idempotency_key="existing-key",
+    )
+    with pytest.raises(RuntimeError, match="reconciliation required"):
+        asyncio.run(launch_materialize(**request))
+    with pytest.raises(RuntimeError, match="unknown"):
+        asyncio.run(launch_materialize(**request))
+
+
+@pytest.mark.parametrize("expiry_scan", [False, True])
+def test_materialize_expired_unsubmitted_claim_returns_a_durable_rejection(
+    tmp_path, monkeypatch, expiry_scan
+):
+    from dataclasses import replace
+
+    from phlo.operations.journal import OperationJournal
+    from phlo.operations.journal_store import FileOperationJournalStore
+
+    async def post(*args, **kwargs):
+        pytest.fail("an unsubmitted expired claim must not contact Dagster")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    class InterruptedStore(FileOperationJournalStore):
+        def claim(self, entry):
+            assert super().claim(replace(entry, claim_expiry="2000-01-01T00:00:00+00:00"))
+            raise RuntimeError("interrupted before submission")
+
+    request = dict(
+        dagster_url="http://dagster.invalid/graphql",
+        asset_key_path="silver/orders",
+        job_name="orders_job",
+        idempotency_key="interrupted-key",
+    )
+    directory = tmp_path / "interrupted-journal"
+    with pytest.raises(RuntimeError, match="interrupted before submission"):
+        asyncio.run(launch_materialize(**request, journal_store=InterruptedStore(directory)))
+    if expiry_scan:
+        OperationJournal(FileOperationJournalStore(directory)).claim(
+            operation_id="unrelated",
+            subject="another endpoint",
+            action="materialize_asset",
+            target="another target",
+            plan_token="another request",
+        )
+    with pytest.raises(RuntimeError, match="binding_mismatch"):
+        asyncio.run(
+            launch_materialize(
+                **{**request, "job_name": "different_job"},
+                journal_store=FileOperationJournalStore(directory),
+            )
+        )
+    result = asyncio.run(
+        launch_materialize(**request, journal_store=FileOperationJournalStore(directory))
+    )
+    assert result.accepted is False
+    assert result.status == "NOT_SUBMITTED"
+    assert "expired" in result.message
+    assert result.run_id is None
+    assert (
+        asyncio.run(
+            launch_materialize(**request, journal_store=FileOperationJournalStore(directory))
+        )
+        == result
+    )
+
+
 @pytest.mark.parametrize("visible", [False, True])
 def test_materialize_claim_prevents_concurrent_duplicate_submission(monkeypatch, visible):
     launches = 0
@@ -46,7 +128,9 @@ def test_materialize_claim_prevents_concurrent_duplicate_submission(monkeypatch,
         async def fake_post(self, url, json=None, headers=None):
             nonlocal launches
             if "ExistingMaterializationRun" in json["query"]:
-                runs = [{"runId": "physical-1", "status": "STARTED"}] if visible else []
+                runs = (
+                    [{"runId": "physical-1", "status": "STARTED"}] if visible and launches else []
+                )
                 data = {"runsOrError": {"__typename": "Runs", "results": runs}}
             else:
                 launches += 1
@@ -510,8 +594,7 @@ def test_wap_materialize_reconciles_a_lost_response_without_a_duplicate_launch(
     assert reconciled.run_id == "dagster-run"
     assert reconciled.status == "STARTED"
     assert reconciled.details["reconciled"] is True
-    assert len(lookup_filters) == 1
-    lookup_tags = {tag["key"]: tag["value"] for tag in lookup_filters[0]["tags"]}
+    lookup_tags = {tag["key"]: tag["value"] for tag in lookup_filters[-1]["tags"]}
     assert lookup_tags["phlo/operation"] == "materialize_asset"
     assert lookup_tags["phlo/idempotency_key"] == "request-42"
     assert len(lookup_tags["phlo/launch_request"]) == 64

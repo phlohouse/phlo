@@ -494,6 +494,10 @@ def _run_wap_backfill(
                         )
                     )
                 except WapLaunchError as exc:
+                    if exc.rejected:
+                        raise WapLifecycleTerminalError(
+                            f"WAP partition {partition_date} was not submitted: {exc}"
+                        ) from exc
                     lifecycle["phase"] = "submission_unknown"
                     if exc.run_id:
                         lifecycle["dagster_run_id"] = exc.run_id

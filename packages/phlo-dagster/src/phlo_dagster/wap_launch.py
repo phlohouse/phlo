@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass, replace
+import errno
 import hashlib
 import json
 import os
@@ -33,7 +34,7 @@ from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 from phlo.wap_evidence import WapEvidence
 import phlo.telemetry as phlo_observe
-from phlo_dagster.operations import launch_materialize
+from phlo_dagster.operations import MaterializationNotSubmitted, launch_materialize
 from phlo_dagster.wap_context import (
     WAP_BINDING_TAG,
     WapContext,
@@ -229,7 +230,12 @@ def wap_lifecycle_lock(path: Path, *, blocking: bool = True) -> Iterator[None]:
             handle.write(b"\0")
             handle.flush()
             handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                if not blocking and exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise BlockingIOError(exc.errno, "WAP lifecycle lock is already held") from exc
+                raise
         else:
             import fcntl
 
@@ -240,9 +246,10 @@ def wap_lifecycle_lock(path: Path, *, blocking: bool = True) -> Iterator[None]:
 class WapLaunchError(RuntimeError):
     """Submission failed, optionally after Dagster accepted a physical run."""
 
-    def __init__(self, message: str, *, run_id: str | None = None) -> None:
+    def __init__(self, message: str, *, run_id: str | None = None, rejected: bool = False) -> None:
         super().__init__(message)
         self.run_id = run_id
+        self.rejected = rejected
 
 
 async def submit_wap_launch(
@@ -274,12 +281,15 @@ async def submit_wap_launch(
             idempotency_key=launch.logical_run_id,
             tags=launch.tags,
         )
+    except MaterializationNotSubmitted as exc:
+        launch.record_launch_result(status="launch_rejected", error=str(exc))
+        raise WapLaunchError(str(exc), rejected=True) from exc
     except Exception as exc:
         launch.record_launch_result(status="launch_ambiguous", error=str(exc))
         raise WapLaunchError(f"WAP launch outcome is ambiguous: {exc}") from exc
     if not result.accepted:
         launch.record_launch_result(status="launch_rejected", error=result.message)
-        raise WapLaunchError(result.message)
+        raise WapLaunchError(result.message, rejected=True)
     if not result.run_id:
         launch.record_launch_result(status="launch_ambiguous", error="Dagster returned no run ID")
         raise WapLaunchError(

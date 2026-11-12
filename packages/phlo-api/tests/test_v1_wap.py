@@ -271,7 +271,12 @@ def test_real_launch_report_writer_is_compatible(wap_api, strict):
     assert {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in root.rglob("*.json")} == before
     assert not write_wap_report("prod-one", status="promoted")
     assert write_wap_report(
-        "prod-one", status="promoted", merge_state="merged", source_deleted=True
+        "prod-one",
+        status="promoted",
+        merge_state="merged",
+        source_deleted=True,
+        source_hash="audited-source",
+        target_hash_after="published-target",
     )
     item = client.get("/api/v1/wap/runs?env=prod").json()["items"][0]
     assert item["lifecycle_status"] == "promoted"

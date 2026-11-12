@@ -326,8 +326,10 @@ def test_adapter_uses_shared_launch_journal_without_local_fallback(monkeypatch, 
     async def details(key):
         return {"has_materialize_permission": True, "op_names": [key]}
 
-    async def graphql(*args, **kwargs):
+    async def graphql(url, query, variables=None, **kwargs):
         nonlocal launches
+        if "ExistingMaterializationRun" in query:
+            return {"data": {"runsOrError": {"__typename": "Runs", "results": []}}}
         launches += 1
         return {
             "data": {

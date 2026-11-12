@@ -22,6 +22,7 @@ from phlo.operations.journal import (
     OperationJournalError,
     OperationJournalState,
     OperationJournalStore,
+    expire_claim,
 )
 from phlo.operations.journal_store import FileOperationJournalStore
 from phlo.security.mode import requires_http_authorization
@@ -141,6 +142,10 @@ class DagsterOperationResult:
         }
 
 
+class MaterializationNotSubmitted(RuntimeError):
+    """Report a definitive local failure before submission is possible."""
+
+
 async def find_materialization_run(
     *,
     dagster_url: str,
@@ -257,7 +262,7 @@ async def _journaled_materialization(
     if store is None:
         directory = get_process_settings().phlo_operations_journal_dir
         if not directory:
-            raise RuntimeError(
+            raise MaterializationNotSubmitted(
                 "Keyed materialization requires PHLO_OPERATIONS_JOURNAL_DIR or a shared journal store"
             )
         store = FileOperationJournalStore(directory)
@@ -277,6 +282,7 @@ async def _journaled_materialization(
             raise
         return await _replay_materialization(
             journal=journal,
+            store=store,
             operation_id=operation_id,
             binding=binding,
             dagster_url=dagster_url,
@@ -290,6 +296,16 @@ async def _journaled_materialization(
     )
     journal.submit(operation_id)
     try:
+        existing = await find_materialization_run(
+            dagster_url=dagster_url,
+            idempotency_key=idempotency_key,
+            access_token=access_token,
+        )
+        if existing is not None:
+            raise RuntimeError(
+                "Dagster already has a run for this key without a journal receipt; "
+                "reconciliation required"
+            )
         response = await _graphql(
             dagster_url,
             LAUNCH_PIPELINE_EXECUTION_MUTATION,
@@ -333,6 +349,7 @@ async def _journaled_materialization(
 async def _replay_materialization(
     *,
     journal: OperationJournal,
+    store: OperationJournalStore,
     operation_id: str,
     binding: dict[str, str],
     dagster_url: str,
@@ -341,6 +358,34 @@ async def _replay_materialization(
     partition_key: str | None,
     access_token: str | None,
 ) -> DagsterOperationResult:
+    entry = store.read(operation_id)
+    # Only an expired CLAIMED record proves that no provider submission began.
+    # Keep its operation id terminal; a new attempt must use a new key.
+    if entry is not None and (
+        expire_claim(entry) != entry or journal.replay_block_reason(entry) == "claim_expired"
+    ):
+        result = DagsterOperationResult(
+            operation="materialize_asset",
+            dry_run=False,
+            accepted=False,
+            asset_key_path=asset_key_path,
+            partition_key=partition_key,
+            status="NOT_SUBMITTED",
+            message="Materialization claim expired before submission; use a new operation key.",
+        )
+        try:
+            # Check the request binding before changing the claimed record.
+            journal.replay(operation_id, **binding)
+        except OperationJournalError as exc:
+            if exc.code == "claim_expired":
+                return result
+            if exc.code != "operation_in_progress":
+                raise
+            try:
+                journal.reject(operation_id, result=result.to_dict())
+            except OperationJournalError as conflict:
+                if conflict.code != "invalid_transition":
+                    raise
     try:
         receipt = journal.replay(operation_id, **binding)
     except OperationJournalError as exc:
