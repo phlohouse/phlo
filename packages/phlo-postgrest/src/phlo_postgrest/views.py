@@ -284,17 +284,24 @@ COMMENT ON VIEW {self.api_schema}.{model.name} IS '{self._escape_string(model.de
         return sql
 
     def generate_permissions_sql(self, model: DbtModel) -> str:
-        """Generate GRANT statements for a model by mapping dbt tags to roles
-        ('public' -> anon, 'analyst' -> analyst/admin, 'admin' -> admin).
+        """Reconcile managed SELECT grants from the model's current dbt tags.
+
+        The generator owns anon, analyst, and admin grants on these views.
+        Revoke them before granting the desired set, including when all
+        recognised exposure tags have been removed. Other roles are untouched.
 
         Example:
             >>> sql = generator.generate_permissions_sql(model)
             >>> print(sql)
+            REVOKE SELECT ON api.mrt_orders FROM anon, analyst, admin;
             GRANT SELECT ON api.mrt_orders TO analyst;
             GRANT SELECT ON api.mrt_orders TO admin;
 
         """
-        sql_parts = ["\n-- Permissions"]
+        sql_parts = [
+            "\n-- Permissions",
+            f"REVOKE SELECT ON {self.api_schema}.{model.name} FROM anon, analyst, admin;",
+        ]
 
         # Map tags to roles
         role_mapping = {
