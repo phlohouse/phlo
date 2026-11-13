@@ -1,9 +1,9 @@
 """Lifecycle-aware registration helpers for discovered plugins.
 
-Replacement ordering guarantee: the incoming plugin initializes before the
-existing one is cleaned up, and any failure path re-raises with the registry
-never left holding a half-initialized plugin.
-Imported by phlo.plugins.discovery._plugin_loading to register plugins with lifecycle safety.
+The registry lock serializes replacement and publication. Incoming initialization
+leaves the existing provider ready. Cleanup first withdraws its registration;
+failed cleanup or publication restores the old instance only after recovery.
+Imported by phlo.plugins.discovery._plugin_loading.
 """
 
 from __future__ import annotations
@@ -46,132 +46,138 @@ def _emit_lifecycle_signal(
 
 
 def register_plugin_with_lifecycle(plugin_type: str, plugin: Plugin, replace: bool = True) -> None:
-    """Register a plugin, running its lifecycle hooks with rollback safeguards.
+    """Publish a ready provider, or recover the old provider before republishing it.
 
-    Replacement ordering guarantee: the incoming plugin initializes before the
-    existing one is cleaned up, so a failed initialization leaves the previously
-    registered instance untouched and still serving. If ``registry.register``
-    fails after the old instance was already cleaned up, this attempts to
-    restore it via ``initialize({})`` (best effort) and cleans up the incoming
-    instance, then re-raises. Either way the caller observes an exception and
-    never a registry containing a half-initialized plugin.
+    A failed incoming initialize leaves the old provider untouched. Once cleanup
+    starts, its outcome is not assumed reversible: recovery must succeed before
+    the old provider becomes available again. Failed recovery leaves it absent.
+    Readers and replacements share the registry lock. References already handed
+    to callers are not leases and cannot be revoked by this registry.
     """
     registry = get_global_registry()
-    existing_plugin = registry.get(plugin_type, plugin.metadata.name)
-
-    if existing_plugin and not replace:
-        raise ValueError(
-            f"Plugin '{plugin.metadata.name}' of type '{plugin_type}' is already registered. "
-            "Use replace=True to overwrite."
-        )
-
-    try:
-        plugin.initialize({})
-        _emit_lifecycle_signal(
-            event_name="plugin_lifecycle_initialize_succeeded",
-            level="debug",
-            plugin_type=plugin_type,
-            plugin_name=plugin.metadata.name,
-            lifecycle_phase="incoming_plugin_initialize",
-            replace=replace,
-        )
-    except Exception as exc:
-        _emit_lifecycle_signal(
-            event_name="plugin_lifecycle_initialize_failed",
-            level="error",
-            plugin_type=plugin_type,
-            plugin_name=plugin.metadata.name,
-            lifecycle_phase="incoming_plugin_initialize",
-            replace=replace,
-            error=exc,
-        )
+    with registry._lock:
+        name = plugin.metadata.name
+        existing_plugin = registry.get(plugin_type, name)
+        if existing_plugin and not replace:
+            raise ValueError(
+                f"Plugin '{name}' of type '{plugin_type}' is already registered. "
+                "Use replace=True to overwrite."
+            )
+        if existing_plugin is plugin:
+            return
         try:
-            plugin.cleanup()
+            plugin.initialize({})
             _emit_lifecycle_signal(
-                event_name="plugin_lifecycle_cleanup_succeeded",
-                level="info",
-                plugin_type=plugin_type,
-                plugin_name=plugin.metadata.name,
-                lifecycle_phase="incoming_plugin_cleanup",
-                replace=replace,
-                reason="initialize_failed",
-            )
-        except Exception as cleanup_exc:
-            _emit_lifecycle_signal(
-                event_name="plugin_lifecycle_cleanup_failed",
-                level="error",
-                plugin_type=plugin_type,
-                plugin_name=plugin.metadata.name,
-                lifecycle_phase="incoming_plugin_cleanup",
-                replace=replace,
-                reason="initialize_failed",
-                error=cleanup_exc,
-            )
-            logger.warning(
-                "plugin_cleanup_after_initialize_failed",
-                plugin_type=plugin_type,
-                plugin_name=plugin.metadata.name,
-                exc_info=True,
-            )
-        raise
-
-    existing_cleaned = False
-    existing_plugin_name = existing_plugin.metadata.name if existing_plugin else None
-    try:
-        if existing_plugin and replace:
-            existing_plugin.cleanup()
-            _emit_lifecycle_signal(
-                event_name="plugin_lifecycle_cleanup_succeeded",
+                event_name="plugin_lifecycle_initialize_succeeded",
                 level="debug",
                 plugin_type=plugin_type,
-                plugin_name=existing_plugin_name or plugin.metadata.name,
-                lifecycle_phase="existing_plugin_cleanup",
+                plugin_name=name,
+                lifecycle_phase="incoming_plugin_initialize",
                 replace=replace,
-                reason="replacement",
-                target_plugin_name=plugin.metadata.name,
             )
-            existing_cleaned = True
-        registry.register(plugin_type, plugin, replace=replace)
-    except Exception:
-        if existing_cleaned:
-            assert existing_plugin is not None
+        except Exception as exc:
+            _emit_lifecycle_signal(
+                event_name="plugin_lifecycle_initialize_failed",
+                level="error",
+                plugin_type=plugin_type,
+                plugin_name=name,
+                lifecycle_phase="incoming_plugin_initialize",
+                replace=replace,
+                error=exc,
+            )
             try:
-                existing_plugin.initialize({})
+                plugin.cleanup()
                 _emit_lifecycle_signal(
-                    event_name="plugin_lifecycle_initialize_succeeded",
-                    level="debug",
+                    event_name="plugin_lifecycle_cleanup_succeeded",
+                    level="info",
                     plugin_type=plugin_type,
-                    plugin_name=existing_plugin_name or plugin.metadata.name,
-                    lifecycle_phase="existing_plugin_recovery_initialize",
+                    plugin_name=name,
+                    lifecycle_phase="incoming_plugin_cleanup",
                     replace=replace,
-                    reason="registration_failed_rollback",
-                    target_plugin_name=plugin.metadata.name,
+                    reason="initialize_failed",
                 )
-            except Exception as recovery_exc:
+            except Exception as cleanup_exc:
                 _emit_lifecycle_signal(
-                    event_name="plugin_lifecycle_initialize_failed",
+                    event_name="plugin_lifecycle_cleanup_failed",
                     level="error",
                     plugin_type=plugin_type,
-                    plugin_name=existing_plugin_name or plugin.metadata.name,
-                    lifecycle_phase="existing_plugin_recovery_initialize",
+                    plugin_name=name,
+                    lifecycle_phase="incoming_plugin_cleanup",
                     replace=replace,
-                    reason="registration_failed_rollback",
-                    target_plugin_name=plugin.metadata.name,
-                    error=recovery_exc,
+                    reason="initialize_failed",
+                    error=cleanup_exc,
                 )
-                logger.error(
-                    "plugin_recovery_initialize_failed",
+                logger.warning(
+                    "plugin_cleanup_after_initialize_failed",
                     plugin_type=plugin_type,
-                    plugin_name=plugin.metadata.name,
+                    plugin_name=name,
                     exc_info=True,
                 )
+            raise
+
+        cleanup_started = False
         try:
-            plugin.cleanup()
+            if existing_plugin:
+                registry.remove(plugin_type, name)
+                # Another family can still own this instance. Do not close its resources.
+                if not any(item is existing_plugin for item in registry.iter_plugins()):
+                    cleanup_started = True
+                    existing_plugin.cleanup()
+                    _emit_lifecycle_signal(
+                        event_name="plugin_lifecycle_cleanup_succeeded",
+                        level="debug",
+                        plugin_type=plugin_type,
+                        plugin_name=name,
+                        lifecycle_phase="existing_plugin_cleanup",
+                        replace=replace,
+                        reason="replacement",
+                        target_plugin_name=name,
+                    )
+            registry.register(plugin_type, plugin, replace=replace)
         except Exception:
-            logger.warning(
-                "plugin_cleanup_after_registration_failed",
-                plugin_type=plugin_type,
-                plugin_name=plugin.metadata.name,
-                exc_info=True,
-            )
-        raise
+            # A publishing error may have updated an index before raising.
+            registry.remove(plugin_type, name)
+            if existing_plugin:
+                try:
+                    if cleanup_started:
+                        existing_plugin.initialize({})
+                        _emit_lifecycle_signal(
+                            event_name="plugin_lifecycle_initialize_succeeded",
+                            level="debug",
+                            plugin_type=plugin_type,
+                            plugin_name=name,
+                            lifecycle_phase="existing_plugin_recovery_initialize",
+                            replace=replace,
+                            reason="registration_failed_rollback",
+                            target_plugin_name=name,
+                        )
+                    registry.register(plugin_type, existing_plugin, replace=True)
+                except Exception as recovery_exc:
+                    registry.remove(plugin_type, name)
+                    _emit_lifecycle_signal(
+                        event_name="plugin_lifecycle_initialize_failed",
+                        level="error",
+                        plugin_type=plugin_type,
+                        plugin_name=name,
+                        lifecycle_phase="existing_plugin_recovery_initialize",
+                        replace=replace,
+                        reason="registration_failed_rollback",
+                        target_plugin_name=name,
+                        error=recovery_exc,
+                    )
+                    logger.error(
+                        "plugin_recovery_initialize_failed",
+                        plugin_type=plugin_type,
+                        plugin_name=name,
+                        exc_info=True,
+                    )
+            try:
+                plugin.cleanup()
+            except Exception:
+                logger.warning(
+                    "plugin_cleanup_after_registration_failed",
+                    plugin_type=plugin_type,
+                    plugin_name=name,
+                    exc_info=True,
+                )
+            raise

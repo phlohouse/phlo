@@ -151,14 +151,6 @@ class _FakeDriver:
 
 
 @pytest.fixture
-def fresh_schema_cache():
-    """Reset the class-wide schema cache so bootstrap branches stay reachable."""
-    LineageStore._schema_initialized = False
-    yield
-    LineageStore._schema_initialized = False
-
-
-@pytest.fixture
 def stub_schema_setup(monkeypatch) -> list[LineageStore]:
     """Replace migration execution with a call recorder."""
     calls: list[LineageStore] = []
@@ -171,7 +163,7 @@ def stub_schema_setup(monkeypatch) -> list[LineageStore]:
 
 
 @pytest.fixture
-def driver(monkeypatch, fresh_schema_cache, stub_schema_setup) -> _FakeDriver:
+def driver(monkeypatch, stub_schema_setup) -> _FakeDriver:
     """Install the fake psycopg2 module and batch helper into the store package."""
     fake_driver = _FakeDriver()
 
@@ -196,8 +188,9 @@ def driver(monkeypatch, fresh_schema_cache, stub_schema_setup) -> _FakeDriver:
 @pytest.fixture
 def ready_store(driver) -> LineageStore:
     """Store with a warm schema cache: operations emit only their own SQL."""
-    LineageStore._schema_initialized = True
-    return LineageStore(LINEAGE_DSN)
+    store = LineageStore(LINEAGE_DSN)
+    store._schema_initialized = True
+    return store
 
 
 class TestGenerateRowId:
@@ -255,7 +248,12 @@ class TestSchemaBootstrap:
         self, driver, stub_schema_setup
     ):
         driver.script_fetchone(
-            ("phlo.asset_lineage_nodes", "phlo.asset_lineage_edges", "phlo.column_lineage")
+            (
+                "phlo.asset_lineage_nodes",
+                "phlo.asset_lineage_edges",
+                "phlo.column_lineage",
+                "phlo.row_lineage",
+            )
         )
         store = LineageStore(LINEAGE_DSN)
 
@@ -299,7 +297,7 @@ class TestSchemaBootstrap:
         assert stub_schema_setup == [store]
         assert driver.statements[0].params[0] == "01KC7SKJE0PROBEFAIL"
 
-    def test_warm_cache_skips_probe_for_subsequent_stores(self, driver, stub_schema_setup):
+    def test_each_database_is_initialized_independently(self, driver, stub_schema_setup):
         driver.script_fetchone((None, None, None))
         first = LineageStore(LINEAGE_DSN)
         first.record_row("01KC7SKJE0ONE", "bronze.orders", "dlt")
@@ -307,16 +305,53 @@ class TestSchemaBootstrap:
         second = LineageStore("postgresql://other-dsn")
         second.record_row("01KC7SKJE0TWO", "silver.orders", "dbt")
 
-        assert stub_schema_setup == [first]
-        # Second store opens exactly one connection (its insert), no probe.
-        assert len(driver.connections) == 3
-        assert driver.statements[2].params == (
+        assert stub_schema_setup == [first, second]
+        assert len(driver.connections) == 4
+        assert driver.statements[3].params == (
             "01KC7SKJE0TWO",
             "silver.orders",
             "dbt",
             None,
             None,
         )
+
+    @pytest.mark.parametrize(
+        "method", ["get_row", "get_ancestors", "get_descendants", "get_table_rows"]
+    )
+    def test_row_read_first_initializes_schema(self, driver, stub_schema_setup, method):
+        store = LineageStore(LINEAGE_DSN)
+        getattr(store, method)("missing")
+        assert stub_schema_setup == [store]
+
+    def test_missing_row_table_requires_migration(self, driver, stub_schema_setup, monkeypatch):
+        import re
+
+        available = {"phlo.asset_lineage_nodes", "phlo.asset_lineage_edges", "phlo.column_lineage"}
+
+        def probe():
+            relations = re.findall(r"to_regclass\('([^']+)'\)", driver.statements[-1].sql)
+            return tuple(name if name in available else None for name in relations)
+
+        monkeypatch.setattr(driver, "next_fetchone", probe)
+        store = LineageStore(LINEAGE_DSN)
+        store.record_row("row-1", "orders")
+        assert stub_schema_setup == [store]
+
+    def test_failed_setup_propagates_and_remains_retryable(self, driver, monkeypatch):
+        store = LineageStore(LINEAGE_DSN)
+
+        def fail_setup(self):
+            raise RuntimeError("already exists, transaction aborted")
+
+        successful_setup = LineageStore.setup_schema
+        monkeypatch.setattr(LineageStore, "setup_schema", fail_setup)
+        with pytest.raises(RuntimeError, match="transaction aborted"):
+            store.record_row("row-1", "orders")
+        assert driver.total_affected == 0
+        monkeypatch.setattr(LineageStore, "setup_schema", successful_setup)
+        driver.script_affected(-1, 1)
+        store.record_row("row-1", "orders")
+        assert driver.total_affected == 1
 
 
 class TestRecordRow:
@@ -480,7 +515,12 @@ class TestAssetEdges:
 
     def test_cold_schema_probe_is_separate_from_owned_event_connection(self, driver):
         driver.script_fetchone(
-            ("phlo.asset_lineage_nodes", "phlo.asset_lineage_edges", "phlo.column_lineage")
+            (
+                "phlo.asset_lineage_nodes",
+                "phlo.asset_lineage_edges",
+                "phlo.column_lineage",
+                "phlo.row_lineage",
+            )
         )
 
         assert LineageStore(LINEAGE_DSN).record_asset_edges([("a", "b")]) == 1

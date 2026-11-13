@@ -15,9 +15,9 @@ Example:
     >>> row_id = generate_row_id()
     >>> store.record_row(row_id, "bronze.orders", "dlt")
 
-The schema is auto-created on first use via SQL migration files, guarded by a
-class-level schema initialization flag for performance, pools connections via
-psycopg2 context managers, and stores flexible metadata in JSONB columns.
+The schema is auto-created on first use via SQL migration files. Each store
+tracks readiness for its own database connection and stores metadata in JSONB
+columns.
 """
 
 from __future__ import annotations
@@ -192,13 +192,10 @@ class LineageStore:
         >>> ancestors = store.get_ancestors("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
     Schema initialization is lazy: the first operation on any LineageStore
-    instance creates the schema if it is missing. A class-level flag skips the
-    check after the first success. The flag is not lock-protected, so concurrent
-    initializations may race, but migrations use IF NOT EXISTS and "already
-    exists" errors are treated as success.
+    instance creates the schema if it is missing. Readiness belongs to that
+    instance's fixed database connection. Failed setup remains retryable and
+    propagates to the caller. PostgreSQL serializes concurrent migration attempts.
     """
-
-    _schema_initialized: bool = False
 
     def __init__(self, connection_string: str):
         """Initialize a LineageStore instance.
@@ -209,43 +206,30 @@ class LineageStore:
         Example:
             >>> store = LineageStore("postgresql://user:pass@localhost:5432/dagster")
         """
-        self.connection_string = connection_string
+        self._connection_string = connection_string
+        self._schema_initialized = False
+        self._schema_lock = Lock()
+
+    @property
+    def connection_string(self) -> str:
+        """Fixed database identity; use a new store to connect elsewhere."""
+        return self._connection_string
 
     def _ensure_schema(self) -> None:
-        """Ensure the lineage schema exists, creating it if necessary.
-
-        Called automatically before any database operation. Uses a class-level flag to
-        ensure schema initialization only happens once per process, even with multiple
-        LineageStore instances: it checks the flag, verifies schema existence via
-        to_regclass queries, executes all SQL migration files in order when missing,
-        and handles race conditions gracefully (duplicate creation attempts). Raises
-        Exception if schema creation fails for reasons other than already-exists
-        conditions; warnings are logged for errors. This is an internal method called
-        automatically by public methods, so manual invocation is not required.
-        """
-        if LineageStore._schema_initialized:
-            return
-
-        if self._schema_exists():
-            LineageStore._schema_initialized = True
-            return
-
-        try:
-            self.setup_schema()
-            LineageStore._schema_initialized = True
-        except Exception as e:
-            if self._schema_exists() or "already exists" in str(e).lower():
-                LineageStore._schema_initialized = True
-            else:
-                logger.warning("lineage_schema_init_failed", error=str(e))
+        """Publish readiness only after this database is verified or setup succeeds."""
+        with self._schema_lock:
+            if self._schema_initialized:
+                return
+            if not self._schema_exists():
+                self.setup_schema()
+            self._schema_initialized = True
 
     def _schema_exists(self) -> bool:
         """Check if the lineage schema tables exist.
 
-        Verifies existence of the three core lineage tables (phlo.asset_lineage_nodes,
-        phlo.asset_lineage_edges, phlo.column_lineage) using PostgreSQL's to_regclass
-        function, which returns the OID if the relation exists. Returns True only when
-        all three exist. Connection errors are caught internally and result in False
+        Verifies the asset nodes, asset edges, column lineage, and row lineage
+        tables using PostgreSQL's to_regclass function. Returns True only when
+        all four exist. Connection errors are caught internally and result in False
         rather than propagating.
         """
         try:
@@ -256,7 +240,8 @@ class LineageStore:
                         SELECT
                             to_regclass('phlo.asset_lineage_nodes'),
                             to_regclass('phlo.asset_lineage_edges'),
-                            to_regclass('phlo.column_lineage')
+                            to_regclass('phlo.column_lineage'),
+                            to_regclass('phlo.row_lineage')
                         """
                     )
                     result = cur.fetchone()
@@ -286,8 +271,9 @@ class LineageStore:
 
         with closing(psycopg2.connect(self.connection_string)) as conn, conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext('phlo.lineage.schema'))")
                 for sql_file in sql_files:
-                    cur.execute(sql_file.read_text())
+                    cur.execute(sql_file.read_text(encoding="utf-8"))
             conn.commit()
 
         logger.info("lineage_schema_setup_complete", migration_count=len(sql_files))
@@ -797,6 +783,7 @@ class LineageStore:
             >>> if row:
             ...     print(f"Found in table: {row['table_name']}")
         """
+        self._ensure_schema()
         with psycopg2.connect(self.connection_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -838,6 +825,7 @@ class LineageStore:
             >>> for ancestor in ancestors:
             ...     print(f"Derived from: {ancestor['table_name']}")
         """
+        self._ensure_schema()
         with psycopg2.connect(self.connection_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -903,6 +891,7 @@ class LineageStore:
             >>> for descendant in descendants:
             ...     print(f"Used in: {descendant['table_name']}")
         """
+        self._ensure_schema()
         with psycopg2.connect(self.connection_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -959,6 +948,7 @@ class LineageStore:
             >>> rows = store.get_table_rows("bronze.orders", limit=10)
             >>> print(f"Recent rows: {len(rows)}")
         """
+        self._ensure_schema()
         with psycopg2.connect(self.connection_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(

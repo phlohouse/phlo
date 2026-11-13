@@ -105,6 +105,8 @@ class AlertingHookPlugin(HookPlugin):
             message=message,
             severity=severity,
             asset_name=event.asset_key,
+            run_id=event.correlation.run_id,
+            event_id=event.event_id,
         )
         logger.info(
             "alerting_quality_alert_send",
@@ -132,6 +134,8 @@ class AlertingHookPlugin(HookPlugin):
             message=str(event.payload or event.value or ""),
             severity=_map_telemetry_severity(event.level),
             asset_name=event.tags.get("asset"),
+            run_id=event.correlation.run_id,
+            event_id=event.event_id,
         )
         logger.info(
             "alerting_telemetry_alert_send",
