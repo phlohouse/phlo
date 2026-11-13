@@ -83,6 +83,7 @@ from phlo_dagster.wap_launch import (
     WAP_BRANCH_TAG,
     WAP_CATALOG_SYSTEM_TAG,
     WAP_RUN_ID_TAG,
+    WAP_STRATEGY_BRANCH,
     WAP_STRATEGY_SNAPSHOT,
     write_wap_report,
 )
@@ -173,6 +174,23 @@ def _load_snapshot_promotion_catalog() -> SnapshotPromotionCatalog:
             "WAP snapshot sensors require a SnapshotPromotionCatalog-compatible provider."
         )
     return provider
+
+
+def _wap_disabled_skip(strategy: str | None = None) -> dg.SkipReason | None:
+    """Skip a tick while project policy disables WAP or selects another strategy.
+
+    Code locations load definitions once, so the sensors stay registered and
+    honour the current ``phlo.yaml`` on every tick instead of at load time.
+    """
+    import phlo.infrastructure
+
+    phlo.infrastructure.clear_config_cache()
+    config = phlo.infrastructure.load_wap_config()
+    if not config.enabled:
+        return dg.SkipReason("WAP is disabled in phlo.yaml")
+    if strategy is not None and config.strategy != strategy:
+        return dg.SkipReason(f"WAP strategy is {config.strategy!r}, not {strategy!r}")
+    return None
 
 
 def _load_wap_catalog():
@@ -1068,6 +1086,8 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
     warnings.
 
     """
+    if (skip := _wap_disabled_skip()) is not None:
+        return skip
     instance = context.instance
     from phlo.infrastructure import load_wap_config
 
@@ -1211,6 +1231,8 @@ def wap_branch_cleanup_sensor(context: dg.SensorEvaluationContext):
     identity; the physical Dagster run ID is used only for status.
 
     """
+    if (skip := _wap_disabled_skip(WAP_STRATEGY_BRANCH)) is not None:
+        return skip
     catalog = _load_versioned_catalog()
     query_catalog_manager = _load_ref_query_catalog_manager()
 
@@ -1417,6 +1439,8 @@ def wap_candidate_cleanup_sensor(context: dg.SensorEvaluationContext):
     tag, mirroring the branch cleanup sensor. Candidate namespaces of runs
     that are active, ambiguous, or uncorrelated are retained for audit.
     """
+    if (skip := _wap_disabled_skip(WAP_STRATEGY_SNAPSHOT)) is not None:
+        return skip
     catalog = _load_snapshot_promotion_catalog()
     retention_cutoff = datetime.now(timezone.utc) - timedelta(hours=DEFAULT_RETENTION_HOURS)
 
@@ -1518,27 +1542,17 @@ def get_wap_definitions() -> dg.Definitions:
     """Return Dagster definitions for the WAP lifecycle sensors.
 
     Merge into your project definitions to enable automated Write-Audit-Publish.
-    The cleanup sensor matches the configured strategy: branch retention for
-    versioned catalogs, candidate-namespace retention for snapshot promotion.
+    Both cleanup sensors are registered; each tick runs only the one the current
+    ``wap.strategy`` selects: branch retention for versioned catalogs,
+    candidate-namespace retention for snapshot promotion.
 
     """
-    from phlo.infrastructure import load_wap_config
-
-    strategy = load_wap_config().strategy
-    cleanup_sensor = (
-        wap_candidate_cleanup_sensor
-        if strategy == WAP_STRATEGY_SNAPSHOT
-        else wap_branch_cleanup_sensor
-    )
-    logger.info(
-        "dagster_wap_definitions_built",
-        sensor_count=2,
-        strategy=strategy,
-    )
+    logger.info("dagster_wap_definitions_built", sensor_count=3)
     return dg.Definitions(
         sensors=[
             wap_auto_promotion_sensor,
-            cleanup_sensor,
+            wap_branch_cleanup_sensor,
+            wap_candidate_cleanup_sensor,
         ],
     )
 

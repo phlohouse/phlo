@@ -4,9 +4,10 @@ Primary entry point for building Dagster Definitions in Phlo projects: loads
 configuration and logging, discovers user workflows from the configured
 ``workflows/`` directory, merges in Dagster extensions collected from plugins
 (via the ``phlo.plugins.dagster`` entry point group), adds WAP sensors when
-the catalog capability supports refs, and ensures core resources such as
-Trino. WAP sensors require a ``VersionedCatalog`` provider; incompatible or
-unavailable providers log warnings instead of raising.
+the catalog capability supports a WAP strategy (each tick honours the current
+``wap`` policy), and ensures core resources such as Trino. WAP sensors require
+a ``VersionedCatalog`` or ``SnapshotPromotionCatalog`` provider; incompatible
+or unavailable providers log warnings instead of raising.
 
 Executor selection honors the ``PHLO_FORCE_IN_PROCESS_EXECUTOR`` and
 ``PHLO_FORCE_MULTIPROCESS_EXECUTOR`` overrides first, then falls back to
@@ -43,7 +44,6 @@ from phlo.capabilities.registry import get_capability_registry
 from phlo.capabilities.resolver import resolve_capability
 from phlo.config.process import get_process_settings
 from phlo.exceptions import PhloCapabilitySetupError
-from phlo.infrastructure import load_wap_config
 from phlo_dagster.framework import assembly
 from phlo_dagster.framework.discovery import discover_user_workflows
 from phlo_dagster.asset_diagnostics import merge_definitions_with_duplicate_diagnostics
@@ -77,35 +77,39 @@ def _default_trino_resource() -> Any | None:
 
 
 def _collect_wap_definitions() -> dg.Definitions | None:
-    """Load WAP sensors when a catalog capability matching the strategy is available."""
-    wap_config = load_wap_config()
-    if not wap_config.enabled:
-        logger.info("dagster_wap_definitions_disabled_by_project_policy")
-        return None
+    """Load WAP sensors when a catalog capability matching the strategy is available.
 
+    The shared code server builds definitions once, so neither ``wap.enabled``
+    nor ``wap.strategy`` gates registration: each sensor tick re-reads both and
+    skips when WAP is disabled or the strategy selects another sensor. Changing
+    either in ``phlo.yaml`` therefore needs no code reload. Registration only
+    requires a catalog that supports some WAP strategy.
+    """
     resolution = resolve_capability("catalog")
     if resolution is None:
         return None
 
-    if wap_config.strategy == "snapshot":
-        # Snapshot promotion catalogs deliberately do not implement branch
-        # semantics; they must expose snapshot-based release promotion.
-        if not (resolution.support.supports_promote and resolution.support.supports_snapshots):
-            return None
-        provider_ok = isinstance(resolution.provider, SnapshotPromotionCatalog)
-    else:
-        if not (resolution.support.supports_refs and resolution.support.supports_promote):
-            return None
-        provider_ok = isinstance(resolution.provider, VersionedCatalog)
-
+    support = resolution.support
     provider = resolution.provider
-    if not provider_ok:
-        logger.warning(
-            "dagster_wap_catalog_provider_incompatible",
-            capability_name=resolution.name,
-            provider_type=type(provider).__name__,
-            strategy=wap_config.strategy,
-        )
+    # Snapshot promotion catalogs deliberately do not implement branch
+    # semantics; they must expose snapshot-based release promotion instead.
+    branch_ok = (
+        support.supports_refs
+        and support.supports_promote
+        and isinstance(provider, VersionedCatalog)
+    )
+    snapshot_ok = (
+        support.supports_promote
+        and support.supports_snapshots
+        and isinstance(provider, SnapshotPromotionCatalog)
+    )
+    if not (branch_ok or snapshot_ok):
+        if support.supports_promote and (support.supports_refs or support.supports_snapshots):
+            logger.warning(
+                "dagster_wap_catalog_provider_incompatible",
+                capability_name=resolution.name,
+                provider_type=type(provider).__name__,
+            )
         return None
 
     try:

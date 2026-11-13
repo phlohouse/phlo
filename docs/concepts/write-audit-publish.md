@@ -97,6 +97,8 @@ wap:
   repository_location_name: warehouse-code
 ```
 
+The promotion and cleanup sensors are registered whenever a compatible catalog is installed. Each tick reads `wap.enabled` from `phlo.yaml` and skips while it is false, so enabling or disabling WAP needs no code-location reload.
+
 From the project directory, use `phlo materialize <asset-name> --environment stage`, or supply `--environment stage` to `phlo backfill`. Omitting the option selects `default_environment`. An explicit selection authorises the configured target; backend availability never selects another environment. An unknown environment is an error, not a fallback to `main`. The selected ref must already exist.
 
 ### Supported routing boundary
