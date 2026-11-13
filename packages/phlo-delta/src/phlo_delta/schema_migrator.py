@@ -178,13 +178,6 @@ class DeltaSchemaMigrator:
                 )
             )
 
-        current_names = {field.name for field in current_fields}
-        if any(
-            field.name not in current_names and (not field.nullable or field.default is not None)
-            for field in desired.fields
-        ):
-            raise ValueError("Delta schema apply supports only nullable columns without defaults")
-
         plan = plan_schema_migration(
             table_name=table_name,
             current=NormalizedSchema(fields=current_fields),
@@ -233,7 +226,11 @@ class DeltaSchemaMigrator:
         for change in plan.changes:
             if change.change_type not in self.supported_changes():
                 raise ValueError(f"Unsupported Delta schema change: {change.change_type}")
-            if change.classification != "safe":
+            if (
+                not change.new_nullable
+                or change.new_default is not None
+                or change.classification != "safe"
+            ):
                 raise ValueError(
                     "Delta schema apply supports only nullable columns without defaults"
                 )

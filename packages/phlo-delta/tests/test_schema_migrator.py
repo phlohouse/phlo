@@ -1,5 +1,8 @@
 """Schema-only migrations preserve real Delta data and reject rewrite operations."""
 
+import json
+from dataclasses import asdict
+
 import pyarrow as pa
 import pytest
 from deltalake import DeltaTable, write_deltalake
@@ -97,14 +100,39 @@ def test_invalid_plans_are_rejected_before_any_change(delta_table: str) -> None:
     assert table.to_pyarrow_table().to_pydict() == {"id": [3, 17], "value": ["alpha", "omega"]}
 
 
-def test_add_constraints_are_not_silently_lost(delta_table: str) -> None:
-    for field in (
+@pytest.mark.parametrize(
+    "field",
+    [
         FieldSpec("source", "string", nullable=False),
         FieldSpec("source", "string", default="import"),
-    ):
-        desired = NormalizedSchema(
-            fields=[FieldSpec("id", "int64"), FieldSpec("value", "string"), field]
-        )
-        with pytest.raises(ValueError, match="nullable columns without defaults"):
-            DeltaSchemaMigrator().diff_schema(table_name="raw.events", desired=desired)
+        FieldSpec("source", "int64", default=0),
+    ],
+)
+def test_add_constraints_are_planned_but_not_silently_lost(delta_table: str, field) -> None:
+    desired = NormalizedSchema(
+        fields=[FieldSpec("id", "int64"), FieldSpec("value", "string"), field]
+    )
+    migrator = DeltaSchemaMigrator()
+    plan = migrator.diff_schema(table_name="raw.events", desired=desired)
+    assert plan.changes[0].new_nullable == field.nullable
+    assert plan.changes[0].new_default == field.default
+    saved = json.loads(json.dumps(asdict(plan)))
+    saved["changes"] = [SchemaChange(**change) for change in saved["changes"]]
+    restored = SchemaMigrationPlan(**saved)
+    with pytest.raises(ValueError, match="nullable columns without defaults"):
+        migrator.apply_plan(plan=restored, approved=True)
+    assert DeltaTable(delta_table).version() == 0
+
+
+def test_rename_target_constraint_does_not_prevent_diff(delta_table: str) -> None:
+    from phlo.schema_migration.planning import SchemaMigrationInstructions
+
+    plan = DeltaSchemaMigrator().diff_schema(
+        table_name="raw.events",
+        desired=NormalizedSchema(
+            fields=[FieldSpec("id", "int64"), FieldSpec("renamed", "string", nullable=False)]
+        ),
+        instructions=SchemaMigrationInstructions(renames={"value": "renamed"}),
+    )
+    assert {change.change_type for change in plan.changes} == {"rename", "nullability_tightened"}
     assert DeltaTable(delta_table).version() == 0

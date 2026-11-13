@@ -88,7 +88,7 @@ def _group_policy_names(rows: list[dict[str, Any]]) -> set[str]:
     names: set[str] = set()
     for row in rows:
         result = row["result"]
-        mappings = (result.get("groupPolicyMappings") or []) + (result.get("policyMappings") or [])
+        mappings = result.get("groupMappings") or []
         for mapping in mappings:
             policies = mapping.get("policies")
             if policies is None and "policy" in mapping:
@@ -242,8 +242,10 @@ class MinioGovernanceBackend:
         """Conservatively simulate the group's policies, with explicit Deny precedence.
 
         Only unconditional Action/Resource statements with literal or * and ?
-        patterns are supported. Unsupported IAM constructs, unreadable policies,
-        or malformed evidence return False, never an affirmative access claim.
+        patterns can affirm access. Conditional statements for other actions or
+        resources are irrelevant; a matching condition cannot be verified.
+        Unsupported IAM constructs, unreadable policies, or malformed evidence
+        return False, never an affirmative access claim.
         This is not an attestation of a live MinIO request or user policies.
         """
         target_arn = table_name if table_name.startswith("arn:") else f"arn:aws:s3:::{table_name}"
@@ -286,6 +288,7 @@ class MinioGovernanceBackend:
                 "Effect",
                 "Action",
                 "Resource",
+                "Condition",
             }:
                 raise ValueError("Unsupported IAM statement")
             effect = statement.get("Effect")
@@ -296,6 +299,8 @@ class MinioGovernanceBackend:
             if not any(_iam_matches(pattern.lower(), action.lower()) for pattern in actions):
                 continue
             if any(_iam_matches(pattern, arn) for pattern in resources):
+                if "Condition" in statement:
+                    raise ValueError("Cannot verify a matching conditional IAM statement")
                 if effect == "Deny":
                     return "Deny"
                 allowed = True

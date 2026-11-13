@@ -553,8 +553,10 @@ class _PolicyMcRunner:
         if operation == "entities":
             if "--policy" in tokens:
                 name = tokens[tokens.index("--policy") + 1]
-                mappings = [{"group": group} for group in self.groups.get(name, set())]
+                mappings = [{"policy": name, "groups": sorted(self.groups.get(name, set()))}]
+                key = "policyMappings"
             else:
+                key = "groupMappings"
                 group = tokens[tokens.index("--group") + 1]
                 mappings = [
                     {
@@ -564,7 +566,7 @@ class _PolicyMcRunner:
                         ],
                     }
                 ]
-            return json.dumps({"result": {"groupPolicyMappings": mappings}})
+            return json.dumps({"result": {key: mappings}})
         name = tokens[5]
         if operation == "info":
             if name in self.unreadable:
@@ -629,6 +631,28 @@ class TestMinioCompiler:
         assert "s3:PutObject" not in actions
         resources = {resource for stmt in document["Statement"] for resource in stmt["Resource"]}
         assert resources == {"arn:aws:s3:::lake", "arn:aws:s3:::lake/lake/orders*"}
+
+    def test_compiled_grant_can_verify_object_access_with_conditional_bucket_listing(self) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        artifact = MinioCompiler().compile(
+            _rbac([_policy("p1", "dataset.read", "dataset", "lake.orders")]), _ctx("minio")
+        )[0]
+        backend = MinioGovernanceBackend(runner=_PolicyMcRunner({}, {}))
+        backend.apply_policy(
+            policy=AccessPolicy(
+                policy_id=artifact.name, principal="analyst", table_pattern=artifact.statement
+            )
+        )
+        assert backend.check_access(
+            principal="analyst", table_name="lake/lake/orders/one", action="s3:GetObject"
+        )
+        assert not backend.check_access(
+            principal="analyst", table_name="lake/lake/other/one", action="s3:GetObject"
+        )
+        assert not backend.check_access(
+            principal="analyst", table_name="lake", action="s3:ListBucket"
+        )
 
     def test_dataset_write_includes_put_and_delete(self) -> None:
         rbac = _rbac([_policy("p1", "dataset.write", "dataset", "lake.orders")])
@@ -1028,8 +1052,11 @@ class TestMinioGovernanceBackend:
                 "policy entities": json.dumps(
                     {
                         "result": {
-                            "groupPolicyMappings": [
-                                {"policies": ["phlo_phlo_analyst__lake_orders"]}
+                            "groupMappings": [
+                                {
+                                    "group": "phlo_analyst",
+                                    "policies": ["phlo_phlo_analyst__lake_orders"],
+                                }
                             ]
                         }
                     }
