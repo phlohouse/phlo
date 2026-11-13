@@ -629,6 +629,7 @@ def test_get_wap_definitions_only_registers_post_run_sensors():
     assert sensor_names == {
         "wap_auto_promotion_sensor",
         "wap_branch_cleanup_sensor",
+        "wap_candidate_cleanup_sensor",
     }
 
 

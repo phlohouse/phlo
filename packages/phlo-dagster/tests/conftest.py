@@ -29,6 +29,8 @@ def synthetic_wap_context(monkeypatch):
     import phlo.infrastructure
 
     context = wap_context.WapContext("test", "main", "phlo_dagster", "a" * 64)
+    # Sensors re-read project policy each tick; these fakes model enabled WAP.
+    monkeypatch.setattr(wap_sensors, "_wap_disabled_skip", lambda *_: None)
     monkeypatch.setattr(
         wap_context,
         "select_wap_target",
