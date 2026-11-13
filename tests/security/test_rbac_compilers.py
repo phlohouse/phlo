@@ -7,7 +7,9 @@ apply/revoke/list/check_access behavior through fakes.
 
 from __future__ import annotations
 
+import base64
 import json
+import shlex
 from typing import Any, cast
 
 import pytest
@@ -518,6 +520,81 @@ class _FakeMcRunner:
         return ""
 
 
+class _PolicyMcRunner:
+    """Model remote documents and attachments at the mc subprocess boundary."""
+
+    def __init__(self, documents=None, groups=None) -> None:
+        self.documents = (
+            documents
+            if documents is not None
+            else {
+                "phlo_orders": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": "s3:GetObject",
+                            "Resource": "arn:aws:s3:::lake/*",
+                        }
+                    ],
+                }
+            }
+        )
+        self.groups = groups if groups is not None else {"phlo_orders": {"old"}}
+        self.fail_create = False
+        self.fail_detach = False
+        self.unreadable: set[str] = set()
+
+    def __call__(self, script: str) -> str:
+        tokens = shlex.split(script.split(" && ")[-1])
+        operation = tokens[3]
+        if operation == "list":
+            return "\n".join(json.dumps({"policy": name}) for name in self.documents)
+        if operation == "entities":
+            if "--policy" in tokens:
+                name = tokens[tokens.index("--policy") + 1]
+                mappings = [{"policy": name, "groups": sorted(self.groups.get(name, set()))}]
+                key = "policyMappings"
+            else:
+                key = "groupMappings"
+                group = tokens[tokens.index("--group") + 1]
+                mappings = [
+                    {
+                        "group": group,
+                        "policies": [
+                            name for name, groups in self.groups.items() if group in groups
+                        ],
+                    }
+                ]
+            return json.dumps({"result": {key: mappings}})
+        name = tokens[5]
+        if operation == "info":
+            if name in self.unreadable:
+                raise RuntimeError("policy unavailable")
+            return json.dumps({"policyDocument": self.documents[name]})
+        if operation == "create":
+            if self.fail_create:
+                raise RuntimeError("create refused")
+            prefix = shlex.split(script.split(" | ")[0].split(" && ")[-1])
+            encoded = prefix[1] if prefix[0] == "echo" else prefix[2]
+            self.documents[name] = json.loads(base64.b64decode(encoded))
+        elif operation == "remove":
+            self.documents.pop(name, None)
+            self.groups.pop(name, None)
+        elif operation in {"attach", "detach"}:
+            if operation == "detach" and self.fail_detach:
+                raise RuntimeError("detach refused")
+            group = tokens[tokens.index("--group") + 1]
+            groups = self.groups.setdefault(name, set())
+            if operation == "attach":
+                groups.add(group)
+            else:
+                groups.discard(group)
+        else:
+            raise AssertionError(script)
+        return ""
+
+
 class _FakeMinioGovernanceBackend:
     def __init__(self, rows: list[dict[str, Any]] | None = None) -> None:
         self.applied: list[AccessPolicy] = []
@@ -554,6 +631,28 @@ class TestMinioCompiler:
         assert "s3:PutObject" not in actions
         resources = {resource for stmt in document["Statement"] for resource in stmt["Resource"]}
         assert resources == {"arn:aws:s3:::lake", "arn:aws:s3:::lake/lake/orders*"}
+
+    def test_compiled_grant_can_verify_object_access_with_conditional_bucket_listing(self) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        artifact = MinioCompiler().compile(
+            _rbac([_policy("p1", "dataset.read", "dataset", "lake.orders")]), _ctx("minio")
+        )[0]
+        backend = MinioGovernanceBackend(runner=_PolicyMcRunner({}, {}))
+        backend.apply_policy(
+            policy=AccessPolicy(
+                policy_id=artifact.name, principal="analyst", table_pattern=artifact.statement
+            )
+        )
+        assert backend.check_access(
+            principal="analyst", table_name="lake/lake/orders/one", action="s3:GetObject"
+        )
+        assert not backend.check_access(
+            principal="analyst", table_name="lake/lake/other/one", action="s3:GetObject"
+        )
+        assert not backend.check_access(
+            principal="analyst", table_name="lake", action="s3:ListBucket"
+        )
 
     def test_dataset_write_includes_put_and_delete(self) -> None:
         rbac = _rbac([_policy("p1", "dataset.write", "dataset", "lake.orders")])
@@ -702,63 +801,109 @@ class TestMinioCompiler:
 
 
 class TestMinioGovernanceBackend:
-    def test_apply_creates_and_attaches_policy(self) -> None:
+    @pytest.mark.parametrize("existing", [False, True])
+    def test_apply_reconciles_document_and_attachments(self, existing: bool) -> None:
         from phlo_minio.governance import MinioGovernanceBackend
 
-        runner = _FakeMcRunner()
+        runner = _PolicyMcRunner() if existing else _PolicyMcRunner({}, {})
         backend = MinioGovernanceBackend(runner=runner)
-        document = {"Version": "2012-10-17", "Statement": []}
-        backend.apply_policy(
-            policy=AccessPolicy(
-                policy_id="phlo_phlo_analyst__lake_orders",
-                principal="phlo_analyst",
-                table_pattern=json.dumps(document),
-                action="policy_doc",
-                effect="ALLOW",
-            )
+        document = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "s3:GetObject",
+                    "Resource": "arn:aws:s3:::lake/orders/*",
+                }
+            ],
+        }
+        policy = AccessPolicy(
+            policy_id="phlo_orders",
+            principal="analyst",
+            table_pattern=json.dumps(document),
+            action="policy_doc",
+            effect="ALLOW",
         )
-
-        assert len(runner.scripts) == 4
-        assert runner.scripts[0] == (
-            "mc admin policy entities local --policy phlo_phlo_analyst__lake_orders --json"
-        )
-        assert runner.scripts[1] == (
-            "mc admin policy remove local phlo_phlo_analyst__lake_orders >/dev/null 2>&1 || true"
-        )
-        assert "base64 -d" in runner.scripts[2]
-        assert "mc admin policy create local phlo_phlo_analyst__lake_orders" in runner.scripts[2]
-        assert runner.scripts[3] == (
-            "mc admin policy attach local phlo_phlo_analyst__lake_orders --group phlo_analyst"
-        )
-
-    def test_apply_repairs_wrong_attachment(self) -> None:
-        from phlo_minio.governance import MinioGovernanceBackend
-
-        runner = _FakeMcRunner(
-            outputs={
-                "policy entities": json.dumps(
-                    {"result": {"groupPolicyMappings": [{"group": "phlo_other", "policies": []}]}}
-                )
+        backend.apply_policy(policy=policy)
+        backend.apply_policy(policy=policy)
+        assert backend.list_policies() == [
+            {
+                "policy_name": "phlo_orders",
+                "role": "analyst",
+                "document": json.dumps(document, sort_keys=True),
             }
+        ]
+        assert backend.check_access(
+            principal="analyst", table_name="lake/orders/one", action="s3:GetObject"
         )
-        backend = MinioGovernanceBackend(runner=runner)
-        backend.apply_policy(
-            policy=AccessPolicy(
-                policy_id="phlo_phlo_analyst__lake_orders",
-                principal="phlo_analyst",
-                table_pattern='{"Version": "2012-10-17", "Statement": []}',
-                action="policy_doc",
-                effect="ALLOW",
-            )
+        assert not backend.check_access(
+            principal="old", table_name="lake/orders/one", action="s3:GetObject"
+        )
+        assert not backend.check_access(
+            principal="analyst", table_name="lake/other/one", action="s3:GetObject"
         )
 
-        assert runner.scripts[1] == (
-            "mc admin policy detach local phlo_phlo_analyst__lake_orders --group phlo_other"
+    @pytest.mark.parametrize("replacement", ["{broken", "[]", '{"Statement": 3}'])
+    def test_invalid_replacement_preserves_previous_policy(self, replacement: str) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        runner = _PolicyMcRunner()
+        backend = MinioGovernanceBackend(runner=runner)
+        previous = backend.list_policies()
+        with pytest.raises(ValueError):
+            backend.apply_policy(
+                policy=AccessPolicy(
+                    policy_id="phlo_orders",
+                    principal="analyst",
+                    table_pattern=replacement,
+                    action="policy_doc",
+                    effect="ALLOW",
+                )
+            )
+        assert backend.list_policies() == previous
+        assert backend.check_access(
+            principal="old", table_name="lake/orders/one", action="s3:GetObject"
         )
-        assert "policy remove" in runner.scripts[2]
-        assert runner.scripts[-1] == (
-            "mc admin policy attach local phlo_phlo_analyst__lake_orders --group phlo_analyst"
+
+    def test_failed_create_preserves_policy_and_partial_attachment_can_reconcile(self) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        runner = _PolicyMcRunner()
+        backend = MinioGovernanceBackend(runner=runner)
+        previous = backend.list_policies()
+        document = {
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "s3:GetObject",
+                    "Resource": "arn:aws:s3:::lake/orders/*",
+                }
+            ]
+        }
+        policy = AccessPolicy(
+            policy_id="phlo_orders",
+            principal="analyst",
+            table_pattern=json.dumps(document),
+            action="policy_doc",
+            effect="ALLOW",
         )
+        runner.fail_create = True
+        with pytest.raises(RuntimeError, match="create refused"):
+            backend.apply_policy(policy=policy)
+        assert backend.list_policies() == previous
+        runner.fail_create = False
+        runner.fail_detach = True
+        with pytest.raises(RuntimeError, match="detach refused"):
+            backend.apply_policy(policy=policy)
+        runner.fail_detach = False
+        backend.apply_policy(policy=policy)
+        assert backend.list_policies() == [
+            {
+                "policy_name": "phlo_orders",
+                "role": "analyst",
+                "document": json.dumps(document, sort_keys=True),
+            }
+        ]
 
     def test_apply_rejects_unmanaged_name(self) -> None:
         from phlo_minio.governance import MinioGovernanceBackend
@@ -907,8 +1052,11 @@ class TestMinioGovernanceBackend:
                 "policy entities": json.dumps(
                     {
                         "result": {
-                            "groupPolicyMappings": [
-                                {"policies": ["phlo_phlo_analyst__lake_orders"]}
+                            "groupMappings": [
+                                {
+                                    "group": "phlo_analyst",
+                                    "policies": ["phlo_phlo_analyst__lake_orders"],
+                                }
                             ]
                         }
                     }
@@ -926,6 +1074,98 @@ class TestMinioGovernanceBackend:
             principal="phlo_analyst",
             table_name="arn:aws:s3:::lake/lake/orders/part-1",
             action="s3:PutObject",
+        )
+
+    @pytest.mark.parametrize(
+        "separate, reverse", [(False, False), (False, True), (True, False), (True, True)]
+    )
+    def test_explicit_deny_wins_across_all_policies(self, separate, reverse) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        allow = {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::lake/*"}
+        deny = {
+            "Effect": "Deny",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::lake/orders/*",
+        }
+        statements = [deny, allow] if reverse else [allow, deny]
+        documents = (
+            {f"phlo_{i}": {"Statement": [statement]} for i, statement in enumerate(statements)}
+            if separate
+            else {"phlo_both": {"Statement": statements}}
+        )
+        runner = _PolicyMcRunner(documents, {name: {"analyst"} for name in documents})
+        backend = MinioGovernanceBackend(runner=runner)
+        assert not backend.check_access(
+            principal="analyst", table_name="lake/orders/one", action="s3:GetObject"
+        )
+        assert backend.check_access(
+            principal="analyst", table_name="lake/other/one", action="s3:GetObject"
+        )
+
+    @pytest.mark.parametrize(
+        "unsupported",
+        [
+            {"Condition": {"StringEquals": {"s3:prefix": "private/"}}},
+            {"NotAction": "s3:PutObject"},
+            {"NotResource": "arn:aws:s3:::private/*"},
+            {"Principal": "*"},
+        ],
+    )
+    def test_simulation_refuses_unsupported_iam_constructs(self, unsupported) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        statement = {
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::lake/*",
+            **unsupported,
+        }
+        runner = _PolicyMcRunner(
+            {"phlo_custom": {"Statement": [statement]}}, {"phlo_custom": {"analyst"}}
+        )
+        assert not MinioGovernanceBackend(runner=runner).check_access(
+            principal="analyst", table_name="lake/orders/one", action="s3:GetObject"
+        )
+
+    def test_unreadable_policy_cannot_hide_a_deny(self) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        runner = _PolicyMcRunner()
+        runner.documents["phlo_unknown"] = {
+            "Statement": [{"Effect": "Deny", "Action": "*", "Resource": "*"}]
+        }
+        runner.groups["phlo_unknown"] = {"old"}
+        runner.unreadable.add("phlo_unknown")
+        assert not MinioGovernanceBackend(runner=runner).check_access(
+            principal="old", table_name="lake/orders/one", action="s3:GetObject"
+        )
+
+    @pytest.mark.parametrize(
+        "pattern, target, expected",
+        [
+            ("part-?", "part-1", True),
+            ("part-?", "part-12", False),
+            ("part-[12]", "part-1", False),
+            ("part-[12]", "part-[12]", True),
+        ],
+    )
+    def test_simulation_matches_iam_wildcards_not_shell_character_classes(
+        self, pattern, target, expected
+    ) -> None:
+        from phlo_minio.governance import MinioGovernanceBackend
+
+        document = {
+            "Statement": [
+                {"Effect": "Allow", "Action": "s3:Get*", "Resource": f"arn:aws:s3:::lake/{pattern}"}
+            ]
+        }
+        runner = _PolicyMcRunner({"phlo_read": document}, {"phlo_read": {"analyst"}})
+        assert (
+            MinioGovernanceBackend(runner=runner).check_access(
+                principal="analyst", table_name=f"lake/{target}", action="s3:GetObject"
+            )
+            is expected
         )
 
     def test_probe(self) -> None:
