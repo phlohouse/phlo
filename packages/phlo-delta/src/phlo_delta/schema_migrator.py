@@ -2,7 +2,8 @@
 
 This module provides schema migration capabilities for Delta Lake tables,
 including schema diffing, migration planning, and schema change application.
-It supports add, drop, rename, type widening/narrowing, and nullability changes.
+It applies nullable column additions as metadata-only commits. Operations
+requiring data rewrites are reported by diffing but cannot be applied here.
 
 Example:
     from phlo_delta.schema_migrator import DeltaSchemaMigrator
@@ -17,11 +18,11 @@ Example:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, cast
+from typing import Any
 
 import pyarrow as pa
 
-from phlo.capabilities.specs import FieldSpec, NormalizedSchema, SchemaChange, SchemaMigrationPlan
+from phlo.capabilities.specs import FieldSpec, NormalizedSchema, SchemaMigrationPlan
 from phlo.hooks.emitters import SchemaMigrationEventContext, SchemaMigrationEventEmitter
 from phlo.logging import get_logger
 from phlo.schema_migration.planning import (
@@ -105,9 +106,8 @@ def _dtype_to_arrow_type(dtype: str) -> pa.DataType:
 class DeltaSchemaMigrator:
     """SchemaMigrator backed by Delta Lake tables.
 
-    Implements schema comparison, migration planning, and change application,
-    supporting field addition, removal, renaming, type changes, and
-    nullability adjustments.
+    Compares schemas and plans changes. Apply supports only metadata-only,
+    nullable column additions without defaults, preserving all existing rows.
 
     Example:
         migrator = DeltaSchemaMigrator()
@@ -118,20 +118,12 @@ class DeltaSchemaMigrator:
     """
 
     def supported_changes(self) -> set[str]:
-        """Return the set of change types supported natively by Delta Lake.
+        """Return changes this migrator can apply without rewriting data.
 
-        Covers add, drop, rename, widen/narrow type, and both nullability
-        directions.
+        Only nullable columns without defaults are supported. Other operations
+        require a separately planned and validated data rewrite.
         """
-        return {
-            "add",
-            "drop",
-            "rename",
-            "widen_type",
-            "narrow_type",
-            "nullability_relaxed",
-            "nullability_tightened",
-        }
+        return {"add"}
 
     def classify_change(self, change_type: str, **details: Any) -> str:
         """Classify a change with Delta-specific overrides.
@@ -174,7 +166,7 @@ class DeltaSchemaMigrator:
         opts = _default_storage_options()
 
         dt = DeltaTable(table_uri, storage_options=opts)
-        current_schema = cast(Any, dt.schema()).to_pyarrow()
+        current_schema = pa.schema(dt.schema().to_arrow())
 
         current_fields: list[FieldSpec] = []
         for field in current_schema:
@@ -185,6 +177,13 @@ class DeltaSchemaMigrator:
                     nullable=field.nullable,
                 )
             )
+
+        current_names = {field.name for field in current_fields}
+        if any(
+            field.name not in current_names and (not field.nullable or field.default is not None)
+            for field in desired.fields
+        ):
+            raise ValueError("Delta schema apply supports only nullable columns without defaults")
 
         plan = plan_schema_migration(
             table_name=table_name,
@@ -225,83 +224,39 @@ class DeltaSchemaMigrator:
                 f"Plan for {plan.table_name} contains breaking changes and requires approval."
             )
 
+        if not plan.changes:
+            return {"status": "applied", "applied_count": 0, "changes_applied": []}
+
         from deltalake import DeltaTable
+        from deltalake.schema import Field
 
-        table_uri = _resolve_table_uri(plan.table_name)
-        opts = _default_storage_options()
-
-        dt = DeltaTable(table_uri, storage_options=opts)
-        current_schema = cast(Any, dt.schema()).to_pyarrow()
-
-        new_fields: list[pa.Field] = list(current_schema)
-        applied: list[str] = []
-
-        applied_changes: list[SchemaChange] = []
         for change in plan.changes:
-            if change.change_type == "add":
-                arrow_type = _dtype_to_arrow_type(change.new_value or "string")
-                new_fields.append(pa.field(change.field_name, arrow_type, nullable=True))
-                applied.append(f"add:{change.field_name}")
-                applied_changes.append(change)
-            elif change.change_type == "drop":
-                new_fields = [f for f in new_fields if f.name != change.field_name]
-                applied.append(f"drop:{change.field_name}")
-                applied_changes.append(change)
-            elif change.change_type == "rename":
-                old_name = change.old_value or change.field_name
-                new_name = change.new_value or change.field_name
-                new_fields = [
-                    pa.field(new_name, f.type, nullable=f.nullable) if f.name == old_name else f
-                    for f in new_fields
-                ]
-                applied.append(f"rename:{change.field_name}")
-                applied_changes.append(change)
-            elif change.change_type in {"widen_type", "narrow_type"}:
-                arrow_type = _dtype_to_arrow_type(change.new_value or "string")
-                new_fields = [
-                    pa.field(f.name, arrow_type, nullable=f.nullable)
-                    if f.name == change.field_name
-                    else f
-                    for f in new_fields
-                ]
-                applied.append(f"{change.change_type}:{change.field_name}")
-                applied_changes.append(change)
-            elif change.change_type == "nullability_relaxed":
-                new_fields = [
-                    pa.field(f.name, f.type, nullable=True) if f.name == change.field_name else f
-                    for f in new_fields
-                ]
-                applied.append(f"nullability_relaxed:{change.field_name}")
-                applied_changes.append(change)
-            elif change.change_type == "nullability_tightened":
-                new_fields = [
-                    pa.field(f.name, f.type, nullable=False) if f.name == change.field_name else f
-                    for f in new_fields
-                ]
-                applied.append(f"nullability_tightened:{change.field_name}")
-                applied_changes.append(change)
+            if change.change_type not in self.supported_changes():
+                raise ValueError(f"Unsupported Delta schema change: {change.change_type}")
+            if change.classification != "safe":
+                raise ValueError(
+                    "Delta schema apply supports only nullable columns without defaults"
+                )
 
-        new_schema = pa.schema(new_fields)
-
-        empty = pa.table(
-            {field.name: pa.array([], type=field.type) for field in new_schema},
-            schema=new_schema,
+        dt = DeltaTable(
+            _resolve_table_uri(plan.table_name), storage_options=_default_storage_options()
         )
+        names = set(pa.schema(dt.schema().to_arrow()).names)
+        fields = []
+        for change in plan.changes:
+            if change.field_name in names:
+                raise ValueError(f"Delta column already exists: {change.field_name}")
+            names.add(change.field_name)
+            fields.append(
+                Field.from_arrow(
+                    pa.field(change.field_name, _dtype_to_arrow_type(change.new_value or "string"))
+                )
+            )
 
-        from deltalake import write_deltalake
-
-        # The schema change is committed by writing an empty table with
-        # mode="overwrite", schema_mode="overwrite": Delta records the new
-        # schema as the latest table version. Note that an overwrite commit
-        # replaces the table contents, so existing rows are not carried through
-        # this call.
-        write_deltalake(
-            table_uri,
-            empty,
-            mode="overwrite",
-            schema_mode="overwrite",
-            storage_options=opts,
-        )
+        # One metadata commit preserves every data file. Never emulate a schema
+        # change with an overwrite, even for an empty plan or approved rewrite.
+        dt.alter.add_columns(fields)
+        applied = [f"add:{change.field_name}" for change in plan.changes]
         logger.info(
             "delta_schema_migration_applied",
             table_name=plan.table_name,
@@ -316,7 +271,7 @@ class DeltaSchemaMigrator:
             status="applied",
             classification=plan.classification,
             change_count=len(applied),
-            changes=[asdict(c) for c in applied_changes],
+            changes=[asdict(c) for c in plan.changes],
         )
 
         return {
