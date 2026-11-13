@@ -727,22 +727,16 @@ def test_catalog_providers_refuse_unprovable_automatic_review(monkeypatch):
     with pytest.raises(IndependentReviewRequired, match="governed review workflow"):
         nessie.merge_branch("pipeline-run-one")
     assert not calls
-    store = SimpleNamespace(publication_lock=nullcontext)
+    store = SimpleNamespace(publication_lock=nullcontext, read_for_update=lambda: ([], 0))
     polaris = PolarisSnapshotPromotionCatalog(
         store=store, table_opener=lambda _name: pytest.fail("table mutation")
     )
-    promoted = []
-    monkeypatch.setattr(
-        polaris, "_promote_candidates", lambda **kwargs: promoted.append(kwargs) or []
-    )
     with pytest.raises(IndependentReviewRequired, match="retain the candidates"):
         polaris.promote_candidates(namespace="pipeline-run-one", release_id="one")
-    assert not promoted
     _settings(second_gold_reviewer=False)
     assert not nessie.merge_branch("pipeline-run-one")
     assert calls == ["pipeline-run-one", "main"]
     assert polaris.promote_candidates(namespace="pipeline-run-one", release_id="one") == []
-    assert len(promoted) == 1
 
 
 @pytest.mark.parametrize("enabled", [False, True])

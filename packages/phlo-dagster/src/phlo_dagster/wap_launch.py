@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass, replace
+import errno
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ import tempfile
 import time
 from collections.abc import Iterator
 from datetime import datetime, timezone
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +34,7 @@ from phlo.exceptions import PhloConfigError
 from phlo.logging import get_logger
 from phlo.wap_evidence import WapEvidence
 import phlo.telemetry as phlo_observe
-from phlo_dagster.operations import launch_materialize
+from phlo_dagster.operations import MaterializationNotSubmitted, launch_materialize
 from phlo_dagster.wap_context import (
     WAP_BINDING_TAG,
     WapContext,
@@ -53,12 +55,201 @@ _PROMOTED_OUTCOME_FIELDS = frozenset({"failure_reason", "review_required", "revi
 logger = get_logger(__name__)
 
 
+class WapStatus(StrEnum):
+    """Commands accepted by the WAP report owner, not arbitrary status strings."""
+
+    PREPARED = "branch_created"
+    SUBMITTING = "launch_submitting"
+    LAUNCH_UNKNOWN = "launch_ambiguous"
+    REJECTED = "launch_rejected"
+    LAUNCHED = "launched"
+    PENDING = "promotion_pending"
+    BLOCKED = "promotion_blocked"
+    PUBLICATION_FAILED = "promotion_failed"
+    PROMOTED = "promoted"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    CLEANED = "cleanup_complete"
+    CLEANUP_PENDING = "cleanup_incomplete"
+    INCOMPLETE = "incomplete"
+
+
+_LAUNCH_STATES = frozenset(
+    {"branch_created", "launch_submitting", "launch_ambiguous", "launch_rejected", "launched"}
+)
+_PUBLICATION_STATES = frozenset(
+    {"promotion_pending", "promotion_blocked", "promotion_failed", "promoted"}
+)
+_TERMINAL_STATES = frozenset({"promoted", "failed", "cancelled", "launch_rejected"})
+_IDENTITY_FIELDS = frozenset(
+    {
+        "branch",
+        "strategy",
+        "context",
+        "launch_tags",
+        "dagster_run_id",
+        "launch_manifest_checksum",
+        "launch_source_hash",
+        "launch_target_hash_before",
+    }
+)
+_MERGE_RECEIPT_FIELDS = frozenset(
+    {
+        "source_hash",
+        "target_branch",
+        "target_hash_before",
+        "target_hash_after",
+        "release_id",
+        "candidates",
+    }
+)
+_PHASE_TRANSITIONS: dict[str, dict[str | None, frozenset[str]]] = {
+    "launch_state": {
+        None: _LAUNCH_STATES,
+        "branch_created": _LAUNCH_STATES - {"branch_created"},
+        "launch_submitting": frozenset({"launch_ambiguous", "launch_rejected", "launched"}),
+        "launch_ambiguous": frozenset({"launched", "launch_rejected"}),
+        "launch_rejected": frozenset(),
+        "launched": frozenset(),
+    },
+    "publication_state": {
+        None: _PUBLICATION_STATES,
+        "promotion_pending": _PUBLICATION_STATES - {"promotion_pending"},
+        "promotion_blocked": _PUBLICATION_STATES - {"promotion_blocked"},
+        "promotion_failed": _PUBLICATION_STATES - {"promotion_failed"},
+        "promoted": frozenset(),
+    },
+    "cleanup_state": {
+        None: frozenset({"cleanup_complete", "cleanup_incomplete"}),
+        "cleanup_incomplete": frozenset({"cleanup_complete"}),
+        "cleanup_complete": frozenset(),
+    },
+    "merge_state": {
+        None: frozenset({"merge_started", "merged", "merge_failed", "review_required"}),
+        "merge_started": frozenset({"merged", "merge_failed", "review_required"}),
+        "merge_failed": frozenset({"merge_started"}),
+        "review_required": frozenset({"merge_started"}),
+        "merged": frozenset(),
+    },
+}
+
+
+def _validate_report_receipts(payload: dict[str, Any], updates: dict[str, Any]) -> None:
+    """Keep immutable identity and acknowledged effects across all phase updates."""
+    for field in _IDENTITY_FIELDS:
+        if field in payload and field in updates and payload[field] != updates[field]:
+            raise ValueError(f"WAP launch identity is immutable: {field}")
+    if payload.get("merge_state") == "merged":
+        if updates.get("merge_state", "merged") != "merged":
+            raise ValueError("An acknowledged publication cannot regress")
+        for field in _MERGE_RECEIPT_FIELDS:
+            if field in payload and field in updates and payload[field] != updates[field]:
+                raise ValueError(f"WAP publication receipt is immutable: {field}")
+        if updates.get("status") in {
+            WapStatus.PUBLICATION_FAILED,
+            WapStatus.BLOCKED,
+            WapStatus.FAILED,
+            WapStatus.CANCELLED,
+        }:
+            raise ValueError("An acknowledged publication cannot become failed or blocked")
+    if payload.get("source_deleted") and updates.get("source_deleted") is False:
+        raise ValueError("Acknowledged cleanup cannot regress")
+
+
+def _advance_report_phase(
+    payload: dict[str, Any], updates: dict[str, Any], phase: str, state: str
+) -> None:
+    previous = payload.get(phase)
+    if state != previous and state not in _PHASE_TRANSITIONS[phase].get(previous, frozenset()):
+        raise ValueError(f"Invalid WAP {phase} transition: {previous} -> {state}")
+    updates[phase] = state
+
+
+def _apply_status_update(
+    payload: dict[str, Any], updates: dict[str, Any], status: WapStatus | None
+) -> None:
+    """Advance the requested phase without replacing another phase's outcome."""
+    old_status = payload.get("status")
+    if status in {WapStatus.CLEANED, WapStatus.CLEANUP_PENDING}:
+        _advance_report_phase(payload, updates, "cleanup_state", status)
+        # Cleanup does not replace the execution/publication outcome.
+        if old_status:
+            updates["status"] = old_status
+    elif status is not None:
+        if old_status in _TERMINAL_STATES and status != old_status:
+            raise ValueError("A terminal WAP outcome cannot regress")
+        if status in _LAUNCH_STATES:
+            if (
+                payload.get("publication_state")
+                or old_status == "launched"
+                and status != old_status
+            ):
+                raise ValueError("Publication cannot return to launch preparation")
+            _advance_report_phase(payload, updates, "launch_state", status)
+        elif status in _PUBLICATION_STATES:
+            _advance_report_phase(payload, updates, "publication_state", status)
+        else:
+            updates["execution_state"] = status
+
+
+def _apply_report_update(payload: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    """Advance separately owned phases under the versioned report writer lock."""
+    if {"launch_state", "publication_state", "cleanup_state", "execution_state"} & updates.keys():
+        raise ValueError("WAP phases can only change through a lifecycle command")
+    status = WapStatus(updates["status"]) if "status" in updates else None
+    _validate_report_receipts(payload, updates)
+    if "merge_state" in updates:
+        _advance_report_phase(payload, updates, "merge_state", updates["merge_state"])
+    if "source_deleted" in updates:
+        _advance_report_phase(
+            payload,
+            updates,
+            "cleanup_state",
+            "cleanup_complete" if updates["source_deleted"] else "cleanup_incomplete",
+        )
+    _apply_status_update(payload, updates, status)
+    result = {**payload, **updates}
+    if updates.get("delivery_complete") and result.get("status") != "promoted":
+        raise ValueError("Evidence delivery cannot complete before publication")
+    if status == WapStatus.PROMOTED:
+        if result.get("merge_state") != "merged" or result.get("source_deleted") is not True:
+            raise ValueError("Promotion requires publication and cleanup receipts")
+        for field in _PROMOTED_OUTCOME_FIELDS:
+            result.pop(field, None)
+    return result
+
+
+@contextlib.contextmanager
+def wap_lifecycle_lock(path: Path, *, blocking: bool = True) -> Iterator[None]:
+    """Serialize read/transition/write across CLI and sensor processes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".lock").open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.write(b"\0")
+            handle.flush()
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                if not blocking and exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise BlockingIOError(exc.errno, "WAP lifecycle lock is already held") from exc
+                raise
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        yield
+
+
 class WapLaunchError(RuntimeError):
     """Submission failed, optionally after Dagster accepted a physical run."""
 
-    def __init__(self, message: str, *, run_id: str | None = None) -> None:
+    def __init__(self, message: str, *, run_id: str | None = None, rejected: bool = False) -> None:
         super().__init__(message)
         self.run_id = run_id
+        self.rejected = rejected
 
 
 async def submit_wap_launch(
@@ -90,12 +281,15 @@ async def submit_wap_launch(
             idempotency_key=launch.logical_run_id,
             tags=launch.tags,
         )
+    except MaterializationNotSubmitted as exc:
+        launch.record_launch_result(status="launch_rejected", error=str(exc))
+        raise WapLaunchError(str(exc), rejected=True) from exc
     except Exception as exc:
         launch.record_launch_result(status="launch_ambiguous", error=str(exc))
         raise WapLaunchError(f"WAP launch outcome is ambiguous: {exc}") from exc
     if not result.accepted:
         launch.record_launch_result(status="launch_rejected", error=result.message)
-        raise WapLaunchError(result.message)
+        raise WapLaunchError(result.message, rejected=True)
     if not result.run_id:
         launch.record_launch_result(status="launch_ambiguous", error="Dagster returned no run ID")
         raise WapLaunchError(
@@ -159,7 +353,9 @@ def _write_launch_manifest(
     return checksum
 
 
-def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
+def write_wap_report(
+    logical_run_id: str, *, expected_version: int | None = None, **updates: Any
+) -> bool:
     """Persist the durable WAP launch manifest and lifecycle audit record.
 
     The logical ID is created before GraphQL submission, so this record exists
@@ -168,64 +364,47 @@ def write_wap_report(logical_run_id: str, **updates: Any) -> bool:
     evidence = _evidence()
     try:
         path = evidence.report_path(logical_run_id)
-    except ValueError:
-        return False
-    try:
-        snapshot = evidence.read_report_snapshot(logical_run_id, strict=True)
-    except FileNotFoundError:
-        payload = {}
+        with wap_lifecycle_lock(path):
+            try:
+                snapshot = evidence.read_report_snapshot(logical_run_id, strict=True)
+            except FileNotFoundError:
+                payload = {}
+            else:
+                if snapshot is None:
+                    return False
+                payload = snapshot[1]
+            version = int(payload.get("version", 0))
+            if expected_version is not None and expected_version != version:
+                return False
+            payload = _apply_report_update(payload, updates)
+            now = datetime.now(timezone.utc).isoformat()
+            payload.update(
+                created_at=payload.get("created_at", now),
+                schema_version="phlo.wap_report.v2",
+                run_id=logical_run_id,
+                updated_at=now,
+                version=version + 1,
+            )
+            raw = evidence.encode_report(payload)
+            # Publish the immutable snapshot before the mutable pointer. A
+            # failed snapshot write must not acknowledge an unrecorded update.
+            snapshot_path = evidence.snapshot_path(logical_run_id, hashlib.sha256(raw).hexdigest())
+            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            if not snapshot_path.exists():
+                snapshot_path.write_bytes(raw)
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
+            ) as temporary:
+                temporary.write(raw)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+                temporary_path = Path(temporary.name)
+            try:
+                os.replace(temporary_path, path)
+            finally:
+                temporary_path.unlink(missing_ok=True)
     except (OSError, ValueError, RecursionError):
-        logger.error(
-            "wap_report_recovery_required",
-            path=str(path),
-            reason="Existing evidence is unreadable; operator recovery required; report preserved",
-            exc_info=True,
-        )
-        return False
-    else:
-        if snapshot is None:
-            return False
-        payload = snapshot[1]
-    if updates.get("status") == "promoted":
-        # Terminal success replaces failure-only outcome fields from prior
-        # attempts. Identity and evidence binding fields remain append/update
-        # compatible, including the immutable launch-manifest checksum.
-        for field in _PROMOTED_OUTCOME_FIELDS:
-            payload.pop(field, None)
-            updates.pop(field, None)
-
-    now = datetime.now(timezone.utc).isoformat()
-    payload.update(updates)
-    payload.update(
-        {
-            "created_at": payload.get("created_at", now),
-            "schema_version": "phlo.wap_report.v2",
-            "run_id": logical_run_id,
-            "updated_at": now,
-        }
-    )
-    try:
-        raw = evidence.encode_report(payload)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # A promotion report is also the local retry record.  Replacing it
-        # atomically prevents a crash from turning a valid prior record into
-        # a partially-written JSON document that the next sensor cannot use.
-        with tempfile.NamedTemporaryFile(
-            mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
-        ) as temporary:
-            temporary.write(raw)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
-        os.replace(temporary_path, path)
-        snapshot_path = evidence.snapshot_path(logical_run_id, hashlib.sha256(raw).hexdigest())
-        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-        if not snapshot_path.exists():
-            snapshot_path.write_bytes(raw)
-    except (OSError, ValueError):
-        logger.warning(
-            "wap_report_write_failed", path=str(path), logical_run_id=logical_run_id, exc_info=True
-        )
+        logger.warning("wap_report_update_refused", logical_run_id=logical_run_id, exc_info=True)
         return False
     return True
 
@@ -255,6 +434,35 @@ class WapLaunch:
     catalog_system: str | None = None
     context: WapContext | None = None
     binding_checksum: str | None = None
+
+    @classmethod
+    def recover(cls, logical_run_id: str) -> WapLaunch:
+        """Recover a prepared identity from its verified, pre-submission seal."""
+        evidence = _evidence()
+        report = evidence.read_report(logical_run_id) or {}
+        tags = report.get("launch_tags", {})
+        project = resolve_project_identity(tags, get_settings().phlo_project)
+        checksum = tags.get(WAP_BINDING_TAG, "")
+        binding = evidence.read_execution_seal(
+            logical_run_id, checksum, tags, project_id=project.project_id or ""
+        )
+        if binding is None:
+            raise WapLaunchError("Cannot recover WAP launch without a verified execution seal")
+        context = WapContext(**binding["context"])
+        return cls(
+            logical_run_id=logical_run_id,
+            branch=binding["branch"],
+            catalog=None,
+            created_branch=False,
+            source_hash=binding["source_hash"],
+            target_hash_before=binding["target_hash_before"],
+            project_id=tags[WAP_PROJECT_ID_TAG],
+            attempt=int(tags[WAP_ATTEMPT_TAG]),
+            strategy=context.strategy,
+            catalog_system=tags.get(WAP_CATALOG_SYSTEM_TAG),
+            context=context,
+            binding_checksum=checksum,
+        )
 
     @property
     def tags(self) -> dict[str, str]:

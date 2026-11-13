@@ -339,7 +339,7 @@ def test_snapshot_promotion_refuses_revision_changed_since_launch(monkeypatch, t
     )
 
 
-def test_snapshot_promotion_release_conflict_fails_without_promotion(monkeypatch, tmp_path) -> None:
+def test_snapshot_promotion_exception_retains_unknown_publication(monkeypatch, tmp_path) -> None:
     logical_run_id = "logical-snap-c"
     namespace = f"pipeline-run-{logical_run_id}"
     catalog = _PromotionCatalog()
@@ -358,8 +358,9 @@ def test_snapshot_promotion_release_conflict_fails_without_promotion(monkeypatch
 
     assert catalog.aborted == []
     report = json.loads((tmp_path / ".phlo" / "wap-reports" / f"{logical_run_id}.json").read_text())
-    assert report["status"] == "promotion_failed"
-    assert report["failure_reason"] == "release_promotion_failed"
+    assert report["status"] == "promotion_pending"
+    assert report["merge_state"] == "merge_started"
+    assert report["failure_reason"] == "release_outcome_unknown"
 
 
 def test_snapshot_run_under_branch_strategy_is_blocked(monkeypatch, tmp_path) -> None:
@@ -414,7 +415,7 @@ def test_advance_snapshot_promotion_resumes_conflicted_intent_when_release_resol
 
     assert advance == {
         "source_hash": "101",
-        "target_hash_before": "3",
+        "target_hash_before": "0",
         "target_hash_after": "3",
         "source_deleted": True,
     }
@@ -507,13 +508,20 @@ def test_oversized_snapshot_outbox_preserves_registration_without_publishing(mon
 # ---------------------------------------------------------------------------
 
 
-def test_candidate_cleanup_sensor_aborts_stale_namespace(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("merge_unknown", [False, True])
+def test_candidate_cleanup_sensor_aborts_stale_namespace(
+    monkeypatch, tmp_path, merge_unknown
+) -> None:
     logical_run_id = "logical-old"
     namespace = f"pipeline-run-{logical_run_id}"
     catalog = _PromotionCatalog()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     _snapshot_strategy(monkeypatch)
     _write_snapshot_launch(logical_run_id, "run-old", namespace)
+    if merge_unknown:
+        assert write_wap_report(
+            logical_run_id, status="promotion_pending", merge_state="merge_started"
+        )
     backdated = datetime.now(timezone.utc) - timedelta(hours=48)
     report_path = tmp_path / ".phlo" / "wap-reports" / f"{logical_run_id}.json"
     payload = json.loads(report_path.read_text())
@@ -541,9 +549,14 @@ def test_candidate_cleanup_sensor_aborts_stale_namespace(monkeypatch, tmp_path) 
     context = MagicMock(instance=instance, cursor=None)
     wap_candidate_cleanup_sensor._raw_fn(context)
 
-    assert catalog.aborted == [namespace]
+    assert catalog.aborted == ([] if merge_unknown else [namespace])
     report = json.loads((tmp_path / ".phlo" / "wap-reports" / f"{logical_run_id}.json").read_text())
-    assert report["status"] == "cleanup_complete"
+    if merge_unknown:
+        assert report["merge_state"] == "merge_started"
+        assert report.get("cleanup_state") is None
+    else:
+        assert report["status"] == "launched"
+        assert report["cleanup_state"] == "cleanup_complete"
 
 
 def test_candidate_cleanup_sensor_retains_active_run_candidates(monkeypatch, tmp_path) -> None:

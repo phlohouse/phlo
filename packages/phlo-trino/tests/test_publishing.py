@@ -354,3 +354,106 @@ def test_resolve_partition_key_does_not_swallow_runtime_specific_errors() -> Non
 
     with pytest.raises(RuntimeError, match="Cannot access partition_key"):
         publishing._resolve_partition_key(_ContextWithProviderError())
+
+
+@pytest.mark.parametrize("failure", [None, "empty", "select", "stream", "insert", "swap", "rename"])
+def test_publication_keeps_serving_rows_until_atomic_replacement(tmp_path, monkeypatch, failure):
+    """Failed reads, loads and swaps preserve the previously published table."""
+    import sqlite3
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "psycopg2.extensions.quote_ident",
+        lambda name, _connection: '"' + name.replace('"', '""') + '"',
+    )
+    monkeypatch.setattr(
+        "phlo.hooks.emitters.get_hook_bus", lambda: SimpleNamespace(emit=lambda _event: None)
+    )
+    database = tmp_path / "marts.sqlite"
+    with sqlite3.connect(database) as reader:
+        reader.execute("CREATE TABLE orders (id bigint)")
+        reader.execute("INSERT INTO orders VALUES (91)")
+
+    class Postgres:
+        def __init__(self):
+            self.connection = sqlite3.connect(":memory:")
+            self.connection.execute("ATTACH DATABASE ? AS marts", (str(database),))
+
+        @contextmanager
+        def cursor(self):
+            yield self
+
+        def execute(self, query):
+            statement = query.as_string(None)
+            if statement.startswith("CREATE SCHEMA"):
+                return
+            if not self.connection.in_transaction:
+                self.connection.execute("BEGIN")
+            if failure == "swap" and statement.startswith("DROP TABLE"):
+                raise RuntimeError("swap failed")
+            if failure == "rename" and statement.startswith("ALTER TABLE"):
+                raise RuntimeError("rename failed")
+            self.connection.execute(statement)
+
+        def commit(self):
+            self.connection.commit()
+
+        def rollback(self):
+            self.connection.rollback()
+
+    class Trino:
+        fetched = False
+
+        @contextmanager
+        def cursor(self):
+            yield self
+
+        def execute(self, query):
+            if query.startswith("SELECT") and failure == "select":
+                raise RuntimeError("select failed")
+
+        def fetchall(self):
+            return [("id", "bigint")]
+
+        def fetchmany(self, _batch_size):
+            assert reader.execute("SELECT * FROM orders").fetchall() == [(91,)]
+            if failure == "empty":
+                return []
+            if self.fetched:
+                if failure == "stream":
+                    raise RuntimeError("stream failed")
+                return []
+            self.fetched = True
+            return [(2,), (7,)]
+
+    def insert(cursor, query, rows, page_size):
+        cursor.connection.executemany(query.as_string(None).replace("%s", "(?)"), rows)
+        if failure == "insert":
+            raise RuntimeError("insert failed")
+
+    monkeypatch.setattr(publishing, "execute_values", insert)
+    postgres = Postgres()
+    try:
+        kwargs = dict(
+            context=SimpleNamespace(),
+            trino=Trino(),
+            postgres=postgres,
+            tables_to_publish={"orders": "silver.orders"},
+            data_source="orders",
+        )
+        if failure not in {None, "empty"}:
+            with pytest.raises(RuntimeError, match=f"{failure} failed"):
+                publishing.publish_marts_to_postgres(**kwargs)
+            expected = [(91,)]
+        else:
+            stats = publishing.publish_marts_to_postgres(**kwargs)
+            expected = [] if failure == "empty" else [(2,), (7,)]
+            assert stats == {"orders": publishing.TablePublishStats(len(expected), 1)}
+        assert reader.execute("SELECT * FROM orders").fetchall() == expected
+        assert reader.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == [
+            ("orders",)
+        ]
+    finally:
+        postgres.connection.close()
+        reader.close()

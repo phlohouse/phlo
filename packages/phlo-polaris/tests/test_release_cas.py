@@ -108,10 +108,16 @@ def test_reopening_a_stale_candidate_cannot_erase_a_newer_release(catalog):
     provider = _provider(catalog)
     _stage(provider, "first", "a")
     _stage(provider, "second", "b")
-    provider.promote_candidates(
+    receipt = provider.promote_candidates(
         namespace="pipeline-run-first", release_id="first", expected_revision=0
     )
 
+    assert (
+        _provider(catalog).promote_candidates(
+            namespace="pipeline-run-first", release_id="first", expected_revision=0
+        )
+        == receipt
+    )
     reopened = provider.create_candidate(table_name="bronze.events", run_id="second")
     assert reopened.metadata["release_revision"] == 0
     with pytest.raises(ReleaseConflictError, match="stale or missing"):

@@ -260,6 +260,32 @@ def test_promote_refuses_stale_expected_revision() -> None:
         )
 
 
+def test_committed_publication_replays_before_new_release_preconditions(monkeypatch) -> None:
+    catalog, store, tables = _catalog()
+    catalog.create_candidate(table_name="bronze.events", run_id="first")
+    request = dict(namespace="pipeline-run-first", release_id="r1", expected_revision=0)
+    receipt = catalog.promote_candidates(**request)
+    catalog.create_candidate(table_name="bronze.events", run_id="second")
+    catalog.promote_candidates(namespace="pipeline-run-second", release_id="r2")
+    before = store.rows()
+    written = list(tables["bronze.events"].overwrites)
+    monkeypatch.setattr(
+        "phlo_polaris.promotion.get_operational_settings",
+        lambda: SimpleNamespace(second_gold_reviewer=True),
+    )
+
+    assert catalog.promote_candidates(**request) == receipt
+    for changed in (
+        {"tables": ["bronze.orders"]},
+        {"expected_revision": 1},
+        {"namespace": "pipeline-run-second"},
+    ):
+        with pytest.raises(ReleaseConflictError, match="different request"):
+            catalog.promote_candidates(**(request | changed))
+    assert store.rows() == before
+    assert tables["bronze.events"].overwrites == written
+
+
 def test_resolve_release_returns_latest_revision_record() -> None:
     catalog, _, _ = _catalog()
     catalog.create_candidate(table_name="bronze.events", run_id="run-1")

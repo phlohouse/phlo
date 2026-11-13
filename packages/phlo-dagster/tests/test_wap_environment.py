@@ -1,5 +1,6 @@
 """Environment-bound WAP must never borrow another run's backend or target."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -235,9 +236,13 @@ def test_drift_and_tampering_block_execution_promotion_and_retention(environment
         load_project_model.cache_clear()
         load_wap_config.cache_clear()
     else:
-        wap_launch.write_wap_report(
+        assert not wap_launch.write_wap_report(
             "bound-run", context={**launch.context.to_dict(), "target_ref": "main"}
         )
+        path = wap_launch._evidence().report_path("bound-run")
+        payload = json.loads(path.read_text())
+        payload["context"]["target_ref"] = "main"
+        path.write_text(json.dumps(payload))
     with pytest.raises(Exception):
         wap_launch.verify_wap_execution(run)
     context = sensor_context([run])

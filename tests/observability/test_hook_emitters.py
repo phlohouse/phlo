@@ -37,7 +37,10 @@ from tests.support import RecordingBus
 pytestmark = pytest.mark.core_regression
 
 
-def test_ingestion_emitter_merges_bound_correlation_context() -> None:
+@pytest.mark.parametrize(
+    "correlation,expected_attempt", [(None, 3), (HookCorrelation(attempt=1), 1)]
+)
+def test_ingestion_emitter_merges_bound_correlation_context(correlation, expected_attempt) -> None:
     bus = RecordingBus()
     emitter = IngestionEventEmitter(
         IngestionEventContext(
@@ -46,11 +49,12 @@ def test_ingestion_emitter_merges_bound_correlation_context() -> None:
             group_name="sales",
             run_id="run-123",
             partition_key="2026-03-08",
+            **({"correlation": correlation} if correlation is not None else {}),
         ),
         hook_bus=bus,
     )
 
-    bind_context(trace_id="abc123", span_id="def456", job_name="daily_orders")
+    bind_context(trace_id="abc123", span_id="def456", job_name="daily_orders", attempt=3)
     try:
         emitter.emit_end(status="success", metrics={"rows_loaded": 10})
     finally:
@@ -63,6 +67,30 @@ def test_ingestion_emitter_merges_bound_correlation_context() -> None:
     assert event.correlation.job_name == "daily_orders"
     assert event.correlation.trace_id == "abc123"
     assert event.correlation.span_id == "def456"
+    assert event.correlation.attempt == expected_attempt
+
+
+def test_deterministic_identity_uses_the_emitted_run_and_attempt() -> None:
+    bus = RecordingBus()
+    emitter = IngestionEventEmitter(
+        IngestionEventContext(asset_key="orders", table_name="orders", group_name="sales"),
+        hook_bus=bus,
+    )
+    try:
+        for run_id, attempt in [("first", 3), ("first", 3), ("second", 3), ("first", 4)]:
+            bind_context(run_id=run_id, attempt=attempt)
+            emitter.emit_end(status="success")
+    finally:
+        clear_context()
+    first, repeat, other_run, other_attempt = [event.event_id for event in bus.events]
+    assert first == repeat
+    assert len({first, other_run, other_attempt}) == 3
+    assert [(event.correlation.run_id, event.correlation.attempt) for event in bus.events] == [
+        ("first", 3),
+        ("first", 3),
+        ("second", 3),
+        ("first", 4),
+    ]
 
 
 def test_ingestion_emitter_carries_catalog_system() -> None:

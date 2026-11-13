@@ -12,6 +12,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from phlo._attempt import attempt_from_tags
 from phlo.capabilities import ResourceRef
 from phlo.run_evidence import (
     EvidenceCompleteness,
@@ -45,48 +46,12 @@ def _status(value: Any) -> str | None:
     }.get(normalized, normalized)
 
 
-def _attempt(instance: Any, run: Any) -> int:
-    tags = getattr(run, "tags", {}) or {}
-    explicit_attempt: int | None = None
-    for key in ("phlo/attempt", "dagster/attempt", "attempt"):
-        try:
-            value = int(tags[key])
-            if value > 0:
-                explicit_attempt = value
-                break
-        except (KeyError, TypeError, ValueError):
-            pass
-    attempt = 1
-    # No tag records the attempt number, so derive it by walking Dagster's
-    # retry parent chain; the chain length is the only authoritative count.
-    # A cycle or missing parent fails reconciliation rather than guessing.
-    parent_id = getattr(run, "parent_run_id", None)
-    seen: set[str] = {str(run.run_id)}
-    while parent_id:
-        parent_id = str(parent_id)
-        if parent_id in seen:
-            raise RunEvidenceUnavailable(
-                "Dagster retry-chain parent cycle was detected; reconciliation did not change the run"
-            )
-        seen.add(parent_id)
-        try:
-            parent = instance.get_run_by_id(parent_id)
-        except Exception as exc:
-            raise RunEvidenceUnavailable(
-                "Dagster retry-chain lookup was unavailable; reconciliation did not change the run"
-            ) from exc
-        if parent is None:
-            raise RunEvidenceUnavailable(
-                "Dagster retry-chain parent was missing; reconciliation did not change the run"
-            )
-        attempt += 1
-        parent_id = getattr(parent, "parent_run_id", None)
-    if explicit_attempt is not None and attempt > 1 and explicit_attempt != attempt:
-        raise RunEvidenceUnavailable(
-            "Dagster retry-chain attempt tag disagreed with its parent chain; "
-            "reconciliation did not change the run"
-        )
-    return explicit_attempt or attempt
+def _attempt(run: Any) -> int:
+    """Use the same logical attempt as runtime routing, never physical ancestry."""
+    attempt, error = attempt_from_tags(getattr(run, "tags", {}) or {})
+    if error or attempt is None:
+        raise RunEvidenceUnavailable("invalid_attempt: reconciliation did not change the run")
+    return attempt
 
 
 def _asset_name(event: Any) -> str | None:
@@ -250,7 +215,7 @@ class DagsterRunEvidenceSource:
             )
 
         logical_run_id = _logical_run_id(run, self.logical_run_id_resolver)
-        attempt = _attempt(self.instance, run)
+        attempt = _attempt(run)
         try:
             run_record = self.instance.get_run_record_by_id(run_id)
         except Exception as exc:

@@ -8,7 +8,10 @@ management.
 """
 
 import json
+import errno
 import shlex
+import sys
+from contextlib import nullcontext
 from subprocess import CompletedProcess
 from types import SimpleNamespace
 from datetime import datetime
@@ -32,6 +35,27 @@ pytestmark = pytest.mark.usefixtures("synthetic_wap_context")
 
 async def _ready(*_args, **_kwargs) -> None:
     """Stub the Dagster HTTP readiness wait: the backfill behaviour is under test."""
+
+
+@pytest.mark.parametrize("locking", ["native", "windows"])
+def test_backfill_rejects_a_second_checkpoint_owner(monkeypatch, tmp_path, locking):
+    from phlo_dagster import cli_backfill
+    from phlo_dagster.wap_launch import wap_lifecycle_lock
+
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr(cli_backfill, "BACKFILL_STATE_FILE", state_file)
+    if locking == "windows":
+
+        def lock(*args):
+            raise OSError(errno.EACCES, "lock already held")
+
+        monkeypatch.setitem(sys.modules, "msvcrt", SimpleNamespace(locking=lock, LK_NBLCK=2))
+        monkeypatch.setattr("phlo_dagster.wap_launch.os", SimpleNamespace(name="nt"))
+    with wap_lifecycle_lock(state_file) if locking == "native" else nullcontext():
+        result = CliRunner().invoke(backfill, ["orders", "--partitions", "2024-01-01"])
+    assert result.exit_code == 1
+    assert "Another backfill owns" in result.output
+    assert not state_file.exists()
 
 
 @pytest.mark.parametrize("host_platform", ["Linux", "Darwin", "Windows"])
@@ -451,8 +475,11 @@ def test_wap_lifecycle_rejects_failed_dagster_run(monkeypatch):
         raise AssertionError("expected failed Dagster run")
 
 
-def test_wap_lifecycle_rejects_failed_promotion(monkeypatch):
-    from phlo_dagster.cli_backfill import _wait_for_wap_lifecycle
+@pytest.mark.parametrize(
+    "publication_status", ["promotion_failed", "promotion_blocked", "launch_ambiguous"]
+)
+def test_wap_lifecycle_retains_unresolved_publication(monkeypatch, publication_status):
+    from phlo_dagster.cli_backfill import WapLifecycleTerminalError, _wait_for_wap_lifecycle
 
     async def successful_run(**_kwargs):
         return "SUCCESS"
@@ -461,7 +488,7 @@ def test_wap_lifecycle_rejects_failed_promotion(monkeypatch):
     monkeypatch.setattr(
         "phlo_dagster.cli_backfill.WapEvidence.read_report",
         lambda _self, _logical_run_id: {
-            "status": "promotion_failed",
+            "status": publication_status,
             "failure_reason": "merge_branch_returned_false",
         },
     )
@@ -474,16 +501,18 @@ def test_wap_lifecycle_rejects_failed_promotion(monkeypatch):
             access_token=None,
         )
     except click.ClickException as exc:
+        assert not isinstance(exc, WapLifecycleTerminalError)
         assert "merge_branch_returned_false" in str(exc)
     else:
         raise AssertionError("expected failed WAP promotion")
 
 
-def test_wap_lifecycle_accepts_promoted_report(monkeypatch):
+@pytest.mark.parametrize("run_status", ["SUCCESS", "CANCELING"])
+def test_wap_lifecycle_accepts_promoted_report(monkeypatch, run_status):
     from phlo_dagster.cli_backfill import _wait_for_wap_lifecycle
 
     async def successful_run(**_kwargs):
-        return "SUCCESS"
+        return run_status
 
     monkeypatch.setattr("phlo_dagster.cli_backfill.get_run_status", successful_run)
     monkeypatch.setattr(
@@ -606,6 +635,140 @@ def test_wap_timeout_resume_reconciles_existing_run_without_relaunch(monkeypatch
 
     assert launches == ["2024-01-01"]
     assert len(prepared) == 1
+
+
+@pytest.mark.parametrize("failure", ["response", "receipt", "unobserved", "config"])
+def test_wap_backfill_recovers_lost_acknowledgement_without_relaunch(
+    monkeypatch, tmp_path, synthetic_wap_context, failure
+):
+    from phlo._correlation import resolve_project_identity
+    from phlo.config import get_settings
+    from phlo.wap_evidence import WapEvidence
+    from phlo_dagster import cli_backfill
+    from phlo_dagster.operations import MaterializationNotSubmitted
+    from phlo_dagster.wap_launch import WapLaunch
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_PROJECT", "warehouse")
+    state_file = tmp_path / "state.json"
+    monkeypatch.setattr(cli_backfill, "BACKFILL_STATE_FILE", state_file)
+    prepared = []
+    submissions = []
+    submission_checkpoints = []
+    project_id = resolve_project_identity({}, get_settings().phlo_project).project_id
+
+    def prepare(**kwargs):
+        logical_id = kwargs["logical_run_id"]
+        prepared.append(logical_id)
+        launch = WapLaunch(
+            logical_id,
+            f"pipeline-run-{logical_id}",
+            None,
+            False,
+            "candidate",
+            "before",
+            project_id,
+            1,
+            context=synthetic_wap_context,
+        ).seal()
+        assert launch.record_launch_result(status="branch_created")
+        return launch
+
+    async def submit(**kwargs):
+        submission_checkpoints.append(
+            json.loads(state_file.read_text()) if state_file.exists() else {}
+        )
+        submissions.append(kwargs["idempotency_key"])
+        if failure == "config" and len(submissions) == 1:
+            raise MaterializationNotSubmitted("journal not configured")
+        if failure == "config":
+            return SimpleNamespace(accepted=True, message="accepted", run_id="physical-2")
+        if failure != "receipt":
+            raise RuntimeError("connection lost after acceptance")
+        return SimpleNamespace(accepted=True, message="accepted", run_id="physical-1")
+
+    original_record = WapLaunch.record_launch_result
+    receipt_failures = 1 if failure == "receipt" else 0
+
+    def record(self, **kwargs):
+        nonlocal receipt_failures
+        if kwargs.get("dagster_run_id") and receipt_failures:
+            receipt_failures -= 1
+            return False
+        return original_record(self, **kwargs)
+
+    async def lookup(**kwargs):
+        assert kwargs["idempotency_key"] == prepared[0]
+        return None if failure == "unobserved" else {"runId": "physical-1", "status": "STARTED"}
+
+    def wait(**kwargs):
+        recovered = WapLaunch.recover(kwargs["logical_run_id"])
+        assert (
+            WapEvidence(tmp_path).verify(
+                recovered.logical_run_id,
+                kwargs["dagster_run_id"],
+                recovered.tags,
+                project_id=project_id,
+            )
+            is not None
+        )
+
+    monkeypatch.setattr(cli_backfill, "prepare_wap_launch", prepare)
+    monkeypatch.setattr("phlo_dagster.wap_launch.launch_materialize", submit)
+    monkeypatch.setattr(WapLaunch, "record_launch_result", record)
+    monkeypatch.setattr(cli_backfill, "find_materialization_run", lookup)
+    monkeypatch.setattr(cli_backfill, "_wait_for_wap_lifecycle", wait)
+    config = SimpleNamespace(
+        job_name="__ASSET_JOB", repository_location_name=None, repository_name=None
+    )
+    with pytest.raises(click.ClickException):
+        cli_backfill._run_wap_backfill(
+            "orders", ["2024-01-01"], wap_config=config, dagster_url="endpoint", access_token=None
+        )
+    state = json.loads(state_file.read_text())
+    if failure == "config":
+        assert state["in_flight_wap"] == {}
+        assert WapEvidence(tmp_path).read_report(prepared[0])["status"] == "launch_rejected"
+        cli_backfill._run_wap_backfill(
+            "orders",
+            state["remaining_partitions"],
+            wap_config=config,
+            dagster_url="endpoint",
+            access_token=None,
+            in_flight_wap=state["in_flight_wap"],
+        )
+        assert not state_file.exists()
+        assert len(prepared) == 2
+        assert prepared[0] != prepared[1]
+        assert submissions == prepared
+        return
+    retained = state["in_flight_wap"]["2024-01-01"]
+    assert retained["logical_run_id"] == prepared[0]
+    assert retained["phase"] == "submission_unknown"
+    if failure == "unobserved":
+        with pytest.raises(click.ClickException, match="outcome remains unknown"):
+            cli_backfill._run_wap_backfill(
+                "orders",
+                state["remaining_partitions"],
+                wap_config=config,
+                dagster_url="endpoint",
+                access_token=None,
+                in_flight_wap=state["in_flight_wap"],
+            )
+        assert json.loads(state_file.read_text())["in_flight_wap"] == state["in_flight_wap"]
+    else:
+        cli_backfill._run_wap_backfill(
+            "orders",
+            state["remaining_partitions"],
+            wap_config=config,
+            dagster_url="endpoint",
+            access_token=None,
+            in_flight_wap=state["in_flight_wap"],
+        )
+        assert not state_file.exists()
+    assert submissions == prepared
+    assert len(prepared) == 1
+    assert submission_checkpoints[0]["in_flight_wap"]["2024-01-01"]["phase"] == "submitting"
 
 
 def test_enabled_project_wap_backfill_uses_graphql_without_cli_flags(monkeypatch) -> None:

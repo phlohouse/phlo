@@ -14,6 +14,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from phlo._attempt import attempt_from_tags
+from phlo.capabilities.continuity import canonical_json_bytes, sha256_bytes
+from phlo.config.process import get_process_settings
+from phlo.operations.journal import (
+    OperationJournal,
+    OperationJournalError,
+    OperationJournalState,
+    OperationJournalStore,
+    expire_claim,
+)
+from phlo.operations.journal_store import FileOperationJournalStore
 from phlo.security.mode import requires_http_authorization
 from phlo.security.service_identity import (
     build_scoped_service_headers,
@@ -36,7 +47,7 @@ mutation LaunchPipelineExecution($executionParams: ExecutionParams!) {
 
 EXISTING_MATERIALIZATION_RUN_QUERY = """
 query ExistingMaterializationRun($filter: RunsFilter!) {
-    runsOrError(filter: $filter, limit: 1) {
+    runsOrError(filter: $filter, limit: 2) {
         __typename
         ... on Runs {
             results { runId status }
@@ -50,7 +61,7 @@ RUN_STATUS_QUERY = """
 query RunStatus($runId: ID!) {
     runOrError(runId: $runId) {
         __typename
-        ... on Run { runId status }
+        ... on Run { runId status rootRunId tags { key value } }
         ... on RunNotFoundError { message }
         ... on PythonError { message }
     }
@@ -131,6 +142,40 @@ class DagsterOperationResult:
         }
 
 
+class MaterializationNotSubmitted(RuntimeError):
+    """Report a definitive local failure before submission is possible."""
+
+
+async def find_materialization_run(
+    *,
+    dagster_url: str,
+    idempotency_key: str,
+    access_token: str | None = None,
+    request_token: str | None = None,
+) -> dict[str, Any] | None:
+    """Read an accepted launch without ever submitting another one."""
+    tags = {"phlo/operation": "materialize_asset", "phlo/idempotency_key": idempotency_key}
+    if request_token is not None:
+        tags["phlo/launch_request"] = request_token
+    existing = await _graphql(
+        dagster_url,
+        EXISTING_MATERIALIZATION_RUN_QUERY,
+        {"filter": {"tags": _tags_for_execution(tags)}},
+        access_token=access_token,
+    )
+    payload = existing.get("data", {}).get("runsOrError", {})
+    if payload.get("__typename") != "Runs":
+        raise RuntimeError(_error_message(payload))
+    runs = payload.get("results") or []
+    if len(runs) > 1:
+        raise RuntimeError(
+            "Multiple Dagster runs share this operation key; reconciliation required"
+        )
+    if runs and not runs[0].get("runId"):
+        raise RuntimeError("Dagster returned an existing run without a run ID")
+    return runs[0] if runs else None
+
+
 async def launch_materialize(
     *,
     dagster_url: str,
@@ -144,61 +189,27 @@ async def launch_materialize(
     tags: dict[str, str] | None = None,
     access_token: str | None = None,
     asset_selection: list[str] | None = None,
+    journal_store: OperationJournalStore | None = None,
 ) -> DagsterOperationResult:
-    """Launch a Dagster materialization run for one asset, reusing a prior run
-    tagged with the same idempotency key so client retries never double-materialize.
+    """Claim a keyed request before submission; replay its durable receipt.
 
-    Raises RuntimeError when Dagster rejects the launch or returns a malformed
-    existing-run payload.
+    Replicas must share journal_store or PHLO_OPERATIONS_JOURNAL_DIR. An unknown
+    response permits read-only reconciliation, never another submission. Without
+    an idempotency key the launch is unjournaled and has no replay guarantee.
     """
     selection = asset_selection if asset_selection is not None else [asset_key_path]
     if not selection or asset_key_path not in selection or len(set(selection)) != len(selection):
         raise ValueError("Asset selection must be unique and include the requested asset")
-    execution_tags = {"phlo/operation": "materialize_asset", "phlo/asset_key": asset_key_path}
+    execution_tags = {
+        **(tags or {}),
+        "phlo/operation": "materialize_asset",
+        "phlo/asset_key": asset_key_path,
+    }
+    execution_tags.pop("phlo/launch_request", None)
     if idempotency_key:
         execution_tags["phlo/idempotency_key"] = idempotency_key
-    execution_tags.update(tags or {})
     if partition_key:
         execution_tags.setdefault("dagster/partition", partition_key)
-    if idempotency_key:
-        # Reconcile against any run already tagged with this idempotency key
-        # before launching, so a client retry after a lost GraphQL response
-        # reuses the prior run instead of materializing twice.
-        existing = await _graphql(
-            dagster_url,
-            EXISTING_MATERIALIZATION_RUN_QUERY,
-            {
-                "filter": {
-                    "tags": _tags_for_execution(
-                        {
-                            "phlo/operation": "materialize_asset",
-                            "phlo/idempotency_key": idempotency_key,
-                        }
-                    )
-                }
-            },
-            access_token=access_token,
-        )
-        runs_or_error = existing.get("data", {}).get("runsOrError", {})
-        if runs_or_error.get("__typename") != "Runs":
-            raise RuntimeError(_error_message(runs_or_error))
-        results = runs_or_error.get("results") or []
-        if results:
-            run = results[0]
-            run_id = str(run.get("runId") or "")
-            if not run_id:
-                raise RuntimeError("Dagster returned an existing run without a run ID")
-            return DagsterOperationResult(
-                operation="materialize_asset",
-                dry_run=False,
-                accepted=True,
-                run_id=run_id,
-                asset_key_path=asset_key_path,
-                partition_key=partition_key,
-                status=str(run.get("status") or "UNKNOWN"),
-                message="Dagster previously accepted materialize_asset.",
-                details={"typename": "LaunchRunSuccess", "reconciled": True},
-            )
     selector: dict[str, Any] = {
         "pipelineName": job_name,
         "assetSelection": [{"path": key.split("/")} for key in selection],
@@ -208,25 +219,211 @@ async def launch_materialize(
     if repository_name:
         selector["repositoryName"] = repository_name
 
-    result = await _graphql(
+    params = {
+        "selector": selector,
+        "runConfigData": run_config or {},
+        "mode": "default",
+        "executionMetadata": {"tags": _tags_for_execution(dict(sorted(execution_tags.items())))},
+    }
+    if idempotency_key:
+        return await _journaled_materialization(
+            dagster_url=dagster_url,
+            idempotency_key=idempotency_key,
+            params=params,
+            asset_key_path=asset_key_path,
+            partition_key=partition_key,
+            access_token=access_token,
+            store=journal_store,
+        )
+    response = await _graphql(
         dagster_url,
         LAUNCH_PIPELINE_EXECUTION_MUTATION,
-        {
-            "executionParams": {
-                "selector": selector,
-                "runConfigData": run_config or {},
-                "mode": "default",
-                "executionMetadata": {"tags": _tags_for_execution(execution_tags)},
-            }
-        },
+        {"executionParams": params},
         access_token=access_token,
     )
     return _launch_result(
         operation="materialize_asset",
-        payload=result.get("data", {}).get("launchPipelineExecution", {}),
+        payload=response.get("data", {}).get("launchPipelineExecution", {}),
         asset_key_path=asset_key_path,
         partition_key=partition_key,
     )
+
+
+async def _journaled_materialization(
+    *,
+    dagster_url: str,
+    idempotency_key: str,
+    params: dict[str, Any],
+    asset_key_path: str,
+    partition_key: str | None,
+    access_token: str | None,
+    store: OperationJournalStore | None,
+) -> DagsterOperationResult:
+    if store is None:
+        directory = get_process_settings().phlo_operations_journal_dir
+        if not directory:
+            raise MaterializationNotSubmitted(
+                "Keyed materialization requires PHLO_OPERATIONS_JOURNAL_DIR or a shared journal store"
+            )
+        store = FileOperationJournalStore(directory)
+    journal = OperationJournal(store)
+    endpoint = sha256_bytes(dagster_url.encode())
+    operation_id = "materialize:" + sha256_bytes(canonical_json_bytes([endpoint, idempotency_key]))
+    binding = dict(
+        subject=endpoint,
+        action="materialize_asset",
+        target=operation_id,
+        plan_token=sha256_bytes(canonical_json_bytes(params)),
+    )
+    try:
+        journal.claim(operation_id=operation_id, **binding)
+    except OperationJournalError as exc:
+        if exc.code != "conflicting_claim":
+            raise
+        return await _replay_materialization(
+            journal=journal,
+            store=store,
+            operation_id=operation_id,
+            binding=binding,
+            dagster_url=dagster_url,
+            idempotency_key=idempotency_key,
+            asset_key_path=asset_key_path,
+            partition_key=partition_key,
+            access_token=access_token,
+        )
+    params["executionMetadata"]["tags"].append(
+        {"key": "phlo/launch_request", "value": binding["plan_token"]}
+    )
+    journal.submit(operation_id)
+    try:
+        existing = await find_materialization_run(
+            dagster_url=dagster_url,
+            idempotency_key=idempotency_key,
+            access_token=access_token,
+        )
+        if existing is not None:
+            raise RuntimeError(
+                "Dagster already has a run for this key without a journal receipt; "
+                "reconciliation required"
+            )
+        response = await _graphql(
+            dagster_url,
+            LAUNCH_PIPELINE_EXECUTION_MUTATION,
+            {"executionParams": params},
+            access_token=access_token,
+        )
+        payload = response.get("data", {}).get("launchPipelineExecution", {})
+        result = _launch_result(
+            operation="materialize_asset",
+            payload=payload,
+            asset_key_path=asset_key_path,
+            partition_key=partition_key,
+        )
+        if not result.run_id and payload.get("__typename") not in {
+            "PipelineNotFoundError",
+            "InvalidSubsetError",
+            "RunConfigValidationInvalid",
+        }:
+            raise RuntimeError("Dagster launch outcome is unknown: " + result.message)
+    except BaseException:
+        # A concurrent recovery may already have stored the definitive receipt.
+        try:
+            journal.unknown(operation_id)
+        except OperationJournalError as exc:
+            if exc.code != "invalid_transition":
+                raise
+        raise
+    state = OperationJournalState.SUCCEEDED if result.accepted else OperationJournalState.FAILED
+    try:
+        journal.complete(operation_id, state=state, result=result.to_dict())
+    except OperationJournalError as exc:
+        if exc.code != "invalid_transition":
+            raise
+        receipt = journal.replay(operation_id, **binding)
+        if receipt is None or receipt.get("run_id") != result.run_id:
+            raise
+        return DagsterOperationResult(**receipt)
+    return result
+
+
+async def _replay_materialization(
+    *,
+    journal: OperationJournal,
+    store: OperationJournalStore,
+    operation_id: str,
+    binding: dict[str, str],
+    dagster_url: str,
+    idempotency_key: str,
+    asset_key_path: str,
+    partition_key: str | None,
+    access_token: str | None,
+) -> DagsterOperationResult:
+    entry = store.read(operation_id)
+    # Only an expired CLAIMED record proves that no provider submission began.
+    # Keep its operation id terminal; a new attempt must use a new key.
+    if entry is not None and (
+        expire_claim(entry) != entry or journal.replay_block_reason(entry) == "claim_expired"
+    ):
+        result = DagsterOperationResult(
+            operation="materialize_asset",
+            dry_run=False,
+            accepted=False,
+            asset_key_path=asset_key_path,
+            partition_key=partition_key,
+            status="NOT_SUBMITTED",
+            message="Materialization claim expired before submission; use a new operation key.",
+        )
+        try:
+            # Check the request binding before changing the claimed record.
+            journal.replay(operation_id, **binding)
+        except OperationJournalError as exc:
+            if exc.code == "claim_expired":
+                return result
+            if exc.code != "operation_in_progress":
+                raise
+            try:
+                journal.reject(operation_id, result=result.to_dict())
+            except OperationJournalError as conflict:
+                if conflict.code != "invalid_transition":
+                    raise
+    try:
+        receipt = journal.replay(operation_id, **binding)
+    except OperationJournalError as exc:
+        if exc.code not in {"operation_in_progress", "unknown_outcome_blocks_replay"}:
+            raise
+        unknown = exc.code == "unknown_outcome_blocks_replay"
+        run = await find_materialization_run(
+            dagster_url=dagster_url,
+            idempotency_key=idempotency_key,
+            request_token=binding["plan_token"],
+            access_token=access_token,
+        )
+        if run is None:
+            raise RuntimeError(
+                "Materialization is in progress or its outcome is unknown; submission is fenced"
+            ) from exc
+        result = DagsterOperationResult(
+            operation="materialize_asset",
+            dry_run=False,
+            accepted=True,
+            run_id=str(run["runId"]),
+            asset_key_path=asset_key_path,
+            partition_key=partition_key,
+            status=str(run.get("status") or "UNKNOWN"),
+            message="Dagster previously accepted materialize_asset.",
+            details={"typename": "LaunchRunSuccess", "reconciled": True},
+        )
+        try:
+            command = journal.reconcile if unknown else journal.complete
+            command(operation_id, state=OperationJournalState.SUCCEEDED, result=result.to_dict())
+        except OperationJournalError as conflict:
+            if conflict.code != "invalid_transition":
+                raise
+        # Always return the persisted winner, never a competing observation.
+        receipt = journal.replay(operation_id, **binding)
+    if receipt is None:
+        raise RuntimeError("Materialization has no durable launch receipt")
+    return DagsterOperationResult(**receipt)
 
 
 async def launch_retry(
@@ -238,10 +435,24 @@ async def launch_retry(
     tags: dict[str, str] | None = None,
 ) -> DagsterOperationResult:
     """Launch a Dagster re-execution of a failed run using the given retry strategy."""
+    observed = await _graphql(dagster_url, RUN_STATUS_QUERY, {"runId": run_id})
+    parent = observed.get("data", {}).get("runOrError", {})
+    if parent.get("__typename") != "Run":
+        raise RuntimeError(_error_message(parent))
+    parent_tags = {tag["key"]: tag["value"] for tag in parent.get("tags", [])}
+    attempt, error = attempt_from_tags(parent_tags)
+    if error or attempt is None:
+        raise ValueError("Cannot retry a run with invalid_attempt")
+    if parent_tags.get("phlo/wap_branch"):
+        raise ValueError("WAP retry requires a newly prepared launch and execution binding")
     execution_tags = {"phlo/operation": "retry_failed_run", "phlo/parent_run_id": run_id}
     if idempotency_key:
         execution_tags["phlo/idempotency_key"] = idempotency_key
     execution_tags.update(tags or {})
+    execution_tags["phlo/attempt"] = str(attempt + 1)
+    execution_tags["phlo/run_id"] = (
+        parent_tags.get("phlo/run_id") or parent.get("rootRunId") or run_id
+    )
     result = await _graphql(
         dagster_url,
         LAUNCH_PIPELINE_REEXECUTION_MUTATION,
@@ -258,7 +469,6 @@ async def launch_retry(
     return _launch_result(
         operation="retry_failed_run",
         payload=result.get("data", {}).get("launchPipelineReexecution", {}),
-        fallback_run_id=run_id,
     )
 
 

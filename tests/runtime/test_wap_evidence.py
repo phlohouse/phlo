@@ -87,6 +87,17 @@ def records(tmp_path):
     return store, tags, binding, report, persist
 
 
+@pytest.mark.parametrize("status", ["launched", "promotion_blocked", "promoted"])
+def test_cleaned_runs_leave_pending_work_except_for_undelivered_publication(records, status):
+    store, _, _, report, persist = records
+    report.update(status=status, cleanup_state="cleanup_complete", source_deleted=True)
+    persist()
+    assert store.pending_publication_run_ids() == (["physical-9"] if status == "promoted" else [])
+    report["delivery_complete"] = True
+    persist()
+    assert store.pending_publication_run_ids() == []
+
+
 @pytest.mark.parametrize("strict", [None, False, True])
 def test_verified_legacy_and_context_records_are_read_only(records, strict):
     store, tags, binding, report, persist = records

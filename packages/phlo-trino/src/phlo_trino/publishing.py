@@ -43,6 +43,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from psycopg2 import sql
 from psycopg2.extras import execute_values
@@ -414,7 +415,12 @@ def _copy_table(
     target_table: str,
     batch_size: int,
 ) -> tuple[int, int]:
-    """Copy a single Trino table into Postgres and return row/column counts."""
+    """Load privately, then atomically replace one serving table.
+
+    The staging table and replacement share one transaction. Readers retain
+    the previous publication until the complete replacement commits; failure
+    rolls back both the replacement and its staging table.
+    """
     resolved_source_table = _resolve_source_table_reference(source_table)
     columns, source_table_ref = _describe_trino_table(trino, resolved_source_table)
     column_defs = [
@@ -424,39 +430,47 @@ def _copy_table(
     column_idents = [sql.Identifier(name) for name, _pg_type, _expr in columns]
     select_exprs = [expr for _name, _pg_type, expr in columns]
 
-    with postgres.cursor() as cursor:
-        cursor.execute(
-            sql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                sql.Identifier(target_schema),
-                sql.Identifier(target_table),
-            )
-        )
-        cursor.execute(
-            sql.SQL("CREATE TABLE {}.{} ({})").format(
-                sql.Identifier(target_schema),
-                sql.Identifier(target_table),
-                sql.SQL(", ").join(column_defs),
-            )
-        )
-    postgres.commit()
-
+    staging_table = f"__phlo_publish_{uuid4().hex}"
     insert_query = sql.SQL("INSERT INTO {}.{} ({}) VALUES %s").format(
         sql.Identifier(target_schema),
-        sql.Identifier(target_table),
+        sql.Identifier(staging_table),
         sql.SQL(", ").join(column_idents),
     )
 
     row_count = 0
-    with trino.cursor() as trino_cursor:
-        trino_cursor.execute(f"SELECT {', '.join(select_exprs)} FROM {source_table_ref}")
+    try:
         with postgres.cursor() as pg_cursor:
-            while True:
-                rows = trino_cursor.fetchmany(batch_size)
-                if not rows:
-                    break
-                execute_values(pg_cursor, insert_query, rows, page_size=batch_size)
-                row_count += len(rows)
-    postgres.commit()
+            pg_cursor.execute(
+                sql.SQL("CREATE TABLE {}.{} ({})").format(
+                    sql.Identifier(target_schema),
+                    sql.Identifier(staging_table),
+                    sql.SQL(", ").join(column_defs),
+                )
+            )
+            with trino.cursor() as trino_cursor:
+                trino_cursor.execute(f"SELECT {', '.join(select_exprs)} FROM {source_table_ref}")
+                while True:
+                    rows = trino_cursor.fetchmany(batch_size)
+                    if not rows:
+                        break
+                    execute_values(pg_cursor, insert_query, rows, page_size=batch_size)
+                    row_count += len(rows)
+            pg_cursor.execute(
+                sql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                    sql.Identifier(target_schema), sql.Identifier(target_table)
+                )
+            )
+            pg_cursor.execute(
+                sql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
+                    sql.Identifier(target_schema),
+                    sql.Identifier(staging_table),
+                    sql.Identifier(target_table),
+                )
+            )
+        postgres.commit()
+    except BaseException:
+        postgres.rollback()
+        raise
 
     return row_count, len(columns)
 

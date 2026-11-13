@@ -780,7 +780,7 @@ def _advance_snapshot_promotion(
             branch_name=branch_name,
             exc_info=True,
         )
-        candidates = []
+        return None
     candidate_rows = [
         {"table": candidate.table_name, "snapshot_id": str(candidate.snapshot_id)}
         for candidate in candidates
@@ -850,6 +850,7 @@ def _advance_snapshot_promotion(
             return None
         if not write_wap_report(
             logical_run_id,
+            expected_version=(prior_report or {}).get("version", 0),
             status="promotion_pending",
             merge_state="merge_started",
             branch=branch_name,
@@ -885,11 +886,15 @@ def _advance_snapshot_promotion(
                 branch_name=branch_name,
                 exc_info=True,
             )
-            merged = False
+            write_wap_report(
+                logical_run_id, status="promotion_pending", failure_reason="release_outcome_unknown"
+            )
+            return None
         if not merged:
             write_wap_report(
                 logical_run_id,
                 status="promotion_failed",
+                merge_state="merge_failed",
                 branch=branch_name,
                 source_hash=source_hash,
                 target_branch="main",
@@ -935,7 +940,9 @@ def _advance_snapshot_promotion(
             logger.warning("wap_promotion_merge_receipt_write_failed", run_id=run.run_id)
             return None
     else:
-        target_hash_after = str(_release_revision(catalog))
+        source_hash = (prior_report or {}).get("source_hash") or source_hash
+        target_hash_before = (prior_report or {}).get("target_hash_before") or target_hash_before
+        target_hash_after = (prior_report or {}).get("target_hash_after") or str(current_revision)
 
     source_deleted = bool(prior_report and prior_report.get("source_deleted"))
     if not source_deleted:
@@ -1007,7 +1014,6 @@ def _finalize_wap_promotion(
     ):
         logger.warning("wap_promotion_terminal_evidence_write_failed", run_id=run.run_id)
         return False
-    instance.add_run_tags(run.run_id, {"phlo/wap_promoted": "true"})
     quality_decision_id, quality_metadata = _quality_evidence(
         run.run_id,
         instance,
@@ -1041,7 +1047,8 @@ def _finalize_wap_promotion(
         merge_outcome="deleted" if source_deleted else "failed",
         metadata={"target_ref": target_catalog_ref},
     )
-    return True
+    instance.add_run_tags(run.run_id, {"phlo/wap_promoted": "true"})
+    return write_wap_report(logical_run_id, delivery_complete=True)
 
 
 @dg.sensor(
@@ -1085,23 +1092,33 @@ def wap_auto_promotion_sensor(context: dg.SensorEvaluationContext):
         (cursor_ts - timedelta(minutes=5)) if cursor_ts else (evaluation_time - timedelta(hours=1))
     )
 
-    terminal_runs = list(
+    terminal_statuses = [
+        dg.DagsterRunStatus.SUCCESS,
+        dg.DagsterRunStatus.FAILURE,
+        dg.DagsterRunStatus.CANCELED,
+    ]
+    discovered = list(
         instance.get_runs(
             filters=dg.RunsFilter(
-                statuses=[
-                    dg.DagsterRunStatus.SUCCESS,
-                    dg.DagsterRunStatus.FAILURE,
-                    dg.DagsterRunStatus.CANCELED,
-                ],
+                statuses=terminal_statuses,
                 updated_after=cutoff,
             )
         )
     )
+    terminal_runs = {run.run_id: run for run in discovered}
+    pending = sorted(set(_evidence().pending_publication_run_ids()) - terminal_runs.keys())
+    if pending:
+        terminal_runs.update(
+            (run.run_id, run)
+            for run in instance.get_runs(
+                filters=dg.RunsFilter(run_ids=pending, statuses=terminal_statuses)
+            )
+        )
 
     promoted = 0
     blocked = 0
 
-    for run in terminal_runs:
+    for run in terminal_runs.values():
         try:
             run_promoted, run_blocked = _promote_terminal_run(
                 run, instance, configured_strategy, catalog, query_catalog_manager
@@ -1407,7 +1424,7 @@ def wap_candidate_cleanup_sensor(context: dg.SensorEvaluationContext):
     skipped = 0
 
     for report in _iter_snapshot_strategy_reports():
-        if report.get("review_required"):
+        if report.get("review_required") or report.get("merge_state") == "merge_started":
             skipped += 1
             continue
         namespace = report.get("branch")
@@ -1541,11 +1558,6 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
         )
         return (promoted, blocked)
 
-    # Written only after the full promote-and-cleanup sequence succeeds,
-    # so its presence means later ticks must not reprocess this run.
-    if run_tags.get("phlo/wap_promoted"):
-        return (promoted, blocked)
-
     manifest = _migrate_launch_hashes(run)
     if manifest is None:
         logical_run_id = _logical_run_id(run)
@@ -1565,6 +1577,12 @@ def _promote_terminal_run(run, instance, configured_strategy, catalog, query_cat
         return (promoted, blocked)
 
     manifest_logical_run_id = manifest.report["run_id"]
+    # Tags are projections, not the retry queue or completion authority.
+    if (
+        manifest.report.get("status") == "promoted"
+        and manifest.report.get("delivery_complete") is True
+    ):
+        return (promoted, blocked)
     if not _check_wap_run_context(run, branch_name, catalog):
         return (promoted, blocked + 1)
     target_ref = _publication_target(run)
@@ -1745,6 +1763,23 @@ def _promote_validated_run(
 
     logical_run_id = _logical_run_id(run)
     prior_report = _evidence().read_report(logical_run_id)
+    if prior_report and prior_report.get("status") == "promoted":
+        completed = _finalize_wap_promotion(
+            run,
+            instance,
+            logical_run_id=logical_run_id,
+            branch_name=branch_name,
+            source_hash=prior_report.get("source_hash"),
+            target_hash_before=prior_report.get("target_hash_before"),
+            target_hash_after=prior_report.get("target_hash_after"),
+            source_deleted=prior_report.get("source_deleted") is True,
+            target_catalog_ref=(
+                f"release:{logical_run_id}"
+                if report_strategy == WAP_STRATEGY_SNAPSHOT
+                else _publication_target(run)
+            ),
+        )
+        return (int(completed), blocked)
     merge_message = None
     if not prior_report or prior_report.get("merge_state") != "merged":
         try:
@@ -1899,6 +1934,7 @@ def _promote_branch(
         # retry record, not a terminal promotion marker.
         if not write_wap_report(
             logical_run_id,
+            expected_version=(prior_report or {}).get("version", 0),
             status="promotion_pending",
             merge_state="merge_started",
             branch=branch_name,

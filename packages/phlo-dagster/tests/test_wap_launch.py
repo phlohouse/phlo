@@ -143,7 +143,9 @@ def test_prepare_wap_launch_requires_project_before_creating_a_branch(monkeypatc
     [
         ("accepted", "launched"),
         ("rejected", "launch_rejected"),
+        ("missing_journal", "launch_rejected"),
         ("transport_failure", "launch_ambiguous"),
+        ("server_failure", "launch_ambiguous"),
         ("missing_run_id", "launch_ambiguous"),
         ("manifest_failure", "branch_created"),
     ],
@@ -153,6 +155,9 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
 ) -> None:
     catalog = _Catalog()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "operations"))
+    if outcome == "missing_journal":
+        monkeypatch.delenv("PHLO_OPERATIONS_JOURNAL_DIR")
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.get_settings", lambda: SimpleNamespace(phlo_project="warehouse")
     )
@@ -169,6 +174,7 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
         manifests.write_text("blocked storage", encoding="utf-8")
 
     async def post(self, url, *, json, headers):
+        assert outcome != "missing_journal", "configuration must fail before HTTP"
         assert headers["Authorization"] == "Bearer caller-token"
         if "ExistingMaterializationRun" in json["query"]:
             data = {"runsOrError": {"__typename": "Runs", "results": []}}
@@ -183,17 +189,21 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
             assert tags["phlo/idempotency_key"] == "request-42"
             assert tags["dagster/partition"] == "2025-06-19"
             assert tags["phlo/wap_binding"] == launch.binding_checksum
-            payload = (
-                {"__typename": "PythonError", "message": "launch rejected"}
-                if outcome == "rejected"
-                else {
+            if outcome in {"rejected", "server_failure"}:
+                payload = {
+                    "__typename": "RunConfigValidationInvalid"
+                    if outcome == "rejected"
+                    else "PythonError",
+                    "message": "launch error",
+                }
+            else:
+                payload = {
                     "__typename": "LaunchRunSuccess",
                     "run": {
                         "runId": None if outcome == "missing_run_id" else "physical-17",
                         "status": "STARTING",
                     },
                 }
-            )
             data = {"launchPipelineExecution": payload}
         return httpx.Response(200, request=httpx.Request("POST", url), json={"data": data})
 
@@ -220,6 +230,8 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
     evidence = WapEvidence(tmp_path)
     report = evidence.read_report("request-42")
     assert report["status"] == report_status
+    if outcome != "accepted":
+        assert failure.value.rejected is (report_status == "launch_rejected")
     assert catalog.get_branch_hash(launch.branch) == "main-hash"
     assert catalog.deleted == []
     if outcome == "accepted":

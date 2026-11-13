@@ -18,6 +18,7 @@ from phlo.security.service_identity import (
     build_service_headers,
     load_service_identity_credentials,
 )
+from phlo_api.api.continuity import durable_operation_journal
 from phlo_api.observatory_api.http_client import backend_client
 
 logger = get_logger(__name__)
@@ -623,6 +624,7 @@ async def materialize_asset(
             idempotency_key=payload.idempotency_key,
             tags=payload.tags,
             asset_selection=payload.asset_selection,
+            journal_store=durable_operation_journal() if payload.idempotency_key else None,
         )
         return DagsterOperationResponse(**result.to_dict())
 
