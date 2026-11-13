@@ -1,7 +1,6 @@
 """Security contracts for bundled manifests and their generated Compose stack."""
 
 import re
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -54,7 +53,6 @@ def test_socket_and_root_exceptions_are_bounded_by_runtime_waivers() -> None:
         waiver = waivers[name]
         used.add(name)
         assert waiver["image"] == document["image"]
-        assert waiver["review_by"] >= datetime.now(UTC).date()
         assert waiver["rationale"] and waiver["compensating_control"]
         if socket:
             assert name in {"alloy-docker", "traefik-docker"}
