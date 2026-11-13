@@ -92,6 +92,7 @@ class Alert:
     run_id: Optional[str] = None
     error_message: Optional[str] = None
     timestamp: Optional[datetime] = None
+    event_id: str | None = None
 
     def __post_init__(self) -> None:
         """Set default timestamp if not provided.
@@ -147,15 +148,15 @@ class AlertManager:
     destinations, deduplicates to prevent alert spam, and routes alerts
     based on configuration.
 
-    Dedup keys are never expired, so duplicates are suppressed for the
-    manager's lifetime regardless of _dedup_window_minutes.
+    Successful event/destination/channel receipts last for this manager's
+    lifetime. They are not durable; a restart permits at-least-once redelivery.
 
     Examples:
             >>> manager = AlertManager()
             >>> manager.destinations
             {}
-            >>> manager._dedup_window_minutes
-            60
+            >>> manager.delivery_count
+            0
 
     """
 
@@ -169,10 +170,14 @@ class AlertManager:
 
         """
         self.destinations: dict[str, AlertDestination] = {}
-        self._sent_alerts: set[str] = set()
-        self._confirmed_deliveries: set[tuple[str, str]] = set()
+        self._delivered: set[tuple[tuple[str | None, ...], str, str | None]] = set()
         self._delivery_lock = RLock()
-        self._dedup_window_minutes = 60
+
+    @property
+    def delivery_count(self) -> int:
+        """Number of successful route receipts retained by this manager."""
+        with self._delivery_lock:
+            return len(self._delivered)
 
     def register_destination(self, name: str, destination: AlertDestination) -> None:
         """Register an alert destination under a unique name.
@@ -190,7 +195,10 @@ class AlertManager:
             True
 
         """
-        self.destinations[name] = destination
+        with self._delivery_lock:
+            if self.destinations.get(name) is not destination:
+                self._delivered = {receipt for receipt in self._delivered if receipt[1] != name}
+            self.destinations[name] = destination
         logger.info("alert_destination_registered", destination_name=name)
 
     def send(
@@ -210,52 +218,7 @@ class AlertManager:
                     False
 
         """
-        from phlo_alerting.destinations.slack import SlackAlertDestination
-
-        # Check for duplicates
-        alert_key = self._get_alert_key(alert)
-        if self._is_duplicate(alert_key):
-            logger.debug("alert_duplicate_skipped", alert_key=alert_key)
-            return False
-
-        # Determine which destinations to use
-        targets = (
-            destinations
-            if destinations is not None
-            else [
-                name
-                for name in self.destinations
-                if not name.startswith(("qa_", "owner:", "consumer:"))
-            ]
-        )
-
-        # Send to each destination
-        sent = False
-        for dest_name in targets:
-            if dest_name not in self.destinations:
-                logger.warning("alert_unknown_destination", destination_name=dest_name)
-                continue
-
-            try:
-                dest = self.destinations[dest_name]
-                if channel and dest_name == "slack" and isinstance(dest, SlackAlertDestination):
-                    dest = copy(dest)
-                    dest.channel = channel
-                if dest.send(alert):
-                    sent = True
-                    logger.info(
-                        "alert_sent",
-                        destination_name=dest_name,
-                        alert_title=alert.title,
-                    )
-            except Exception:
-                logger.exception("alert_send_failed", destination_name=dest_name)
-
-        # Mark as sent
-        if sent:
-            self._sent_alerts.add(alert_key)
-
-        return sent
+        return self._deliver(alert, destinations, channel=channel)[0]
 
     def send_confirmed(
         self, alert: Alert, destinations: list[str], *, channel: str | None = None
@@ -265,69 +228,67 @@ class AlertManager:
         Receipts are process-local. After restart a durable outbox may send
         again, so callers must describe delivery as at-least-once.
         """
+        return self._deliver(alert, destinations, channel=channel)[1]
+
+    def _deliver(
+        self, alert: Alert, destinations: list[str] | None, *, channel: str | None
+    ) -> tuple[bool, bool]:
+        """Return whether anything was newly sent and every route is confirmed."""
         from phlo_alerting.destinations.slack import SlackAlertDestination
 
-        if not destinations:
-            return False
+        identity = (
+            ("event", alert.run_id, alert.event_id)
+            if alert.event_id is not None
+            else (
+                "payload",
+                alert.run_id,
+                alert.asset_name,
+                alert.title,
+                alert.message,
+                alert.severity.value,
+                alert.error_message,
+            )
+        )
+        # ponytail: serial sends prevent duplicate delivery; use route locks if throughput matters.
         with self._delivery_lock:
-            confirmed = True
-            for name in destinations:
-                key = (f"{alert.run_id}:{self._get_alert_key(alert)}", name)
-                if key in self._confirmed_deliveries:
-                    continue
+            targets = (
+                destinations
+                if destinations is not None
+                else [
+                    name
+                    for name in self.destinations
+                    if not name.startswith(("qa_", "owner:", "consumer:"))
+                ]
+            )
+            sent = False
+            confirmed = bool(targets)
+            for name in targets:
                 destination = self.destinations.get(name)
                 if destination is None:
+                    logger.warning("alert_unknown_destination", destination_name=name)
                     confirmed = False
                     continue
-                if channel and name == "slack" and isinstance(destination, SlackAlertDestination):
-                    destination = copy(destination)
-                    destination.channel = channel
+                route_channel = None
+                if isinstance(destination, SlackAlertDestination):
+                    route_channel = channel or destination.channel
+                    if channel:
+                        destination = copy(destination)
+                        destination.channel = channel
+                receipt = (identity, name, route_channel)
+                if receipt in self._delivered:
+                    continue
                 try:
                     delivered = destination.send(alert)
                 except Exception:
+                    logger.exception("alert_send_failed", destination_name=name)
                     delivered = False
                 if delivered is True:
-                    self._confirmed_deliveries.add(key)
+                    self._delivered.add(receipt)
+                    sent = True
+                    logger.info("alert_sent", destination_name=name, alert_title=alert.title)
                 else:
                     confirmed = False
-            return confirmed
-
-    def _get_alert_key(self, alert: Alert) -> str:
-        """Build the dedup key from asset name, error message, and severity.
-
-        Examples:
-            >>> from phlo_alerting.manager import AlertManager, Alert, AlertSeverity
-            >>> manager = AlertManager()
-            >>> alert = Alert(
-            ...     title="Test",
-            ...     message="Test msg",
-            ...     asset_name="asset1",
-            ...     error_message="error1",
-            ...     severity=AlertSeverity.ERROR
-            ... )
-            >>> key = manager._get_alert_key(alert)
-            >>> key
-            'asset1:error1:error'
-
-        """
-        return f"{alert.asset_name}:{alert.error_message}:{alert.severity.value}"
-
-    def _is_duplicate(self, key: str) -> bool:
-        """Check whether an alert with this dedup key was already sent.
-
-        Dedup keys never expire, so duplicates stay suppressed for the
-        manager's lifetime.
-
-        Examples:
-            >>> manager = AlertManager()
-            >>> manager._is_duplicate("test_key")
-            False
-            >>> manager._sent_alerts.add("test_key")
-            >>> manager._is_duplicate("test_key")
-            True
-
-        """
-        return key in self._sent_alerts
+            return sent, confirmed
 
 
 # Global alert manager instance

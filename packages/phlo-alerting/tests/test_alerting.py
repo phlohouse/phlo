@@ -7,6 +7,10 @@ global manager accessor, and the package-root export surface.
 
 from datetime import datetime, timezone
 
+import pytest
+
+from phlo.hooks.events import HookCorrelation, QualityResultEvent
+
 import phlo_alerting
 from phlo_alerting import get_alert_manager
 from phlo_alerting.manager import Alert, AlertManager, AlertDestination, AlertSeverity
@@ -82,6 +86,113 @@ def test_alert_manager_targeted_destinations():
     manager.send(alert, destinations=["d1"])
     assert len(d1.alerts) == 1
     assert len(d2.alerts) == 0
+
+
+@pytest.mark.parametrize("first_api", ["send", "send_confirmed"])
+@pytest.mark.parametrize("second_api", ["send", "send_confirmed"])
+def test_delivery_retries_only_failed_routes_across_send_apis(first_api, second_api):
+    manager = AlertManager()
+    delivered = MockDestination()
+
+    class RetryingDestination(MockDestination):
+        def send(self, alert):
+            self.alerts.append(alert)
+            return len(self.alerts) > 1
+
+    retrying = RetryingDestination()
+    manager.register_destination("delivered", delivered)
+    manager.register_destination("retrying", retrying)
+    alert = Alert(title="T", message="M", run_id="run-1")
+    targets = ["delivered", "retrying"]
+    assert getattr(manager, first_api)(alert, targets) is (first_api == "send")
+    assert getattr(manager, second_api)(alert, targets)
+    assert manager.send_confirmed(alert, targets)
+    assert not manager.send(alert, targets)
+    assert len(delivered.alerts) == 1
+    assert len(retrying.alerts) == 2
+
+
+def test_replacing_destination_resets_only_its_receipts():
+    manager = AlertManager()
+    old, replacement, other = MockDestination(), MockDestination(), MockDestination()
+    manager.register_destination("target", old)
+    manager.register_destination("other", other)
+    alert = Alert(title="T", message="M")
+    assert manager.send(alert)
+    assert manager.delivery_count == 2
+    manager.register_destination("target", old)
+    assert not manager.send(alert)
+    manager.register_destination("target", replacement)
+    assert manager.send_confirmed(alert, ["target", "other"])
+    assert old.alerts == replacement.alerts == other.alerts == [alert]
+    assert manager.delivery_count == 2
+
+
+def test_alert_identity_separates_checks_runs_and_ambiguous_fields():
+    manager = AlertManager()
+    destination = MockDestination()
+    manager.register_destination("test", destination)
+    alerts = [
+        Alert(title="nulls", message="failed", run_id="one", asset_name="a:b", error_message="c"),
+        Alert(title="nulls", message="failed", run_id="one", asset_name="a", error_message="b:c"),
+        Alert(title="unique", message="failed", run_id="one", asset_name="a:b", error_message="c"),
+        Alert(title="nulls", message="failed", run_id="two", asset_name="a:b", error_message="c"),
+    ]
+    assert all(manager.send(alert) for alert in alerts)
+    assert not manager.send(alerts[0])
+    assert destination.alerts == alerts
+
+
+def test_slack_receipts_include_effective_channel(monkeypatch):
+    from phlo_alerting.destinations.slack import SlackAlertDestination
+
+    channels = []
+
+    def deliver(destination, alert):
+        channels.append(destination.channel)
+        return True
+
+    monkeypatch.setattr(SlackAlertDestination, "send", deliver)
+    manager = AlertManager()
+    manager.register_destination(
+        "slack", SlackAlertDestination("https://hooks.slack.com/test", channel="#default")
+    )
+    alert = Alert(title="T", message="M")
+    assert manager.send_confirmed(alert, ["slack"], channel="#qa")
+    assert manager.send_confirmed(alert, ["slack"], channel="#owner")
+    assert manager.send(alert)
+    assert not manager.send(alert, channel="#default")
+    assert channels == ["#qa", "#owner", "#default"]
+
+
+def test_quality_hook_preserves_event_identity(monkeypatch):
+    import phlo_alerting.hooks_plugin as hooks
+
+    manager = AlertManager()
+    destination = MockDestination()
+    manager.register_destination("test", destination)
+    monkeypatch.setattr(hooks, "get_alert_manager", lambda: manager)
+    handler = AlertingHookPlugin().get_hooks()[0].handler
+    first = QualityResultEvent(
+        event_type="quality.result",
+        asset_key="orders",
+        check_name="nulls",
+        passed=False,
+        correlation=HookCorrelation(run_id="run-1"),
+    )
+    second = QualityResultEvent(
+        event_type="quality.result",
+        asset_key="orders",
+        check_name="nulls",
+        passed=False,
+        correlation=HookCorrelation(run_id="run-1"),
+    )
+    handler(first)
+    handler(first)
+    handler(second)
+    assert len(destination.alerts) == 2
+    assert [alert.event_id for alert in destination.alerts] == [first.event_id, second.event_id]
+    assert all(alert.run_id == "run-1" for alert in destination.alerts)
 
 
 def test_map_quality_severity():

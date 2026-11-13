@@ -193,8 +193,8 @@ def check_status() -> None:
               • slack
               • email
 
-            Recent Alerts Sent: 5
-            Deduplication Window: 60 minutes
+            Successful Route Deliveries: 5
+            Delivery Receipts: process lifetime, reset on restart
 
             Next Steps
             1. Configure at least one alert destination...
@@ -213,8 +213,8 @@ def check_status() -> None:
         console.print("  [yellow]None configured[/yellow]")
 
     # Show statistics
-    console.print(f"\nRecent Alerts Sent: {len(manager._sent_alerts)}")
-    console.print(f"Deduplication Window: {manager._dedup_window_minutes} minutes")
+    console.print(f"\nSuccessful Route Deliveries: {manager.delivery_count}")
+    console.print("Delivery Receipts: process lifetime, reset on restart")
 
     # Show configuration guidance
     if len(manager.destinations) == 0:
