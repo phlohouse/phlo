@@ -7,6 +7,8 @@ replacement ordering and rollback guarantees of lifecycle-aware registration.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 
@@ -59,6 +61,7 @@ class _LifecycleSourcePlugin(SourceConnectorPlugin):
         self._name = name
         self._fail_initialize = fail_initialize
         self._fail_cleanup = fail_cleanup
+        self.alive = True
 
     @property
     def metadata(self) -> PluginMetadata:
@@ -70,10 +73,12 @@ class _LifecycleSourcePlugin(SourceConnectorPlugin):
         self._events.append(f"initialize:{self.marker}")
         if self._fail_initialize:
             raise RuntimeError(f"initialize failed for {self.marker}")
+        self.alive = True
 
     def cleanup(self) -> None:
         """Track plugin cleanup and optionally fail."""
         self._events.append(f"cleanup:{self.marker}")
+        self.alive = False
         if self._fail_cleanup:
             raise RuntimeError(f"cleanup failed for {self.marker}")
 
@@ -300,12 +305,15 @@ def test_discover_plugins_cleans_existing_plugin_before_replacement_registration
     assert events == ["initialize:new", "cleanup:old", "register:new"]
 
 
-def test_discover_plugins_keeps_existing_plugin_when_cleanup_fails(
-    clean_registry, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("recovery_fails", [False, True])
+def test_discover_plugins_recovers_or_withdraws_plugin_when_cleanup_fails(
+    clean_registry, monkeypatch: pytest.MonkeyPatch, recovery_fails: bool
 ) -> None:
-    """Cleanup failure during replacement preserves prior registry plugin."""
+    """A cleanup that closes then raises must not leave a dead provider available."""
     events: list[str] = []
-    existing = _LifecycleSourcePlugin(marker="old", events=events, fail_cleanup=True)
+    existing = _LifecycleSourcePlugin(
+        marker="old", events=events, fail_cleanup=True, fail_initialize=recovery_fails
+    )
     clean_registry.register("source_connector", existing)
 
     incoming = _LifecycleSourcePlugin(marker="new", events=events)
@@ -316,9 +324,17 @@ def test_discover_plugins_keeps_existing_plugin_when_cleanup_fails(
 
     discovered = discover_plugins(plugin_type="source_connector", auto_register=True)
 
-    assert clean_registry.get("source_connector", "lifecycle_source") is existing
+    registered = clean_registry.get("source_connector", "lifecycle_source")
+    if recovery_fails:
+        assert registered is None
+        assert "lifecycle_source" not in clean_registry.list("source_connector")
+        assert existing not in clean_registry.iter_plugins()
+    else:
+        assert registered is existing
+        assert registered.alive
+    assert not incoming.alive
     assert discovered["source_connector"] == []
-    assert events == ["initialize:new", "cleanup:old", "cleanup:new"]
+    assert events == ["initialize:new", "cleanup:old", "initialize:old", "cleanup:new"]
     _assert_plugin_load_failed_error(plugin_load_errors)
 
 
@@ -375,6 +391,60 @@ def test_discover_plugins_recovers_existing_plugin_on_registration_failure(
     assert discovered["source_connector"] == []
     assert events == ["initialize:new", "cleanup:old", "initialize:old", "cleanup:new"]
     _assert_plugin_load_failed_error(plugin_load_errors)
+
+
+def test_replacement_serializes_readers_until_a_ready_provider_is_published(
+    clean_registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
+
+    existing = _LifecycleSourcePlugin("old", [])
+    incoming = _LifecycleSourcePlugin("new", [])
+    clean_registry.register("source_connector", existing)
+    cleanup_started, release_cleanup, reader_started, reader_finished = (Event() for _ in range(4))
+
+    def cleanup() -> None:
+        existing.alive = False
+        cleanup_started.set()
+        assert release_cleanup.wait(30)
+
+    def read():
+        reader_started.set()
+        try:
+            return clean_registry.get("source_connector", "lifecycle_source")
+        finally:
+            reader_finished.set()
+
+    monkeypatch.setattr(existing, "cleanup", cleanup)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        replacement = executor.submit(register_plugin_with_lifecycle, "source_connector", incoming)
+        try:
+            assert cleanup_started.wait(30)
+            reader = executor.submit(read)
+            assert reader_started.wait(30)
+            assert not reader_finished.wait(0.1)
+        finally:
+            release_cleanup.set()
+        replacement.result(timeout=30)
+        assert reader.result(timeout=30) is incoming
+        assert incoming.alive
+
+
+def test_replacement_preserves_other_family_and_does_not_reinitialize_same_instance(
+    clean_registry,
+) -> None:
+    from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
+
+    events: list[str] = []
+    shared = _MultiTypeLifecyclePlugin(events)
+    clean_registry.register("source_connector", shared)
+    clean_registry.register("quality_check", shared)
+    register_plugin_with_lifecycle("source_connector", shared)
+    register_plugin_with_lifecycle(
+        "source_connector", _LifecycleSourcePlugin("new", [], name="multi_type_plugin")
+    )
+    assert clean_registry.get("quality_check", "multi_type_plugin") is shared
+    assert events == []
 
 
 def test_registry_clear_calls_cleanup_during_shutdown(clean_registry) -> None:
