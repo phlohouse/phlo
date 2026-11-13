@@ -27,7 +27,8 @@ class PluginRegistry:
 
     def __init__(self):
         """Initialize empty plugin registry."""
-        # ponytail: one registry lock; use per-registration locks if discovery throughput matters.
+        # Lifecycle transitions re-enter registry methods, so this lock must be re-entrant.
+        # Initialization and cleanup block all registry access until the transition completes.
         self._lock = RLock()
         self._plugins: dict[str, dict[str, Plugin]] = {family: {} for family in PLUGIN_FAMILIES}
         self._all_plugins: dict[str, Plugin] = {}

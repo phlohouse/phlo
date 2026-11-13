@@ -249,7 +249,8 @@ class AlertManager:
                 alert.error_message,
             )
         )
-        # ponytail: serial sends prevent duplicate delivery; use route locks if throughput matters.
+        # Serialize delivery and receipt publication to prevent concurrent duplicate sends.
+        # A blocked destination also blocks registration and receipt statistics.
         with self._delivery_lock:
             targets = (
                 destinations
