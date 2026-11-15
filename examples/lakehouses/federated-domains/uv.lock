@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
@@ -955,7 +955,7 @@ dependencies = [
     { name = "giturlparse" },
     { name = "humanize" },
     { name = "jsonpath-ng" },
-    { name = "orjson", marker = "python_full_version >= '3.14' or (platform_python_implementation != 'PyPy' and sys_platform != 'emscripten')" },
+    { name = "orjson", marker = "(python_full_version >= '3.14' and platform_python_implementation == 'PyPy') or (python_full_version >= '3.14' and sys_platform == 'emscripten') or (platform_python_implementation != 'PyPy' and sys_platform != 'emscripten')" },
     { name = "packaging" },
     { name = "pathvalidate" },
     { name = "pendulum" },
@@ -2351,7 +2351,7 @@ wheels = [
 
 [[package]]
 name = "phlo"
-version = "0.18.0"
+version = "0.19.0"
 source = { editable = "../../../" }
 dependencies = [
     { name = "click" },
@@ -2496,7 +2496,7 @@ dev = [
 
 [[package]]
 name = "phlo-api"
-version = "0.18.0"
+version = "0.19.0"
 source = { editable = "../../../packages/phlo-api" }
 dependencies = [
     { name = "anyio" },
@@ -2534,11 +2534,11 @@ requires-dist = [
     { name = "sqlglot", specifier = ">=30.2.1,<31" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-provides-extras = ["dagster", "dlt", "dev", "iceberg", "lineage", "transform", "trino"]
+provides-extras = ["dagster", "dev", "dlt", "iceberg", "lineage", "transform", "trino"]
 
 [[package]]
 name = "phlo-core-plugins"
-version = "0.16.1"
+version = "0.16.2"
 source = { editable = "../../../packages/phlo-core-plugins" }
 dependencies = [
     { name = "phlo" },
@@ -2558,7 +2558,7 @@ provides-extras = ["dev", "quality"]
 
 [[package]]
 name = "phlo-dagster"
-version = "0.18.0"
+version = "0.19.0"
 source = { editable = "../../../packages/phlo-dagster" }
 dependencies = [
     { name = "cryptography" },
@@ -2594,7 +2594,7 @@ provides-extras = ["alerting", "dev", "iceberg", "nessie", "observatory"]
 
 [[package]]
 name = "phlo-dbt"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../../../packages/phlo-dbt" }
 dependencies = [
     { name = "dbt-core" },
@@ -2618,7 +2618,7 @@ provides-extras = ["dagster", "dev", "quality"]
 
 [[package]]
 name = "phlo-dlt"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../../../packages/phlo-dlt" }
 dependencies = [
     { name = "dlt" },
@@ -2687,7 +2687,7 @@ dev = [
 
 [[package]]
 name = "phlo-iceberg"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../../../packages/phlo-iceberg" }
 dependencies = [
     { name = "pandera", extra = ["pandas"] },
@@ -2711,7 +2711,7 @@ provides-extras = ["dev", "minio", "nessie"]
 
 [[package]]
 name = "phlo-minio"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../../../packages/phlo-minio" }
 dependencies = [
     { name = "phlo" },
@@ -2727,7 +2727,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-nessie"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../../../packages/phlo-nessie" }
 dependencies = [
     { name = "marshmallow" },
@@ -2752,7 +2752,7 @@ provides-extras = ["dev", "iceberg-cli", "observatory", "trino"]
 
 [[package]]
 name = "phlo-observatory"
-version = "0.18.0"
+version = "0.19.0"
 source = { editable = "../../../packages/phlo-observatory" }
 dependencies = [
     { name = "phlo" },
@@ -2798,7 +2798,7 @@ wheels = [
 
 [[package]]
 name = "phlo-observe-plugin"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "../../../packages/phlo-observe-plugin" }
 dependencies = [
     { name = "phlo" },
@@ -2831,7 +2831,7 @@ wheels = [
 
 [[package]]
 name = "phlo-pandera"
-version = "0.16.1"
+version = "0.17.0"
 source = { editable = "../../../packages/phlo-pandera" }
 dependencies = [
     { name = "click" },
@@ -2859,7 +2859,7 @@ provides-extras = ["dev", "observatory", "trino"]
 
 [[package]]
 name = "phlo-postgres"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../../../packages/phlo-postgres" }
 dependencies = [
     { name = "phlo" },
@@ -2877,7 +2877,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-trino"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../../../packages/phlo-trino" }
 dependencies = [
     { name = "pandas" },
