@@ -3730,7 +3730,7 @@ minio = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deltalake", specifier = ">=0.25.0" },
+    { name = "deltalake", specifier = ">=1.5.0" },
     { name = "pandera", extras = ["pandas"], specifier = ">=0.26.1" },
     { name = "phlo", editable = "." },
     { name = "phlo-minio", marker = "extra == 'minio'", editable = "packages/phlo-minio" },

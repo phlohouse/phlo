@@ -96,6 +96,8 @@ def plan_schema_migration(
                     field_name=name,
                     change_type="add",
                     new_value=desired_field.dtype,
+                    new_nullable=desired_field.nullable,
+                    new_default=desired_field.default,
                     classification=_classify(
                         "add",
                         policy,

@@ -433,13 +433,15 @@ class NormalizedSchema:
 
 @dataclass(frozen=True, slots=True)
 class SchemaChange:
-    """Single field-level change detected between two schemas."""
+    """Single field-level change, retaining added-field constraints for execution."""
 
     field_name: str
     change_type: str
     old_value: str | None = None
     new_value: str | None = None
     classification: str = "breaking"
+    new_nullable: bool = True
+    new_default: Any = None
 
 
 @dataclass(frozen=True, slots=True)

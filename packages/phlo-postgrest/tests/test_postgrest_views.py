@@ -5,6 +5,7 @@ connection setup driven by project environment settings.
 """
 
 import json
+import re
 import socket
 from unittest.mock import MagicMock, patch
 
@@ -196,6 +197,41 @@ class TestViewGenerator:
         # public tag should grant to anon, analyst, and admin roles
         assert "GRANT SELECT ON api.glucose_metrics TO anon" in sql
         assert "CREATE POLICY" not in sql
+
+    @pytest.mark.parametrize(
+        "tags, expected",
+        [
+            (["admin"], {"admin", "external"}),
+            (["analyst"], {"analyst", "admin", "external"}),
+            (["public"], {"anon", "external"}),
+            ([], {"external"}),
+            (["unrecognised"], {"external"}),
+            (["public", "admin", "public"], {"anon", "admin", "external"}),
+        ],
+    )
+    def test_permissions_reconcile_managed_select_grants(self, manifest_file, tags, expected):
+        generator = ViewGenerator(manifest_file, source_schema="marts")
+        model = generator.parser.parse()["glucose_readings"]
+        model.tags = tags
+        grants = {"anon", "analyst", "admin", "external"}
+        sql = generator.generate_permissions_sql(model)
+        statements = re.sub(r"--[^\n]*", "", sql).split(";")
+        for statement in statements:
+            if not statement.strip():
+                continue
+            match = re.fullmatch(
+                r"\s*(GRANT|REVOKE) SELECT ON api\.glucose_readings (TO|FROM) ([\w, ]+)\s*",
+                statement,
+            )
+            assert match is not None, statement
+            operation, direction, roles = match.groups()
+            assert direction == ("TO" if operation == "GRANT" else "FROM")
+            affected = {role.strip() for role in roles.split(",")}
+            if operation == "GRANT":
+                grants.update(affected)
+            else:
+                grants.difference_update(affected)
+        assert grants == expected
 
     def test_generate_all_views(self, manifest_file):
         """Should generate SQL for all views."""

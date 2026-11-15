@@ -9,7 +9,7 @@ requires = [
 dependencies = [
     "phlo>=0.18.0,<0.19",
     "pandera[pandas]>=0.26.1",
-    "deltalake>=0.25.0",
+    "deltalake>=1.5.0",
     "pyarrow>=14.0.0",
 ]
 description = "Delta Lake table-store capability plugin for Phlo"
