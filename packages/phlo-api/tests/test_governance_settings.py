@@ -776,7 +776,9 @@ def test_wap_review_required_is_actionable_and_retained_past_cleanup(
     import phlo.infrastructure
 
     monkeypatch.setattr(
-        phlo.infrastructure, "load_wap_config", lambda: SimpleNamespace(strategy=strategy)
+        phlo.infrastructure,
+        "load_wap_config",
+        lambda: SimpleNamespace(enabled=True, strategy=strategy),
     )
     branch = "pipeline-run-one"
     run = SimpleNamespace(

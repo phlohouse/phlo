@@ -1,14 +1,13 @@
 """Tests for phlo_dagster.framework.definitions.
 
 Executor selection (platform-derived vs forced flags), definition assembly with
-user-workflow discovery, capability setup errors, and WAP sensor collection
-gated by project policy.
+user-workflow discovery, capability setup errors, and WAP sensors that honour
+the current project policy on every tick.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import dagster as dg
@@ -130,15 +129,107 @@ def test_build_definitions_merges_wap_sensors_when_versioned_catalog_present() -
         assert [sensor.name for sensor in result.sensors].count("wap_sensor") == 1
 
 
-def test_wap_sensors_can_be_disabled_in_project_config() -> None:
-    with (
-        patch(
-            "phlo_dagster.framework.definitions.load_wap_config",
-            return_value=SimpleNamespace(enabled=False),
-        ),
-        patch("phlo_dagster.framework.definitions.resolve_capability") as resolve_capability,
-    ):
+def test_wap_sensors_follow_project_policy_changed_after_definitions_load(
+    monkeypatch, tmp_path
+) -> None:
+    """A long-lived code location must pick up WAP enabled after it loaded (#1261)."""
+    from phlo.capabilities.resolver import ResolutionResult
+    from phlo.capabilities.support import CapabilitySupport
+    from phlo.infrastructure import clear_config_cache
+
+    class _Catalog:
+        def list_branches(self): ...
+        def get_branch_hash(self, name): ...
+        def create_branch(self, name, from_ref="main"): ...
+        def merge_branch(self, source, target="main", **kwargs): ...
+        def delete_branch(self, name, **kwargs): ...
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    config = tmp_path / "phlo.yaml"
+    config.write_text("name: warehouse\n", encoding="utf-8")
+    clear_config_cache()
+    resolution = ResolutionResult(
+        "catalog",
+        "nessie",
+        _Catalog(),
+        {},
+        CapabilitySupport(supports_refs=True, supports_promote=True),
+    )
+    with patch("phlo_dagster.framework.definitions.resolve_capability", return_value=resolution):
         from phlo_dagster.framework.definitions import _collect_wap_definitions
 
-        assert _collect_wap_definitions() is None
-        resolve_capability.assert_not_called()
+        wap_defs = _collect_wap_definitions()
+    assert wap_defs is not None
+    sensors = {sensor.name: sensor for sensor in wap_defs.sensors}
+    assert set(sensors) == {
+        "wap_auto_promotion_sensor",
+        "wap_branch_cleanup_sensor",
+        "wap_candidate_cleanup_sensor",
+    }
+
+    from phlo_dagster import wap_sensors
+
+    context = MagicMock(cursor=None)
+    for sensor in sensors.values():
+        assert isinstance(sensor._raw_fn(context), dg.SkipReason)
+    context.instance.get_runs.assert_not_called()
+
+    config.write_text("name: warehouse\nwap:\n  enabled: true\n", encoding="utf-8")
+    context.instance.get_runs.return_value = []
+    with patch.object(wap_sensors, "_load_versioned_catalog", return_value=MagicMock()):
+        assert sensors["wap_auto_promotion_sensor"]._raw_fn(context) is None
+    context.instance.get_runs.assert_called_once()
+    # A branch project never runs the snapshot cleanup sensor.
+    assert isinstance(sensors["wap_candidate_cleanup_sensor"]._raw_fn(context), dg.SkipReason)
+    clear_config_cache()
+
+
+def test_snapshot_catalog_serves_wap_sensors_enabled_after_load(monkeypatch, tmp_path) -> None:
+    """A snapshot-only catalog loaded with WAP disabled still registers sensors (#1261)."""
+    from phlo_dagster import wap_sensors
+
+    from phlo.capabilities.resolver import ResolutionResult
+    from phlo.capabilities.support import CapabilitySupport
+    from phlo.infrastructure import clear_config_cache
+
+    class _SnapshotCatalog:
+        def create_candidate(self, *, table_name, run_id): ...
+        def list_candidates(self, *, namespace): ...
+        def promote_candidates(self, **kwargs): ...
+        def resolve_release(self, *, table_name): ...
+        def release_revision(self): ...
+        def abort_candidates(self, *, namespace): ...
+        def prune_candidates(self, *, older_than): ...
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    config = tmp_path / "phlo.yaml"
+    config.write_text("name: warehouse\n", encoding="utf-8")
+    clear_config_cache()
+    resolution = ResolutionResult(
+        "catalog",
+        "polaris",
+        _SnapshotCatalog(),
+        {},
+        CapabilitySupport(supports_refs=False, supports_snapshots=True, supports_promote=True),
+    )
+    with patch("phlo_dagster.framework.definitions.resolve_capability", return_value=resolution):
+        from phlo_dagster.framework.definitions import _collect_wap_definitions
+
+        wap_defs = _collect_wap_definitions()
+    assert wap_defs is not None
+    sensors = {sensor.name: sensor for sensor in wap_defs.sensors}
+
+    config.write_text(
+        "name: warehouse\nwap:\n  enabled: true\n  strategy: snapshot\n", encoding="utf-8"
+    )
+    context = MagicMock(cursor=None)
+    # The branch cleanup sensor would raise on a snapshot-only provider; it must skip.
+    with patch.object(wap_sensors, "_load_versioned_catalog", side_effect=RuntimeError):
+        assert isinstance(sensors["wap_branch_cleanup_sensor"]._raw_fn(context), dg.SkipReason)
+    with (
+        patch.object(wap_sensors, "_load_snapshot_promotion_catalog") as load_catalog,
+        patch.object(wap_sensors, "_iter_snapshot_strategy_reports", return_value=[]),
+    ):
+        assert sensors["wap_candidate_cleanup_sensor"]._raw_fn(context) is None
+    load_catalog.assert_called_once()
+    clear_config_cache()

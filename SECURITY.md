@@ -4,10 +4,12 @@
 
 Phlo treats container scan results as release gates. A fixable critical finding
 blocks every image. A fixable high finding blocks production images (all
-`ghcr.io/phlohouse/phlo-*` images). Critical or high findings without an
-available fix require a temporary, tracked waiver before an image can be
-published. Medium and low findings are reported but do not block publication.
-An expired waiver always blocks.
+`ghcr.io/phlohouse/phlo-*` images). These findings also fail the daily rescan of
+the published fleet until a rebuilt image is released; a waiver cannot defer
+them. Critical or high findings without an available fix are inherited from the
+upstream base and are reported as non-blocking notices. Medium and low findings
+are reported but do not block publication. A waiver records an accepted,
+time-limited exception; an expired waiver always blocks.
 
 Waivers live in [`security/container-waivers.yml`](security/container-waivers.yml).
 Each must identify the image or package and vulnerability, reachability,

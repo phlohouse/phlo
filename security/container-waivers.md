@@ -4,8 +4,10 @@
 
 This report is generated from [`container-waivers.yml`](container-waivers.yml).
 It records temporary exceptions only. Fixable critical findings, and fixable
-high findings in production images, block publication. Critical/high findings
-without a fix require an active approved waiver; expired waivers block.
+high findings in production images, block publication and rescans until the
+image is rebuilt; a waiver cannot defer them. Critical/high findings without a
+fix are inherited from upstream and reported as non-blocking notices; record a
+waiver here only to track an accepted exception. Expired waivers block.
 
 ## Active waivers
 

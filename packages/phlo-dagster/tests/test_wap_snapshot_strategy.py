@@ -596,11 +596,7 @@ def test_candidate_cleanup_sensor_retains_active_run_candidates(monkeypatch, tmp
     assert catalog.aborted == []
 
 
-def test_get_wap_definitions_selects_cleanup_sensor_by_strategy(monkeypatch) -> None:
-    _snapshot_strategy(monkeypatch, strategy="snapshot")
-    snapshot_defs = get_wap_definitions()
-    assert wap_candidate_cleanup_sensor in snapshot_defs.sensors
-
-    _snapshot_strategy(monkeypatch, strategy="branch")
-    branch_defs = get_wap_definitions()
-    assert wap_branch_cleanup_sensor in branch_defs.sensors
+def test_get_wap_definitions_registers_both_cleanup_sensors() -> None:
+    sensors = get_wap_definitions().sensors
+    assert wap_candidate_cleanup_sensor in sensors
+    assert wap_branch_cleanup_sensor in sensors
