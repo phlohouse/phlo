@@ -406,9 +406,17 @@ def test_real_dagster_producers_publication_terminal_and_restart(
                     deadline = time.monotonic() + 180
                     while time.monotonic() < deadline:
                         run = instance.get_run_by_id(run_id)
-                        if run.is_finished:
+                        # A terminal run status precedes the worker's final
+                        # engine event. Wait for that event before comparing
+                        # repeated reconciliations of the complete log.
+                        if run.is_finished and any(
+                            entry.message.startswith("Process for run exited (pid:")
+                            for entry in instance.all_logs(run_id)
+                        ):
                             break
                         time.sleep(0.5)
+                    else:
+                        pytest.fail("Dagster worker did not finish within 180 seconds")
                     assert run.status == expected_status, instance.all_logs(run_id)
                     terminal_event = (
                         dg.DagsterEventType.RUN_SUCCESS
