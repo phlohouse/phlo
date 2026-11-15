@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from phlo_alerting import Alert, AlertSeverity, get_alert_manager
 from phlo_alerting.destinations.email import EmailAlertDestination
 from phlo_alerting.destinations.pagerduty import PagerDutyAlertDestination
@@ -66,6 +67,22 @@ def test_alert_payload_building() -> None:
         )
     )
     assert "Email Test" in html_content
+
+
+@pytest.mark.parametrize(
+    "depth,expected",
+    [(0, set()), (1, {"middle"}), (2, {"middle", "far"}), (None, {"middle", "far"})],
+)
+@pytest.mark.parametrize("direction", ["upstream", "downstream"])
+def test_lineage_graph_depth_is_maximum_edge_distance(depth, expected, direction):
+    graph = LineageGraph()
+    if direction == "downstream":
+        graph.add_edge("start", "middle")
+        graph.add_edge("middle", "far")
+    else:
+        graph.add_edge("middle", "start")
+        graph.add_edge("far", "middle")
+    assert getattr(graph, f"get_{direction}")("start", depth=depth) == expected
 
 
 def test_lineage_graph_formats() -> None:

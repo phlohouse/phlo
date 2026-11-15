@@ -153,7 +153,7 @@ class LineageGraph:
         while queue:
             current, current_depth = queue.popleft()
 
-            if current in visited:
+            if current in visited or (depth is not None and current_depth >= depth):
                 continue
 
             visited.add(current)
@@ -165,8 +165,7 @@ class LineageGraph:
                 if current in targets:
                     upstream.add(source)
 
-                    if depth is None or current_depth < depth:
-                        queue.append((source, current_depth + 1))
+                    queue.append((source, current_depth + 1))
 
         return upstream
 
@@ -196,7 +195,7 @@ class LineageGraph:
         while queue:
             current, current_depth = queue.popleft()
 
-            if current in visited:
+            if current in visited or (depth is not None and current_depth >= depth):
                 continue
 
             visited.add(current)
@@ -205,8 +204,7 @@ class LineageGraph:
             for target in self.edges.get(current, []):
                 downstream.add(target)
 
-                if depth is None or current_depth < depth:
-                    queue.append((target, current_depth + 1))
+                queue.append((target, current_depth + 1))
 
         return downstream
 

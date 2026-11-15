@@ -289,14 +289,6 @@ class _FakeDriver:
 
 
 @pytest.fixture
-def fresh_schema_cache():
-    """Reset the class-wide schema cache so bootstrap branches stay reachable."""
-    LineageStore._schema_initialized = False
-    yield
-    LineageStore._schema_initialized = False
-
-
-@pytest.fixture
 def stub_schema_setup(monkeypatch) -> list[LineageStore]:
     """Replace migration execution with a call recorder."""
     calls: list[LineageStore] = []
@@ -309,7 +301,7 @@ def stub_schema_setup(monkeypatch) -> list[LineageStore]:
 
 
 @pytest.fixture
-def driver(monkeypatch, fresh_schema_cache, stub_schema_setup) -> _FakeDriver:
+def driver(monkeypatch, stub_schema_setup) -> _FakeDriver:
     """Install the fake psycopg2 module and batch helper into the store package."""
     fake_driver = _FakeDriver()
 
@@ -334,8 +326,9 @@ def driver(monkeypatch, fresh_schema_cache, stub_schema_setup) -> _FakeDriver:
 @pytest.fixture
 def ready_store(driver) -> LineageStore:
     """Store with a warm schema cache: operations emit only their own SQL."""
-    LineageStore._schema_initialized = True
-    return LineageStore(LINEAGE_DSN)
+    store = LineageStore(LINEAGE_DSN)
+    store._schema_initialized = True
+    return store
 
 
 class TestRecordColumnLineage:
