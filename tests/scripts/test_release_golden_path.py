@@ -10,6 +10,9 @@ partition preservation and rejection of single-run WAP.
 import importlib.util
 import io
 import json
+import os
+import shutil
+import subprocess
 import sys
 import zipfile
 from dataclasses import replace
@@ -26,6 +29,20 @@ assert _spec and _spec.loader
 release_golden_path = importlib.util.module_from_spec(_spec)
 sys.modules["release_golden_path"] = release_golden_path
 _spec.loader.exec_module(release_golden_path)
+
+
+def _offline_python_312_available() -> bool:
+    """Report whether uv can resolve the harness's pinned 3.12 interpreter offline."""
+    uv = shutil.which("uv")
+    if uv is None:
+        return False
+    found = subprocess.run(
+        [uv, "python", "find", "3.12"],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "UV_OFFLINE": "1"},
+    )
+    return found.returncode == 0
 
 
 def _config(tmp_path: Path) -> release_golden_path.RunConfig:
@@ -1386,6 +1403,10 @@ def test_verify_installed_versions_requires_exact_bom_versions(tmp_path: Path, m
         release_golden_path.verify_installed_versions(config)
 
 
+@pytest.mark.skipif(
+    not _offline_python_312_available(),
+    reason="the harness pins Python 3.12 and this test installs offline",
+)
 def test_candidate_installs_each_package_at_its_bom_version(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
     config.__dict__.update(wheelhouse=tmp_path / "distributions")
