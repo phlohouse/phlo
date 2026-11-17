@@ -63,6 +63,8 @@ PORT_NAMES = (
 )
 WAP_RUN_TIMEOUT_SECONDS = 180
 WAP_PROMOTION_TIMEOUT_SECONDS = 180
+# Container-local journal for the single keyed WAP launch made by this run.
+WAP_OPERATIONS_JOURNAL_DIR = "/tmp/phlo-operations-journal"
 RUN_REPORT_TIMEOUT_SECONDS = 60
 RUNTIME_DIAGNOSTIC_SERVICES = (
     "dagster",
@@ -736,6 +738,8 @@ def materialize_wap(config: RunConfig) -> WapRun:
     environment = dict(os.environ)
     environment["PHLO_DAGSTER_ACCESS_TOKEN"] = token
     environment["PHLO_LOG_FILE_TEMPLATE"] = f"/tmp/phlo-{config.project_name}-{{YMD}}.log"
+    # Keyed materialization refuses to submit without a durable operation journal.
+    environment["PHLO_OPERATIONS_JOURNAL_DIR"] = WAP_OPERATIONS_JOURNAL_DIR
     try:
         result = run(
             command(
@@ -749,6 +753,8 @@ def materialize_wap(config: RunConfig) -> WapRun:
                     "PHLO_DAGSTER_ACCESS_TOKEN",
                     "--env",
                     "PHLO_LOG_FILE_TEMPLATE",
+                    "--env",
+                    "PHLO_OPERATIONS_JOURNAL_DIR",
                     "--workdir",
                     "/app",
                     "dagster",
