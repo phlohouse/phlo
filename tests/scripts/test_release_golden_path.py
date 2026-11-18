@@ -406,14 +406,16 @@ def test_wap_materialization_runs_as_dagster_user_in_local_container(
     assert args[args.index("dagster") + 1 : args.index("dagster") + 3] == ["phlo", "materialize"]
     assert args[args.index("--workdir") + 1] == "/app"
     assert args[args.index("--user") + 1] == "1001:1234"
-    assert args.count("--env") == 2
+    assert args.count("--env") == 3
     assert "PHLO_DAGSTER_ACCESS_TOKEN" in args
     assert "PHLO_LOG_FILE_TEMPLATE" in args
+    assert "PHLO_OPERATIONS_JOURNAL_DIR" in args
     assert "--wap" not in args
     assert kwargs["env"]["PHLO_DAGSTER_ACCESS_TOKEN"].startswith("phlo-api:")
     assert kwargs["env"]["PHLO_LOG_FILE_TEMPLATE"] == (
         f"/tmp/phlo-{config.project_name}-{{YMD}}.log"
     )
+    assert kwargs["env"]["PHLO_OPERATIONS_JOURNAL_DIR"] == "/app/.phlo/operations-journal"
 
 
 def test_configure_wap_writes_owned_dagster_endpoint_and_selector(

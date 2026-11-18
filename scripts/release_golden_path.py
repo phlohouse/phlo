@@ -736,6 +736,10 @@ def materialize_wap(config: RunConfig) -> WapRun:
     environment = dict(os.environ)
     environment["PHLO_DAGSTER_ACCESS_TOKEN"] = token
     environment["PHLO_LOG_FILE_TEMPLATE"] = f"/tmp/phlo-{config.project_name}-{{YMD}}.log"
+    # The in-container CLI is a standalone launcher: keyed materialization claims
+    # a durable journal before submitting, and the project bind mount is the one
+    # directory the host-side operations calls and this launcher both persist to.
+    environment["PHLO_OPERATIONS_JOURNAL_DIR"] = "/app/.phlo/operations-journal"
     try:
         result = run(
             command(
@@ -749,6 +753,8 @@ def materialize_wap(config: RunConfig) -> WapRun:
                     "PHLO_DAGSTER_ACCESS_TOKEN",
                     "--env",
                     "PHLO_LOG_FILE_TEMPLATE",
+                    "--env",
+                    "PHLO_OPERATIONS_JOURNAL_DIR",
                     "--workdir",
                     "/app",
                     "dagster",
