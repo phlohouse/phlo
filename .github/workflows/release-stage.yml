@@ -19,9 +19,13 @@ concurrency:
 jobs:
   security:
     uses: ./.github/workflows/security.yml
+    # security.yml nests dependency-triage; GitHub validates its permissions
+    # at startup even though the job only runs on the scheduled Security run.
     permissions:
       contents: read
-      pull-requests: read
+      actions: read
+      issues: write
+      pull-requests: write
     with:
       base-sha: ${{ inputs.candidate_sha }}
       head-sha: ${{ inputs.candidate_sha }}

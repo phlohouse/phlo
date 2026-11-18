@@ -51,6 +51,27 @@ def test_producer_name_matches_the_security_workflow():
     assert security["jobs"]["dependencies"]["name"] == risk.PRODUCER
 
 
+def test_security_callers_grant_nested_triage_permissions():
+    """GitHub rejects a run at startup when a nested job outranks its caller."""
+    root = Path(__file__).resolve().parents[2]
+    workflows = root / ".github/workflows"
+    security = yaml.safe_load((workflows / "security.yml").read_text())
+    required = security["jobs"]["dependency-triage"]["permissions"]
+    callers = []
+    for path in sorted(workflows.glob("*.yml")):
+        workflow = yaml.safe_load(path.read_text())
+        for name, job in workflow.get("jobs", {}).items():
+            if job.get("uses") != "./.github/workflows/security.yml":
+                continue
+            callers.append(path.name)
+            granted = job.get("permissions", {})
+            for scope, level in required.items():
+                assert granted.get(scope) == level or (
+                    level == "read" and granted.get(scope) == "write"
+                ), f"{path.name}:{name} must grant {scope}: {level} for dependency-triage"
+    assert callers, "expected at least one workflow to call security.yml"
+
+
 class GitHubStore:
     """Apply CLI writes to in-memory issues, PRs and comments."""
 
