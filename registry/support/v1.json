@@ -24,6 +24,7 @@
       {"name": "phlo-observe-plugin", "version": "0.2.2"},
       {"name": "phlo-pandera", "version": "0.17.0"},
       {"name": "phlo-postgres", "version": "0.18.0"},
+      {"name": "phlo-transform", "version": "0.2.0"},
       {"name": "phlo-trino", "version": "0.18.0"}
     ],
     "services": [

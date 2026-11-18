@@ -84,6 +84,38 @@ def test_release_set_rejects_duplicate_package_and_service_names() -> None:
     assert "release_set.services contains duplicate service names" in errors
 
 
+def test_release_set_must_include_every_blessed_core_package() -> None:
+    manifest = _manifest()
+    manifest["release_set"]["packages"] = [
+        entry for entry in manifest["release_set"]["packages"] if entry["name"] != "phlo-trino"
+    ]
+
+    errors = validate_manifest(manifest)
+
+    assert "release_set.packages must include every blessed_core package: ['phlo-trino']" in errors
+
+
+def test_release_set_may_publish_non_core_manifest_packages_without_promoting_them() -> None:
+    manifest = _manifest()
+    names = {entry["name"] for entry in manifest["release_set"]["packages"]}
+
+    assert "phlo-transform" in names
+    assert _package(manifest, "phlo-transform")["scope"] == "outside_v1"
+    assert validate_manifest(manifest) == []
+
+
+def test_release_set_rejects_packages_absent_from_the_package_manifest() -> None:
+    manifest = _manifest()
+    manifest["release_set"]["packages"].append({"name": "phlo-unknown", "version": "0.1.0"})
+
+    errors = validate_manifest(manifest)
+
+    assert (
+        "release_set.packages names packages absent from the package manifest: ['phlo-unknown']"
+        in errors
+    )
+
+
 def test_release_set_configuration_schema_version_matches_source() -> None:
     manifest = _manifest()
     manifest["release_set"]["schemas"]["configuration"]["version"] = "2"

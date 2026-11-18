@@ -28,8 +28,10 @@ jq -r '.release_set.packages[].name' registry/support/v1.json | sort
 
 The current list is `phlo`, `phlo-api`, `phlo-core-plugins`, `phlo-dagster`,
 `phlo-dbt`, `phlo-dlt`, `phlo-iceberg`, `phlo-minio`, `phlo-nessie`,
-`phlo-observatory`, `phlo-observe-plugin`, `phlo-pandera`, `phlo-postgres`, and
-`phlo-trino`. Repeat this inventory for the actual candidate. Register any
+`phlo-observatory`, `phlo-observe-plugin`, `phlo-pandera`, `phlo-postgres`,
+`phlo-transform`, and `phlo-trino`. The release set must include every
+`blessed_core` package and may include other manifest packages; publication does
+not extend the support promise to them. Repeat this inventory for the actual candidate. Register any
 additional project before its first publication. Every wheel and sdist in the
 BOM uses the same publisher identity.
 

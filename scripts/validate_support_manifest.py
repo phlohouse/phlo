@@ -714,8 +714,15 @@ def _release_set_package_errors(ctx: _ManifestContext) -> list[str]:
         for entry in ctx.packages
         if entry["scope"] == "blessed_core"
     }
-    if set(release_packages) != blessed_packages:
-        errors.append("release_set.packages must cover exactly the blessed_core packages")
+    # The release set decides what is published; blessed_core decides what is promised.
+    # Every blessed_core package must ship, and any other manifest package may opt in.
+    if missing := sorted(blessed_packages - set(release_packages)):
+        errors.append(f"release_set.packages must include every blessed_core package: {missing}")
+    declared_packages = {_normalise_package_name(entry["name"]) for entry in ctx.packages}
+    if unknown := sorted(set(release_packages) - declared_packages):
+        errors.append(
+            f"release_set.packages names packages absent from the package manifest: {unknown}"
+        )
     for package, version in release_packages.items():
         path = ctx.package_inventory.get(package)
         if path is None:
