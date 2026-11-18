@@ -39,6 +39,7 @@ packages = [
     "phlo-observe-plugin",
     "phlo-pandera",
     "phlo-postgres",
+    "phlo-transform",
     "phlo-trino",
 ]
 search = "\"name\": \"{name}\", \"version\": \"{current_version}\""
