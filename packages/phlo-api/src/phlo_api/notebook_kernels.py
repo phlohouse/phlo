@@ -167,7 +167,7 @@ def _jupyter() -> Any:
 
 def kernel_environment() -> dict[str, str]:
     """Only locale and PATH reach a kernel; credentials in the API process stay there."""
-    env = {key: os.environ[key] for key in _ENV_KEEP if key in os.environ}
+    env = {key: value for key, value in os.environ.items() if key in _ENV_KEEP}
     env["PYTHONUNBUFFERED"] = "1"
     env["MPLBACKEND"] = "Agg"
     return env
