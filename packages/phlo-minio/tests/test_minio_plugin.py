@@ -41,7 +41,7 @@ def test_minio_services_share_publishable_image() -> None:
     server = MinioServicePlugin().service_definition
     setup = MinioSetupServicePlugin().service_definition
 
-    assert server["image"] == setup["image"] == "ghcr.io/phlohouse/phlo-minio:0.17.4"
+    assert server["image"] == setup["image"] == "ghcr.io/phlohouse/phlo-minio:0.17.5"
     assert (
         server["build"]
         == setup["build"]

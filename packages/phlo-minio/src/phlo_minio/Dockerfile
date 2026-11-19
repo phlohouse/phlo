@@ -1,4 +1,4 @@
-FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS build
+FROM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS build
 
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 WORKDIR /src
@@ -52,7 +52,7 @@ RUN if [ -f /context/Dockerfile ]; then \
         cp /context/src/phlo_minio/Dockerfile /sources/Dockerfile; \
     fi \
     && printf '%s\n' \
-        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-11-07.' \
+        'Phlo modified the MinIO and mc dependency manifests and vendored dependencies on 2026-11-19.' \
         'These are Phlo builds, not official MinIO binaries. See Dockerfile for the dependency changes.' \
         > /sources/PHLO-NOTICE
 
