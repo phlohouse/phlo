@@ -123,6 +123,75 @@ def test_coordinator_waits_running_stage_without_dispatch(monkeypatch) -> None:
     ]
 
 
+def _previous_release_api(release: dict, commit_sha: str):
+    def api(path):
+        if path.endswith("/releases/latest"):
+            return release
+        if "/commits/" in path:
+            return {"sha": commit_sha}
+        return STAGE_WORKFLOW
+
+    return api
+
+
+def test_previous_release_binds_latest_tag_to_its_successful_stage(monkeypatch) -> None:
+    monkeypatch.setattr(
+        provenance, "api", _previous_release_api({"tag_name": "v0.18.0"}, WORKFLOW_SHA)
+    )
+    runs = [
+        {
+            "id": 7,
+            "display_title": f"stage {WORKFLOW_SHA}",
+            "conclusion": "failure",
+            "run_attempt": 1,
+        },
+        {
+            "id": 8,
+            "display_title": f"stage {WORKFLOW_SHA}",
+            "conclusion": "success",
+            "run_attempt": 1,
+        },
+        {"id": 9, "display_title": f"stage {SHA}", "conclusion": "success", "run_attempt": 1},
+    ]
+    monkeypatch.setattr(provenance, "pages", lambda *_: runs)
+
+    assert merge.previous_release() == {
+        "previous_candidate_sha": WORKFLOW_SHA,
+        "previous_stage_run": "8",
+    }
+
+
+@pytest.mark.parametrize(
+    ("release", "runs"),
+    [
+        ({"tag_name": "v0.18.0", "draft": True}, []),
+        ({"tag_name": "v0.18.0", "prerelease": True}, []),
+        ({}, []),
+        ({"tag_name": "v0.18.0"}, []),
+        (
+            {"tag_name": "v0.18.0"},
+            [
+                {
+                    "id": n,
+                    "display_title": f"stage {WORKFLOW_SHA}",
+                    "conclusion": "success",
+                    "run_attempt": 1,
+                }
+                for n in (1, 2)
+            ],
+        ),
+    ],
+)
+def test_previous_release_refuses_unpublished_or_ambiguous_baselines(
+    monkeypatch, release, runs
+) -> None:
+    monkeypatch.setattr(provenance, "api", _previous_release_api(release, WORKFLOW_SHA))
+    monkeypatch.setattr(provenance, "pages", lambda *_: runs)
+
+    with pytest.raises(ValueError):
+        merge.previous_release()
+
+
 @pytest.mark.parametrize("failed", [None, "source", "stage", "acceptance"])
 def test_coordinator_dispatches_in_order_and_stops_on_failure(monkeypatch, failed) -> None:
     monkeypatch.setattr(staging, "validate_candidate", lambda _: None)
@@ -135,6 +204,8 @@ def test_coordinator_dispatches_in_order_and_stops_on_failure(monkeypatch, faile
     monkeypatch.setattr(merge, "release_merge", lambda _: True)
     monkeypatch.setattr(provenance, "api", lambda _: {"id": 4})
     monkeypatch.setattr(provenance, "pages", lambda *_: [{"id": 5, "status": "completed"}])
+    previous = {"previous_candidate_sha": WORKFLOW_SHA, "previous_stage_run": "3"}
+    monkeypatch.setattr(merge, "previous_release", lambda: previous)
     calls = []
 
     def ensure(filename, title, inputs, count):
@@ -155,7 +226,7 @@ def test_coordinator_dispatches_in_order_and_stops_on_failure(monkeypatch, faile
     length = {"source": 0, "stage": 1, "acceptance": 2, None: 3}[failed]
     assert [call[0] for call in calls] == expected[:length]
     if length >= 2:
-        assert calls[1][2:] == ({"candidate_sha": SHA, "stage_run": "10"}, 2)
+        assert calls[1][2:] == ({"candidate_sha": SHA, "stage_run": "10", **previous}, 2)
     if not failed:
         assert calls[2][2:] == ({"candidate_sha": SHA, "stage_run": "10", "execute": True}, 1)
 
