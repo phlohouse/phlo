@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -20,10 +23,11 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from phlo.capabilities import AuthPrincipal
-from phlo_api import notebook_files, notebook_promote, notebook_state
+from phlo_api import notebook_files, notebook_kernels, notebook_promote, notebook_state
 from phlo_api.api import v1_notebooks
 from phlo_api.errors import PhloApiError, error_envelope
 from phlo_api.notebook_kernels import (
+    _PREAMBLE,
     KernelRegistry,
     PackagesInvalid,
     kernel_environment,
@@ -163,6 +167,8 @@ def test_kernel_environment_drops_api_secrets(monkeypatch):
     assert "PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD" not in env
     assert "AWS_SECRET_ACCESS_KEY" not in env
     assert not any("secret" == value for value in env.values())
+    # Plots come back inline as images, as in Jupyter, not swallowed by Agg.
+    assert env["MPLBACKEND"] == "module://matplotlib_inline.backend_inline"
 
 
 def test_notebook_file_round_trip_keeps_jupyter_compatible_shape():
@@ -354,6 +360,40 @@ ROWS = {
 }
 
 
+def test_bound_rows_get_real_dates_timestamps_and_numbers():
+    pandas = pytest.importorskip("pandas")
+    scope: dict = {}
+    # The preamble only defines helpers, so it can run here as in a kernel.
+    exec(_PREAMBLE, scope)
+    payload = {
+        "columns": [
+            {"name": "day", "type": "date"},
+            {"name": "seen", "type": "timestamp(3)"},
+            {"name": "share", "type": "decimal(5,2)"},
+            {"name": "site", "type": "varchar"},
+        ],
+        "rows": [
+            {"day": "2025-01-02", "seen": "2025-01-02 03:04:05.000", "share": "0.25", "site": "a"}
+        ],
+    }
+    frame = scope["__phlo_frame"](json.dumps(payload))
+    if isinstance(frame, pandas.DataFrame):
+        assert str(frame["day"].dtype).startswith("datetime64")
+        assert str(frame["seen"].dtype).startswith("datetime64")
+        assert frame["share"].iloc[0] == 0.25
+        assert frame["site"].iloc[0] == "a"
+        scope["day_only"] = frame
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            scope["__phlo_preview"]("day_only", 5)
+        row = json.loads(printed.getvalue().split("__phlo_json__:", 1)[1])["table"]["rows"][0]
+        assert row["day"] == "2025-01-02"
+        assert row["seen"].startswith("2025-01-02 03:04:05")
+    else:
+        assert str(frame.schema["day"]) == "Date"
+        assert str(frame.schema["share"]) == "Float64"
+
+
 @pytest.fixture
 def kernel_dir():
     # IPC socket paths must stay short, so not under pytest's long tmp_path.
@@ -541,6 +581,17 @@ def test_interrupt_stops_a_long_cell_and_the_kernel_reports_busy(kernel_api):
     assert run["status"] == "cancelled"
 
 
+def test_a_run_waits_out_a_helper_call_holding_the_kernel(kernel_api):
+    # Run all asks for the next cell while the page still reads the variables.
+    client, _, registry, _ = kernel_api
+    kernel = _start(client)["id"]
+    lock = notebook_kernels._try_lock(registry.root / kernel / "busy.lock")
+    assert lock is not None
+    threading.Timer(0.5, os.close, (lock,)).start()
+    run = _run(client, kernel, {"kind": "python", "source": "answer = 42"})
+    assert run["status"] == "ok", run
+
+
 def _wheel(folder: Path) -> Path:
     """A tiny pure-Python wheel, so installing packages needs no network."""
     wheel = folder / "phlo_nb_demo-1.0-py3-none-any.whl"
@@ -658,7 +709,10 @@ def test_run_all_in_background_and_on_a_schedule(kernel_api, monkeypatch, kernel
     import asyncio
 
     now = datetime.now(UTC).replace(second=0, microsecond=0)
-    now = now - timedelta(minutes=now.minute % 15) + timedelta(minutes=2)
+    slot = now - timedelta(minutes=now.minute % 15)
+    # The slot the schedule was set in already passed: it does not run at once.
+    assert asyncio.run(scheduler.tick(slot + timedelta(minutes=14, seconds=59))) == []
+    now = slot + timedelta(minutes=17)
     assert asyncio.run(scheduler.tick(now)) == ["market/trials.ipynb"]
     assert asyncio.run(scheduler.tick(now)) == []  # once per due time
     scheduled = client.get("/api/v1/notebooks/runs?env=prod&path=market/trials.ipynb").json()

@@ -73,6 +73,9 @@ class NotebookSchedule:
     env: str
     owner: str
     enabled: bool = True
+    # When it was set (epoch seconds). Due times before it never run, so a new
+    # schedule does not fire at once for the slot it was set in.
+    since: int | None = None
 
 
 @dataclass(frozen=True)
@@ -205,6 +208,7 @@ def _settings_from_json(metadata: object) -> NotebookSettings:
                     env=env if _ENV.fullmatch(env) else "",
                     owner=owner[:256],
                     enabled=raw.get("enabled") is not False,
+                    since=raw["since"] if type(raw.get("since")) is int else None,
                 )
             except NotebookInvalid:
                 schedule = None
@@ -220,12 +224,15 @@ def _settings_to_json(settings: NotebookSettings) -> dict[str, Any]:
     if settings.schedule is not None:
         if not _ENV.fullmatch(settings.schedule.env):
             raise NotebookInvalid("A schedule needs an environment name.")
-        phlo["schedule"] = {
+        schedule: dict[str, Any] = {
             "cron": validate_cron(settings.schedule.cron),
             "env": settings.schedule.env,
             "owner": settings.schedule.owner,
             "enabled": settings.schedule.enabled,
         }
+        if settings.schedule.since is not None:
+            schedule["since"] = settings.schedule.since
+        phlo["schedule"] = schedule
     return phlo
 
 

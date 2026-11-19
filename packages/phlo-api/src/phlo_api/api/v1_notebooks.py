@@ -437,7 +437,13 @@ def _document(
         nessie_ref=nessie_ref,
         cells=[NotebookCell(**vars(cell)) for cell in document.cells],
         packages=list(document.settings.packages),
-        schedule=NotebookScheduleView.model_validate(vars(schedule)) if schedule else None,
+        schedule=(
+            NotebookScheduleView(
+                cron=schedule.cron, env=schedule.env, owner=schedule.owner, enabled=schedule.enabled
+            )
+            if schedule
+            else None
+        ),
         access=_access(request, env),
     )
 
@@ -616,7 +622,11 @@ async def v1_notebook_schedule(
         except files.NotebookInvalid as exc:
             raise UnprocessableInputError(str(exc), code="notebook_invalid") from exc
         schedule = files.NotebookSchedule(
-            cron=cron, env=run_env, owner=_actor(request), enabled=payload.enabled
+            cron=cron,
+            env=run_env,
+            owner=_actor(request),
+            enabled=payload.enabled,
+            since=int(time.time()),
         )
     settings = files.NotebookSettings(packages=current.settings.packages, schedule=schedule)
     try:
@@ -955,7 +965,7 @@ async def v1_notebook_kernel_run(
             )
 
     try:
-        run = REGISTRY.start_run(record, work.kind, body, on_finish=keep)
+        run = await REGISTRY.start_run(record, work.kind, body, on_finish=keep)
     except KernelBusy as exc:
         raise ConflictError(str(exc), code="notebook_kernel_busy") from exc
     except KernelNotReady as exc:

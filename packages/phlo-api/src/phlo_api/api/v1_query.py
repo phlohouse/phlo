@@ -724,6 +724,68 @@ async def _catalog_read(catalog: str, sql: str, limit: int) -> dict[str, Any] | 
         return None
 
 
+def _sql_text(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+async def _rebuilt_ddl(
+    catalog: str,
+    schema: str,
+    table: str,
+    kind: Literal["table", "view"],
+    columns: list[CatalogColumn],
+) -> str | None:
+    """A definition from catalog metadata, for engines that refuse SHOW CREATE.
+
+    Read-only preview identities are not owners, and Trino only shows a
+    definition to an owner. The view text and the table's columns and storage
+    properties are still readable, which is what someone opening the
+    Definition tab wants to see.
+    """
+    name = _quoted(catalog, schema, table)
+    if kind == "view":
+        meta = '"' + catalog.replace('"', '""') + '".information_schema'
+        view = _first(
+            await _catalog_read(
+                catalog,
+                f"SELECT view_definition FROM {meta}.views WHERE table_schema = "
+                f"{_name_literal(schema, 'schema')} AND table_name = {_name_literal(table, 'table')}",
+                1,
+            )
+        )
+        body = view.get("view_definition")
+        if not body:
+            return None
+        return f"-- Rebuilt from information_schema\nCREATE VIEW {name} AS\n{str(body).rstrip()}"
+    if not columns:
+        return None
+    lines = []
+    for column in columns:
+        line = '   "' + column.name.replace('"', '""') + '" ' + (column.data_type or "unknown")
+        if column.comment:
+            line += " COMMENT " + _sql_text(column.comment)
+        lines.append(line)
+    ddl = f"CREATE TABLE {name} (\n" + ",\n".join(lines) + "\n)"
+    properties = '"' + f"{table}$properties".replace('"', '""') + '"'
+    found = await _catalog_read(
+        catalog,
+        f'SELECT key, value FROM "{catalog.replace(chr(34), chr(34) * 2)}".'
+        f'"{schema.replace(chr(34), chr(34) * 2)}".{properties}',
+        50,
+    )
+    values = {str(row.get("key")): str(row.get("value")) for row in (found or {}).get("rows", [])}
+    storage = []
+    if values.get("format"):
+        storage.append("format = " + _sql_text(values["format"].split("/")[-1]))
+    if values.get("format-version", "").isdigit():
+        storage.append("format_version = " + values["format-version"])
+    if values.get("location"):
+        storage.append("location = " + _sql_text(values["location"]))
+    if storage:
+        ddl += "\nWITH (\n   " + ",\n   ".join(storage) + "\n)"
+    return "-- Rebuilt from the catalog; partitioning and sort order are not shown\n" + ddl
+
+
 def _first(result: dict[str, Any] | None) -> dict[str, Any]:
     rows = (result or {}).get("rows") or []
     return rows[0] if rows else {}
@@ -764,10 +826,13 @@ async def v1_query_catalog_details(
         )
         for row in (described or {}).get("rows", [])
     ]
-    ddl = _first(
+    shown = _first(
         await _catalog_read(
             catalog, f"SHOW CREATE {'VIEW' if kind == 'view' else 'TABLE'} {name}", 1
         )
+    )
+    ddl = next((str(value) for value in shown.values() if value), None) or await _rebuilt_ddl(
+        catalog, schema, table, kind, columns
     )
     details = CatalogTableDetails(
         env=env,
@@ -777,7 +842,7 @@ async def v1_query_catalog_details(
         table=table,
         kind=kind,
         columns=columns,
-        ddl=next((str(value) for value in ddl.values() if value), None),
+        ddl=ddl,
     )
     if kind == "table":
         snapshots = '"' + f"{table}$snapshots".replace('"', '""') + '"'

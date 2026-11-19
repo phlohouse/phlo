@@ -53,6 +53,7 @@ MAX_OUTPUT_CHARS = 400_000
 PREVIEW_ROWS = 100
 MAX_PACKAGES = 50
 RUN_KEEP_SECONDS = 15 * 60
+RUN_LOCK_WAIT_SECONDS = 3.0
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _ID = re.compile(r"^[a-f0-9]{16,32}$")
@@ -84,12 +85,37 @@ def __phlo_frame(payload):
     data = __phlo_json.loads(payload)
     columns = [column["name"] for column in data["columns"]]
     rows = [[row.get(name) for name in columns] for row in data["rows"]]
+    # Rows arrive as JSON, so dates, timestamps and decimals are text; the
+    # Trino column types turn them back into real values.
+    kinds = {
+        column["name"]: (column.get("type") or "").lower()
+        for column in data["columns"]
+        if columns.count(column["name"]) == 1
+    }
     try:
         import polars as __pl
-        return __pl.DataFrame(rows, schema=columns, orient="row")
+        frame = __pl.DataFrame(rows, schema=columns, orient="row")
+        casts = []
+        for name, kind in kinds.items():
+            text = __pl.col(name).cast(__pl.Utf8)
+            if kind == "date":
+                casts.append(text.str.to_date(strict=False))
+            elif kind.startswith("timestamp"):
+                casts.append(text.str.to_datetime(strict=False))
+            elif kind.startswith("decimal"):
+                casts.append(__pl.col(name).cast(__pl.Float64, strict=False))
+        return frame.with_columns(casts) if casts else frame
     except ImportError:
         import pandas as __pd
-        return __pd.DataFrame.from_records(rows, columns=columns)
+        frame = __pd.DataFrame.from_records(rows, columns=columns)
+        for name, kind in kinds.items():
+            if kind == "date" or kind.startswith("timestamp"):
+                frame[name] = __pd.to_datetime(
+                    frame[name], errors="coerce", utc="with time zone" in kind
+                )
+            elif kind.startswith("decimal"):
+                frame[name] = __pd.to_numeric(frame[name], errors="coerce")
+        return frame
 
 def __phlo_sql(sql):
     import duckdb as __duckdb
@@ -113,6 +139,16 @@ def __phlo_preview(name, limit):
         if hasattr(head, "to_dicts"):
             rows = head.to_dicts()
         else:
+            head = head.copy()
+            for column in head.columns:
+                # A Trino date becomes a pandas timestamp at midnight; show it as a date.
+                try:
+                    series = head[column]
+                    known = series.dropna()
+                    if str(series.dtype).startswith("datetime64") and (known == known.dt.normalize()).all():
+                        head[column] = series.dt.strftime("%Y-%m-%d")
+                except (AttributeError, TypeError, ValueError):
+                    pass
             rows = head.to_dict(orient="records")
         out["table"] = {
             "columns": [{"name": str(c), "type": str(t)} for c, t in zip(value.columns, getattr(value, "dtypes", []))],
@@ -239,7 +275,9 @@ def kernel_environment() -> dict[str, str]:
     """Only locale and PATH reach a kernel; credentials in the API process stay there."""
     env = {key: value for key, value in os.environ.items() if key in _ENV_KEEP}
     env["PYTHONUNBUFFERED"] = "1"
-    env["MPLBACKEND"] = "Agg"
+    # Jupyter's inline backend, so plt.show() and a figure as the last line
+    # come back as images; a GUI backend would have nowhere to draw.
+    env["MPLBACKEND"] = "module://matplotlib_inline.backend_inline"
     return env
 
 
@@ -774,7 +812,7 @@ class KernelRegistry:
             pass
         return {"matches": [], "cursor_start": cursor, "cursor_end": cursor}
 
-    def start_run(
+    async def start_run(
         self,
         record: KernelRecord,
         kind: str,
@@ -785,9 +823,15 @@ class KernelRegistry:
         """Run ``work`` in the background holding the kernel's busy lock; progress lands on disk."""
         if record.state != "ready":
             raise KernelNotReady(record.message or "The kernel is still starting.")
-        descriptor = _try_lock(self._folder(record.id) / "busy.lock")
-        if descriptor is None:
-            raise KernelBusy("The kernel is still running another cell.")
+        # Helper calls (variables, completions) hold the lock for moments, and
+        # Run all asks for the next cell as soon as the last one ends: wait out
+        # such a call rather than refusing the run. A running cell still refuses.
+        path = self._folder(record.id) / "busy.lock"
+        deadline = time.monotonic() + RUN_LOCK_WAIT_SECONDS
+        while (descriptor := _try_lock(path)) is None:
+            if time.monotonic() >= deadline:
+                raise KernelBusy("The kernel is still running another cell.")
+            await asyncio.sleep(0.05)
         (self._folder(record.id) / "cancel").unlink(missing_ok=True)
         self.touch(record)
         run = RunRecord(id=uuid4().hex, kernel=record.id, kind=kind)

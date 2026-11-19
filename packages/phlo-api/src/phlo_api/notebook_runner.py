@@ -268,6 +268,8 @@ class NotebookScheduler:
         self._envs = envs
         self._interval = interval
         self._task: asyncio.Task[None] | None = None
+        # The due time each notebook last fired for, so one slot runs once.
+        self._fired: dict[str, float] = {}
         self._lock: int | None = None
 
     def start(self) -> None:
@@ -313,6 +315,8 @@ class NotebookScheduler:
             due = previous_due(schedule.cron, now)
             if due is None or now - due > _CATCH_UP:
                 continue
+            if schedule.since is not None and due.timestamp() < schedule.since:
+                continue  # that slot came before the schedule was set
             last = next(
                 (
                     run
@@ -323,6 +327,9 @@ class NotebookScheduler:
             )
             if last is not None and float(last.get("started_at") or 0) >= due.timestamp():
                 continue
+            if self._fired.get(item.path) == due.timestamp():
+                continue
+            self._fired[item.path] = due.timestamp()
             started.append(item.path)
             await run_notebook(
                 self._registry,

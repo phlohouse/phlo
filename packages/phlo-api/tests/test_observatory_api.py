@@ -1422,6 +1422,28 @@ def test_docker_ps_rejects_malformed_evidence(payload: str) -> None:
         observatory_services.parse_docker_ps_output(payload)
 
 
+def test_docker_ps_keeps_label_values_that_hold_commas() -> None:
+    # Trino's image is labelled vendor=Red Hat, Inc. and the CLI does not escape it.
+    payload = json.dumps(
+        {
+            "State": "running",
+            "Labels": "vendor=Red Hat, Inc.,com.docker.compose.project=phlo,"
+            "com.docker.compose.service=trino",
+        }
+    )
+    [container] = observatory_services.parse_docker_ps_output(payload)
+    assert container.labels == {
+        "vendor": "Red Hat, Inc.",
+        "com.docker.compose.project": "phlo",
+        "com.docker.compose.service": "trino",
+    }
+
+
+def test_docker_ps_rejects_labels_that_start_without_a_key() -> None:
+    with pytest.raises(DockerPayloadError):
+        observatory_services.parse_docker_ps_output(json.dumps({"Labels": "no-key"}))
+
+
 def test_docker_inspect_rejects_malformed_evidence(monkeypatch) -> None:
     monkeypatch.setattr(observatory_services, "docker_cli_path", lambda: "docker")
     monkeypatch.setattr(

@@ -38,14 +38,22 @@ class DockerPsContainer(BaseModel):
     def cli_labels(cls, value: Any) -> Any:
         if not isinstance(value, str):
             return value
+        # The CLI joins labels with commas without escaping them, so a value that
+        # itself holds a comma (Trino's image: "vendor=Red Hat, Inc.") arrives
+        # split. A piece with no "=" continues the previous label's value.
         result: dict[str, str] = {}
+        last: str | None = None
         for item in value.split(","):
             if not item:
                 continue
             key, separator, label = item.partition("=")
-            if not separator or not key:
+            if separator and key and " " not in key:
+                result[key] = label
+                last = key
+            elif last is not None:
+                result[last] += f",{item}"
+            else:
                 raise ValueError("Docker label must be key=value")
-            result[key] = label
         return result
 
 

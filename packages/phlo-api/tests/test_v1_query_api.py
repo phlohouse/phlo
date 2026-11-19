@@ -526,6 +526,59 @@ def test_catalog_objects_browse_schemas_tables_views_and_columns(query_api, monk
     assert client.get(url, params={"env": "prod", "offset": -1}).status_code == 422
 
 
+def test_catalog_details_rebuild_a_definition_the_engine_will_not_show(query_api, monkeypatch):
+    # Read-only preview users are not owners, so Trino refuses SHOW CREATE.
+    client, _ = query_api
+
+    async def execute(sql, *, catalog, disconnected, limit, **_kwargs):
+        calls.append(sql)
+        if sql.startswith("SHOW CREATE"):
+            raise v1_query.PreviewQueryRejected("denied", error_name="PERMISSION_DENIED")
+        if "table_type" in sql:
+            kind = "VIEW" if "'trial_summary'" in sql else "BASE TABLE"
+            return {"rows": [{"table_type": kind}], "has_more": False}
+        if sql.startswith("SHOW COLUMNS"):
+            return {
+                "rows": [
+                    {"Column": "modality", "Type": "varchar", "Comment": "Therapy's class"},
+                    {"Column": "starts", "Type": "bigint", "Comment": ""},
+                ],
+                "has_more": False,
+            }
+        if "$properties" in sql:
+            return {
+                "rows": [
+                    {"key": "format", "value": "iceberg/PARQUET"},
+                    {"key": "format-version", "value": "2"},
+                    {"key": "location", "value": "s3://lake/warehouse/gold/trials"},
+                ],
+                "has_more": False,
+            }
+        if ".views" in sql:
+            return {"rows": [{"view_definition": "SELECT 1 AS one\n"}], "has_more": False}
+        return {"rows": [], "has_more": False}
+
+    calls: list[str] = []
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    params = {"env": "prod", "schema": "gold", "table": "trials"}
+    table = client.get("/api/v1/query/catalog/details", params=params).json()
+    assert table["ddl"] == (
+        "-- Rebuilt from the catalog; partitioning and sort order are not shown\n"
+        'CREATE TABLE "warehouse_prod"."gold"."trials" (\n'
+        "   \"modality\" varchar COMMENT 'Therapy''s class',\n"
+        '   "starts" bigint\n'
+        ")\nWITH (\n   format = 'PARQUET',\n   format_version = 2,\n"
+        "   location = 's3://lake/warehouse/gold/trials'\n)"
+    )
+    view = client.get(
+        "/api/v1/query/catalog/details", params={**params, "table": "trial_summary"}
+    ).json()
+    assert view["ddl"] == (
+        "-- Rebuilt from information_schema\n"
+        'CREATE VIEW "warehouse_prod"."gold"."trial_summary" AS\nSELECT 1 AS one'
+    )
+
+
 def test_catalog_details_sample_and_search(query_api, monkeypatch):
     client, calls = query_api
 
