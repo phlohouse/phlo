@@ -6,6 +6,7 @@ import {
   DownloadIcon,
   GitBranchIcon,
   LayoutGridIcon,
+  NotebookIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
   SquareTerminalIcon,
@@ -23,6 +24,7 @@ type NavItem = {
     | '/data-products'
     | '/metrics'
     | '/query'
+    | '/notebooks'
     | '/pipelines'
     | '/transform'
     | '/branches'
@@ -81,6 +83,13 @@ export const navItems: Array<NavItem> = [
     to: '/query',
     label: 'Query',
     Icon: SquareTerminalIcon,
+    exact: false,
+    mobile: false,
+  },
+  {
+    to: '/notebooks',
+    label: 'Notebooks',
+    Icon: NotebookIcon,
     exact: false,
     mobile: false,
   },

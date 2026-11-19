@@ -1,6 +1,189 @@
 /** Controlled HTTP fixture for the built-app smoke, never live-service evidence. */
 import { createServer } from 'node:http'
 
+const sqlCell = (id, name, source, engine = 'trino') => ({
+  id,
+  kind: 'sql',
+  source,
+  name,
+  engine,
+})
+const NOTEBOOK_FILES = {
+  'market/autoimmune-car-t.ipynb': [
+    {
+      id: 'intro',
+      kind: 'markdown',
+      source:
+        '# Autoimmune CAR-T: how fast is it growing?\n\nCAR-T started in blood cancers. A growing share of new CAR-T trials now target **autoimmune** disease. This notebook sizes that shift from registry data already in the lakehouse.',
+      name: null,
+      engine: null,
+    },
+    sqlCell(
+      'trials',
+      'trials',
+      "-- Interventional CGT trial starts by modality\nSELECT modality,\n       year(start_date) AS start_year,\n       count(*) AS starts\nFROM gold.cgt_trial_starts\nWHERE start_date >= DATE '2019-01-01'\nGROUP BY 1, 2\nORDER BY 2, 1",
+    ),
+    {
+      id: 'growth-md',
+      kind: 'markdown',
+      source:
+        '## Growth by modality\n\nThe `trials` result from the cell above is already in the kernel, so Python does not query again.',
+      name: null,
+      engine: null,
+    },
+    {
+      id: 'growth',
+      kind: 'python',
+      source:
+        'growth = trials[trials.start_year == 2025].sort_values("starts", ascending=False)\nprint("modalities", len(growth))',
+      name: 'growth',
+      engine: null,
+    },
+    sqlCell(
+      'share',
+      'autoimmune_share',
+      "SELECT start_year,\n       sum(starts) FILTER (WHERE modality = 'CAR-T, autoimmune') / sum(starts) AS share\nFROM trials\nGROUP BY 1 ORDER BY 1",
+      'duckdb',
+    ),
+  ],
+  'market/trial-starts-by-region.ipynb': [],
+  'qc/batch-release-times.ipynb': [],
+}
+const TRIAL_ROWS = [
+  ['CAR-T, oncology', 2025, 176],
+  ['AAV gene therapy', 2025, 37],
+  ['NK and CAR-NK', 2025, 30],
+  ['TCR-T', 2025, 29],
+  ['TIL', 2025, 27],
+  ['CAR-T, autoimmune', 2025, 96],
+  ['CAR-T, oncology', 2024, 164],
+  ['CAR-T, autoimmune', 2024, 61],
+].map(([modality, start_year, starts]) => ({ modality, start_year, starts }))
+const fixtureTables = {
+  trials: {
+    columns: [
+      { name: 'modality', type: 'varchar' },
+      { name: 'start_year', type: 'bigint' },
+      { name: 'starts', type: 'bigint' },
+    ],
+    rows: TRIAL_ROWS,
+    row_count: 42,
+  },
+  growth: {
+    columns: [
+      { name: 'modality', type: 'object' },
+      { name: 'start_year', type: 'int64' },
+      { name: 'starts', type: 'int64' },
+    ],
+    rows: TRIAL_ROWS.slice(0, 6).sort((a, b) => b.starts - a.starts),
+    row_count: 6,
+  },
+  autoimmune_share: {
+    columns: [
+      { name: 'start_year', type: 'int32' },
+      { name: 'share', type: 'double' },
+    ],
+    rows: [2019, 2020, 2021, 2022, 2023, 2024, 2025].map((year, index) => ({
+      start_year: year,
+      share: [0.011, 0.019, 0.03, 0.067, 0.167, 0.28, 0.353][index],
+    })),
+    row_count: 7,
+  },
+}
+
+/** Notebook files and a scripted kernel, enough to drive the notebook page. */
+function notebookFixture(method, url, body, env, ref, state) {
+  const path = url.searchParams.get('path')
+  const digest = (cells) =>
+    Array.from(JSON.stringify(cells))
+      .reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7)
+      .toString(16)
+      .padStart(8, '0')
+      .repeat(8)
+  if (url.pathname === '/api/v1/notebooks')
+    return {
+      status: 200,
+      body: {
+        env,
+        root: 'notebooks',
+        items: Object.keys(state.files).map((item) => ({
+          path: item,
+          size: 2048,
+          modified_at: '2026-11-19T09:00:00Z',
+        })),
+        truncated: false,
+      },
+    }
+  if (url.pathname === '/api/v1/notebooks/content') {
+    const cells = state.files[path]
+    if (method === 'PUT') {
+      const input = JSON.parse(body)
+      const current = cells ? digest(cells) : null
+      if (current !== input.expected_digest)
+        return { status: 409, body: { error: { code: 'notebook_changed' } } }
+      state.files[path] = input.cells
+    } else if (!cells) return { status: 404, body: { detail: 'Not found' } }
+    const saved = state.files[path]
+    return {
+      status: 200,
+      body: { env, path, digest: digest(saved), nessie_ref: ref, cells: saved },
+    }
+  }
+  const kernel = {
+    id: 'kernel-1',
+    env,
+    path: 'market/autoimmune-car-t.ipynb',
+    status: 'idle',
+    execution_count: state.kernels,
+  }
+  if (url.pathname === '/api/v1/notebooks/kernels')
+    return method === 'POST'
+      ? { status: 201, body: kernel }
+      : { status: 200, body: [] }
+  const action = url.pathname.split('/').at(-1)
+  if (action === 'variables')
+    return {
+      status: 200,
+      body: {
+        items: Object.entries(fixtureTables).map(([name, table]) => ({
+          name,
+          type: 'pandas.DataFrame',
+          shape: `${table.row_count} × ${table.columns.length}`,
+          preview: table.columns.map((column) => column.name).join(', '),
+        })),
+      },
+    }
+  if (['execute', 'sql', 'bind'].includes(action)) {
+    const input = JSON.parse(body)
+    const name = action === 'bind' ? input.name : input.name
+    state.kernels += 1
+    return {
+      status: 200,
+      body: {
+        status: 'ok',
+        execution_count: state.kernels,
+        duration_ms: action === 'execute' ? 38 : 21,
+        outputs:
+          action === 'execute'
+            ? [
+                {
+                  type: 'stream',
+                  name: 'stdout',
+                  text: 'modalities 6\n',
+                  png: null,
+                  ename: null,
+                },
+              ]
+            : [],
+        truncated: false,
+        table: fixtureTables[name] ?? null,
+      },
+    }
+  }
+  if (method === 'DELETE') return { status: 204 }
+  return { status: 200, body: kernel }
+}
+
 export function startApiFixture({
   environments = [
     { env: 'prod', status: 'available' },
@@ -10,6 +193,7 @@ export function startApiFixture({
   deniedEnvironments = [],
 } = {}) {
   const requests = []
+  const notebooks = { files: structuredClone(NOTEBOOK_FILES), kernels: 0 }
   const controls = { delayMs: 0, overrides: new Map() }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture')
@@ -77,6 +261,7 @@ export function startApiFixture({
             'v1_saved_query_create',
             'v1_saved_query_update',
             'v1_saved_query_delete',
+            'v1_notebook_save',
           ].map((operation) => [operation, { allowed: true, reason: null }]),
         ),
       },
@@ -214,6 +399,20 @@ export function startApiFixture({
           error: null,
         }),
       )
+      return
+    }
+    if (url.pathname.startsWith('/api/v1/notebooks')) {
+      const handled = notebookFixture(
+        req.method,
+        url,
+        body,
+        env,
+        ref,
+        notebooks,
+      )
+      res
+        .writeHead(handled.status)
+        .end(handled.status === 204 ? '' : JSON.stringify(handled.body))
       return
     }
     const response = responses[url.pathname]

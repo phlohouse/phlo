@@ -53,7 +53,7 @@ function toSchema(catalog: QueryCatalog): SQLNamespace {
 }
 
 /** Editor chrome drawn with phlo tokens, so light and dark both follow the theme. */
-const phloTheme = EditorView.theme({
+export const phloTheme = EditorView.theme({
   '&': {
     height: '100%',
     backgroundColor: 'var(--card)',
@@ -141,7 +141,7 @@ const phloTheme = EditorView.theme({
 })
 
 /** Same colours the old regex highlighter used. */
-const phloHighlight = HighlightStyle.define([
+export const phloHighlight = HighlightStyle.define([
   { tag: [t.lineComment, t.blockComment, t.comment], color: 'var(--faint)' },
   { tag: [t.string, t.special(t.string)], color: 'var(--ok-text)' },
   { tag: [t.number, t.bool, t.null], color: 'var(--warn-ink)' },

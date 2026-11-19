@@ -15,6 +15,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppBranchesRouteImport } from './routes/_app/branches'
 import { Route as AppDatasetsRouteImport } from './routes/_app/datasets'
 import { Route as AppMetricsRouteImport } from './routes/_app/metrics'
+import { Route as AppNotebooksRouteImport } from './routes/_app/notebooks'
 import { Route as AppQueryRouteImport } from './routes/_app/query'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppSourcesRouteImport } from './routes/_app/sources'
@@ -62,6 +63,11 @@ const AppDatasetsRoute = AppDatasetsRouteImport.update({
 const AppMetricsRoute = AppMetricsRouteImport.update({
   id: '/metrics',
   path: '/metrics',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppNotebooksRoute = AppNotebooksRouteImport.update({
+  id: '/notebooks',
+  path: '/notebooks',
   getParentRoute: () => AppRoute,
 } as any)
 const AppQueryRoute = AppQueryRouteImport.update({
@@ -168,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/branches': typeof AppBranchesRoute
   '/datasets': typeof AppDatasetsRoute
   '/metrics': typeof AppMetricsRoute
+  '/notebooks': typeof AppNotebooksRoute
   '/query': typeof AppQueryRoute
   '/reports': typeof AppReportsRoute
   '/sources': typeof AppSourcesRoute
@@ -193,6 +200,7 @@ export interface FileRoutesByTo {
   '/branches': typeof AppBranchesRoute
   '/datasets': typeof AppDatasetsRoute
   '/metrics': typeof AppMetricsRoute
+  '/notebooks': typeof AppNotebooksRoute
   '/query': typeof AppQueryRoute
   '/reports': typeof AppReportsRoute
   '/sources': typeof AppSourcesRoute
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/_app/branches': typeof AppBranchesRoute
   '/_app/datasets': typeof AppDatasetsRoute
   '/_app/metrics': typeof AppMetricsRoute
+  '/_app/notebooks': typeof AppNotebooksRoute
   '/_app/query': typeof AppQueryRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/sources': typeof AppSourcesRoute
@@ -250,6 +259,7 @@ export interface FileRouteTypes {
     | '/branches'
     | '/datasets'
     | '/metrics'
+    | '/notebooks'
     | '/query'
     | '/reports'
     | '/sources'
@@ -275,6 +285,7 @@ export interface FileRouteTypes {
     | '/branches'
     | '/datasets'
     | '/metrics'
+    | '/notebooks'
     | '/query'
     | '/reports'
     | '/sources'
@@ -302,6 +313,7 @@ export interface FileRouteTypes {
     | '/_app/branches'
     | '/_app/datasets'
     | '/_app/metrics'
+    | '/_app/notebooks'
     | '/_app/query'
     | '/_app/reports'
     | '/_app/sources'
@@ -371,6 +383,13 @@ declare module '@tanstack/react-router' {
       path: '/metrics'
       fullPath: '/metrics'
       preLoaderRoute: typeof AppMetricsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/notebooks': {
+      id: '/_app/notebooks'
+      path: '/notebooks'
+      fullPath: '/notebooks'
+      preLoaderRoute: typeof AppNotebooksRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/query': {
@@ -513,6 +532,7 @@ interface AppRouteChildren {
   AppBranchesRoute: typeof AppBranchesRoute
   AppDatasetsRoute: typeof AppDatasetsRoute
   AppMetricsRoute: typeof AppMetricsRoute
+  AppNotebooksRoute: typeof AppNotebooksRoute
   AppQueryRoute: typeof AppQueryRoute
   AppReportsRoute: typeof AppReportsRoute
   AppSourcesRoute: typeof AppSourcesRoute
@@ -539,6 +559,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBranchesRoute: AppBranchesRoute,
   AppDatasetsRoute: AppDatasetsRoute,
   AppMetricsRoute: AppMetricsRoute,
+  AppNotebooksRoute: AppNotebooksRoute,
   AppQueryRoute: AppQueryRoute,
   AppReportsRoute: AppReportsRoute,
   AppSourcesRoute: AppSourcesRoute,
