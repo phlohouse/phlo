@@ -158,7 +158,7 @@ class KernelSession:
 def _jupyter() -> Any:
     try:
         from jupyter_client.manager import AsyncKernelManager
-    except ImportError as exc:  # pragma: no cover - exercised when the extra is absent
+    except ImportError as exc:
         raise KernelsUnavailable(
             "Notebook kernels need the phlo-api 'notebooks' extra (jupyter-client and ipykernel)."
         ) from exc

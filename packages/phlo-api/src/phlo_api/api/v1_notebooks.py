@@ -194,12 +194,14 @@ def _kernel(request: Request, env: Environment, kernel_id: str) -> KernelSession
 
 
 def _kernel_view(session: KernelSession) -> KernelView:
-    return KernelView(
-        id=session.id,
-        env=session.env,  # type: ignore[arg-type]
-        path=session.path,
-        status=session.status,
-        execution_count=session.execution_count,
+    return KernelView.model_validate(
+        {
+            "id": session.id,
+            "env": session.env,
+            "path": session.path,
+            "status": session.status,
+            "execution_count": session.execution_count,
+        }
     )
 
 
