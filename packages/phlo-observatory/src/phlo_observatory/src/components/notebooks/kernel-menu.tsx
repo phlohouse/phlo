@@ -8,6 +8,7 @@ import {
   SquareIcon,
 } from 'lucide-react'
 import type { KernelView } from '@/lib/data/api/notebooks'
+import type { KernelPhase } from '@/components/notebooks/use-kernel'
 import { controlKernel, listKernels } from '@/lib/data/api/notebooks'
 import { Dot } from '@/components/phlo/status'
 import { buttonVariants } from '@/components/ui/button'
@@ -21,14 +22,22 @@ import {
 } from '@/components/ui/menu'
 import { cn } from '@/lib/utils'
 
-export type KernelPhase = 'disabled' | 'off' | 'starting' | 'idle' | 'busy'
-
 const labels: Record<KernelPhase, string> = {
   disabled: 'Kernels off',
   off: 'Python 3 · stopped',
+  installing: 'Installing packages',
   starting: 'Python 3 · starting',
+  failed: 'Kernel failed',
   idle: 'Python 3 · idle',
   busy: 'Python 3 · busy',
+}
+
+function tone(phase: KernelPhase) {
+  if (phase === 'idle') return 'ok' as const
+  if (phase === 'failed') return 'bad' as const
+  if (phase === 'busy' || phase === 'starting' || phase === 'installing')
+    return 'warn' as const
+  return 'neutral' as const
 }
 
 export function KernelMenu({
@@ -57,12 +66,6 @@ export function KernelMenu({
       () => setOthers([]),
     )
   }, [env])
-  const tone =
-    phase === 'idle'
-      ? 'ok'
-      : phase === 'busy' || phase === 'starting'
-        ? 'warn'
-        : 'neutral'
   const running = phase === 'idle' || phase === 'busy'
   const elsewhere = (others ?? []).filter((kernel) => kernel.id !== kernelId)
 
@@ -76,7 +79,7 @@ export function KernelMenu({
         aria-label={`Kernel: ${labels[phase]}`}
         className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
       >
-        <Dot tone={tone} />
+        <Dot tone={tone(phase)} />
         {labels[phase]}
         <ChevronDownIcon className="text-faint" />
       </DropdownMenuTrigger>
@@ -90,10 +93,10 @@ export function KernelMenu({
             <DropdownMenuLabel>This notebook</DropdownMenuLabel>
             {running ? null : (
               <DropdownMenuItem
-                disabled={phase === 'starting'}
+                disabled={phase === 'starting' || phase === 'installing'}
                 onClick={onStart}
               >
-                <PlayIcon /> Start kernel
+                <PlayIcon /> {phase === 'failed' ? 'Try again' : 'Start kernel'}
               </DropdownMenuItem>
             )}
             {phase === 'busy' ? (

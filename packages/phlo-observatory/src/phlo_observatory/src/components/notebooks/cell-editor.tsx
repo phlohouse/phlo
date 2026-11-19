@@ -20,9 +20,15 @@ import {
   indentOnInput,
   syntaxHighlighting,
 } from '@codemirror/language'
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+} from '@codemirror/autocomplete'
 import { PostgreSQL, sql } from '@codemirror/lang-sql'
 import { tags as t } from '@lezer/highlight'
+import type { CompletionSource } from '@codemirror/autocomplete'
 import type { StringStream } from '@codemirror/language'
 import type { Extension } from '@codemirror/state'
 import { phloHighlight, phloTheme } from '@/components/query/sql-editor'
@@ -116,6 +122,8 @@ export function CellEditor({
   language,
   label,
   className,
+  complete,
+  readOnly = false,
 }: {
   value: string
   onChange: (value: string) => void
@@ -124,12 +132,15 @@ export function CellEditor({
   language: 'python' | 'sql' | 'text'
   label: string
   className?: string
+  /** Completions for this cell: the catalog for SQL, the live kernel for Python */
+  complete?: CompletionSource
+  readOnly?: boolean
 }) {
   const host = React.useRef<HTMLDivElement>(null)
   const view = React.useRef<EditorView | null>(null)
   const [ready, setReady] = React.useState(false)
-  const cb = React.useRef({ onChange, onRun })
-  cb.current = { onChange, onRun }
+  const cb = React.useRef({ onChange, onRun, complete })
+  cb.current = { onChange, onRun, complete }
   const initial = React.useRef(value)
 
   React.useEffect(() => {
@@ -149,10 +160,19 @@ export function CellEditor({
         { key: 'Shift-Enter', preventDefault: true, run },
         { key: 'Mod-Enter', preventDefault: true, run },
         ...closeBracketsKeymap,
+        ...completionKeymap,
         ...defaultKeymap,
         ...historyKeymap,
         indentWithTab,
       ]),
+      language === 'text'
+        ? []
+        : autocompletion({
+            override: [(context) => cb.current.complete?.(context) ?? null],
+            activateOnTypingDelay: 150,
+          }),
+      EditorState.readOnly.of(readOnly),
+      EditorView.editable.of(!readOnly),
       language === 'sql'
         ? sql({ dialect: PostgreSQL, upperCaseKeywords: true })
         : language === 'python'
@@ -183,7 +203,7 @@ export function CellEditor({
       editor.destroy()
       view.current = null
     }
-  }, [language, label])
+  }, [language, label, readOnly])
 
   React.useEffect(() => {
     initial.current = value

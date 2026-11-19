@@ -8,7 +8,9 @@ import {
   PencilIcon,
   PlayIcon,
   Trash2Icon,
+  WorkflowIcon,
 } from 'lucide-react'
+import type { CompletionSource } from '@codemirror/autocomplete'
 import type { QueryResult } from '@/lib/data/api/query'
 import type { CellRun, CellTable } from '@/lib/data/api/notebooks'
 import type { CellState, NotebookCell } from '@/lib/notebook'
@@ -50,26 +52,45 @@ function duration(ms: number) {
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`
 }
 
+const verbs: Record<Exclude<CellState['status'], 'running'>, string> = {
+  ok: 'Ran',
+  timeout: 'Timed out',
+  cancelled: 'Interrupted',
+  error: 'Failed',
+}
+
+function statusTone(status: CellState['status']) {
+  if (status === 'ok') return 'ok' as const
+  if (status === 'error') return 'bad' as const
+  return 'warn' as const
+}
+
+const day = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 function RunStatus({ state }: { state?: CellState }) {
   if (!state) return null
   if (state.status === 'running')
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
         <Loader2Icon className="size-3 animate-spin" /> Running
+        {state.run ? ` · ${duration(state.run.duration_ms)}` : ''}
       </span>
     )
-  const tone =
-    state.status === 'ok' ? 'ok' : state.status === 'timeout' ? 'warn' : 'bad'
-  const verb =
-    state.status === 'ok'
-      ? 'Ran'
-      : state.status === 'timeout'
-        ? 'Timed out'
-        : 'Failed'
+  const at = state.saved ? day.format(state.at) : clock.format(state.at)
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground">
-      <Dot tone={tone} />
-      {verb} {clock.format(state.at)}
+    <span
+      className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
+      title={
+        state.saved ? `Kept from a run by ${state.saved.actor}` : undefined
+      }
+    >
+      <Dot tone={statusTone(state.status)} />
+      {state.saved ? 'Last run' : verbs[state.status]} {at}
       {state.run ? ` · ${duration(state.run.duration_ms)}` : ''}
     </span>
   )
@@ -178,7 +199,7 @@ function TableOutput({
         {name ? (
           <span>
             In Python as <code className="font-mono text-link">{name}</code>
-            {capped ? ', the first 100 rows the lakehouse returned' : ''}
+            {capped ? ', cut at the notebook row limit' : ''}
           </span>
         ) : null}
       </div>
@@ -192,6 +213,8 @@ export type CellActions = {
   move: (by: -1 | 1) => void
   remove: () => void
   select: () => void
+  /** Turn this Trino SQL cell into a dbt model */
+  promote?: () => void
 }
 
 type CellProps = {
@@ -203,6 +226,13 @@ type CellProps = {
   staleFrom?: NotebookCell
   selected: boolean
   canRun: boolean
+  /** Why runs are not possible, shown on the run button */
+  runBlocked?: string
+  /** False for people who may read but not change this notebook */
+  editable?: boolean
+  /** The kept output was made from different source */
+  edited?: boolean
+  complete?: CompletionSource
   actions: CellActions
 }
 
@@ -211,10 +241,13 @@ function CellMenu({
   index,
   count,
   actions,
+  editable = true,
   onEdit,
-}: Pick<CellProps, 'cell' | 'index' | 'count' | 'actions'> & {
+}: Pick<CellProps, 'cell' | 'index' | 'count' | 'actions' | 'editable'> & {
   onEdit?: () => void
 }) {
+  const trino = cell.kind === 'sql' && cell.engine !== 'duckdb'
+  if (!editable && !(trino && actions.promote)) return null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -224,46 +257,68 @@ function CellMenu({
         <EllipsisIcon className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent>
-        {onEdit ? (
-          <DropdownMenuItem onClick={onEdit}>
-            <PencilIcon /> Edit text
+        {trino && actions.promote ? (
+          <DropdownMenuItem onClick={actions.promote}>
+            <WorkflowIcon /> Promote to dbt model
           </DropdownMenuItem>
         ) : null}
-        {cell.kind === 'sql' ? (
-          <DropdownMenuItem
-            onClick={() =>
-              actions.change({
-                engine: cell.engine === 'duckdb' ? 'trino' : 'duckdb',
-              })
-            }
-          >
-            Run on {cell.engine === 'duckdb' ? 'Trino' : 'DuckDB'}
-          </DropdownMenuItem>
+        {editable ? (
+          <EditItems {...{ cell, index, count, actions, onEdit }} />
         ) : null}
-        <DropdownMenuItem
-          disabled={index === 0}
-          onClick={() => actions.move(-1)}
-        >
-          <ArrowUpIcon /> Move up
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={index === count - 1}
-          onClick={() => actions.move(1)}
-        >
-          <ArrowDownIcon /> Move down
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={actions.remove}>
-          <Trash2Icon /> Delete cell
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
+function EditItems({
+  cell,
+  index,
+  count,
+  actions,
+  onEdit,
+}: Pick<CellProps, 'cell' | 'index' | 'count' | 'actions'> & {
+  onEdit?: () => void
+}) {
+  return (
+    <>
+      {onEdit ? (
+        <DropdownMenuItem onClick={onEdit}>
+          <PencilIcon /> Edit text
+        </DropdownMenuItem>
+      ) : null}
+      {cell.kind === 'sql' ? (
+        <DropdownMenuItem
+          onClick={() =>
+            actions.change({
+              engine: cell.engine === 'duckdb' ? 'trino' : 'duckdb',
+            })
+          }
+        >
+          Run on {cell.engine === 'duckdb' ? 'Trino' : 'DuckDB'}
+        </DropdownMenuItem>
+      ) : null}
+      <DropdownMenuItem disabled={index === 0} onClick={() => actions.move(-1)}>
+        <ArrowUpIcon /> Move up
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={index === count - 1}
+        onClick={() => actions.move(1)}
+      >
+        <ArrowDownIcon /> Move down
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={actions.remove}>
+        <Trash2Icon /> Delete cell
+      </DropdownMenuItem>
+    </>
+  )
+}
+
 function TextCell(props: CellProps) {
-  const { cell, index, selected, actions } = props
-  const [editing, setEditing] = React.useState(cell.source.trim() === '')
+  const { cell, index, selected, actions, editable = true } = props
+  const [editing, setEditing] = React.useState(
+    editable && cell.source.trim() === '',
+  )
   const menu = <CellMenu {...props} onEdit={() => setEditing(true)} />
   return (
     <section
@@ -301,9 +356,9 @@ function TextCell(props: CellProps) {
           <button
             type="button"
             aria-label={`Edit text cell ${index + 1}`}
-            onDoubleClick={() => setEditing(true)}
+            onDoubleClick={() => editable && setEditing(true)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') setEditing(true)
+              if (event.key === 'Enter' && editable) setEditing(true)
             }}
             className="min-w-0 flex-1 cursor-text rounded-md text-left outline-none focus-visible:outline-2 focus-visible:outline-ring"
           >
@@ -326,10 +381,12 @@ function NameField({
   cell,
   index,
   onChange,
+  readOnly,
 }: {
   cell: NotebookCell
   index: number
   onChange: (name: string | null) => void
+  readOnly: boolean
 }) {
   const [draft, setDraft] = React.useState(cell.name ?? '')
   React.useEffect(() => setDraft(cell.name ?? ''), [cell.name])
@@ -339,6 +396,7 @@ function NameField({
       aria-label={`Result name for cell ${index + 1}`}
       aria-invalid={!valid}
       value={draft}
+      readOnly={readOnly}
       placeholder={cell.kind === 'sql' ? 'name' : 'result name'}
       maxLength={64}
       onChange={(event) => setDraft(event.target.value)}
@@ -431,11 +489,13 @@ function CellResults({
 function RunButton({
   label,
   canRun,
+  blocked,
   running,
   onRun,
 }: {
   label: string
   canRun: boolean
+  blocked?: string
   running: boolean
   onRun: () => void
 }) {
@@ -443,7 +503,7 @@ function RunButton({
     <button
       type="button"
       aria-label={`Run ${label}`}
-      title={canRun ? 'Run cell (Shift+Enter)' : 'Kernels are off'}
+      title={canRun ? 'Run cell (Shift+Enter)' : (blocked ?? 'Kernels are off')}
       disabled={!canRun || running}
       onClick={onRun}
       className="inline-flex size-7 items-center justify-center rounded-md text-primary hover:bg-primary-soft disabled:cursor-not-allowed disabled:text-faint disabled:hover:bg-transparent"
@@ -457,8 +517,34 @@ function RunButton({
   )
 }
 
+function ExecutionCount({ count }: { count?: number | null }) {
+  return <span className="font-mono text-xs text-faint">[{count ?? ' '}]</span>
+}
+
+function CellBadges({ stale, edited }: { stale: boolean; edited: boolean }) {
+  return (
+    <>
+      {stale ? (
+        <Badge variant="warn" size="sm">
+          Stale
+        </Badge>
+      ) : null}
+      {edited ? (
+        <Badge
+          variant="outline"
+          size="sm"
+          title="The code changed after the output below was made"
+        >
+          Edited since run
+        </Badge>
+      ) : null}
+    </>
+  )
+}
+
 function CodeCell(props: CellProps) {
   const { cell, index, state, staleFrom, selected, canRun, actions } = props
+  const { editable = true, edited, complete, runBlocked } = props
   const running = state?.status === 'running'
   const label = cell.name ?? `cell ${index + 1}`
   const reads =
@@ -479,25 +565,21 @@ function CodeCell(props: CellProps) {
         <RunButton
           label={label}
           canRun={canRun}
+          blocked={runBlocked}
           running={running}
           onRun={actions.run}
         />
-        <span className="font-mono text-xs text-faint">
-          [{state?.run?.execution_count ?? ' '}]
-        </span>
+        <ExecutionCount count={state?.run?.execution_count} />
         <NameField
           cell={cell}
           index={index}
+          readOnly={!editable}
           onChange={(name) => actions.change({ name })}
         />
         <Badge variant="outline" size="sm">
           {cellLabel(cell)}
         </Badge>
-        {staleFrom ? (
-          <Badge variant="warn" size="sm">
-            Stale
-          </Badge>
-        ) : null}
+        <CellBadges stale={!!staleFrom} edited={!!edited && !running} />
         <span className="ml-auto" />
         <RunStatus state={state} />
         <CellMenu {...props} />
@@ -508,6 +590,8 @@ function CodeCell(props: CellProps) {
         onRun={canRun ? actions.run : undefined}
         language={cell.kind === 'sql' ? 'sql' : 'python'}
         label={`${cellLabel(cell)} for ${label}`}
+        complete={complete}
+        readOnly={!editable}
       />
       <ReadsStrip reads={reads} />
       {staleFrom ? (

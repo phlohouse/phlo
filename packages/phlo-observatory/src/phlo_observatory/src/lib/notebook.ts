@@ -6,7 +6,7 @@ export type CellKind = NotebookCell['kind']
 
 /** What one run of a cell produced in this browser session. */
 export type CellState = {
-  status: 'running' | 'ok' | 'error' | 'timeout'
+  status: 'running' | 'ok' | 'error' | 'timeout' | 'cancelled'
   /** Order of this run among all runs in the session; drives staleness. */
   seq: number
   at: number
@@ -14,6 +14,8 @@ export type CellState = {
   /** The lakehouse had more rows than the preview limit returned. */
   capped?: boolean
   message?: string
+  /** Kept from an earlier session: who ran it, and the source that produced it. */
+  saved?: { actor: string; sourceSha256: string }
 }
 
 export const RESULT_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
@@ -202,4 +204,70 @@ export function notebookTree(paths: ReadonlyArray<string>): Array<TreeNode> {
   }
   sort(root)
   return root
+}
+
+/** Hex SHA-256 of the cell source, the same hash the API keeps beside saved outputs. */
+export async function sourceHash(source: string) {
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(source),
+  )
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
+}
+
+/** One requirement per line; blank lines and # comments are ignored. */
+export function parsePackages(text: string): Array<string> {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/#.*$/, '').trim())
+    .filter(Boolean)
+}
+
+export const CRON_PRESETS = [
+  { cron: '0 * * * *', label: 'Every hour' },
+  { cron: '0 6 * * *', label: 'Every day at 06:00' },
+  { cron: '0 7 * * 1-5', label: 'Weekdays at 07:00' },
+  { cron: '0 6 * * 1', label: 'Mondays at 06:00' },
+] as const
+
+const DAYS = [
+  'Sundays',
+  'Mondays',
+  'Tuesdays',
+  'Wednesdays',
+  'Thursdays',
+  'Fridays',
+  'Saturdays',
+]
+
+/** Plain words for the common cron shapes; anything else is shown as written. */
+export function describeCron(cron: string): string {
+  const preset = CRON_PRESETS.find((item) => item.cron === cron.trim())
+  if (preset) return preset.label
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length !== 5) return cron
+  const [minute, hour, dom, month, dow] = parts
+  if (
+    !/^\d+$/.test(minute) ||
+    !/^\d+$/.test(hour) ||
+    dom !== '*' ||
+    month !== '*'
+  )
+    return cron
+  const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+  if (dow === '*') return `Every day at ${time}`
+  if (dow === '1-5') return `Weekdays at ${time}`
+  if (/^[0-6]$/.test(dow)) return `${DAYS[Number(dow)]} at ${time}`
+  return cron
+}
+
+/** The dbt model name a cell would promote to by default. */
+export function modelName(cell: NotebookCell) {
+  const stem = (cell.name ?? 'notebook_model')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/^[^a-z_]/, '_$&')
+  return stem.slice(0, 64)
 }

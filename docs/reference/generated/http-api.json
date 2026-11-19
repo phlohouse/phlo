@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 298,
+  "endpoint_count": 311,
   "endpoints": [
     {
       "deprecated": false,
@@ -2086,6 +2086,16 @@
     },
     {
       "deprecated": false,
+      "method": "DELETE",
+      "operation_id": "v1_notebook_delete_api_v1_notebooks_content_delete",
+      "path": "/api/v1/notebooks/content",
+      "summary": "V1 Notebook Delete",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
       "method": "GET",
       "operation_id": "v1_notebook_api_v1_notebooks_content_get",
       "path": "/api/v1/notebooks/content",
@@ -2100,6 +2110,26 @@
       "operation_id": "v1_notebook_save_api_v1_notebooks_content_put",
       "path": "/api/v1/notebooks/content",
       "summary": "V1 Notebook Save",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_git_api_v1_notebooks_git_get",
+      "path": "/api/v1/notebooks/git",
+      "summary": "V1 Notebook Git",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_git_commit_api_v1_notebooks_git_commit_post",
+      "path": "/api/v1/notebooks/git/commit",
+      "summary": "V1 Notebook Git Commit",
       "tags": [
         "v1 notebooks"
       ]
@@ -2137,19 +2167,9 @@
     {
       "deprecated": false,
       "method": "POST",
-      "operation_id": "v1_notebook_kernel_bind_api_v1_notebooks_kernels__kernel_id__bind_post",
-      "path": "/api/v1/notebooks/kernels/{kernel_id}/bind",
-      "summary": "V1 Notebook Kernel Bind",
-      "tags": [
-        "v1 notebooks"
-      ]
-    },
-    {
-      "deprecated": false,
-      "method": "POST",
-      "operation_id": "v1_notebook_kernel_execute_api_v1_notebooks_kernels__kernel_id__execute_post",
-      "path": "/api/v1/notebooks/kernels/{kernel_id}/execute",
-      "summary": "V1 Notebook Kernel Execute",
+      "operation_id": "v1_notebook_kernel_complete_api_v1_notebooks_kernels__kernel_id__complete_post",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/complete",
+      "summary": "V1 Notebook Kernel Complete",
       "tags": [
         "v1 notebooks"
       ]
@@ -2160,6 +2180,16 @@
       "operation_id": "v1_notebook_kernel_interrupt_api_v1_notebooks_kernels__kernel_id__interrupt_post",
       "path": "/api/v1/notebooks/kernels/{kernel_id}/interrupt",
       "summary": "V1 Notebook Kernel Interrupt",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_kernel_packages_api_v1_notebooks_kernels__kernel_id__packages_get",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/packages",
+      "summary": "V1 Notebook Kernel Packages",
       "tags": [
         "v1 notebooks"
       ]
@@ -2177,9 +2207,19 @@
     {
       "deprecated": false,
       "method": "POST",
-      "operation_id": "v1_notebook_kernel_sql_api_v1_notebooks_kernels__kernel_id__sql_post",
-      "path": "/api/v1/notebooks/kernels/{kernel_id}/sql",
-      "summary": "V1 Notebook Kernel Sql",
+      "operation_id": "v1_notebook_kernel_run_api_v1_notebooks_kernels__kernel_id__runs_post",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/runs",
+      "summary": "V1 Notebook Kernel Run",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_kernel_run_status_api_v1_notebooks_kernels__kernel_id__runs__run_id__get",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/runs/{run_id}",
+      "summary": "V1 Notebook Kernel Run Status",
       "tags": [
         "v1 notebooks"
       ]
@@ -2190,6 +2230,66 @@
       "operation_id": "v1_notebook_kernel_variables_api_v1_notebooks_kernels__kernel_id__variables_get",
       "path": "/api/v1/notebooks/kernels/{kernel_id}/variables",
       "summary": "V1 Notebook Kernel Variables",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_move_api_v1_notebooks_move_post",
+      "path": "/api/v1/notebooks/move",
+      "summary": "V1 Notebook Move",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_outputs_api_v1_notebooks_outputs_get",
+      "path": "/api/v1/notebooks/outputs",
+      "summary": "V1 Notebook Outputs",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_promote_api_v1_notebooks_promote_post",
+      "path": "/api/v1/notebooks/promote",
+      "summary": "V1 Notebook Promote",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_runs_api_v1_notebooks_runs_get",
+      "path": "/api/v1/notebooks/runs",
+      "summary": "V1 Notebook Runs",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_run_start_api_v1_notebooks_runs_post",
+      "path": "/api/v1/notebooks/runs",
+      "summary": "V1 Notebook Run Start",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "PUT",
+      "operation_id": "v1_notebook_schedule_api_v1_notebooks_schedule_put",
+      "path": "/api/v1/notebooks/schedule",
+      "summary": "V1 Notebook Schedule",
       "tags": [
         "v1 notebooks"
       ]
@@ -2377,9 +2477,39 @@
     {
       "deprecated": false,
       "method": "GET",
+      "operation_id": "v1_query_catalog_details_api_v1_query_catalog_details_get",
+      "path": "/api/v1/query/catalog/details",
+      "summary": "V1 Query Catalog Details",
+      "tags": [
+        "v1 query workspace"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
       "operation_id": "v1_query_catalog_objects_api_v1_query_catalog_objects_get",
       "path": "/api/v1/query/catalog/objects",
       "summary": "V1 Query Catalog Objects",
+      "tags": [
+        "v1 query workspace"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_query_catalog_sample_api_v1_query_catalog_sample_get",
+      "path": "/api/v1/query/catalog/sample",
+      "summary": "V1 Query Catalog Sample",
+      "tags": [
+        "v1 query workspace"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_query_catalog_search_api_v1_query_catalog_search_get",
+      "path": "/api/v1/query/catalog/search",
+      "summary": "V1 Query Catalog Search",
       "tags": [
         "v1 query workspace"
       ]

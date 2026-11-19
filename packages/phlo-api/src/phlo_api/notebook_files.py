@@ -66,10 +66,27 @@ class NotebookSummary:
 
 
 @dataclass(frozen=True)
+class NotebookSchedule:
+    """Run the whole notebook headlessly on a cron schedule, as ``owner``."""
+
+    cron: str
+    env: str
+    owner: str
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
+class NotebookSettings:
+    packages: tuple[str, ...] = ()
+    schedule: NotebookSchedule | None = None
+
+
+@dataclass(frozen=True)
 class NotebookDocument:
     path: str
     digest: str
     cells: tuple[NotebookCell, ...]
+    settings: NotebookSettings = NotebookSettings()
 
 
 def notebook_root(project: Path) -> Path:
@@ -149,6 +166,69 @@ def _cell_from_json(value: object, index: int) -> NotebookCell:
     return NotebookCell(id=cell_id, kind="python", source=source, name=name)
 
 
+_CRON_FIELD = re.compile(r"^[0-9*/,\-]{1,40}$")
+_ENV = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def validate_cron(cron: str) -> str:
+    """Five-field cron (minute hour day month weekday), no seconds or macros."""
+    fields = cron.split()
+    if len(fields) != 5 or any(not _CRON_FIELD.fullmatch(part) for part in fields):
+        raise NotebookInvalid("Schedules use five cron fields: minute hour day month weekday.")
+    try:
+        from croniter import croniter
+    except ImportError:
+        return " ".join(fields)
+    if not croniter.is_valid(" ".join(fields)):
+        raise NotebookInvalid("That cron schedule is not valid.")
+    return " ".join(fields)
+
+
+def _settings_from_json(metadata: object) -> NotebookSettings:
+    phlo = cast(dict[str, Any], metadata).get("phlo") if isinstance(metadata, dict) else None
+    if not isinstance(phlo, dict):
+        return NotebookSettings()
+    raw_packages = phlo.get("packages")
+    packages = (
+        tuple(item for item in raw_packages if isinstance(item, str) and 0 < len(item) <= 200)[:50]
+        if isinstance(raw_packages, list)
+        else ()
+    )
+    schedule = None
+    raw = phlo.get("schedule")
+    if isinstance(raw, dict):
+        cron, env, owner = raw.get("cron"), raw.get("env"), raw.get("owner")
+        if isinstance(cron, str) and isinstance(env, str) and isinstance(owner, str):
+            try:
+                schedule = NotebookSchedule(
+                    cron=validate_cron(cron),
+                    env=env if _ENV.fullmatch(env) else "",
+                    owner=owner[:256],
+                    enabled=raw.get("enabled") is not False,
+                )
+            except NotebookInvalid:
+                schedule = None
+    if schedule is not None and not schedule.env:
+        schedule = None
+    return NotebookSettings(packages=packages, schedule=schedule)
+
+
+def _settings_to_json(settings: NotebookSettings) -> dict[str, Any]:
+    phlo: dict[str, Any] = {}
+    if settings.packages:
+        phlo["packages"] = list(settings.packages)
+    if settings.schedule is not None:
+        if not _ENV.fullmatch(settings.schedule.env):
+            raise NotebookInvalid("A schedule needs an environment name.")
+        phlo["schedule"] = {
+            "cron": validate_cron(settings.schedule.cron),
+            "env": settings.schedule.env,
+            "owner": settings.schedule.owner,
+            "enabled": settings.schedule.enabled,
+        }
+    return phlo
+
+
 def read_notebook(project: Path, path: str) -> NotebookDocument:
     file = resolve_notebook_path(project, path)
     if not file.is_file() or file.is_symlink():
@@ -169,6 +249,7 @@ def read_notebook(project: Path, path: str) -> NotebookDocument:
         path=path,
         digest=_digest(raw),
         cells=tuple(_cell_from_json(cell, index) for index, cell in enumerate(cells)),
+        settings=_settings_from_json(document.get("metadata")),
     )
 
 
@@ -201,13 +282,19 @@ def _cell_to_json(cell: NotebookCell) -> dict[str, Any]:
     }
 
 
-def render_notebook(cells: list[NotebookCell]) -> bytes:
+def render_notebook(
+    cells: list[NotebookCell], settings: NotebookSettings = NotebookSettings()
+) -> bytes:
+    metadata: dict[str, Any] = {
+        "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+        "language_info": {"name": "python"},
+    }
+    phlo = _settings_to_json(settings)
+    if phlo:
+        metadata["phlo"] = phlo
     document = {
         "cells": [_cell_to_json(cell) for cell in cells],
-        "metadata": {
-            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-            "language_info": {"name": "python"},
-        },
+        "metadata": metadata,
         "nbformat": 4,
         "nbformat_minor": 5,
     }
@@ -215,7 +302,11 @@ def render_notebook(cells: list[NotebookCell]) -> bytes:
 
 
 def write_notebook(
-    project: Path, path: str, cells: list[NotebookCell], expected_digest: str | None
+    project: Path,
+    path: str,
+    cells: list[NotebookCell],
+    expected_digest: str | None,
+    settings: NotebookSettings = NotebookSettings(),
 ) -> NotebookDocument:
     """Write a notebook, refusing when the file changed since ``expected_digest`` was read.
 
@@ -224,7 +315,7 @@ def write_notebook(
     file = resolve_notebook_path(project, path)
     if file.is_symlink():
         raise NotebookPathError("Notebook paths cannot be symbolic links.")
-    raw = render_notebook(cells)
+    raw = render_notebook(cells, settings)
     if len(raw) > MAX_NOTEBOOK_BYTES:
         raise NotebookInvalid("Notebooks are limited to 2 MB.")
     file.parent.mkdir(parents=True, exist_ok=True)
@@ -241,7 +332,56 @@ def write_notebook(
         except BaseException:
             Path(temp).unlink(missing_ok=True)
             raise
-    return NotebookDocument(path=path, digest=_digest(raw), cells=tuple(cells))
+    return NotebookDocument(path=path, digest=_digest(raw), cells=tuple(cells), settings=settings)
+
+
+def _check_digest(file: Path, path: str, expected_digest: str) -> None:
+    if file.is_symlink():
+        raise NotebookPathError("Notebook paths cannot be symbolic links.")
+    if not file.is_file():
+        raise FileNotFoundError(path)
+    if _digest(file.read_bytes()) != expected_digest:
+        raise NotebookConflict(path)
+
+
+def move_notebook(project: Path, path: str, to: str, expected_digest: str) -> NotebookDocument:
+    """Rename or move a notebook without overwriting one that already exists at ``to``."""
+    source = resolve_notebook_path(project, path)
+    target = resolve_notebook_path(project, to)
+    if source == target:
+        raise NotebookPathError("The new path is the same as the old one.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with _exclusive(source.parent):
+        _check_digest(source, path, expected_digest)
+        try:
+            # A hard link fails when the target exists, so a concurrent create is never clobbered.
+            os.link(source, target)
+        except FileExistsError as exc:
+            raise NotebookConflict(to) from exc
+        source.unlink()
+    _prune_empty(project, source.parent)
+    return read_notebook(project, to)
+
+
+def delete_notebook(project: Path, path: str, expected_digest: str) -> None:
+    """Delete a notebook only if it is still the version the caller last read."""
+    file = resolve_notebook_path(project, path)
+    with _exclusive(file.parent):
+        _check_digest(file, path, expected_digest)
+        file.unlink()
+    _prune_empty(project, file.parent)
+
+
+def _prune_empty(project: Path, folder: Path) -> None:
+    """Remove folders a move or delete left empty, stopping at the notebooks folder."""
+    root = notebook_root(project).resolve()
+    current = folder.resolve()
+    while current != root and root in current.parents:
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
 
 
 @contextmanager

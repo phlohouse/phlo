@@ -1,12 +1,16 @@
 /** Covers notebook cell naming, staleness, outline and the tables Trino cells read. */
 import { describe, expect, it } from 'vitest'
 import {
+  describeCron,
   freeName,
   mentions,
+  modelName,
   newCell,
   notebookFileName,
   notebookTree,
   outline,
+  parsePackages,
+  sourceHash,
   sqlReads,
   staleCells,
 } from './notebook'
@@ -110,5 +114,35 @@ describe('notebook cells', () => {
       'market/qc',
       'market/a.ipynb',
     ])
+  })
+})
+
+describe('notebook settings helpers', () => {
+  it('reads one requirement per line and ignores comments', () => {
+    expect(
+      parsePackages('scikit-learn>=1.5\n\n# plots\nstatsmodels  # stats\n'),
+    ).toEqual(['scikit-learn>=1.5', 'statsmodels'])
+  })
+
+  it('describes common cron shapes and leaves others as written', () => {
+    expect(describeCron('0 6 * * 1')).toBe('Mondays at 06:00')
+    expect(describeCron('30 7 * * 1-5')).toBe('Weekdays at 07:30')
+    expect(describeCron('15 9 * * *')).toBe('Every day at 09:15')
+    expect(describeCron('*/5 * * * *')).toBe('*/5 * * * *')
+  })
+
+  it('hashes source the way the API does', async () => {
+    expect(await sourceHash('SELECT 1')).toBe(
+      'e004ebd5b5532a4b85984a62f8ad48a81aa3460c1ca07701f386135d72cdecf5',
+    )
+  })
+
+  it('names a promoted model from the cell result name', () => {
+    expect(modelName(cell('a', 'sql', 'SELECT 1', 'Trial_Starts'))).toBe(
+      'trial_starts',
+    )
+    expect(modelName(cell('b', 'sql', 'SELECT 1', '2024_view'))).toBe(
+      '_2024_view',
+    )
   })
 })

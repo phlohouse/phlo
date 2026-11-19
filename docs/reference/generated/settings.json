@@ -1,5 +1,5 @@
 {
-  "field_count": 337,
+  "field_count": 346,
   "model_count": 52,
   "models": [
     {
@@ -1463,6 +1463,50 @@
           "required": false
         },
         {
+          "alias": "PHLO_NOTEBOOK_CELL_TIMEOUT",
+          "annotation": "<class 'int'>",
+          "default": 1800,
+          "description": "Seconds a notebook cell may run before it is interrupted.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_CELL_TIMEOUT"
+          ],
+          "name": "notebook_cell_timeout",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_GIT_COMMIT",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only opt-in for committing notebooks to git from Observatory. Only '1' enables.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_GIT_COMMIT"
+          ],
+          "name": "notebook_git_commit",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_GIT_PROTECTED_BRANCHES",
+          "annotation": "<class 'str'>",
+          "default": "main,master",
+          "description": "Comma-separated branches notebooks are never committed to from Observatory.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_GIT_PROTECTED_BRANCHES"
+          ],
+          "name": "notebook_git_protected_branches",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_KERNEL_DIR",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Private folder for kernel records and sockets. Absent uses a per-user folder in the system temp directory.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_KERNEL_DIR"
+          ],
+          "name": "notebook_kernel_dir",
+          "required": false
+        },
+        {
           "alias": "PHLO_NOTEBOOK_KERNELS",
           "annotation": "<class 'bool'>",
           "default": false,
@@ -1471,6 +1515,61 @@
             "PHLO_NOTEBOOK_KERNELS"
           ],
           "name": "notebook_kernels",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_MAX_ROWS",
+          "annotation": "<class 'int'>",
+          "default": 10000,
+          "description": "Most rows a notebook Trino cell loads into its kernel.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_MAX_ROWS"
+          ],
+          "name": "notebook_max_rows",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_OUTPUT_DAYS",
+          "annotation": "<class 'int'>",
+          "default": 14,
+          "description": "Days a notebook cell's last output is kept for reopening.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_OUTPUT_DAYS"
+          ],
+          "name": "notebook_output_days",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_PACKAGE_INDEX",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Package index URL for notebook packages; absent uses the installer default.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_PACKAGE_INDEX"
+          ],
+          "name": "notebook_package_index",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_PACKAGES",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only opt-in letting notebooks list Python packages, installed into per-notebook environments on the API host. Only '1' enables.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_PACKAGES"
+          ],
+          "name": "notebook_packages",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_SCHEDULES",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only opt-in for running notebooks on their saved cron schedules. Only '1' enables.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_SCHEDULES"
+          ],
+          "name": "notebook_schedules",
           "required": false
         },
         {

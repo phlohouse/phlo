@@ -62,7 +62,9 @@ describe('catalog browser', () => {
       ),
     )
     const onQuery = vi.fn()
-    render(<CatalogBrowser env="prod" onQuery={onQuery} />)
+    render(
+      <CatalogBrowser env="prod" environments={['prod']} onQuery={onQuery} />,
+    )
     await userEvent.click(
       await screen.findByRole('button', { name: 'Schema market' }),
     )
@@ -88,7 +90,9 @@ describe('catalog browser', () => {
     objects
       .mockResolvedValueOnce(page([item('a', 'schema')], 100))
       .mockResolvedValueOnce(page([item('b', 'schema')]))
-    render(<CatalogBrowser env="prod" onQuery={vi.fn()} />)
+    render(
+      <CatalogBrowser env="prod" environments={['prod']} onQuery={vi.fn()} />,
+    )
     await userEvent.click(
       await screen.findByRole('button', { name: 'Show more' }),
     )
@@ -103,7 +107,9 @@ describe('catalog browser', () => {
       state: 'unavailable',
       message: 'Not reachable',
     })
-    render(<CatalogBrowser env="prod" onQuery={vi.fn()} />)
+    render(
+      <CatalogBrowser env="prod" environments={['prod']} onQuery={vi.fn()} />,
+    )
     expect((await screen.findByRole('alert')).textContent).toBe('Not reachable')
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(objects).toHaveBeenCalledTimes(1)

@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import re
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import uuid4
@@ -33,7 +34,12 @@ from phlo_api.observatory_api.v1_preview import (
     execute_preview,
     preview_catalog,
 )
-from phlo_api.errors import BackendUnavailableError, BadInputError
+from phlo_api.errors import (
+    BackendUnavailableError,
+    BadInputError,
+    NotFoundError,
+    UnprocessableInputError,
+)
 from phlo_api.settings import get_deployment_settings
 from phlo_api.v1_contract import Environment, WireModel
 
@@ -78,6 +84,59 @@ class CatalogObjects(WireModel):
     table: str | None = None
     items: list[CatalogObject]
     next_offset: int | None
+
+
+class CatalogColumn(WireModel):
+    name: str
+    data_type: str | None = None
+    comment: str | None = None
+
+
+class CatalogTableDetails(WireModel):
+    """What a table or view is: columns with comments, its definition and, for Iceberg, size."""
+
+    env: Environment
+    nessie_ref: str
+    catalog: str
+    schema_name: str
+    table: str
+    kind: Literal["table", "view"]
+    comment: str | None = None
+    columns: list[CatalogColumn]
+    ddl: str | None = None
+    row_count: int | None = None
+    snapshot_id: str | None = None
+    committed_at: str | None = None
+
+
+class CatalogSampleColumn(WireModel):
+    name: str
+    type: str | None = None
+
+
+class CatalogSample(WireModel):
+    env: Environment
+    schema_name: str
+    table: str
+    columns: list[CatalogSampleColumn]
+    rows: list[dict[str, Any]]
+    has_more: bool
+
+
+class CatalogHit(WireModel):
+    schema_name: str
+    table: str
+    kind: Literal["table", "view", "column"]
+    column: str | None = None
+    data_type: str | None = None
+
+
+class CatalogSearch(WireModel):
+    env: Environment
+    catalog: str
+    q: str
+    items: list[CatalogHit]
+    truncated: bool
 
 
 class QueryRef(WireModel):
@@ -248,8 +307,14 @@ def _remember_session(session: QuerySession) -> None:
 
 
 def _mapped_catalog(
-    request: Request, env: Environment, allowed_query: frozenset[str] = frozenset({"env"})
+    request: Request,
+    env: Environment,
+    allowed_query: frozenset[str] = frozenset({"env"}),
+    *,
+    sessions: bool = True,
 ) -> tuple[str, str]:
+    """Resolve the env's catalog. ``sessions=False`` serves one-shot reads that keep no state,
+    so they do not need the single-process assertion that query sessions do."""
     target = _target(request, env, allowed_query=allowed_query)
     try:
         deployment = get_deployment_settings()
@@ -259,7 +324,7 @@ def _mapped_catalog(
         raise BackendUnavailableError(
             "Query workspace requires an explicitly single-replica API deployment."
         )
-    if not deployment.query_single_process or deployment.web_concurrency != 1:
+    if sessions and (not deployment.query_single_process or deployment.web_concurrency != 1):
         raise BackendUnavailableError(
             "Query workspace requires one explicitly asserted API process; active sessions are process-local."
         )
@@ -584,7 +649,7 @@ async def v1_query_catalog_objects(
     offset: int = Query(default=0, ge=0, le=_BROWSE_MAX_OFFSET),
 ) -> CatalogObjects:
     """Browse the lakehouse one level at a time, like a database explorer."""
-    catalog, nessie_ref = _mapped_catalog(request, env, _BROWSE_QUERY)
+    catalog, nessie_ref = _mapped_catalog(request, env, _BROWSE_QUERY, sessions=False)
     meta = '"' + catalog.replace('"', '""') + '".information_schema'
     if schema is None and table is not None:
         raise BadInputError("Give the schema that holds the table.")
@@ -632,6 +697,203 @@ async def v1_query_catalog_objects(
         table=table,
         items=items,
         next_offset=next_offset,
+    )
+
+
+_TABLE_QUERY = frozenset({"env", "schema", "table"})
+_SEARCH_QUERY = frozenset({"env", "q"})
+_SAMPLE_ROWS = 50
+
+
+def _quoted(catalog: str, schema: str, table: str) -> str:
+    for value, label in ((schema, "schema"), (table, "table")):
+        _name_literal(value, label)
+    return ".".join('"' + part.replace('"', '""') + '"' for part in (catalog, schema, table))
+
+
+async def _catalog_read(catalog: str, sql: str, limit: int) -> dict[str, Any] | None:
+    """One bounded metadata read; ``None`` when the engine cannot answer it."""
+    try:
+        return await execute_preview(
+            sql,
+            catalog=catalog,
+            disconnected=lambda: asyncio.sleep(0, result=False),
+            limit=limit,
+        )
+    except (PreviewLimitExceeded, PreviewUnavailable, PreviewQueryRejected):
+        return None
+
+
+def _first(result: dict[str, Any] | None) -> dict[str, Any]:
+    rows = (result or {}).get("rows") or []
+    return rows[0] if rows else {}
+
+
+async def _table_kind(catalog: str, schema: str, table: str) -> Literal["table", "view"]:
+    meta = '"' + catalog.replace('"', '""') + '".information_schema'
+    found = await _catalog_read(
+        catalog,
+        f"SELECT table_type FROM {meta}.tables WHERE table_schema = "
+        f"{_name_literal(schema, 'schema')} AND table_name = {_name_literal(table, 'table')}",
+        1,
+    )
+    if found is None:
+        raise BackendUnavailableError("Query catalog is unavailable.")
+    if not found["rows"]:
+        raise NotFoundError("No table or view with that name in this environment.")
+    return "view" if str(found["rows"][0].get("table_type", "")).upper() == "VIEW" else "table"
+
+
+@router.get("/query/catalog/details", response_model=CatalogTableDetails)
+async def v1_query_catalog_details(
+    request: Request,
+    env: Environment,
+    schema: str = Query(max_length=256),
+    table: str = Query(max_length=256),
+) -> CatalogTableDetails:
+    """Columns with comments, the definition, and (for Iceberg tables) rows and snapshot."""
+    catalog, nessie_ref = _mapped_catalog(request, env, _TABLE_QUERY, sessions=False)
+    name = _quoted(catalog, schema, table)
+    kind = await _table_kind(catalog, schema, table)
+    described = await _catalog_read(catalog, f"SHOW COLUMNS FROM {name}", 100)
+    columns = [
+        CatalogColumn(
+            name=str(row.get("Column")),
+            data_type=str(row["Type"]) if row.get("Type") is not None else None,
+            comment=str(row["Comment"]) if row.get("Comment") else None,
+        )
+        for row in (described or {}).get("rows", [])
+    ]
+    ddl = _first(
+        await _catalog_read(
+            catalog, f"SHOW CREATE {'VIEW' if kind == 'view' else 'TABLE'} {name}", 1
+        )
+    )
+    details = CatalogTableDetails(
+        env=env,
+        nessie_ref=nessie_ref,
+        catalog=catalog,
+        schema_name=schema,
+        table=table,
+        kind=kind,
+        columns=columns,
+        ddl=next((str(value) for value in ddl.values() if value), None),
+    )
+    if kind == "table":
+        snapshots = '"' + f"{table}$snapshots".replace('"', '""') + '"'
+        latest = _first(
+            await _catalog_read(
+                catalog,
+                "SELECT CAST(snapshot_id AS VARCHAR) AS snapshot_id, "
+                "CAST(committed_at AS VARCHAR) AS committed_at, "
+                "summary['total-records'] AS total_records "
+                f'FROM "{catalog.replace(chr(34), chr(34) * 2)}"."{schema.replace(chr(34), chr(34) * 2)}".{snapshots} '
+                "ORDER BY committed_at DESC LIMIT 1",
+                1,
+            )
+        )
+        if latest:
+            details.snapshot_id = latest.get("snapshot_id")
+            details.committed_at = latest.get("committed_at")
+            with suppress(TypeError, ValueError):
+                details.row_count = int(latest["total_records"])
+    comment = _first(
+        await _catalog_read(
+            catalog,
+            "SELECT comment FROM system.metadata.table_comments WHERE catalog_name = "
+            f"{_name_literal(catalog, 'catalog')} AND schema_name = {_name_literal(schema, 'schema')} "
+            f"AND table_name = {_name_literal(table, 'table')}",
+            1,
+        )
+    )
+    details.comment = str(comment["comment"]) if comment.get("comment") else None
+    return details
+
+
+@router.get("/query/catalog/sample", response_model=CatalogSample)
+async def v1_query_catalog_sample(
+    request: Request,
+    env: Environment,
+    schema: str = Query(max_length=256),
+    table: str = Query(max_length=256),
+) -> CatalogSample:
+    """The first rows of a table or view, like Snowsight's data preview."""
+    catalog, _ = _mapped_catalog(request, env, _TABLE_QUERY, sessions=False)
+    name = _quoted(catalog, schema, table)
+    try:
+        result = await execute_preview(
+            f"SELECT * FROM {name} LIMIT {_SAMPLE_ROWS + 1}",
+            catalog=catalog,
+            disconnected=lambda: asyncio.sleep(0, result=False),
+            limit=_SAMPLE_ROWS,
+        )
+    except PreviewQueryRejected as exc:
+        raise UnprocessableInputError(str(exc)) from exc
+    except (PreviewLimitExceeded, PreviewUnavailable) as exc:
+        raise BackendUnavailableError("The data preview is unavailable.") from exc
+    return CatalogSample(
+        env=env,
+        schema_name=schema,
+        table=table,
+        columns=[CatalogSampleColumn.model_validate(column) for column in result["columns"]],
+        rows=result["rows"],
+        has_more=result["has_more"],
+    )
+
+
+def _like(value: str) -> str:
+    escaped = value.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return _name_literal(f"%{escaped}%", "search")
+
+
+@router.get("/query/catalog/search", response_model=CatalogSearch)
+async def v1_query_catalog_search(
+    request: Request, env: Environment, q: str = Query(min_length=2, max_length=64)
+) -> CatalogSearch:
+    """Find schemas, tables, views and columns by name across the whole catalog."""
+    catalog, _ = _mapped_catalog(request, env, _SEARCH_QUERY, sessions=False)
+    meta = '"' + catalog.replace('"', '""') + '".information_schema'
+    pattern = _like(q.strip())
+    hidden = "table_schema <> 'information_schema'"
+    tables = await _catalog_read(
+        catalog,
+        f"SELECT table_schema, table_name, table_type FROM {meta}.tables WHERE {hidden} AND "
+        f"(lower(table_name) LIKE {pattern} ESCAPE '!' OR lower(table_schema) LIKE {pattern} ESCAPE '!') "
+        "ORDER BY table_schema, table_name LIMIT 51",
+        50,
+    )
+    columns = await _catalog_read(
+        catalog,
+        f"SELECT table_schema, table_name, column_name, data_type FROM {meta}.columns "
+        f"WHERE {hidden} AND lower(column_name) LIKE {pattern} ESCAPE '!' "
+        "ORDER BY table_schema, table_name, ordinal_position LIMIT 51",
+        50,
+    )
+    if tables is None or columns is None:
+        raise BackendUnavailableError("Query catalog is unavailable.")
+    items = [
+        CatalogHit(
+            schema_name=str(row["table_schema"]),
+            table=str(row["table_name"]),
+            kind="view" if str(row.get("table_type", "")).upper() == "VIEW" else "table",
+        )
+        for row in tables["rows"]
+    ] + [
+        CatalogHit(
+            schema_name=str(row["table_schema"]),
+            table=str(row["table_name"]),
+            kind="column",
+            column=str(row["column_name"]),
+            data_type=str(row["data_type"]) if row.get("data_type") is not None else None,
+        )
+        for row in columns["rows"]
+    ]
+    return CatalogSearch(
+        env=env,
+        catalog=catalog,
+        q=q,
+        items=items,
+        truncated=bool(tables["has_more"] or columns["has_more"]),
     )
 
 

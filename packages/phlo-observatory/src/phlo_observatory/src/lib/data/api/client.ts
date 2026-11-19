@@ -149,6 +149,8 @@ const publicApiErrorSchema = z.object({
 })
 
 export class PhloApiError extends Error {
+  /** The server's own explanation, when it passed the safety filter. */
+  readonly detail: string | undefined
   constructor(
     readonly status: number,
     detail?: string,
@@ -179,6 +181,7 @@ export class PhloApiError extends Error {
         .join(' '),
     )
     this.name = 'PhloApiError'
+    this.detail = safeDetail || undefined
   }
 }
 
@@ -197,14 +200,25 @@ export async function optionalRead<T>(request: Promise<T>) {
   }
 }
 
+const notebookApiErrorSchema = z.object({
+  error: z.object({
+    code: z.string().regex(/^notebook_[a-z_]{1,48}$/),
+    message: publicApiErrorSchema.shape.error.shape.message,
+  }),
+})
+
 async function apiErrorDetail(response: Response) {
-  if (![409, 502, 503].includes(response.status)) return
+  if (![403, 409, 422, 502, 503].includes(response.status)) return
   let payload: unknown
   try {
     payload = await response.json()
   } catch {
     return
   }
+  // Notebook errors explain what to change; the same safety filter applies.
+  const notebook = notebookApiErrorSchema.safeParse(payload)
+  if (notebook.success) return notebook.data.error
+  if (![409, 502, 503].includes(response.status)) return
   if (response.status === 409) {
     const result = z
       .object({

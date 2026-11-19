@@ -44,8 +44,11 @@ dlt = ["phlo-dlt>=0.18.0,<0.19"]
 iceberg = ["phlo-iceberg>=0.18.0,<0.19"]
 lineage = ["phlo-lineage>=0.1.0"]
 notebooks = [
+    "croniter>=2.0",
+    "duckdb>=1.1",
     "ipykernel>=6.29",
     "jupyter-client>=8.6",
+    "pandas>=2.2",
 ]
 transform = ["phlo-transform>=0.2.0,<0.3"]
 trino = ["phlo-trino>=0.18.0,<0.19"]

@@ -147,6 +147,66 @@ class ApiDeploymentSettings(BaseSettings):
             "host. Only '1' enables."
         ),
     )
+    notebook_kernel_dir: str | None = Field(
+        None,
+        validation_alias="PHLO_NOTEBOOK_KERNEL_DIR",
+        description=(
+            "Private folder for kernel records and sockets. "
+            "Absent uses a per-user folder in the system temp directory."
+        ),
+    )
+    notebook_packages: bool = Field(
+        False,
+        validation_alias="PHLO_NOTEBOOK_PACKAGES",
+        description=(
+            "Process-only opt-in letting notebooks list Python packages, installed into "
+            "per-notebook environments on the API host. Only '1' enables."
+        ),
+    )
+    notebook_package_index: str | None = Field(
+        None,
+        validation_alias="PHLO_NOTEBOOK_PACKAGE_INDEX",
+        description="Package index URL for notebook packages; absent uses the installer default.",
+    )
+    notebook_max_rows: int = Field(
+        10_000,
+        ge=1,
+        le=100_000,
+        validation_alias="PHLO_NOTEBOOK_MAX_ROWS",
+        description="Most rows a notebook Trino cell loads into its kernel.",
+    )
+    notebook_cell_timeout: int = Field(
+        1800,
+        ge=10,
+        le=6 * 3600,
+        validation_alias="PHLO_NOTEBOOK_CELL_TIMEOUT",
+        description="Seconds a notebook cell may run before it is interrupted.",
+    )
+    notebook_output_days: int = Field(
+        14,
+        ge=1,
+        le=365,
+        validation_alias="PHLO_NOTEBOOK_OUTPUT_DAYS",
+        description="Days a notebook cell's last output is kept for reopening.",
+    )
+    notebook_schedules: bool = Field(
+        False,
+        validation_alias="PHLO_NOTEBOOK_SCHEDULES",
+        description=(
+            "Process-only opt-in for running notebooks on their saved cron schedules. "
+            "Only '1' enables."
+        ),
+    )
+    notebook_git_commit: bool = Field(
+        False,
+        validation_alias="PHLO_NOTEBOOK_GIT_COMMIT",
+        description="Process-only opt-in for committing notebooks to git from Observatory. Only '1' enables.",
+    )
+    notebook_git_protected_branches: str = Field(
+        "main,master",
+        validation_alias="PHLO_NOTEBOOK_GIT_PROTECTED_BRANCHES",
+        description="Comma-separated branches notebooks are never committed to from Observatory.",
+    )
     preview_server_limits_configured: bool = Field(
         False,
         validation_alias="PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
@@ -166,6 +226,9 @@ class ApiDeploymentSettings(BaseSettings):
         "query_single_process",
         "preview_server_limits_configured",
         "notebook_kernels",
+        "notebook_packages",
+        "notebook_schedules",
+        "notebook_git_commit",
         mode="before",
     )
     @classmethod

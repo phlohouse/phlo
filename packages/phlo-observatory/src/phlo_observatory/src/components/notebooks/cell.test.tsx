@@ -94,9 +94,7 @@ describe('notebook cells', () => {
     expect(screen.getByText('gold.trials')).toBeTruthy()
     expect(screen.getByText('[4]')).toBeTruthy()
     expect(screen.getByRole('table', { name: 'Query results' })).toBeTruthy()
-    expect(
-      screen.getByText(/first 100 rows the lakehouse returned/),
-    ).toBeTruthy()
+    expect(screen.getByText(/cut at the notebook row limit/)).toBeTruthy()
   })
 
   it('warns when an upstream result changed and reruns on request', async () => {

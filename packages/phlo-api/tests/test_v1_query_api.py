@@ -524,3 +524,97 @@ def test_catalog_objects_browse_schemas_tables_views_and_columns(query_api, monk
     assert client.get(url, params={"env": "prod", "table": "x"}).status_code == 400
     assert client.get(url, params={"env": "prod", "schema": "a\nb"}).status_code == 400
     assert client.get(url, params={"env": "prod", "offset": -1}).status_code == 422
+
+
+def test_catalog_details_sample_and_search(query_api, monkeypatch):
+    client, calls = query_api
+
+    async def execute(sql, *, catalog, disconnected, limit, **_kwargs):
+        calls.append(sql)
+        if "information_schema.tables WHERE table_schema" in sql and "table_name =" in sql:
+            return {"rows": [{"table_type": "BASE TABLE"}], "has_more": False}
+        if sql.startswith("SHOW COLUMNS"):
+            return {
+                "rows": [
+                    {
+                        "Column": "modality",
+                        "Type": "varchar",
+                        "Extra": "",
+                        "Comment": "Therapy class",
+                    },
+                    {"Column": "starts", "Type": "bigint", "Extra": "", "Comment": ""},
+                ],
+                "has_more": False,
+            }
+        if sql.startswith("SHOW CREATE TABLE"):
+            return {"rows": [{"Create Table": "CREATE TABLE gold.trials (...)"}], "has_more": False}
+        if "$snapshots" in sql:
+            return {
+                "rows": [
+                    {
+                        "snapshot_id": "42",
+                        "committed_at": "2026-11-19 09:00",
+                        "total_records": "1200",
+                    }
+                ],
+                "has_more": False,
+            }
+        if "table_comments" in sql:
+            return {"rows": [{"comment": "Registry trials"}], "has_more": False}
+        if sql.startswith("SELECT * FROM"):
+            return {
+                "columns": [{"name": "modality", "type": "varchar"}],
+                "rows": [{"modality": "CAR-T"}],
+                "has_more": True,
+            }
+        if ".columns" in sql:
+            return {
+                "rows": [
+                    {
+                        "table_schema": "gold",
+                        "table_name": "trials",
+                        "column_name": "modality",
+                        "data_type": "varchar",
+                    }
+                ],
+                "has_more": False,
+            }
+        return {
+            "rows": [{"table_schema": "gold", "table_name": "trial_summary", "table_type": "VIEW"}],
+            "has_more": False,
+        }
+
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    params = {"env": "prod", "schema": "gold", "table": "trials"}
+    details = client.get("/api/v1/query/catalog/details", params=params).json()
+    assert details["kind"] == "table"
+    assert details["row_count"] == 1200
+    assert details["snapshot_id"] == "42"
+    assert details["comment"] == "Registry trials"
+    assert details["ddl"].startswith("CREATE TABLE")
+    assert [(c["name"], c["comment"]) for c in details["columns"]] == [
+        ("modality", "Therapy class"),
+        ("starts", None),
+    ]
+    assert any('"warehouse_prod"."gold"."trials$snapshots"' in sql for sql in calls)
+
+    sample = client.get("/api/v1/query/catalog/sample", params=params).json()
+    assert sample["rows"] == [{"modality": "CAR-T"}] and sample["has_more"] is True
+    assert calls[-1] == 'SELECT * FROM "warehouse_prod"."gold"."trials" LIMIT 51'
+
+    found = client.get(
+        "/api/v1/query/catalog/search", params={"env": "prod", "q": "50%_tri"}
+    ).json()
+    assert [(i["schema_name"], i["table"], i["kind"], i["column"]) for i in found["items"]] == [
+        ("gold", "trial_summary", "view", None),
+        ("gold", "trials", "column", "modality"),
+    ]
+    assert "LIKE '%50!%!_tri%' ESCAPE '!'" in calls[-2]
+    assert (
+        client.get("/api/v1/query/catalog/search", params={"env": "prod", "q": "x"}).status_code
+        == 422
+    )
+    assert (
+        client.get("/api/v1/query/catalog/details", params={**params, "table": "a\nb"}).status_code
+        == 400
+    )

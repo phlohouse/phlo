@@ -58,6 +58,7 @@ async def _lifespan(application: FastAPI):
     from phlo.run_evidence.store import default_run_evidence_store
 
     store = default_run_evidence_store()
+    scheduler: Any = None
     try:
         initialize_operation_controls()
         store.initialize()
@@ -68,15 +69,51 @@ async def _lifespan(application: FastAPI):
             initialize_incidents()
             initialize_usage()
         application.state.run_evidence_store = store
+        scheduler = _notebook_scheduler()
         async with lifespan_client():
             yield
     finally:
         from phlo_api.notebook_kernels import REGISTRY as notebook_kernels
 
+        if scheduler is not None:
+            await scheduler.stop()
         await notebook_kernels.shutdown_all()
         store.close()
         if hasattr(application.state, "run_evidence_store"):
             del application.state.run_evidence_store
+
+
+def _notebook_scheduler() -> Any:
+    """Start the notebook scheduler when the operator turned schedules and kernels on."""
+    from phlo_api.settings import get_deployment_settings
+
+    try:
+        deployment = get_deployment_settings()
+    except ValueError:
+        return None
+    if not (
+        deployment.notebook_schedules
+        and deployment.notebook_kernels
+        and deployment.query_single_process
+        and deployment.web_concurrency == 1
+    ):
+        return None
+    from phlo_api.api.operation_controls import project_root
+    from phlo_api.api.v1 import _targets
+    from phlo_api.api.v1_notebooks import _registry, trino_rows
+    from phlo_api.notebook_runner import NotebookScheduler
+
+    scheduler = NotebookScheduler(
+        _registry(deployment),
+        project=project_root,
+        trino=trino_rows(deployment),
+        timeout=float(deployment.notebook_cell_timeout),
+        output_days=deployment.notebook_output_days,
+        allow_packages=deployment.notebook_packages,
+        envs=lambda: set(_targets()),
+    )
+    scheduler.start()
+    return scheduler
 
 
 app = FastAPI(

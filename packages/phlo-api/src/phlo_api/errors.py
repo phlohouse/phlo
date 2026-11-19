@@ -58,6 +58,14 @@ class NotFoundError(PhloApiError):
     default_message = "The requested resource was not found."
 
 
+class ForbiddenError(PhloApiError):
+    """The caller is signed in but not allowed this part of the operation (403)."""
+
+    status_code = 403
+    code = "forbidden"
+    default_message = "You do not have permission for this."
+
+
 class ConflictError(PhloApiError):
     """The request conflicts with current server state (409)."""
 

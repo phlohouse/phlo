@@ -7,10 +7,11 @@ import base64
 import json
 import re
 import ssl
+from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -23,6 +24,24 @@ _MAX_ROWS = 100
 _MAX_RESPONSE_BYTES = 1_048_576
 _MAX_TRINO_PAGE_BYTES = 8_388_608
 _ADMISSION = asyncio.Semaphore(2)
+
+
+@dataclass(frozen=True)
+class PreviewBudget:
+    """Row, size and time limits for one read-only query.
+
+    The default is the interactive preview budget. Notebook cells use a larger,
+    operator-set budget because their rows feed analysis rather than a screen.
+    """
+
+    rows: int = _MAX_ROWS
+    response_bytes: int = _MAX_RESPONSE_BYTES
+    page_bytes: int = _MAX_TRINO_PAGE_BYTES
+    seconds: float = 22
+    admission_wait: float = 0.25
+
+
+PREVIEW_BUDGET = PreviewBudget()
 
 
 class PreviewUnavailable(RuntimeError):
@@ -303,6 +322,7 @@ async def _read_result(
     headers: dict[str, str],
     timeout: httpx.Timeout,
     statement: str | None,
+    page_bytes: int = _MAX_TRINO_PAGE_BYTES,
 ) -> dict[str, Any]:
     content = bytearray()
     async with client.stream(
@@ -312,7 +332,7 @@ async def _read_result(
             raise PreviewUnavailable("Trino preview query failed.")
         async for chunk in response.aiter_bytes():
             content.extend(chunk)
-            if len(content) > _MAX_TRINO_PAGE_BYTES:
+            if len(content) > page_bytes:
                 raise PreviewLimitExceeded("Trino preview response exceeded the byte budget.")
     try:
         result = json.loads(content)
@@ -338,8 +358,11 @@ async def _read_or_disconnect(
     timeout: httpx.Timeout,
     disconnected: Callable[[], Awaitable[bool]],
     content: str | None = None,
+    page_bytes: int = _MAX_TRINO_PAGE_BYTES,
 ) -> dict[str, Any]:
-    query = asyncio.create_task(_read_result(client, method, url, headers, timeout, content))
+    query = asyncio.create_task(
+        _read_result(client, method, url, headers, timeout, content, page_bytes)
+    )
     try:
         while not query.done():
             if await disconnected():
@@ -393,33 +416,26 @@ async def _collect_pages(
     limit: int,
     on_progress: Callable[[str | None, str | None], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    budget: PreviewBudget = PREVIEW_BUDGET,
 ) -> tuple[list[dict[str, Any]], list[list[Any]], str | None]:
-    timeout = httpx.Timeout(22)
+    timeout = httpx.Timeout(budget.seconds)
     active_uri: str | None = None
     try:
         result = await _read_or_disconnect(
-            client, "POST", f"{base_url}/v1/statement", headers, timeout, disconnected, sql
+            client,
+            "POST",
+            f"{base_url}/v1/statement",
+            headers,
+            timeout,
+            disconnected,
+            sql,
+            budget.page_bytes,
         )
         columns: list[dict[str, Any]] = []
         rows: list[list[Any]] = []
         while True:
             if result.get("error"):
-                error = result["error"]
-                error_name = error.get("errorName") if isinstance(error, dict) else None
-                reasons = {
-                    "NOT_SUPPORTED": "This table or operation is not supported by the query engine.",
-                    "SYNTAX_ERROR": "The query contains invalid SQL syntax.",
-                    "COLUMN_NOT_FOUND": "A query column does not exist or is not accessible.",
-                    "TABLE_NOT_FOUND": "A query table does not exist or is not accessible.",
-                    "PERMISSION_DENIED": "The query engine denied access to this table or operation.",
-                }
-                raise PreviewQueryRejected(
-                    reasons.get(
-                        error_name if isinstance(error_name, str) else "",
-                        "The query engine rejected the query.",
-                    ),
-                    error_name=error_name if isinstance(error_name, str) else None,
-                )
+                raise _rejection(result["error"])
             if not columns and isinstance(result.get("columns"), list):
                 columns = result["columns"]
             data = result.get("data") or []
@@ -444,6 +460,7 @@ async def _collect_pages(
                 _preview_auth_headers(headers["X-Trino-Catalog"]),
                 timeout,
                 disconnected,
+                page_bytes=budget.page_bytes,
             )
     except BaseException:
         if active_uri is not None:
@@ -453,8 +470,34 @@ async def _collect_pages(
         raise
 
 
+_REJECTIONS = {
+    "NOT_SUPPORTED": "This table or operation is not supported by the query engine.",
+    "SYNTAX_ERROR": "The query contains invalid SQL syntax.",
+    "COLUMN_NOT_FOUND": "A query column does not exist or is not accessible.",
+    "TABLE_NOT_FOUND": "A query table does not exist or is not accessible.",
+    "PERMISSION_DENIED": "The query engine denied access to this table or operation.",
+}
+
+
+def _rejection(error: object) -> PreviewQueryRejected:
+    """Name the failure and where it is in the SQL, never the engine's own message."""
+    details: dict[str, Any] = cast(dict[str, Any], error) if isinstance(error, dict) else {}
+    error_name = details.get("errorName")
+    name = error_name if isinstance(error_name, str) else None
+    message = _REJECTIONS.get(name or "", "The query engine rejected the query.")
+    location = details.get("errorLocation")
+    if isinstance(location, dict):
+        line, column = location.get("lineNumber"), location.get("columnNumber")
+        if isinstance(line, int) and isinstance(column, int):
+            message = f"{message[:-1]} (line {line}, column {column})."
+    return PreviewQueryRejected(message, error_name=name)
+
+
 def _preview_payload(
-    columns: list[dict[str, Any]], rows: list[list[Any]], limit: int
+    columns: list[dict[str, Any]],
+    rows: list[list[Any]],
+    limit: int,
+    max_bytes: int = _MAX_RESPONSE_BYTES,
 ) -> dict[str, Any]:
     labels = [column.get("name") for column in columns]
     if any(not isinstance(label, str) for label in labels):
@@ -468,7 +511,7 @@ def _preview_payload(
         "has_more": len(rows) > limit,
     }
     encoded = json.dumps(payload, separators=(",", ":"), default=str).encode()
-    if len(encoded) > _MAX_RESPONSE_BYTES:
+    if len(encoded) > max_bytes:
         raise PreviewLimitExceeded("Preview output exceeded the byte budget.")
     return payload
 
@@ -481,6 +524,7 @@ async def _run_query(
     limit: int,
     on_progress: Callable[[str | None, str | None], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    budget: PreviewBudget = PREVIEW_BUDGET,
 ) -> dict[str, Any]:
     base_url = resolve_trino_url().rstrip("/")
     if urlsplit(base_url).scheme != "https":
@@ -494,9 +538,10 @@ async def _run_query(
         limit,
         on_progress,
         should_cancel,
+        budget,
     )
     try:
-        payload = _preview_payload(columns, rows, limit)
+        payload = _preview_payload(columns, rows, limit, budget.response_bytes)
         if active_uri is not None:
             await _cancel(client, active_uri, _preview_auth_headers(catalog))
         return payload
@@ -514,18 +559,19 @@ async def execute_preview(
     limit: int,
     on_progress: Callable[[str | None, str | None], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    budget: PreviewBudget = PREVIEW_BUDGET,
 ) -> dict[str, Any]:
     """Run a mapped read-only preview under cluster, process, time and output budgets."""
-    if not 1 <= limit <= _MAX_ROWS:
+    if not 1 <= limit <= budget.rows:
         raise ValueError("Preview limit is outside the supported range.")
     try:
-        await asyncio.wait_for(_ADMISSION.acquire(), timeout=0.25)
+        await asyncio.wait_for(_ADMISSION.acquire(), timeout=budget.admission_wait)
     except TimeoutError as exc:
         raise PreviewUnavailable("Preview capacity is busy; retry later.") from exc
     try:
-        async with backend_client() as client, asyncio.timeout(22):
+        async with backend_client() as client, asyncio.timeout(budget.seconds):
             result = await _run_query(
-                client, sql, catalog, disconnected, limit, on_progress, should_cancel
+                client, sql, catalog, disconnected, limit, on_progress, should_cancel, budget
             )
             return result
     except httpx.TimeoutException as exc:
