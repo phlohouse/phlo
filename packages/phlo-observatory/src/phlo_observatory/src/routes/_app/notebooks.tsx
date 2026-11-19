@@ -301,8 +301,12 @@ function NotebookWorkspace({
       const kernel = await ensureKernel()
       if (!kernel) return 'The kernel is not running.'
       setPhase('busy')
-      const result = await call(kernel)
-      setPhase('idle')
+      let result: KernelCall<T>
+      try {
+        result = await call(kernel)
+      } finally {
+        setPhase('idle')
+      }
       if (result.state === 'ok') return result.data
       if (result.state === 'busy')
         return 'The kernel is still running another cell.'

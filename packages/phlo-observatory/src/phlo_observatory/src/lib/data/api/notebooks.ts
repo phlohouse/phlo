@@ -130,7 +130,7 @@ export const getNotebookWorkspace = createServerFn({ method: 'GET' })
       } catch (error) {
         if (
           !(error instanceof PhloApiError) ||
-          ![400, 404].includes(error.status)
+          ![400, 404, 422].includes(error.status)
         )
           throw error
         notebook = {
@@ -139,7 +139,9 @@ export const getNotebookWorkspace = createServerFn({ method: 'GET' })
           message:
             error.status === 404
               ? 'This notebook does not exist.'
-              : 'This file is not a notebook Phlo can open. Only nbformat 4 notebooks up to 2 MB are supported.',
+              : error.status === 400
+                ? 'That is not a notebook path Phlo can open.'
+                : 'This file is not a notebook Phlo can open. Only nbformat 4 notebooks up to 2 MB are supported.',
         }
       }
     }

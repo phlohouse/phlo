@@ -13,6 +13,9 @@ import json
 import os
 import re
 import tempfile
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -25,6 +28,13 @@ CellKind = Literal["markdown", "python", "sql"]
 SqlEngine = Literal["trino", "duckdb"]
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _SEGMENT = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+_WRITE_LOCK = threading.Lock()
+
+_fcntl: Any = None
+try:
+    import fcntl as _fcntl
+except ImportError:
+    pass  # Windows: the in-process lock still serialises saves.
 
 
 class NotebookPathError(ValueError):
@@ -214,19 +224,36 @@ def write_notebook(
     file = resolve_notebook_path(project, path)
     if file.is_symlink():
         raise NotebookPathError("Notebook paths cannot be symbolic links.")
-    current = _digest(file.read_bytes()) if file.exists() else None
-    if current != expected_digest:
-        raise NotebookConflict(path)
     raw = render_notebook(cells)
     if len(raw) > MAX_NOTEBOOK_BYTES:
         raise NotebookInvalid("Notebooks are limited to 2 MB.")
     file.parent.mkdir(parents=True, exist_ok=True)
-    handle, temp = tempfile.mkstemp(dir=file.parent, prefix=".notebook-", suffix=".tmp")
-    try:
-        with os.fdopen(handle, "wb") as stream:
-            stream.write(raw)
-        os.replace(temp, file)
-    except BaseException:
-        Path(temp).unlink(missing_ok=True)
-        raise
+    with _exclusive(file.parent):
+        # The digest is checked under the lock, so two saves of one version cannot both win.
+        current = _digest(file.read_bytes()) if file.exists() else None
+        if current != expected_digest:
+            raise NotebookConflict(path)
+        handle, temp = tempfile.mkstemp(dir=file.parent, prefix=".notebook-", suffix=".tmp")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(raw)
+            os.replace(temp, file)
+        except BaseException:
+            Path(temp).unlink(missing_ok=True)
+            raise
     return NotebookDocument(path=path, digest=_digest(raw), cells=tuple(cells))
+
+
+@contextmanager
+def _exclusive(folder: Path) -> Iterator[None]:
+    """Serialise check-and-replace in a folder across threads and API processes."""
+    with _WRITE_LOCK:
+        if _fcntl is None:
+            yield
+            return
+        descriptor = os.open(folder, os.O_RDONLY)
+        try:
+            _fcntl.flock(descriptor, _fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(descriptor)

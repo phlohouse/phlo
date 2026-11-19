@@ -269,3 +269,22 @@ def test_bind_refuses_results_that_belong_to_someone_else(kernel_api):
         json={"query_id": "q-other", "name": "trials"},
     )
     assert response.status_code == 404
+
+
+def test_concurrent_saves_of_one_version_let_only_one_win(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    cells = [notebook_files.NotebookCell(id="a", kind="python", source="1")]
+    first = notebook_files.write_notebook(tmp_path, "race.ipynb", cells, None)
+
+    def save(n: int) -> str:
+        edit = [notebook_files.NotebookCell(id="a", kind="python", source=str(n))]
+        try:
+            notebook_files.write_notebook(tmp_path, "race.ipynb", edit, first.digest)
+        except notebook_files.NotebookConflict:
+            return "conflict"
+        return "saved"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(save, range(8)))
+    assert outcomes.count("saved") == 1
