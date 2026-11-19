@@ -36,8 +36,8 @@ from phlo_api.notebook_kernels import (
 
 logger = logging.getLogger(__name__)
 
+# (env, sql, cancelled) -> {"columns": [...], "rows": [...], "has_more": bool}
 TrinoRows = Callable[[str, str, Callable[[], bool]], Awaitable[dict[str, Any]]]
-"""(env, sql, cancelled) -> {"columns": [...], "rows": [...], "has_more": bool}"""
 
 _CATCH_UP = timedelta(hours=1)
 SCHEDULE_ACTOR = "notebook-schedule:"

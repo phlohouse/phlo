@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -1026,13 +1027,13 @@ def _result_dict(result: ExecutionResult) -> dict[str, Any]:
 
 
 def _jupyter() -> None:
-    try:
-        import ipykernel  # noqa: F401
-        import jupyter_client  # noqa: F401
-    except ImportError as exc:
+    if (
+        importlib.util.find_spec("ipykernel") is None
+        or importlib.util.find_spec("jupyter_client") is None
+    ):
         raise KernelsUnavailable(
             "Notebook kernels need the phlo-api 'notebooks' extra (jupyter-client and ipykernel)."
-        ) from exc
+        )
 
 
 def _to_output(kind: str, content: dict[str, Any]) -> KernelOutput | None:

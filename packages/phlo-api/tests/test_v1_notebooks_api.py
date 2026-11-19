@@ -678,6 +678,7 @@ def _git(root: Path, *args: str) -> str:
 @pytest.fixture
 def git_project(notebook_api, monkeypatch):
     if shutil.which("git") is None:
+        # reason: the git commit routes shell out to git, which minimal images may lack.
         pytest.skip("git is not installed")
     client, root = notebook_api
     _git(root, "init", "-q", "-b", "main")

@@ -52,10 +52,10 @@ function GitForm({
   dirty: boolean
   onClose: () => void
 }) {
-  const [git, setGit] = React.useState<GitState | null>(null)
+  const [git, setRepo] = React.useState<GitState | null>(null)
   const [failed, setFailed] = React.useState<string | null>(null)
   React.useEffect(() => {
-    getNotebookGit({ data: { env } }).then(setGit, (error: unknown) =>
+    getNotebookGit({ data: { env } }).then(setRepo, (error: unknown) =>
       setFailed(error instanceof Error ? error.message : 'Git is unavailable.'),
     )
   }, [env])
