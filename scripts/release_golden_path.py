@@ -1362,6 +1362,29 @@ def compose_config_json(config: RunConfig) -> dict[str, object]:
     return dict(json.loads(result.stdout))
 
 
+def shared_compose_network(document: dict[str, object]) -> str:
+    """Return the one non-internal Compose network that acceptance services join.
+
+    Internal networks, such as the private Dagster code-server network, isolate
+    services from everything else; attaching a test service to one would make it
+    unreachable, so they never count as the shared network.
+    """
+    networks = document.get("networks")
+    if not isinstance(networks, dict):
+        raise CandidateError("Acceptance requires one explicit shared test network")
+    shared = [
+        definition
+        for definition in networks.values()
+        if isinstance(definition, dict) and not definition.get("internal")
+    ]
+    if len(shared) != 1:
+        raise CandidateError("Acceptance requires one explicit shared test network")
+    name = shared[0].get("name")
+    if not isinstance(name, str) or not name:
+        raise CandidateError("Acceptance shared network has no resolved name")
+    return name
+
+
 def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:
     """Rewrite every generated image reference to its exact BOM digest."""
     bom = config.bom
@@ -1395,7 +1418,15 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
             entry = phlo_images.get(name)
             if entry is None:
                 raise CandidateError(f"Phlo-owned image {image!r} is not part of the candidate BOM")
-            if str(entry["version"]) != tag:
+            # A reference already pinned to the exact BOM digest is the candidate
+            # image; otherwise its tag must name the BOM version.
+            if digest is not None:
+                if digest != entry["digest"] or tag not in ("", str(entry["version"])):
+                    raise CandidateError(
+                        f"Phlo-owned image {image!r} does not match the BOM digest "
+                        f"{entry['digest']!r}"
+                    )
+            elif str(entry["version"]) != tag:
                 raise CandidateError(
                     f"Phlo-owned image {image!r} does not match the BOM version "
                     f"{entry['version']!r}"

@@ -1299,6 +1299,34 @@ def test_pin_candidate_images_rewrites_first_party_and_keeps_pinned_providers(
     }
 
 
+def test_pin_candidate_images_accepts_first_party_reference_pinned_to_bom_digest(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path)
+    config.__dict__.update(bom=_candidate_bom())
+    config.compose_file.parent.mkdir(parents=True, exist_ok=True)
+    pinned_api = "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64
+    config.compose_file.write_text(
+        "services:\n"
+        "  phlo-api:\n"
+        "    image: ghcr.io/phlohouse/phlo-api:0.14.0\n"
+        "  phlo-api-preview-init:\n"
+        f"    image: {pinned_api}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        release_golden_path, "compose_config_json", lambda cfg: _compose_services(cfg)
+    )
+
+    _, pinned = release_golden_path.pin_candidate_images(config)
+
+    candidate_layer = json.loads(
+        (config.project_dir / ".phlo" / "compose.candidate.json").read_text()
+    )
+    assert candidate_layer["services"]["phlo-api-preview-init"] == {"image": pinned_api}
+    assert {entry["service"] for entry in pinned} == {"phlo-api", "phlo-api-preview-init"}
+
+
 def test_candidate_pins_duplicate_and_interpolated_services_after_all_layers(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1353,8 +1381,12 @@ def test_candidate_pins_duplicate_and_interpolated_services_after_all_layers(
             "services:\n  phlo-api:\n    image: ghcr.io/phlohouse/phlo-api:9.9.9\n",
             "does not match the BOM version",
         ),
+        (
+            "services:\n  init:\n    image: ghcr.io/phlohouse/phlo-api@sha256:" + "e" * 64 + "\n",
+            "does not match the BOM digest",
+        ),
     ],
-    ids=["unpinned-image", "version-mismatch"],
+    ids=["unpinned-image", "version-mismatch", "digest-mismatch"],
 )
 def test_pin_candidate_images_rejects_non_candidate_images(
     tmp_path: Path, monkeypatch, compose_yaml: str, expected_error: str
@@ -1681,3 +1713,27 @@ def test_observatory_history_contract_rejects_duplicate_pages(monkeypatch, repea
             "cursor_advancements": 2,
             "self_compare": "pinned",
         }
+
+
+def test_shared_compose_network_ignores_internal_networks() -> None:
+    document = {
+        "networks": {
+            "dagster-code": {"name": "proj_dagster-code", "internal": True},
+            "default": {"name": "proj_default"},
+        }
+    }
+
+    assert release_golden_path.shared_compose_network(document) == "proj_default"
+
+
+@pytest.mark.parametrize(
+    "networks",
+    [
+        {},
+        {"dagster-code": {"name": "proj_dagster-code", "internal": True}},
+        {"default": {"name": "proj_default"}, "other": {"name": "proj_other"}},
+    ],
+)
+def test_shared_compose_network_requires_exactly_one_shared_network(networks) -> None:
+    with pytest.raises(release_golden_path.CandidateError, match="one explicit shared"):
+        release_golden_path.shared_compose_network({"networks": networks})

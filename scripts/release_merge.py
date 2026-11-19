@@ -95,6 +95,31 @@ def ensure_runs(filename: str, title: str, inputs: dict, count: int) -> list[dic
     return completed
 
 
+def previous_release() -> dict[str, str]:
+    """Bind the latest published release to its single successful immutable stage run.
+
+    Acceptance upgrades retained volumes from the previous release's exact staged
+    bytes, so the coordinator must name them explicitly rather than guess.
+    """
+    release = provenance.api(f"{ROOT}/releases/latest")
+    tag = release.get("tag_name")
+    if release.get("draft") or release.get("prerelease") or not tag:
+        raise ValueError("latest release is not a published release tag")
+    commit = provenance.api(f"{ROOT}/commits/{tag}")
+    previous_sha = commit.get("sha", "")
+    if len(previous_sha) != 40:
+        raise ValueError(f"cannot resolve the commit of {tag}")
+    workflow = provenance.api(f"{ROOT}/actions/workflows/release-stage.yml")
+    stages = [
+        run
+        for run in runs_for(workflow, f"stage {previous_sha}")
+        if run.get("conclusion") == "success" and run.get("run_attempt") == 1
+    ]
+    if len(stages) != 1:
+        raise ValueError(f"{tag} does not have exactly one successful staging run")
+    return {"previous_candidate_sha": previous_sha, "previous_stage_run": str(stages[0]["id"])}
+
+
 def coordinate(sha: str) -> None:
     """Keep publication in the existing trusted-publisher workflow."""
     staging.validate_candidate(sha)
@@ -113,6 +138,8 @@ def coordinate(sha: str) -> None:
         if time.monotonic() >= deadline:
             raise TimeoutError("source health did not complete before deadline")
         time.sleep(30)
+    # Resolve the upgrade baseline before staging so a missing one consumes nothing.
+    previous = previous_release()
     inputs = {"candidate_sha": sha}
     stages = ensure_runs("release-stage.yml", f"stage {sha}", inputs, 1)
     if len(stages) != 1:
@@ -120,7 +147,12 @@ def coordinate(sha: str) -> None:
     stage = stages[0]["id"]
     inputs = {**inputs, "stage_run": str(stage)}
     # Each dispatch produces two complete bundles, one per architecture.
-    ensure_runs("release-artifact-acceptance.yml", f"accept {sha} stage {stage}", inputs, 2)
+    ensure_runs(
+        "release-artifact-acceptance.yml",
+        f"accept {sha} stage {stage}",
+        {**inputs, **previous},
+        2,
+    )
     ensure_runs(
         "release-promotion.yml",
         f"promote {sha} stage {stage} execute true",

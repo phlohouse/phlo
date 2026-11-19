@@ -126,7 +126,7 @@ def prepare(
     observatory.private_file(root / "import/realm.json", json.dumps(realm))
     observatory.private_file(root / "login.json", json.dumps({"password": password, "base": base}))
     document = golden.compose_config_json(config)
-    network = next(iter(document["networks"].values()))["name"]
+    network = golden.shared_compose_network(document)
     api_image = document["services"]["phlo-api"]["image"]
     # The denial target is real, not an alias or placeholder environment.
     private_ref = "acceptance-denied-" + secrets.token_hex(6)

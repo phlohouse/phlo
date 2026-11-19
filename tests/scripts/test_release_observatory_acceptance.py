@@ -579,3 +579,46 @@ def test_oidc_acceptance_requires_verified_role_denial_and_honest_receipt(
         assert result["canonical_role"] == "viewer"
         assert result["environment_denied"] and result["admin_denied"]
         assert result["logout_denied"] and result["api_no_token_denied"]
+
+
+def test_minio_migration_carries_provider_rewrite_into_baseline(
+    tmp_path, observatory, config, monkeypatch
+) -> None:
+    project = config.project_dir / ".phlo"
+    project.mkdir(parents=True)
+    pristine = tmp_path / "pristine"
+    (pristine / ".phlo").mkdir(parents=True)
+    generated = b"services:\n  minio:\n    image: ghcr.io/phlohouse/phlo-minio:0.17.1\n"
+    (project / "docker-compose.yml").write_bytes(generated)
+    (pristine / ".phlo/docker-compose.yml").write_bytes(generated)
+    migrated = b"services:\n  minio:\n    image: ghcr.io/phlohouse/phlo-minio:0.17.4\n"
+    calls = []
+
+    def run(args, **_):
+        calls.append(args[1:])
+        if "--apply" in args:
+            (project / "docker-compose.yml").write_bytes(migrated)
+
+    monkeypatch.setattr(observatory, "installed_start_pins", lambda *_, **__: None)
+    monkeypatch.setattr(observatory.golden, "run", run)
+
+    observatory.migrate_minio_image(config, config, pristine)
+
+    assert calls == [["minio", "migrate-image"], ["minio", "migrate-image", "--apply"]]
+    assert (pristine / ".phlo/docker-compose.yml").read_bytes() == migrated
+
+
+def test_minio_migration_refuses_a_customized_generated_compose(
+    tmp_path, observatory, config, monkeypatch
+) -> None:
+    (config.project_dir / ".phlo").mkdir(parents=True)
+    pristine = tmp_path / "pristine"
+    (pristine / ".phlo").mkdir(parents=True)
+    (config.project_dir / ".phlo/docker-compose.yml").write_text("services: {custom: {}}\n")
+    (pristine / ".phlo/docker-compose.yml").write_text("services: {}\n")
+    monkeypatch.setattr(
+        observatory.golden, "run", lambda *_, **__: pytest.fail("migration must not run")
+    )
+
+    with pytest.raises(observatory.golden.CandidateError, match="unmodified generated Compose"):
+        observatory.migrate_minio_image(config, config, pristine)

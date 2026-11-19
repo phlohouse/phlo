@@ -32,7 +32,7 @@ ROUTES = {
     "": "Overview",
     "assets": "Assets",
     "incidents": "Incidents",
-    "pipelines": "Jobs",
+    "pipelines": "Pipelines",
     "query": "Query",
     "branches": "Branches",
 }
@@ -326,10 +326,7 @@ print('{}')
 
 def provision_preview(config: golden.RunConfig, binding: dict) -> list:
     document = golden.compose_config_json(config)
-    networks = document["networks"]
-    if len(networks) != 1:
-        raise golden.CandidateError("Acceptance requires one explicit shared test network")
-    network = next(iter(networks.values()))["name"]
+    network = golden.shared_compose_network(document)
     inputs = preview_config(config, binding, network)
     output = inputs.parent / "generated"
     golden.run(
@@ -389,7 +386,7 @@ def preview_layer(config: golden.RunConfig, output: Path, api_definition: dict) 
         """
 import json, sys, yaml
 from pathlib import Path
-root=Path.cwd(); output=Path(sys.argv[1]); layer=yaml.safe_load((output/'compose.yaml').read_text())
+root=Path.cwd(); output=Path(sys.argv[1]).resolve(); layer=yaml.safe_load((output/'compose.yaml').read_text())
 service=layer['services']['trino-preview']
 for definition in layer['services'].values():
     for index,mount in enumerate(definition.get('volumes',[])):
@@ -839,7 +836,8 @@ def browser_journey(config: golden.RunConfig, binding: dict, artifacts: Path) ->
         _browser(session, "open", f"{base}/query?env={env}")
         _browser(session, "wait", ".cm-content")
         _browser(session, "click", ".cm-content")
-        _browser(session, "press", "Control+A")
+        # CodeMirror binds select-all to the platform modifier (Cmd on macOS).
+        _browser(session, "press", "Meta+A" if sys.platform == "darwin" else "Control+A")
         _browser(session, "press", "Backspace")
         _browser(
             session,
@@ -1061,6 +1059,77 @@ def recover(config: golden.RunConfig, binding: dict, query_id: str) -> dict:
     }
 
 
+MINIO_IMAGE_MIGRATION = "phlo minio migrate-image"
+
+
+def review_upgrade_plan(
+    candidate: golden.RunConfig,
+    pristine: Path,
+    plan_file: Path,
+    ownership_options: tuple[str, ...],
+) -> dict:
+    """Write a reviewed upgrade plan and report its migrations, conflicts and token."""
+    golden.run(
+        golden.command(
+            str(candidate.operator_bin),
+            "services",
+            "upgrade",
+            "--observatory-dev",
+            *ownership_options,
+            "--previous-generated",
+            str(pristine),
+            "--dry-run",
+            "--output",
+            str(plan_file),
+        ),
+        cwd=candidate.project_dir,
+        capture_output=True,
+    )
+    return installed(
+        candidate,
+        """
+import json,sys
+from pathlib import Path
+from phlo.operations.generated_stack import GeneratedStackPlan
+plan=GeneratedStackPlan.model_validate_json(Path(sys.argv[1]).read_text())
+print(json.dumps({'migrations':list(plan.migrations),
+    'conflict':any(change.state=='conflict' for change in plan.files),
+    'token':plan.token()}))
+""",
+        str(plan_file),
+    )
+
+
+def migrate_minio_image(
+    previous: golden.RunConfig, candidate: golden.RunConfig, pristine: Path
+) -> None:
+    """Run the installed MinIO image migration on the retained project.
+
+    The migration refuses Compose layers that override MinIO, so the owned
+    acceptance pin layers are removed first; candidate pinning is re-applied
+    after the reviewed upgrade, and retained objects are verified on restart.
+    Its provider-owned rewrite of the generated Compose file is carried into the
+    previous-generated baseline only when that file was unmodified generated
+    output, so any other customization still surfaces as a plan conflict.
+    """
+    compose_file = candidate.project_dir / ".phlo/docker-compose.yml"
+    baseline_file = pristine / ".phlo/docker-compose.yml"
+    before = compose_file.read_bytes()
+    if baseline_file.read_bytes() != before:
+        raise golden.CandidateError(
+            "MinIO migration requires the unmodified generated Compose file"
+        )
+    installed_start_pins(previous, remove=True)
+    (candidate.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
+    for options in ((), ("--apply",)):
+        golden.run(
+            golden.command(str(candidate.operator_bin), "minio", "migrate-image", *options),
+            cwd=candidate.project_dir,
+            capture_output=True,
+        )
+    baseline_file.write_bytes(compose_file.read_bytes())
+
+
 def transition(
     previous: golden.RunConfig, candidate: golden.RunConfig, binding: dict, pristine: Path
 ) -> dict:
@@ -1136,35 +1205,21 @@ print('{}')
     )
     plan_file = candidate.project_dir.parent / "reviewed-upgrade.json"
     ownership_options = ("--repair-empty-api-binds",) if sys.platform == "linux" else ()
-    golden.run(
-        golden.command(
-            str(candidate.operator_bin),
-            "services",
-            "upgrade",
-            "--observatory-dev",
-            *ownership_options,
-            "--previous-generated",
-            str(pristine),
-            "--dry-run",
-            "--output",
-            str(plan_file),
-        ),
-        cwd=candidate.project_dir,
-        capture_output=True,
-    )
-    token = installed(
-        candidate,
-        """
-import json,sys
-from pathlib import Path
-from phlo.operations.generated_stack import GeneratedStackPlan
-plan=GeneratedStackPlan.model_validate_json(Path(sys.argv[1]).read_text())
-if plan.migrations or any(change.state=='conflict' for change in plan.files):
-    raise SystemExit('Provider migration or customization conflict requires review')
-print(json.dumps({'value':plan.token()}))
-""",
-        str(plan_file),
-    )["value"]
+    plan = review_upgrade_plan(candidate, pristine, plan_file, ownership_options)
+    minio_image_migrated = False
+    if (
+        plan["migrations"]
+        and not plan["conflict"]
+        and all(migration.startswith(MINIO_IMAGE_MIGRATION) for migration in plan["migrations"])
+    ):
+        # The documented operator path for a MinIO image change: migrate the
+        # retained storage with the installed provider, then plan again.
+        migrate_minio_image(previous, candidate, pristine)
+        minio_image_migrated = True
+        plan = review_upgrade_plan(candidate, pristine, plan_file, ownership_options)
+    if plan["migrations"] or plan["conflict"]:
+        raise golden.CandidateError("Provider migration or customization conflict requires review")
+    token = plan["token"]
     # The source project and its volumes are retained; --force and fixture
     # substrate upgrades are deliberately absent.
     command = golden.command(
@@ -1280,6 +1335,7 @@ print('{}')
         )
     return {
         "reviewed_plan_applied_twice": True,
+        "minio_image_migrated": minio_image_migrated,
         "verified_database_backup": True,
         "database_restore": restore,
         "retained_project": True,
