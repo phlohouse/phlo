@@ -594,6 +594,12 @@ function notebookFixture(method, url, body, env, ref, state) {
   const published = publishFixture(method, url, body, env, ref, state)
   if (published) return published
   if (url.pathname === '/api/v1/notebooks/kernels') {
+    // The real API refuses the kernel list to someone who may not run code.
+    if (!state.access.run)
+      return {
+        status: 403,
+        body: { detail: { code: 'forbidden', message: 'Not allowed.' } },
+      }
     if (method === 'POST') {
       const input = JSON.parse(body)
       const started = {

@@ -180,6 +180,9 @@ async function readKernels(env: string) {
       ),
     }
   } catch (error) {
+    // Someone who may read notebooks but not run them still gets the page.
+    if (error instanceof PhloApiError && error.status === 403)
+      return { state: 'available' as const, items: [] }
     if (!(error instanceof PhloApiError) || !kernelsDisabled(error)) throw error
     return { state: 'disabled' as const, message: error.detail ?? kernelsOff }
   }

@@ -122,10 +122,6 @@ function useFileActions(env: string, active: string | undefined) {
   const router = useRouter()
   const navigate = Route.useNavigate()
   const [action, setAction] = React.useState<FileAction | null>(null)
-  const open = (path: string) => {
-    // Not awaited: an unsaved-changes prompt can cancel the move.
-    void navigate({ search: { env, path } })
-  }
   const create = async (path: string) => {
     try {
       const saved = await saveNotebook({
@@ -139,8 +135,9 @@ function useFileActions(env: string, active: string | undefined) {
       })
       if (saved.state === 'conflict') return 'A notebook with that name exists.'
       if (saved.state === 'invalid') return saved.message
-      await router.invalidate()
-      open(path)
+      // Opening it loads the list again, so the dialog stays busy until the
+      // notebook is on screen instead of closing onto the old page.
+      await navigate({ search: { env, path } })
       return null
     } catch (error) {
       return failure(error, 'Could not create it.')
@@ -154,8 +151,8 @@ function useFileActions(env: string, active: string | undefined) {
       })
       if (result.state === 'refused') return result.message
       renameTab(env, from, to)
-      await router.invalidate()
-      if (from === active) open(to)
+      if (from === active) await navigate({ search: { env, path: to } })
+      else await router.invalidate()
       return null
     } catch (error) {
       return failure(error, 'Could not rename it.')
@@ -165,8 +162,7 @@ function useFileActions(env: string, active: string | undefined) {
     try {
       const result = await duplicateNotebook({ data: { env, path: from, to } })
       if (result.state === 'refused') return result.message
-      await router.invalidate()
-      open(to)
+      await navigate({ search: { env, path: to } })
       return null
     } catch (error) {
       return failure(error, 'Could not duplicate it.')
