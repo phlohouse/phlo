@@ -1,5 +1,5 @@
 {
-  "field_count": 336,
+  "field_count": 337,
   "model_count": 52,
   "models": [
     {
@@ -1460,6 +1460,17 @@
             "PHLO_V1_ACTIONS_SINGLE_REPLICA"
           ],
           "name": "actions_single_replica",
+          "required": false
+        },
+        {
+          "alias": "PHLO_NOTEBOOK_KERNELS",
+          "annotation": "<class 'bool'>",
+          "default": false,
+          "description": "Process-only opt-in for Observatory notebook kernels, which run Python on the API host. Only '1' enables.",
+          "environment_names": [
+            "PHLO_NOTEBOOK_KERNELS"
+          ],
+          "name": "notebook_kernels",
           "required": false
         },
         {

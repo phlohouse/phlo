@@ -71,6 +71,9 @@ async def _lifespan(application: FastAPI):
         async with lifespan_client():
             yield
     finally:
+        from phlo_api.notebook_kernels import REGISTRY as notebook_kernels
+
+        await notebook_kernels.shutdown_all()
         store.close()
         if hasattr(application.state, "run_evidence_store"):
             del application.state.run_evidence_store
@@ -124,6 +127,7 @@ _ROUTERS = [
     ("phlo_api.api.v1_loads", "/api/v1"),
     ("phlo_api.api.v1_metrics", "/api/v1"),
     ("phlo_api.api.v1_transform_editor", "/api/v1"),
+    ("phlo_api.api.v1_notebooks", "/api/v1"),
     ("phlo_api.api.v1_authoring", "/api/v1"),
     ("phlo_api.usage", "/api/v1"),
     ("phlo_api.api.authoring", "/api/authoring"),

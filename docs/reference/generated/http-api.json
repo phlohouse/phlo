@@ -4,7 +4,7 @@
     "title": "Phlo API",
     "version": "0.1.0"
   },
-  "endpoint_count": 285,
+  "endpoint_count": 297,
   "endpoints": [
     {
       "deprecated": false,
@@ -2072,6 +2072,126 @@
       "summary": "V1 Metric Model Restore",
       "tags": [
         "v1 metrics"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebooks_api_v1_notebooks_get",
+      "path": "/api/v1/notebooks",
+      "summary": "V1 Notebooks",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_api_v1_notebooks_content_get",
+      "path": "/api/v1/notebooks/content",
+      "summary": "V1 Notebook",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "PUT",
+      "operation_id": "v1_notebook_save_api_v1_notebooks_content_put",
+      "path": "/api/v1/notebooks/content",
+      "summary": "V1 Notebook Save",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_kernels_api_v1_notebooks_kernels_get",
+      "path": "/api/v1/notebooks/kernels",
+      "summary": "V1 Notebook Kernels",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_kernel_start_api_v1_notebooks_kernels_post",
+      "path": "/api/v1/notebooks/kernels",
+      "summary": "V1 Notebook Kernel Start",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "DELETE",
+      "operation_id": "v1_notebook_kernel_stop_api_v1_notebooks_kernels__kernel_id__delete",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}",
+      "summary": "V1 Notebook Kernel Stop",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_kernel_bind_api_v1_notebooks_kernels__kernel_id__bind_post",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/bind",
+      "summary": "V1 Notebook Kernel Bind",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_kernel_execute_api_v1_notebooks_kernels__kernel_id__execute_post",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/execute",
+      "summary": "V1 Notebook Kernel Execute",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_kernel_interrupt_api_v1_notebooks_kernels__kernel_id__interrupt_post",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/interrupt",
+      "summary": "V1 Notebook Kernel Interrupt",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_kernel_restart_api_v1_notebooks_kernels__kernel_id__restart_post",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/restart",
+      "summary": "V1 Notebook Kernel Restart",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "POST",
+      "operation_id": "v1_notebook_kernel_sql_api_v1_notebooks_kernels__kernel_id__sql_post",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/sql",
+      "summary": "V1 Notebook Kernel Sql",
+      "tags": [
+        "v1 notebooks"
+      ]
+    },
+    {
+      "deprecated": false,
+      "method": "GET",
+      "operation_id": "v1_notebook_kernel_variables_api_v1_notebooks_kernels__kernel_id__variables_get",
+      "path": "/api/v1/notebooks/kernels/{kernel_id}/variables",
+      "summary": "V1 Notebook Kernel Variables",
+      "tags": [
+        "v1 notebooks"
       ]
     },
     {

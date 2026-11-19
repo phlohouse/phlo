@@ -139,6 +139,14 @@ class ApiDeploymentSettings(BaseSettings):
         description="Explicit single API process assertion; active query sessions are process-local.",
     )
     web_concurrency: int = Field(1, validation_alias="WEB_CONCURRENCY", ge=1)
+    notebook_kernels: bool = Field(
+        False,
+        validation_alias="PHLO_NOTEBOOK_KERNELS",
+        description=(
+            "Process-only opt-in for Observatory notebook kernels, which run Python on the API "
+            "host. Only '1' enables."
+        ),
+    )
     preview_server_limits_configured: bool = Field(
         False,
         validation_alias="PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
@@ -157,6 +165,7 @@ class ApiDeploymentSettings(BaseSettings):
         "query_single_replica",
         "query_single_process",
         "preview_server_limits_configured",
+        "notebook_kernels",
         mode="before",
     )
     @classmethod

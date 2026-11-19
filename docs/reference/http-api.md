@@ -10,7 +10,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3 removes them in `0.20.0`. [Legacy route replacements](#legacy-route-replacements) lists each one with its `/api/v1` replacement, or `None` for the routes that are removed without one.
 
-## Endpoints (285)
+## Endpoints (297)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -223,6 +223,18 @@ OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../arch
 | `POST` | `/api/v1/metric-models/{model_id}/preview-sql` | V1 Metric Model Preview | `v1 metrics` |
 | `POST` | `/api/v1/metric-models/{model_id}/reclaim` | V1 Metric Model Reclaim | `v1 metrics` |
 | `POST` | `/api/v1/metric-models/{model_id}/restore` | V1 Metric Model Restore | `v1 metrics` |
+| `GET` | `/api/v1/notebooks` | V1 Notebooks | `v1 notebooks` |
+| `GET` | `/api/v1/notebooks/content` | V1 Notebook | `v1 notebooks` |
+| `PUT` | `/api/v1/notebooks/content` | V1 Notebook Save | `v1 notebooks` |
+| `GET` | `/api/v1/notebooks/kernels` | V1 Notebook Kernels | `v1 notebooks` |
+| `POST` | `/api/v1/notebooks/kernels` | V1 Notebook Kernel Start | `v1 notebooks` |
+| `DELETE` | `/api/v1/notebooks/kernels/{kernel_id}` | V1 Notebook Kernel Stop | `v1 notebooks` |
+| `POST` | `/api/v1/notebooks/kernels/{kernel_id}/bind` | V1 Notebook Kernel Bind | `v1 notebooks` |
+| `POST` | `/api/v1/notebooks/kernels/{kernel_id}/execute` | V1 Notebook Kernel Execute | `v1 notebooks` |
+| `POST` | `/api/v1/notebooks/kernels/{kernel_id}/interrupt` | V1 Notebook Kernel Interrupt | `v1 notebooks` |
+| `POST` | `/api/v1/notebooks/kernels/{kernel_id}/restart` | V1 Notebook Kernel Restart | `v1 notebooks` |
+| `POST` | `/api/v1/notebooks/kernels/{kernel_id}/sql` | V1 Notebook Kernel Sql | `v1 notebooks` |
+| `GET` | `/api/v1/notebooks/kernels/{kernel_id}/variables` | V1 Notebook Kernel Variables | `v1 notebooks` |
 | `GET` | `/api/v1/notifications` | V1 Notifications | `v1 notifications` |
 | `PUT` | `/api/v1/notifications/read-state` | V1 Notifications Read | `v1 notifications` |
 | `GET` | `/api/v1/operations` | V1 Operations | `v1 operations` |

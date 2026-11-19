@@ -379,6 +379,38 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"),),
     ),
     *_specs(
+        ("v1_notebooks", "v1_notebook"),
+        action=CanonicalAction.OBJECT_READ.value,
+        resource_type="project",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
+        ("v1_notebook_save",),
+        action=CanonicalAction.OBJECT_WRITE.value,
+        resource_type="project",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    # Kernels run Python on the API host: the same permission as running a job.
+    *_specs(
+        (
+            "v1_notebook_kernels",
+            "v1_notebook_kernel_start",
+            "v1_notebook_kernel_execute",
+            "v1_notebook_kernel_sql",
+            "v1_notebook_kernel_bind",
+            "v1_notebook_kernel_variables",
+            "v1_notebook_kernel_interrupt",
+            "v1_notebook_kernel_restart",
+            "v1_notebook_kernel_stop",
+        ),
+        action=CanonicalAction.RUN_EXECUTE.value,
+        resource_type="project",
+        resource_keys=("env",),
+        resource_sources=(("env", "query"),),
+    ),
+    *_specs(
         (
             "v1_transform_model_draft_save",
             "v1_transform_model_draft_archive",
