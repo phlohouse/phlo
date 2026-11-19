@@ -33,7 +33,7 @@ from phlo_api.observatory_api.v1_preview import (
     execute_preview,
     preview_catalog,
 )
-from phlo_api.errors import BackendUnavailableError
+from phlo_api.errors import BackendUnavailableError, BadInputError
 from phlo_api.settings import get_deployment_settings
 from phlo_api.v1_contract import Environment, WireModel
 
@@ -59,6 +59,25 @@ class QueryCatalog(WireModel):
     nessie_ref: str
     engine: str
     catalogs: list[CatalogItem]
+
+
+class CatalogObject(WireModel):
+    name: str
+    kind: Literal["schema", "table", "view", "column"]
+    data_type: str | None = None
+    nullable: bool | None = None
+
+
+class CatalogObjects(WireModel):
+    """One page of a lazily browsed catalog level: schemas, a schema's tables, or a table's columns."""
+
+    env: Environment
+    nessie_ref: str
+    catalog: str
+    schema_name: str | None = None
+    table: str | None = None
+    items: list[CatalogObject]
+    next_offset: int | None
 
 
 class QueryRef(WireModel):
@@ -228,8 +247,10 @@ def _remember_session(session: QuerySession) -> None:
     session.task = asyncio.create_task(_execute_session(session))
 
 
-def _mapped_catalog(request: Request, env: Environment) -> tuple[str, str]:
-    target = _target(request, env)
+def _mapped_catalog(
+    request: Request, env: Environment, allowed_query: frozenset[str] = frozenset({"env"})
+) -> tuple[str, str]:
+    target = _target(request, env, allowed_query=allowed_query)
     try:
         deployment = get_deployment_settings()
     except ValueError as exc:
@@ -521,6 +542,96 @@ async def v1_query_catalog(request: Request, env: Environment) -> QueryCatalog:
                 truncated=result["has_more"],
             )
         ],
+    )
+
+
+_BROWSE_PAGE = 100
+_BROWSE_MAX_OFFSET = 100_000
+_BROWSE_QUERY = frozenset({"env", "schema", "table", "offset"})
+
+
+def _name_literal(value: str, label: str) -> str:
+    """Quote a catalog object name as a SQL string literal for information_schema filters."""
+    if not value or len(value) > 256 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise BadInputError(f"Give a valid {label} name.")
+    return "'" + value.replace("'", "''") + "'"
+
+
+async def _browse(catalog: str, sql: str, offset: int) -> tuple[list[dict[str, Any]], int | None]:
+    if not 0 <= offset <= _BROWSE_MAX_OFFSET:
+        raise BadInputError("The offset is outside the supported range.")
+    try:
+        result = await execute_preview(
+            f"{sql} OFFSET {offset} LIMIT {_BROWSE_PAGE + 1}",
+            catalog=catalog,
+            disconnected=lambda: asyncio.sleep(0, result=False),
+            limit=_BROWSE_PAGE,
+        )
+    except (PreviewLimitExceeded, PreviewUnavailable) as exc:
+        raise BackendUnavailableError("Query catalog is unavailable.") from exc
+    except PreviewQueryRejected as exc:
+        raise BackendUnavailableError("The engine refused to list this catalog level.") from exc
+    rows = list(result["rows"])[:_BROWSE_PAGE]
+    return rows, offset + _BROWSE_PAGE if result["has_more"] else None
+
+
+@router.get("/query/catalog/objects", response_model=CatalogObjects)
+async def v1_query_catalog_objects(
+    request: Request,
+    env: Environment,
+    schema: str | None = Query(default=None, max_length=256),
+    table: str | None = Query(default=None, max_length=256),
+    offset: int = Query(default=0, ge=0, le=_BROWSE_MAX_OFFSET),
+) -> CatalogObjects:
+    """Browse the lakehouse one level at a time, like a database explorer."""
+    catalog, nessie_ref = _mapped_catalog(request, env, _BROWSE_QUERY)
+    meta = '"' + catalog.replace('"', '""') + '".information_schema'
+    if schema is None and table is not None:
+        raise BadInputError("Give the schema that holds the table.")
+    if schema is None:
+        rows, next_offset = await _browse(
+            catalog, f"SELECT schema_name FROM {meta}.schemata ORDER BY schema_name", offset
+        )
+        items = [CatalogObject(name=str(row["schema_name"]), kind="schema") for row in rows]
+    elif table is None:
+        rows, next_offset = await _browse(
+            catalog,
+            f"SELECT table_name, table_type FROM {meta}.tables "
+            f"WHERE table_schema = {_name_literal(schema, 'schema')} ORDER BY table_name",
+            offset,
+        )
+        items = [
+            CatalogObject(
+                name=str(row["table_name"]),
+                kind="view" if str(row.get("table_type", "")).upper() == "VIEW" else "table",
+            )
+            for row in rows
+        ]
+    else:
+        rows, next_offset = await _browse(
+            catalog,
+            f"SELECT column_name, data_type, is_nullable FROM {meta}.columns "
+            f"WHERE table_schema = {_name_literal(schema, 'schema')} "
+            f"AND table_name = {_name_literal(table, 'table')} ORDER BY ordinal_position",
+            offset,
+        )
+        items = [
+            CatalogObject(
+                name=str(row["column_name"]),
+                kind="column",
+                data_type=str(row["data_type"]) if row.get("data_type") is not None else None,
+                nullable=str(row.get("is_nullable", "")).upper() == "YES",
+            )
+            for row in rows
+        ]
+    return CatalogObjects(
+        env=env,
+        nessie_ref=nessie_ref,
+        catalog=catalog,
+        schema_name=schema,
+        table=table,
+        items=items,
+        next_offset=next_offset,
     )
 
 

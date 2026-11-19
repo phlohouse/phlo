@@ -92,6 +92,56 @@ const fixtureTables = {
 }
 
 /** Notebook files and a scripted kernel, enough to drive the notebook page. */
+const CATALOG = {
+  bronze: { orders: 'table', trial_registry: 'table' },
+  market: {
+    trials: 'table',
+    trial_starts: 'table',
+    autoimmune_share: 'view',
+  },
+  qc: { batch_release: 'table', release_times: 'view' },
+}
+const COLUMNS = [
+  ['nct_id', 'varchar', false],
+  ['modality', 'varchar', true],
+  ['indication', 'varchar', true],
+  ['phase', 'varchar', true],
+  ['start_date', 'date', true],
+  ['enrollment', 'integer', true],
+]
+
+/** One page of the lakehouse browser: schemas, then a schema's tables, then a table's columns. */
+function catalogObjects(url, env, ref) {
+  const schema = url.searchParams.get('schema')
+  const table = url.searchParams.get('table')
+  const item = (name, kind, dataType = null, nullable = null) => ({
+    name,
+    kind,
+    data_type: dataType,
+    nullable,
+  })
+  let items
+  if (!schema) items = Object.keys(CATALOG).map((name) => item(name, 'schema'))
+  else if (!(schema in CATALOG)) items = []
+  else if (!table)
+    items = Object.entries(CATALOG[schema]).map(([name, kind]) =>
+      item(name, kind),
+    )
+  else
+    items = COLUMNS.map(([name, type, nullable]) =>
+      item(name, 'column', type, nullable),
+    )
+  return {
+    env,
+    nessie_ref: ref,
+    catalog: 'lake',
+    schema_name: schema,
+    table,
+    items,
+    next_offset: null,
+  }
+}
+
 function notebookFixture(method, url, body, env, ref, state) {
   const path = url.searchParams.get('path')
   const digest = (cells) =>
@@ -129,17 +179,24 @@ function notebookFixture(method, url, body, env, ref, state) {
       body: { env, path, digest: digest(saved), nessie_ref: ref, cells: saved },
     }
   }
-  const kernel = {
-    id: 'kernel-1',
-    env,
-    path: 'market/autoimmune-car-t.ipynb',
-    status: 'idle',
-    execution_count: state.kernels,
+  if (url.pathname === '/api/v1/notebooks/kernels') {
+    if (method === 'POST') {
+      const input = JSON.parse(body)
+      const started = {
+        id: `kernel-${Object.keys(state.running).length + 1}`,
+        env,
+        path: input.path,
+        status: 'idle',
+        execution_count: 0,
+      }
+      state.running[started.id] = started
+      return { status: 201, body: started }
+    }
+    return { status: 200, body: Object.values(state.running) }
   }
-  if (url.pathname === '/api/v1/notebooks/kernels')
-    return method === 'POST'
-      ? { status: 201, body: kernel }
-      : { status: 200, body: [] }
+  const id = decodeURIComponent(url.pathname.split('/')[5] ?? '')
+  const kernel = state.running[id]
+  if (!kernel) return { status: 404, body: { detail: 'Kernel not found' } }
   const action = url.pathname.split('/').at(-1)
   if (action === 'variables')
     return {
@@ -157,6 +214,7 @@ function notebookFixture(method, url, body, env, ref, state) {
     const input = JSON.parse(body)
     const name = action === 'bind' ? input.name : input.name
     state.kernels += 1
+    kernel.execution_count = state.kernels
     return {
       status: 200,
       body: {
@@ -176,11 +234,16 @@ function notebookFixture(method, url, body, env, ref, state) {
               ]
             : [],
         truncated: false,
-        table: fixtureTables[name] ?? null,
+        table:
+          fixtureTables[name] ??
+          (action === 'bind' ? fixtureTables.trials : null),
       },
     }
   }
-  if (method === 'DELETE') return { status: 204 }
+  if (method === 'DELETE') {
+    delete state.running[id]
+    return { status: 204 }
+  }
   return { status: 200, body: kernel }
 }
 
@@ -193,7 +256,19 @@ export function startApiFixture({
   deniedEnvironments = [],
 } = {}) {
   const requests = []
-  const notebooks = { files: structuredClone(NOTEBOOK_FILES), kernels: 0 }
+  const notebooks = {
+    files: structuredClone(NOTEBOOK_FILES),
+    kernels: 0,
+    running: {
+      'kernel-qc': {
+        id: 'kernel-qc',
+        env: 'prod',
+        path: 'qc/batch-release-times.ipynb',
+        status: 'idle',
+        execution_count: 4,
+      },
+    },
+  }
   const controls = { delayMs: 0, overrides: new Map() }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture')
@@ -363,6 +438,7 @@ export function startApiFixture({
           },
         ],
       },
+      '/api/v1/query/catalog/objects': catalogObjects(url, env, ref),
       '/api/v1/query/refs': {
         env,
         items: [{ env, name: ref, catalog: 'lake' }],

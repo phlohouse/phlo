@@ -357,7 +357,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_sources=(("env", "query"), ("run_id", "path")),
     ),
     *_specs(
-        ("v1_query_catalog", "v1_query_refs", "v1_query_engines"),
+        ("v1_query_catalog", "v1_query_catalog_objects", "v1_query_refs", "v1_query_engines"),
         action=CanonicalAction.CATALOG_READ.value,
         resource_type="catalog",
         resource_keys=("env",),

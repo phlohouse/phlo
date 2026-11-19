@@ -7327,7 +7327,7 @@
     "entry_point_groups": 14,
     "entry_points": 47,
     "hook_event_types": 11,
-    "http_routes": 191,
+    "http_routes": 192,
     "python_api_names": 59
   },
   "entry_points": {
@@ -7557,6 +7557,7 @@
     "POST /api/v1/queries/{query_id}/cancel",
     "GET /api/v1/queries/{query_id}/csv",
     "GET /api/v1/query/catalog",
+    "GET /api/v1/query/catalog/objects",
     "GET /api/v1/query/engines",
     "GET /api/v1/query/refs",
     "GET /api/v1/readiness",

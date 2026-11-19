@@ -469,3 +469,58 @@ def test_explain_and_saved_query_crud_rejects_stale_versions(query_api):
     )
     assert deleted.status_code == 204
     assert client.get("/api/v1/queries/saved?env=prod").json()["items"] == []
+
+
+def test_catalog_objects_browse_schemas_tables_views_and_columns(query_api, monkeypatch):
+    client, calls = query_api
+
+    async def execute(sql, *, catalog, disconnected, limit):
+        calls.append(sql)
+        if ".schemata" in sql:
+            return {"rows": [{"schema_name": "gold"}, {"schema_name": "silver"}], "has_more": True}
+        if ".tables" in sql:
+            return {
+                "rows": [
+                    {"table_name": "trial_starts", "table_type": "BASE TABLE"},
+                    {"table_name": "trial_summary", "table_type": "VIEW"},
+                ],
+                "has_more": False,
+            }
+        return {
+            "rows": [
+                {"column_name": "modality", "data_type": "varchar", "is_nullable": "YES"},
+                {"column_name": "starts", "data_type": "bigint", "is_nullable": "NO"},
+            ],
+            "has_more": False,
+        }
+
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    url = "/api/v1/query/catalog/objects"
+    schemas = client.get(url, params={"env": "prod"}).json()
+    assert [(i["name"], i["kind"]) for i in schemas["items"]] == [
+        ("gold", "schema"),
+        ("silver", "schema"),
+    ]
+    assert schemas["next_offset"] == 100
+    assert schemas["catalog"] == "warehouse_prod"
+
+    tables = client.get(url, params={"env": "prod", "schema": "o'brien"}).json()
+    assert [(i["name"], i["kind"]) for i in tables["items"]] == [
+        ("trial_starts", "table"),
+        ("trial_summary", "view"),
+    ]
+    assert tables["next_offset"] is None
+    assert "table_schema = 'o''brien'" in calls[-1]
+
+    columns = client.get(
+        url, params={"env": "prod", "schema": "gold", "table": "trial_starts", "offset": 100}
+    ).json()
+    assert [(c["name"], c["data_type"], c["nullable"]) for c in columns["items"]] == [
+        ("modality", "varchar", True),
+        ("starts", "bigint", False),
+    ]
+    assert calls[-1].endswith("OFFSET 100 LIMIT 101")
+
+    assert client.get(url, params={"env": "prod", "table": "x"}).status_code == 400
+    assert client.get(url, params={"env": "prod", "schema": "a\nb"}).status_code == 400
+    assert client.get(url, params={"env": "prod", "offset": -1}).status_code == 422

@@ -323,3 +323,16 @@ export const controlKernel = createServerFn({ method: 'POST' })
       )
     }),
   )
+
+/** The caller's running kernels in this environment, across notebooks. */
+export const listKernels = createServerFn({ method: 'GET' })
+  .inputValidator(envInput)
+  .handler(({ data }) =>
+    kernelCall(() =>
+      phloApi(
+        `/api/v1/notebooks/kernels?env=${data.env}`,
+        z.array(kernelSchema),
+        { env: data.env },
+      ),
+    ),
+  )

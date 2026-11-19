@@ -10,7 +10,7 @@ The API reports version `0.1.0` in OpenAPI. Phase 1 introduces `/api/v1` alongsi
 
 OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 3 removes them in `0.20.0`. [Legacy route replacements](#legacy-route-replacements) lists each one with its `/api/v1` replacement, or `None` for the routes that are removed without one.
 
-## Endpoints (297)
+## Endpoints (298)
 
 | Method | Path | Summary | Tags |
 | --- | --- | --- | --- |
@@ -253,6 +253,7 @@ OpenAPI marks all 67 `/api/observatory` routes as deprecated. [ADR 0053](../arch
 | `POST` | `/api/v1/queries/{query_id}/cancel` | V1 Query Cancel | `v1 query workspace` |
 | `GET` | `/api/v1/queries/{query_id}/csv` | V1 Query Csv | `v1 query workspace` |
 | `GET` | `/api/v1/query/catalog` | V1 Query Catalog | `v1 query workspace` |
+| `GET` | `/api/v1/query/catalog/objects` | V1 Query Catalog Objects | `v1 query workspace` |
 | `GET` | `/api/v1/query/engines` | V1 Query Engines | `v1 query workspace` |
 | `GET` | `/api/v1/query/refs` | V1 Query Refs | `v1 query workspace` |
 | `GET` | `/api/v1/readiness` | V1 Readiness | `v1 readiness` |

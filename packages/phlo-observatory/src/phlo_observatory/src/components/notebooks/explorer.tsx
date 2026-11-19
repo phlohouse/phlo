@@ -8,7 +8,7 @@ import {
   SearchIcon,
 } from 'lucide-react'
 import type { TreeNode } from '@/lib/notebook'
-import { notebookFileName, notebookTree } from '@/lib/notebook'
+import { notebookTree } from '@/lib/notebook'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -101,7 +101,7 @@ export function NotebookExplorer({
   dirty,
   truncated,
   reads,
-  onCreate,
+  onNew,
 }: {
   env: string
   paths: ReadonlyArray<string>
@@ -110,13 +110,10 @@ export function NotebookExplorer({
   truncated: boolean
   /** Lakehouse tables the open notebook reads */
   reads: ReadonlyArray<string>
-  onCreate: (path: string) => Promise<string | null>
+  /** Opens the new-notebook dialog */
+  onNew: () => void
 }) {
   const [query, setQuery] = React.useState('')
-  const [creating, setCreating] = React.useState(false)
-  const [draft, setDraft] = React.useState('')
-  const [error, setError] = React.useState<string | null>(null)
-  const [busy, setBusy] = React.useState(false)
   const filtered = query.trim()
     ? paths.filter((path) =>
         path.toLowerCase().includes(query.trim().toLowerCase()),
@@ -147,23 +144,6 @@ export function NotebookExplorer({
       return next
     })
 
-  const create = async () => {
-    const path = notebookFileName(draft)
-    if (!path) {
-      setError('Use letters, digits, "-", "_" and "/" for folders.')
-      return
-    }
-    setBusy(true)
-    const failure = await onCreate(path)
-    setBusy(false)
-    if (failure) setError(failure)
-    else {
-      setCreating(false)
-      setDraft('')
-      setError(null)
-    }
-  }
-
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-1.5">
@@ -181,50 +161,11 @@ export function NotebookExplorer({
           variant="ghost"
           size="icon-sm"
           aria-label="New notebook"
-          aria-expanded={creating}
-          onClick={() => setCreating((value) => !value)}
+          onClick={onNew}
         >
           <PlusIcon />
         </Button>
       </div>
-      {creating ? (
-        <form
-          className="flex flex-col gap-1.5 rounded-lg border border-border bg-raised p-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void create()
-          }}
-        >
-          <Input
-            aria-label="New notebook path"
-            placeholder="market/new-analysis"
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value)
-              setError(null)
-            }}
-            className="h-8 font-mono text-[12.5px]"
-          />
-          {error ? (
-            <p role="alert" className="text-xs text-bad-text">
-              {error}
-            </p>
-          ) : null}
-          <div className="flex gap-1.5">
-            <Button size="sm" type="submit" disabled={busy || !draft.trim()}>
-              Create
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              type="button"
-              onClick={() => setCreating(false)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : null}
       <nav aria-label="Notebooks">
         <div className="px-2 pb-1 text-[13px] text-text-3">notebooks</div>
         {tree.length ? (

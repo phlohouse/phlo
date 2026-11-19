@@ -9,6 +9,7 @@ import {
   GitBranchIcon,
   LockIcon,
   PlayIcon,
+  PlusIcon,
   SquareIcon,
 } from 'lucide-react'
 import type {
@@ -18,6 +19,7 @@ import type {
   NotebookDocument,
 } from '@/lib/data/api/notebooks'
 import type { CellState, NotebookCell } from '@/lib/notebook'
+import type { KernelPhase } from '@/components/notebooks/kernel-menu'
 import {
   bindQueryResult,
   controlKernel,
@@ -32,7 +34,9 @@ import {
 import { getQuerySession, submitQuery } from '@/lib/data/api/query'
 import {
   cellLabel,
+  freeName,
   newCell,
+  newCellId,
   outline,
   sameCells,
   sqlReads,
@@ -41,6 +45,9 @@ import {
 } from '@/lib/notebook'
 import { NotebookCellView } from '@/components/notebooks/cell'
 import { NotebookExplorer } from '@/components/notebooks/explorer'
+import { CatalogBrowser } from '@/components/notebooks/catalog-browser'
+import { KernelMenu } from '@/components/notebooks/kernel-menu'
+import { NewNotebookDialog } from '@/components/notebooks/new-notebook'
 import { EmptyState, PageSkeleton, RouteError } from '@/components/phlo/states'
 import { Dot, Mono } from '@/components/phlo/status'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -66,7 +73,6 @@ type KernelCall<T> =
   | { state: 'gone' }
   | { state: 'busy' }
   | { state: 'disabled'; message: string }
-type KernelPhase = 'disabled' | 'off' | 'starting' | 'idle' | 'busy'
 type HistoryEntry = {
   key: number
   cell: string
@@ -88,14 +94,33 @@ function NotebooksPage() {
   const { env } = Route.useSearch()
   const router = useRouter()
   const navigate = Route.useNavigate()
+  const [creating, setCreating] = React.useState(false)
+  const paths = data.list.items.map((item) => item.path)
+  const folders = [
+    ...new Set(
+      paths.flatMap((item) => {
+        const parts = item.split('/').slice(0, -1)
+        return parts.map((_, index) => parts.slice(0, index + 1).join('/'))
+      }),
+    ),
+  ].sort()
+  const dialog = (
+    <NewNotebookDialog
+      open={creating}
+      onOpenChange={setCreating}
+      folders={folders}
+      onCreate={(path) => create(path)}
+    />
+  )
   const create = async (path: string) => {
     try {
       const saved = await saveNotebook({
         data: { env, path, cells: starterCells(), expected_digest: null },
       })
       if (saved.state === 'conflict') return 'A notebook with that name exists.'
-      await navigate({ search: { env, path } })
       await router.invalidate()
+      // Not awaited: the unsaved-changes prompt can cancel the move, and the new file stays listed.
+      void navigate({ search: { env, path } })
       return null
     } catch (error) {
       return error instanceof Error ? error.message : 'Could not create it.'
@@ -103,12 +128,15 @@ function NotebooksPage() {
   }
   if (data.notebook.state === 'open')
     return (
-      <NotebookWorkspace
-        key={`${env}:${data.notebook.document.path}`}
-        workspace={data}
-        document={data.notebook.document}
-        onCreate={create}
-      />
+      <>
+        <NotebookWorkspace
+          key={`${env}:${data.notebook.document.path}`}
+          workspace={data}
+          document={data.notebook.document}
+          onNew={() => setCreating(true)}
+        />
+        {dialog}
+      </>
     )
   const explorer = (
     <NotebookExplorer
@@ -120,13 +148,16 @@ function NotebooksPage() {
       dirty={false}
       truncated={data.list.truncated}
       reads={[]}
-      onCreate={create}
+      onNew={() => setCreating(true)}
     />
   )
   return (
     <>
       <header className="flex min-h-[52px] shrink-0 items-center border-b border-line px-4 py-2.5 lg:pl-5">
         <h1 className="text-sm font-medium">Notebooks</h1>
+        <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
+          <PlusIcon /> Notebook
+        </Button>
       </header>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside
@@ -145,14 +176,20 @@ function NotebooksPage() {
               title="No notebooks yet"
               className="max-w-md"
               icon={<FilesIcon className="size-3" />}
+              action={
+                <Button size="sm" onClick={() => setCreating(true)}>
+                  <PlusIcon /> New notebook
+                </Button>
+              }
             >
               Notebooks are .ipynb files in the project&apos;s{' '}
-              <code className="font-mono">{data.list.root}</code> folder. Make
-              one with the + beside the search box, or add one in git.
+              <code className="font-mono">{data.list.root}</code> folder. Start
+              one here, or add one in git.
             </EmptyState>
           )}
         </div>
       </div>
+      {dialog}
     </>
   )
 }
@@ -160,11 +197,11 @@ function NotebooksPage() {
 function NotebookWorkspace({
   workspace,
   document,
-  onCreate,
+  onNew,
 }: {
   workspace: Workspace
   document: NotebookDocument
-  onCreate: (path: string) => Promise<string | null>
+  onNew: () => void
 }) {
   const { env } = Route.useSearch()
   const router = useRouter()
@@ -434,6 +471,12 @@ function NotebookWorkspace({
     setRunningAll(false)
   }
 
+  const startNow = async () => {
+    setKernelMessage(null)
+    const kernel = await ensureKernel()
+    if (kernel) void refreshVariables()
+  }
+
   const kernelAction = async (action: 'interrupt' | 'restart' | 'stop') => {
     stopAll.current = true
     const kernel = kernelRef.current?.id
@@ -485,15 +528,42 @@ function NotebookWorkspace({
     }, 50)
   }
 
+  const queryTable = (name: string, table: string) => {
+    const stem = table
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/^[^a-z_]/, '_$&')
+    const cell: NotebookCell = {
+      id: newCellId(),
+      kind: 'sql',
+      source: `SELECT *\nFROM ${name}\nLIMIT 100`,
+      name: freeName(cellsRef.current, stem.slice(0, 56) || 'table'),
+      engine: 'trino',
+    }
+    cellsRef.current = [...cellsRef.current, cell]
+    setCells(cellsRef.current)
+    setSelected(cell.id)
+    setTimeout(() => {
+      globalThis.document
+        .getElementById(`cell-${cell.id}`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 50)
+    if (canRun) void runCell(cell.id)
+  }
   const explorer = (
-    <NotebookExplorer
-      env={env}
-      paths={workspace.list.items.map((item) => item.path)}
-      active={path}
-      dirty={dirty}
-      truncated={workspace.list.truncated}
-      reads={reads}
-      onCreate={onCreate}
+    <NotebookSidebar
+      files={
+        <NotebookExplorer
+          env={env}
+          paths={workspace.list.items.map((item) => item.path)}
+          active={path}
+          dirty={dirty}
+          truncated={workspace.list.truncated}
+          reads={reads}
+          onNew={onNew}
+        />
+      }
+      catalog={<CatalogBrowser env={env} onQuery={queryTable} />}
     />
   )
   const busy = phase === 'busy' || phase === 'starting' || runningAll
@@ -511,6 +581,16 @@ function NotebookWorkspace({
             />
           ) : null}
         </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="New notebook"
+          className="ml-auto lg:ml-0"
+          onClick={onNew}
+        >
+          <PlusIcon />
+          <span className="max-sm:hidden">Notebook</span>
+        </Button>
         <div className="flex w-full flex-wrap items-center gap-2 lg:ml-auto lg:w-auto lg:justify-end">
           <Popover>
             <PopoverTrigger
@@ -519,7 +599,7 @@ function NotebookWorkspace({
                 'lg:hidden',
               )}
             >
-              <FilesIcon /> Files
+              <FilesIcon /> Browse
             </PopoverTrigger>
             <PopoverContent className="max-h-[70dvh] w-[300px] overflow-y-auto p-2.5">
               {explorer}
@@ -535,10 +615,17 @@ function NotebookWorkspace({
             <GitBranchIcon className="text-branch" />
             <Mono>{document.nessie_ref}</Mono>
           </span>
-          <KernelPill phase={phase} />
+          <KernelMenu
+            env={env}
+            phase={phase}
+            kernelId={kernelRef.current?.id ?? null}
+            onStart={() => void startNow()}
+            onRestart={() => void kernelAction('restart')}
+            onInterrupt={() => void kernelAction('interrupt')}
+            onStop={() => void kernelAction('stop')}
+          />
           <NotebookActions
             phase={phase}
-            hasKernel={kernelRef.current !== null}
             dirty={dirty}
             saving={saveState === 'saving'}
             canRunAll={canRun && !busy}
@@ -647,35 +734,6 @@ function NotebookWorkspace({
         />
       </div>
     </>
-  )
-}
-
-function KernelPill({ phase }: { phase: KernelPhase }) {
-  const text = {
-    disabled: 'Kernels off',
-    off: 'Python 3 · starts on run',
-    starting: 'Python 3 · starting',
-    idle: 'Python 3 · idle',
-    busy: 'Python 3 · busy',
-  }[phase]
-  const tone =
-    phase === 'idle'
-      ? 'ok'
-      : phase === 'busy' || phase === 'starting'
-        ? 'warn'
-        : 'neutral'
-  return (
-    <span
-      role="status"
-      aria-label={`Kernel: ${text}`}
-      className={cn(
-        buttonVariants({ variant: 'outline', size: 'sm' }),
-        'cursor-default',
-      )}
-    >
-      <Dot tone={tone} />
-      {text}
-    </span>
   )
 }
 
@@ -971,7 +1029,6 @@ function KernelNotice({
 
 function NotebookActions({
   phase,
-  hasKernel,
   dirty,
   saving,
   canRunAll,
@@ -980,30 +1037,24 @@ function NotebookActions({
   onRunAll,
 }: {
   phase: KernelPhase
-  hasKernel: boolean
   dirty: boolean
   saving: boolean
   canRunAll: boolean
-  onKernel: (action: 'interrupt' | 'restart') => void
+  onKernel: (action: 'interrupt') => void
   onSave: () => void
   onRunAll: () => void
 }) {
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={!hasKernel || phase === 'starting'}
-        onClick={() => onKernel(phase === 'busy' ? 'interrupt' : 'restart')}
-      >
-        {phase === 'busy' ? (
-          <>
-            <SquareIcon className="fill-current" /> Interrupt
-          </>
-        ) : (
-          'Restart'
-        )}
-      </Button>
+      {phase === 'busy' ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onKernel('interrupt')}
+        >
+          <SquareIcon className="fill-current" /> Interrupt
+        </Button>
+      ) : null}
       <Button
         variant="outline"
         size="sm"
@@ -1075,5 +1126,30 @@ function KernelTools({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function NotebookSidebar({
+  files,
+  catalog,
+}: {
+  files: React.ReactNode
+  catalog: React.ReactNode
+}) {
+  const [tab, setTab] = React.useState<'files' | 'catalog'>('files')
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Segmented
+        aria-label="Browse"
+        className="grid w-full grid-cols-2"
+        value={tab}
+        onValueChange={setTab}
+        options={[
+          { value: 'files', label: 'Files' },
+          { value: 'catalog', label: 'Catalog' },
+        ]}
+      />
+      {tab === 'files' ? files : catalog}
+    </div>
   )
 }

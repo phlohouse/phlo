@@ -133,6 +133,7 @@ def test_documented_route_decisions_partition_the_mounted_inventory() -> None:
         "/api/v1/jobs/{job_id}/summary",
         "/api/v1/jobs/{job_id}/launch",
         "/api/v1/query/catalog",
+        "/api/v1/query/catalog/objects",
         "/api/v1/query/refs",
         "/api/v1/query/engines",
         "/api/v1/queries",
