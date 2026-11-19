@@ -35,6 +35,11 @@ MAX_RUNS = 50
 _LOCK = threading.Lock()
 
 
+def _now() -> float:
+    """Wall-clock seconds; tests replace this rather than the global time module."""
+    return time.time()
+
+
 def _key(path: str) -> str:
     return hashlib.sha256(path.encode()).hexdigest()[:32]
 
@@ -111,7 +116,7 @@ def record_output(
         cells[cell_id] = {
             "source_sha256": source_sha256,
             "actor": actor,
-            "finished_at": time.time(),
+            "finished_at": _now(),
             "run": run,
         }
         cells = _within_budget(_unexpired(cells, retention_days))
@@ -121,7 +126,7 @@ def record_output(
 
 
 def _unexpired(cells: dict[str, Any], retention_days: int) -> dict[str, Any]:
-    cutoff = time.time() - retention_days * 86400
+    cutoff = _now() - retention_days * 86400
     return {
         key: value
         for key, value in cells.items()

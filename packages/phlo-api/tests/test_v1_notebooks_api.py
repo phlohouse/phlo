@@ -331,7 +331,7 @@ def test_outputs_expire_and_stay_within_their_size_budget(tmp_path, monkeypatch)
         tmp_path, "a.ipynb", "old", source_sha256="s", actor="a", run=run, retention_days=1
     )
     later = time.time() + 2 * 86400
-    monkeypatch.setattr(notebook_state.time, "time", lambda: later)
+    monkeypatch.setattr(notebook_state, "_now", lambda: later)
     notebook_state.record_output(
         tmp_path, "a.ipynb", "new", source_sha256="s", actor="a", run=run, retention_days=1
     )
