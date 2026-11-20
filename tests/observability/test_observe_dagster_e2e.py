@@ -21,6 +21,7 @@ The module skips cleanly when its external services are unavailable.
 
 from __future__ import annotations
 
+import statistics
 import time
 from typing import Any
 
@@ -811,32 +812,47 @@ def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bu
         result = dagster.materialize([asset_def])
         assert result.success
 
+    def _configure(enabled: bool) -> None:
+        phlo_observe.reset_for_tests()
+        if enabled:
+            assert phlo_observe.configure(
+                enabled=True, runtime_backend="capture", drains=[], service_name="phlo-test"
+            )
+        else:
+            # The production "PHLO_OBSERVE_ENABLED=false" state.
+            assert phlo_observe.configure(enabled=False, drains=[], service_name="phlo-test")
+
+    def _timed() -> float:
+        start = time.perf_counter()
+        _materialize_once()
+        return time.perf_counter() - start
+
     _materialize_once()  # warm-up: module imports, job graph construction
     captured.clear()
 
+    # Alternate the legs so load from other test workers falls on both alike;
+    # two sequential blocks measured that load drift, not observability.
     n = 5
-    start = time.perf_counter()
+    enabled_runs: list[float] = []
+    disabled_runs: list[float] = []
+    enabled_events = 0
     for _ in range(n):
-        _materialize_once()
-    enabled_s = time.perf_counter() - start
-    enabled_events = len(captured.payloads())
+        _configure(True)
+        enabled_runs.append(_timed())
+        enabled_events += len(_backend().payloads())
+        _configure(False)
+        disabled_runs.append(_timed())
     assert enabled_events > 0
+    _configure(True)
+    assert len(_backend().payloads()) == 0
 
-    # Disabled leg: the production "PHLO_OBSERVE_ENABLED=false" state.
-    phlo_observe.reset_for_tests()
-    assert phlo_observe.configure(enabled=False, drains=[], service_name="phlo-test")
-    captured.clear()
-    start = time.perf_counter()
-    for _ in range(n):
-        _materialize_once()
-    disabled_s = time.perf_counter() - start
-    assert len(captured.payloads()) == 0
-
-    overhead_s = (enabled_s - disabled_s) / n
+    enabled_s = statistics.median(enabled_runs)
+    disabled_s = statistics.median(disabled_runs)
+    overhead_s = enabled_s - disabled_s
     # 500ms/materialization is ~50x the measured delta; it fails only if
     # observability introduces blocking or runaway emission into the step.
     assert overhead_s < 0.5, (
         f"observability added {overhead_s * 1000:.1f}ms/materialization "
-        f"(enabled={enabled_s:.3f}s disabled={disabled_s:.3f}s over {n} runs, "
+        f"(median enabled={enabled_s:.3f}s disabled={disabled_s:.3f}s over {n} pairs, "
         f"{enabled_events} events)"
     )
