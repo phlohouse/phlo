@@ -165,7 +165,9 @@ explains how build concurrency differs from merge limits.
 All tracked Python and npm consumer locks, including examples, use one
 revision-bound OSV inventory. PRs block introduced risk at every severity; queues
 also block existing findings without a reviewed, bounded exception. Releases
-block every finding. Scanner failure is unavailable evidence, not a clean scan.
+read only the shipped lockfiles and block fixable critical, high or unrated
+findings without an active waiver. Scanner failure is unavailable evidence, not
+a clean scan.
 See the [dependency policy](../../security/dependency-policy.md).
 
 The independent daily Security run hands authenticated JSON findings to one
