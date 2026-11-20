@@ -25,7 +25,7 @@ from phlo.operations.generated_stack import (
     GeneratedStackPlan,
     digest,
     generation_baseline,
-    record_rewrite,
+    rewrite_record,
 )
 from phlo.plugins.discovery.services import ServiceDefinition, ServiceDiscovery
 
@@ -173,7 +173,11 @@ def test_recorded_provider_rewrite_keeps_compose_replaceable(tmp_path, monkeypat
     content["services"]["minio"]["image"] = "ghcr.io/phlohouse/phlo-minio:0.0.2"
     target.write_text(yaml.safe_dump(content, sort_keys=False))
     assert _plan_state(root, previous) == "conflict"
-    record_rewrite(root / ".phlo", ".phlo/docker-compose.yml", before, target.read_bytes(), "test")
+    (root / ".phlo" / REWRITES).write_text(
+        rewrite_record(
+            root / ".phlo", ".phlo/docker-compose.yml", before, target.read_bytes(), "test"
+        )
+    )
     assert _plan_state(root, previous) == "replace"
     # A later local edit is still the operator's, not the provider's.
     target.write_text(target.read_text() + "# local edit\n")
@@ -190,7 +194,11 @@ def test_apply_folds_recorded_rewrites_into_the_new_baseline(tmp_path, monkeypat
     target = root / ".phlo/docker-compose.yml"
     before = target.read_bytes()
     target.write_text(target.read_text() + "# provider rewrite\n")
-    record_rewrite(root / ".phlo", ".phlo/docker-compose.yml", before, target.read_bytes(), "test")
+    (root / ".phlo" / REWRITES).write_text(
+        rewrite_record(
+            root / ".phlo", ".phlo/docker-compose.yml", before, target.read_bytes(), "test"
+        )
+    )
     plan = _review(root)
     result = _apply(root, plan)
     assert result.exit_code == 0, result.output

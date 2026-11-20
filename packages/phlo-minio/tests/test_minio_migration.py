@@ -162,7 +162,7 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
         assert backup.stat().st_mode & 0o777 == 0o600
 
 
-@pytest.mark.parametrize("outcome", ["apply", "pull-failure", "edited"])
+@pytest.mark.parametrize("outcome", ["apply", "pull-failure", "record-failure", "edited"])
 def test_migration_keeps_compose_recognised_as_generated(tmp_path, monkeypatch, outcome):
     """A replan after migrating must not report the migrated Compose file as a conflict (#1293).
 
@@ -191,10 +191,17 @@ def test_migration_keeps_compose_recognised_as_generated(tmp_path, monkeypatch, 
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr("phlo_minio.migrate.run_command", execute)
+    if outcome == "record-failure":
+
+        def refuse(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("phlo_minio.migrate.write_sensitive_file", refuse)
     result = CliRunner().invoke(minio_group, ["migrate-image", "--apply"])
-    assert (result.exit_code == 0) == (outcome != "pull-failure"), result.output
+    failed = outcome in {"pull-failure", "record-failure"}
+    assert (result.exit_code == 0) == (not failed), result.output
     rewrites = path.with_name(REWRITES)
-    if outcome == "pull-failure":
+    if failed:
         assert not rewrites.exists()
         assert path.read_bytes() == generated
         return

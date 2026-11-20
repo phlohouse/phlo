@@ -109,20 +109,18 @@ def generation_baseline(root: Path, files: list[str]) -> str:
     )
 
 
-def record_rewrite(phlo_dir: Path, name: str, before: bytes, after: bytes, by: str) -> None:
-    """Record that ``by`` rewrote generated file ``name`` from ``before`` to ``after``.
+def rewrite_record(phlo_dir: Path, name: str, before: bytes, after: bytes, by: str) -> str:
+    """Return the rewrite record with ``by``'s rewrite of ``name`` appended.
 
     Only digests are stored. The rewrite counts during planning only when the
     baseline digest equals ``before``, so a file the operator had already
-    edited still conflicts.
+    edited still conflicts. The caller writes the result to ``REWRITES``.
     """
-    from phlo.cli.infrastructure.secure_files import write_sensitive_file
-
     path = phlo_dir / REWRITES
     recorded = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     rewrites = recorded.setdefault("rewrites", [])
     rewrites.append({"path": name, "from": digest(before), "to": digest(after), "by": by})
-    write_sensitive_file(path, json.dumps(recorded, indent=2) + "\n")
+    return json.dumps(recorded, indent=2) + "\n"
 
 
 def apply_rewrites(root: Path, baseline: Mapping[str, str | None]) -> dict[str, str | None]:

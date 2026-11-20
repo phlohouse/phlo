@@ -14,8 +14,9 @@ from phlo.cli.authorization_wrappers import enforce_surface_mutation_authorizati
 from phlo.cli.commands.services.utils import ensure_compose_project, require_container_backend
 from phlo.cli.infrastructure.command import CommandError, run_command
 from phlo.cli.infrastructure.compose import compose_base_cmd
+from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import get_project_name
-from phlo.operations.generated_stack import REWRITES, record_rewrite
+from phlo.operations.generated_stack import REWRITES, rewrite_record
 from phlo_minio.authorization import get_minio_cli_adapter
 
 
@@ -129,15 +130,21 @@ def migrate_image(apply: bool) -> None:
         rewrites = phlo_dir / REWRITES
         recorded = rewrites.read_bytes() if rewrites.exists() else None
         path.write_text(migrated, encoding="utf-8")
-        # Lets `phlo services upgrade` keep treating the rewritten Compose file
-        # as generated output, with a live or a --previous-generated baseline.
-        record_rewrite(
-            phlo_dir,
-            ".phlo/docker-compose.yml",
-            original_bytes,
-            path.read_bytes(),
-            "phlo minio migrate-image",
-        )
+        try:
+            # Lets `phlo services upgrade` keep treating the rewritten Compose
+            # file as generated output, with a live or a --previous-generated
+            # baseline.
+            record = rewrite_record(
+                phlo_dir,
+                ".phlo/docker-compose.yml",
+                original_bytes,
+                path.read_bytes(),
+                "phlo minio migrate-image",
+            )
+            write_sensitive_file(rewrites, record)
+        except BaseException:
+            path.write_text(original, encoding="utf-8")
+            raise
         try:
             run_command([*base, "pull", "minio", "minio-setup"], timeout_seconds=600)
         except (CommandError, TimeoutExpired):
