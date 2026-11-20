@@ -46,6 +46,10 @@ Notebooks are a preview feature. Every switch below is off by default.
    phlo services start --profile api --profile notebooks --build
    ```
 
+Trino SQL cells use the same preview catalog and Trino credentials as the
+Query page. If Query works for an environment, Trino cells work there too.
+Python and DuckDB cells need only the kernel host.
+
 The person using notebooks needs `object.read` and `object.write` on the
 environment to open and save them, `run.execute` to start kernels, and
 `dataset.query` for SQL cells. Scheduling needs `run.manage` as well.
