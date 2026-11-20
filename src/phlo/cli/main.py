@@ -6,7 +6,6 @@ Entry module for the phlo console script; imported by the phlo-mcp server and
 covered extensively by the CLI and integration test suites.
 """
 
-import importlib.util
 import os
 import shutil
 import subprocess
@@ -273,9 +272,7 @@ def _render_next_steps(selected_template) -> list[str]:
         for step in template_steps
         if step != "phlo services init" and not step.startswith("phlo services start")
     )
-    return [
-        step if step.startswith("uv ") else f"uv run {step}" for step in dict.fromkeys(steps)
-    ]
+    return [step if step.startswith("uv ") else f"uv run {step}" for step in dict.fromkeys(steps)]
 
 
 @cli.command("init")

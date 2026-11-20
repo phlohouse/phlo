@@ -87,8 +87,8 @@ def _start_services(
     project_name: str,
     profile_names: tuple[str, ...],
     service_names: list[str],
-) -> None:
-    """Start newly-added services."""
+) -> bool:
+    """Start newly-added services; return whether they started."""
     cmd = compose_base_cmd(
         phlo_dir=phlo_dir,
         project_name=project_name,
@@ -107,7 +107,7 @@ def _start_services(
         )
         click.echo("Warning: Could not start services.", err=True)
         click.echo(f"Command: {' '.join(cmd)}", err=True)
-        return
+        return False
 
     if result.returncode != 0:
         logger.warning(
@@ -119,7 +119,7 @@ def _start_services(
         )
         click.echo("Warning: Could not start requested services.", err=True)
         click.echo(f"Command: {' '.join(cmd)}", err=True)
-        return
+        return False
 
     logger.info(
         "services_add_start_succeeded",
@@ -127,6 +127,7 @@ def _start_services(
         profile_count=len(profile_names),
         service_count=len(service_names),
     )
+    return True
 
 
 @click.command("add")
@@ -227,10 +228,14 @@ def add_cmd(
 
     click.echo("")
     click.echo("Starting newly-added services...")
-    _start_services(
+    if _start_services(
         phlo_dir=phlo_dir,
         project_name=get_project_name(),
         profile_names=normalized_profiles,
         service_names=services_to_enable,
-    )
-    click.echo("Services added and started.")
+    ):
+        click.echo("Services added and started.")
+    else:
+        click.echo(
+            "Services added but not started; run phlo services start once the error is fixed."
+        )

@@ -186,7 +186,7 @@ def test_cli_init_command_structure(tmp_path):
     # Check pyproject.toml content
     pyproject_content = (project_dir / "pyproject.toml").read_text()
     assert 'name = "test-project"' in pyproject_content
-    assert '"phlo"' in pyproject_content
+    assert '"phlo[defaults]"' in pyproject_content
 
 
 def test_cli_init_minimal_template(tmp_path):

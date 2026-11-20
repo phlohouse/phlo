@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, redirect_stdout
@@ -636,7 +637,7 @@ def check_ports(*, verbose: bool = False) -> list[DiagnosticResult]:
 
 
 def check_live_services(*, verbose: bool = False) -> list[DiagnosticResult]:
-    """Check that the generated compose file for live services exists."""
+    """Check that the generated stack's long-running services are up and healthy."""
     compose_file = Path.cwd() / ".phlo" / "docker-compose.yml"
     if not compose_file.exists():
         return [
@@ -648,12 +649,75 @@ def check_live_services(*, verbose: bool = False) -> list[DiagnosticResult]:
                 "Run phlo services init before checking live services.",
             )
         ]
+    try:
+        compose = yaml.safe_load(compose_file.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        return [
+            DiagnosticResult(
+                "live.services",
+                "Live Services",
+                DiagnosticStatus.FAIL,
+                f"Generated compose file is unreadable: {exc}",
+                "Run phlo services init --force to regenerate it.",
+            )
+        ]
+    services = compose.get("services") if isinstance(compose, dict) else None
+    # One-shot setup jobs exit by design; profile services start only on request.
+    expected = sorted(
+        name
+        for name, config in (services or {}).items()
+        if isinstance(config, dict)
+        and str(config.get("restart", "")).lower() != "no"
+        and not config.get("profiles")
+    )
+    try:
+        from phlo.infrastructure.container_backend import select_project_container_backend
+
+        backend = select_project_container_backend()
+        statuses = backend.project_service_statuses(_project_name(), deadline=time.monotonic() + 15)
+    except (OSError, RuntimeError, subprocess.SubprocessError, click.ClickException) as exc:
+        return [
+            DiagnosticResult(
+                "live.services",
+                "Live Services",
+                DiagnosticStatus.SKIP,
+                f"Container status is unavailable: {exc}",
+                "Start Docker or Podman, then run phlo doctor again.",
+            )
+        ]
+    if not any(status.state.lower() == "running" for status in statuses):
+        return [
+            DiagnosticResult(
+                "live.services",
+                "Live Services",
+                DiagnosticStatus.WARN,
+                "The stack is not running",
+                "Run phlo services start.",
+            )
+        ]
+    running = {status.service for status in statuses if status.state.lower() == "running"}
+    unhealthy = {
+        status.service for status in statuses if (status.health or "").lower() == "unhealthy"
+    }
+    problems = sorted(
+        {name for name in expected if name not in running} | (unhealthy & set(expected))
+    )
+    if problems:
+        return [
+            DiagnosticResult(
+                "live.services",
+                "Live Services",
+                DiagnosticStatus.FAIL,
+                f"Not running or unhealthy: {', '.join(problems)}",
+                "Run phlo services start, then phlo services logs <service> for any that stay down.",
+            )
+        ]
     return [
         DiagnosticResult(
             "live.services",
             "Live Services",
             DiagnosticStatus.OK,
-            "Generated compose file is present for live service checks",
+            f"{len(expected)} long-running services are up",
         )
     ]
 

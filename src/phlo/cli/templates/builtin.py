@@ -114,7 +114,9 @@ def _write_project_readme(
     rendered_commands = "\n".join(command_lines)
     template_section = ""
     if template_commands:
-        rendered_template_commands = "\n".join(f"   uv run {command}" for command in template_commands)
+        rendered_template_commands = "\n".join(
+            f"   uv run {command}" for command in template_commands
+        )
         template_section = f"""
 5. **Run the starter workflow:**
    ```bash
