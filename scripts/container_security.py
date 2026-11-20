@@ -45,6 +45,7 @@ PUBLISHED_SERVICE_REPOSITORIES = {
     "minio": "ghcr.io/phlohouse/phlo-minio:",
     "minio-setup": "ghcr.io/phlohouse/phlo-minio:",
     "observatory": "ghcr.io/phlohouse/phlo-observatory:",
+    "phlo-notebook-kernels": "ghcr.io/phlohouse/phlo-notebook-kernels:",
 }
 BROAD_IMAGE_PATHS = {
     ".github/workflows/build-core-services.yml",

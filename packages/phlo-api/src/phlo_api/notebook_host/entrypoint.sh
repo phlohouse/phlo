@@ -58,4 +58,15 @@ elif grep -qv ' lo$' /proc/net/if_inet6 2>/dev/null; then
     exit 1
 fi
 
-exec python -I /opt/phlo-kernels/notebook_gateway.py
+# Hand the token over in a root-only file and drop it from the environment the
+# host and its children inherit.
+token_dir="$(mktemp -d /tmp/phlo-host.XXXXXX)"
+chmod 0700 "$token_dir"
+( umask 077; printf '%s' "${PHLO_NOTEBOOK_GATEWAY_TOKEN:-}" > "$token_dir/token" )
+index="${PHLO_NOTEBOOK_PACKAGE_INDEX:-}"
+unset PHLO_NOTEBOOK_GATEWAY_TOKEN PHLO_NOTEBOOK_PACKAGE_INDEX
+
+exec python -I /opt/phlo-kernels/notebook_gateway.py \
+    --token-file "$token_dir/token" \
+    --root /var/lib/phlo-kernels \
+    --package-index "$index"

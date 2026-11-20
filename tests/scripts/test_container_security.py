@@ -37,10 +37,15 @@ def _published_images_by_service() -> dict[str, str]:
         entry["name"]: entry["image_reference"]
         for entry in support_manifest["release_set"]["services"]
     }
-    return {
+    images = {
         service: release_images[service]
         for service in ("phlo-api", "dagster", "dagster-daemon", "minio", "observatory")
     }
+    # The optional notebook kernel host is versioned with phlo-api, outside the release set.
+    images["phlo-notebook-kernels"] = images["phlo-api"].replace(
+        "/phlo-api:", "/phlo-notebook-kernels:"
+    )
+    return images
 
 
 def _rescan_records() -> list[dict[str, object]]:
@@ -50,7 +55,9 @@ def _rescan_records() -> list[dict[str, object]]:
             "digest": f"sha256:{letter * 64}",
             "services": entry["services"],
         }
-        for letter, entry in zip("abcd", container_security.published_fleet(REPO_ROOT), strict=True)
+        for letter, entry in zip(
+            "abcde", container_security.published_fleet(REPO_ROOT), strict=True
+        )
     ]
 
 
@@ -195,6 +202,10 @@ def test_published_fleet_is_derived_from_source_with_required_shared_mapping() -
         {
             "image": images["minio"],
             "services": ["minio", "minio-setup"],
+        },
+        {
+            "image": images["phlo-notebook-kernels"],
+            "services": ["phlo-notebook-kernels"],
         },
         {
             "image": images["observatory"],

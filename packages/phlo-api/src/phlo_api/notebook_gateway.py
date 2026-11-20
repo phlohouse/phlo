@@ -540,9 +540,12 @@ class KernelHost:
             "UV_CACHE_DIR": str(self.launcher.root / "installer" / "cache"),
             "UV_NO_PROGRESS": "1",
         }
-        for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE"):
-            if key in os.environ:
-                env[key] = os.environ[key]
+        # Proxy and CA settings reach the installer; nothing else does.
+        env.update(
+            (name, value)
+            for name, value in os.environ.items()
+            if name in {"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE"}
+        )
         python = folder / "bin" / "python"
         # Wheels only: installing never runs a package's own build code.
         install = [uv, "pip", "install", "--python", str(python), "--only-binary", ":all:"]
@@ -772,26 +775,21 @@ def make_app(host: KernelHost, token: str) -> Any:
     )
 
 
-def read_token() -> str:
-    path = os.environ.get("PHLO_NOTEBOOK_GATEWAY_TOKEN_FILE")
-    token = (
-        Path(path).read_text().strip()
-        if path
-        else os.environ.get("PHLO_NOTEBOOK_GATEWAY_TOKEN", "")
-    )
-    os.environ.pop("PHLO_NOTEBOOK_GATEWAY_TOKEN", None)
+def read_token(path: Path) -> str:
+    """Read the API's bearer token from a root-only file the entrypoint wrote."""
+    token = path.read_text(encoding="utf-8").strip()
     if len(token) < TOKEN_MIN_LENGTH:
         raise SystemExit(
-            f"PHLO_NOTEBOOK_GATEWAY_TOKEN must be at least {TOKEN_MIN_LENGTH} characters. "
+            f"The kernel host token must be at least {TOKEN_MIN_LENGTH} characters. "
             "Run phlo services init to generate it."
         )
     return token
 
 
-def package_index() -> str | None:
-    index = os.environ.get("PHLO_NOTEBOOK_PACKAGE_INDEX") or None
+def package_index(value: str | None) -> str | None:
+    index = value or None
     if index is not None and not index.startswith(("https://", "http://")):
-        raise SystemExit("PHLO_NOTEBOOK_PACKAGE_INDEX must be an http(s) URL.")
+        raise SystemExit("The notebook package index must be an http(s) URL.")
     return index
 
 
@@ -812,14 +810,19 @@ async def serve(host: KernelHost, token: str, port: int) -> None:
         await host.stop_all()
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Observatory notebook kernel host")
+    parser.add_argument("--token-file", type=Path, required=True)
+    parser.add_argument("--root", type=Path, default=Path("/var/lib/phlo-kernels"))
+    parser.add_argument("--package-index", default=None)
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    token = read_token()
-    launcher = IsolatedLauncher(
-        Path(os.environ.get("PHLO_NOTEBOOK_HOST_ROOT", "/var/lib/phlo-kernels"))
-    )
+    token = read_token(args.token_file)
+    launcher = IsolatedLauncher(args.root)
     launcher.prepare()
-    host = KernelHost(launcher, package_index=package_index())
+    host = KernelHost(launcher, package_index=package_index(args.package_index))
     logger.info("notebook kernel host ready on port %s", PORT)
     asyncio.run(serve(host, token, PORT))
 

@@ -588,6 +588,13 @@ Run `make docs-reference-generate` to regenerate it with the other references. `
 - Applicable gates: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
 - Blockers: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
 
+### `phlo-notebook-kernels`
+
+- Target profile: `optional`; target status: `preview`.
+- Current maturity: `preview`; readiness: `not gated`.
+- Applicable gates: none.
+- Blockers: none.
+
 ### `phlo-observer`
 
 - Target profile: `optional`; target status: `preview`.
