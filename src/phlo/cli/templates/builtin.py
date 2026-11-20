@@ -57,7 +57,12 @@ def _build_env_example_content() -> str:
 
 
 def _pyproject_toml(project_name: str, required_packages: tuple[str, ...]) -> str:
-    dependencies = "\n".join(f'    "{package}",' for package in required_packages)
+    # A generated project runs the default stack, so it depends on phlo[defaults]
+    # rather than bare phlo; otherwise `uv sync` installs no service plugins.
+    packages = dict.fromkeys(
+        "phlo[defaults]" if package == "phlo" else package for package in required_packages
+    )
+    dependencies = "\n".join(f'    "{package}",' for package in packages)
     return f"""[project]
 name = "{project_name}"
 version = "0.1.0"
