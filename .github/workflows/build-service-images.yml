@@ -12,6 +12,10 @@ on:
       immutable_tags:
         default: false
         type: boolean
+      rehearsal:
+        description: Build from a same-repository pull request or schedule for a release rehearsal. Never publishes a release tag.
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -22,7 +26,7 @@ concurrency:
 jobs:
   build:
     name: Build ${{ matrix.target.service }} (${{ matrix.architecture.name }})
-    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
+    if: github.repository == 'phlohouse/phlo' && (github.ref == 'refs/heads/main' || inputs.rehearsal)
     runs-on: ${{ matrix.architecture.runner }}
     timeout-minutes: 45
     permissions:

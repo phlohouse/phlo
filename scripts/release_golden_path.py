@@ -1083,33 +1083,36 @@ def cleanup(
         paths.add(temporary_root)
     for path in sorted(paths, key=lambda candidate: len(candidate.parts), reverse=True):
         try:
-            shutil.rmtree(path)
-        except FileNotFoundError:
-            pass
-        except PermissionError:
-            # Containers write root-owned files the host user cannot delete;
-            # remove them through a throwaway container and retry as the host.
-            try:
-                run(
-                    command(
-                        "docker",
-                        "run",
-                        "--rm",
-                        "--volume",
-                        f"{path}:/cleanup",
-                        "alpine:3.24.1",
-                        "sh",
-                        "-c",
-                        "rm -rf /cleanup/* /cleanup/.[!.]* /cleanup/..?*",
-                    ),
-                    cwd=config.project_dir,
-                )
-                shutil.rmtree(path)
-            except Exception as exc:
-                errors.append(exc)
+            remove_tree(path)
         except Exception as exc:
             errors.append(exc)
     return errors
+
+
+def remove_tree(path: Path) -> None:
+    """Delete a run-owned directory, including files containers wrote as root."""
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+    except PermissionError:
+        # Containers write root-owned files the host user cannot delete;
+        # remove them through a throwaway container and retry as the host.
+        run(
+            command(
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{path}:/cleanup",
+                "alpine:3.24.1",
+                "sh",
+                "-c",
+                "rm -rf /cleanup/* /cleanup/.[!.]* /cleanup/..?*",
+            ),
+            cwd=path.parent,
+        )
+        shutil.rmtree(path)
 
 
 # ---------------------------------------------------------------------------
@@ -1362,6 +1365,29 @@ def compose_config_json(config: RunConfig) -> dict[str, object]:
     return dict(json.loads(result.stdout))
 
 
+def shared_compose_network(document: dict[str, object]) -> str:
+    """Return the one non-internal Compose network that acceptance services join.
+
+    Internal networks, such as the private Dagster code-server network, isolate
+    services from everything else; attaching a test service to one would make it
+    unreachable, so they never count as the shared network.
+    """
+    networks = document.get("networks")
+    if not isinstance(networks, dict):
+        raise CandidateError("Acceptance requires one explicit shared test network")
+    shared = [
+        definition
+        for definition in networks.values()
+        if isinstance(definition, dict) and not definition.get("internal")
+    ]
+    if len(shared) != 1:
+        raise CandidateError("Acceptance requires one explicit shared test network")
+    name = shared[0].get("name")
+    if not isinstance(name, str) or not name:
+        raise CandidateError("Acceptance shared network has no resolved name")
+    return name
+
+
 def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dict[str, object]]]:
     """Rewrite every generated image reference to its exact BOM digest."""
     bom = config.bom
@@ -1395,7 +1421,15 @@ def pin_candidate_images(config: RunConfig) -> tuple[dict[str, object], list[dic
             entry = phlo_images.get(name)
             if entry is None:
                 raise CandidateError(f"Phlo-owned image {image!r} is not part of the candidate BOM")
-            if str(entry["version"]) != tag:
+            # A reference already pinned to the exact BOM digest is the candidate
+            # image; otherwise its tag must name the BOM version.
+            if digest is not None:
+                if digest != entry["digest"] or tag not in ("", str(entry["version"])):
+                    raise CandidateError(
+                        f"Phlo-owned image {image!r} does not match the BOM digest "
+                        f"{entry['digest']!r}"
+                    )
+            elif str(entry["version"]) != tag:
                 raise CandidateError(
                     f"Phlo-owned image {image!r} does not match the BOM version "
                     f"{entry['version']!r}"
@@ -1868,6 +1902,27 @@ class EvidenceRecorder:
 
 _StepOutput = tuple[dict[str, object], list[dict[str, object]]]
 
+#: Each Observatory journey starts its own stack and takes several minutes, so
+#: the release build runs them on separate runners beside the core journey and
+#: merges the evidence. Every part first verifies the candidate BOM.
+PART_STEPS: dict[str, frozenset[str]] = {
+    "observatory-fresh": frozenset({"candidate_bom_verification", "observatory_fresh_install"}),
+    "observatory-upgrade": frozenset(
+        {"candidate_bom_verification", "observatory_retained_upgrade"}
+    ),
+}
+PARTS = ("all", "core", *PART_STEPS)
+
+
+def in_part(demonstration_id: str, part: str) -> bool:
+    """True when this golden-path part runs the demonstration."""
+    if part == "all":
+        return True
+    if part == "core":
+        observatory = set().union(*PART_STEPS.values()) - {"candidate_bom_verification"}
+        return demonstration_id not in observatory
+    return demonstration_id in PART_STEPS[part]
+
 
 class _CandidateJourney:
     """The ordered candidate demonstrations and the state they hand to each other."""
@@ -1879,8 +1934,10 @@ class _CandidateJourney:
         bom_path: Path,
         previous_bom: Path | None = None,
         observatory_artifacts: Path | None = None,
+        part: str = "all",
     ) -> None:
         self.config = config
+        self.part = part
         self.bundle = bundle
         self.bom_path = bom_path
         self.previous_bom = previous_bom
@@ -1891,10 +1948,15 @@ class _CandidateJourney:
         self.promoted_wap_run: WapRun | None = None
         self.backup_set: Path | None = None
 
-    def observatory(self) -> _StepOutput:
-        from release_observatory_acceptance import run_journey
+    def observatory_fresh(self) -> _StepOutput:
+        from release_observatory_acceptance import run_fresh
 
-        return run_journey(
+        return run_fresh(self.config, artifacts=self.observatory_artifacts)
+
+    def observatory_upgrade(self) -> _StepOutput:
+        from release_observatory_acceptance import run_upgrade
+
+        return run_upgrade(
             self.config, previous_bom=self.previous_bom, artifacts=self.observatory_artifacts
         )
 
@@ -2016,9 +2078,14 @@ class _CandidateJourney:
                 lambda: install_operator_from_bom(config),
             ),
             (
-                "observatory_installed_journeys",
-                "Fresh and retained-volume installed Observatory journeys",
-                self.observatory,
+                "observatory_fresh_install",
+                "Fresh installed Observatory journey",
+                self.observatory_fresh,
+            ),
+            (
+                "observatory_retained_upgrade",
+                "Retained-volume Observatory upgrade journey",
+                self.observatory_upgrade,
             ),
             (
                 "project_scaffold",
@@ -2088,7 +2155,7 @@ class _CandidateJourney:
         ]
         qualification = bom_module.qualification_profile(bom_module.load_bom(self.bom_path))
         required = dict(release_evidence.required_demonstrations(qualification))
-        return [step for step in steps if step[0] in required]
+        return [step for step in steps if step[0] in required and in_part(step[0], self.part)]
 
 
 def _candidate_bundle() -> dict[str, object]:
@@ -2132,6 +2199,7 @@ def main_candidate(args: argparse.Namespace) -> int:
         bom_path,
         previous_bom=getattr(args, "previous_candidate_bom", None),
         observatory_artifacts=evidence_path.parent / f"{evidence_path.stem}-observatory",
+        part=getattr(args, "part", "all"),
     )
     primary_error: Exception | None = None
     cleanup_errors: list[Exception] = []
@@ -2200,6 +2268,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--previous-candidate-bom",
         type=Path,
         help="Exact previous artifact BOM for the required retained-volume Observatory journey.",
+    )
+    parser.add_argument(
+        "--part",
+        choices=PARTS,
+        default="all",
+        help="Run one part of the candidate journey; merge the parts' evidence to validate it.",
     )
     return parser.parse_args(argv)
 

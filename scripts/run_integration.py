@@ -19,9 +19,15 @@ GROUPS = (
     "all",
     "storage",
     "api-contracts",
-    "api-preview",
-    "api-query-journey",
-    "api-branch-journey",
+    "api-query",
+)
+
+#: Measured with coverage by the PostgreSQL coverage job (Makefile
+#: test-coverage-postgres), which also requires them to run without skips.
+POSTGRES_COVERAGE_MODULES = (
+    "packages/phlo-api/tests/test_continuity_api.py",
+    "packages/phlo-api/tests/test_operation_controls_postgres.py",
+    "packages/phlo-api/tests/test_run_report_postgres_recovery.py",
 )
 
 
@@ -67,10 +73,12 @@ def select_suites(group: str) -> dict[str, list[str]]:
     if group == "storage":
         return {name: args for name, args in suites.items() if name != "api"}
     api_groups = {
+        # The dataset and signed-branch journeys and the PostgreSQL modules run
+        # once, in the PostgreSQL coverage job, not again here.
         "api-contracts": [
             "packages/phlo-api/tests",
             "--ignore=packages/phlo-api/tests/test_usage_trino_integration.py",
-            "--ignore=packages/phlo-api/tests/test_preview_provision_integration.py",
+            *(f"--ignore={module}" for module in POSTGRES_COVERAGE_MODULES),
             "-m",
             "integration",
             # Modules own their containers and ports; loadscope keeps each
@@ -80,19 +88,8 @@ def select_suites(group: str) -> dict[str, list[str]]:
             "--dist",
             "loadscope",
         ],
-        "api-preview": [
-            "packages/phlo-api/tests/test_preview_provision_integration.py",
-            "-m",
-            "integration",
-        ],
-        "api-query-journey": [
+        "api-query": [
             "packages/phlo-api/tests/test_usage_trino_integration.py",
-            "tests/integration/test_issue1035_dataset_journey.py",
-            "-m",
-            "integration",
-        ],
-        "api-branch-journey": [
-            "tests/integration/test_issue1035_signed_branch_journey.py",
             "-m",
             "integration",
         ],
@@ -141,7 +138,7 @@ def run_suites(env: dict[str, str], suites: dict[str, list[str]]) -> int:
 def run_with_services(env: dict[str, str], suites: dict[str, list[str]]) -> int:
     """Provision host-accessible storage and catalog with ephemeral credentials."""
     with (
-        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.4")
+        DockerContainer("ghcr.io/phlohouse/phlo-minio:0.17.5")
         .with_env("MINIO_ROOT_USER", "localtest")
         .with_env("MINIO_ROOT_PASSWORD", "localpass123")
         .with_command("server /bitnami/minio/data")

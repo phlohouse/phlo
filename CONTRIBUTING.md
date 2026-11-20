@@ -19,9 +19,9 @@ Preview its commands with `python3 scripts/check_changed.py --dry-run`.
 Use a focused `uv run --locked pytest <test-path>` during the edit loop;
 selected checks are not a substitute for required CI or release acceptance.
 
-The [CI contracts and rollout](docs/contributing/ci.md),
-[release staging workflow](.github/workflows/release-stage.yml) and [release promotion
-contract](docs/architecture/decisions/0050-freeze-release-promotion-contract.md)
+The [CI contracts](docs/contributing/ci.md),
+[release procedure](RELEASING.md) and [release
+publishing ADR](docs/architecture/decisions/0068-release-publishing.md)
 describe the release process.
 
 The [change, ownership, and release policy](docs/contributing/change-policy.md)
@@ -115,9 +115,9 @@ Reference suites for each pattern: `tests/observability/test_run_reconciliation.
 
 Keep new Python and Observatory TypeScript functions at cyclomatic complexity
 15 or below. Existing Python exceptions have `# noqa: C901` on their definitions;
-existing Observatory exceptions are listed in `eslint-suppressions.json`. When
-refactoring an exception, remove its marker or suppression entry and include a
-radon before-and-after complexity table in the pull request. Run
+and Observatory TypeScript has no baseline. When refactoring an exception,
+remove its marker; a before-and-after complexity table in the pull request is
+welcome but not required. Run
 `uv run --locked ruff check --config pyproject.toml --select C901 .` for the
 repository-wide Python gate; packages have separate Ruff configurations.
 

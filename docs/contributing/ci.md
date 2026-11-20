@@ -1,20 +1,34 @@
-# CI contracts and rollout
+# CI contracts
 
 Phlo separates **safe to merge**, **source health**, **artifact readiness** and
-**maintenance health**. A passing source check is not release acceptance.
+**maintenance health**. A passing source check does not mean a release will pass.
 
 ## Merge safety
 
 `pr / required` remains the single required merge result. Pull requests select
-affected package groups and reverse dependencies. Unknown inputs select full
-validation; only explicitly inert documentation omits executable lanes. Every
-merge group runs the full contract on its prospective merge SHA.
+lanes from the changed packages and their reverse dependencies. Unknown inputs
+select full validation; only explicitly inert documentation omits executable
+lanes. Every merge group runs every lane on its prospective merge SHA.
+
+Isolated package tests run each package in its own dependency environment. The
+workspace coverage shards already run those tests, so the isolated groups only
+check declared dependencies. PRs run them only when a dependency manifest
+changes: a package's `pyproject.toml` selects that package and its reverse
+dependencies, and the root `pyproject.toml` or `uv.lock` selects every group.
+Merge groups and nightly run every group, because merge-queue evidence must
+cover every configured job.
 
 Required lanes cover Python quality and behaviour, installed provider artifacts,
-PostgreSQL concurrency, quickstart and recovery, Windows portability,
-Observatory, GitHub writer and webhook plugin behaviour, documentation,
-dependency risk, container policy and focused mutation checks. A selected lane
-that is skipped, cancelled or failed cannot satisfy the aggregate.
+PostgreSQL concurrency, quickstart and recovery, Observatory, GitHub writer and
+webhook plugin behaviour, documentation, dependency risk and container policy.
+A selected lane that is skipped, cancelled or failed cannot satisfy the
+aggregate.
+
+PRs run each test once, on the Python 3.12 runtime baseline. Python 3.13,
+Windows compose portability and the Trivy scan of built images run in the
+scheduled Nightly and Release Rehearsal instead, and mutation tests run weekly
+as a report. A new upstream CVE is not a defect in a PR, and none of these lanes
+caught a PR-specific regression that the remaining lanes missed.
 
 ### Check buckets and stages
 
@@ -25,31 +39,31 @@ environments.
 
 | Bucket | Execution layout |
 | --- | --- |
-| Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job. Focused mutation checks remain required when selected. |
-| Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks run in independent Node jobs, each required only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
-| Integration and portability | Storage/catalog contracts and four API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks share one native Windows job. |
-| Artifact and dependency safety | Preparation builds wheels once for provider shards and Windows acceptance. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
+| Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job and retry the npm install twice. |
+| Behaviour | The measured workspace shards run every non-integration test once. Isolated package tests run on PRs only for dependency manifest changes, and in every merge group and nightly run. Observatory runs in its own Node job; the GitHub writer and webhook plugin share one Node job, each step running only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
+| Integration and portability | Storage/catalog contracts and two API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks run nightly in one native Windows job. |
+| Artifact and dependency safety | Preparation builds wheels once for provider shards. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 
 | Stage | Scope |
 | --- | --- |
 | Pull request | Affected checks and reverse dependencies, introduced dependency risk, conservative full coverage for unknown changes. |
 | Merge queue | All buckets on the exact prospective merge SHA, including the full dependency policy. |
 | Main and beta | Authenticate and reuse full queue evidence. Run the full fallback only when evidence cannot be reused. |
-| Scheduled maintenance | Fresh dependency and upstream-image scans, mutation and extended reliability checks. Findings enter the normal remediation PR flow. |
-| Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
-| Release acceptance and promotion | Exercise staged bytes on required platforms and repeated runs, then publish through the authenticated promotion dispatch. Release merges coordinate these dispatches automatically. |
+| Scheduled maintenance | Nightly: full integration, the source golden path, Python 3.13, Windows portability and the release rehearsal with image scans. Weekly: mutation report. Red scheduled runs open a tracking issue. |
+| Release Rehearsal | On the ReleaseX PR, release-machinery PRs and nightly: build the distributions and images once and run the artifact golden path against them. Publishes nothing. |
+| Release | On the ReleaseX merge commit: the release-mode dependency assessment, the same build and smoke, then publish the tested bytes. |
 
-`pr / required` collects combined core, package and quickstart coverage after
-both Python and service contracts finish, then records queue evidence. The
-authoritative line and branch coverage gate runs the complete workspace in four
+`pr / required` records queue evidence after every selected lane finishes. The
+line and branch coverage gate runs the complete workspace in four
 module-preserving shards, alongside a required PostgreSQL coverage job. A final
 job verifies every producer and combines their data before enforcing the existing
-per-source floors. Both reporting jobs install only the locked `coverage-report`
+per-source floors. A source tree without a committed floor must meet the
+default floor in `scripts/coverage_report.py` (70% line, 50% branch). The
+reporting job installs only the locked `coverage-report`
 dependency group. Their commands retain that group when running, so report
 generation does not trigger a full workspace installation. See
 [test and contract gates](testing-gates.md) for the source scope and local
-commands. Standalone Windows dispatch builds its own wheels; ordinary validation
-reuses the preparation artifact.
+commands. Nightly Windows portability builds its own wheels.
 
 Python dependency caches use separate keys for each environment purpose. Full
 workspace jobs share a cache; wheel preparation, provider installation and
@@ -98,14 +112,15 @@ See [parallel integration contracts](testing-gates.md#parallel-integration-contr
 for individual group commands and timing diagnostics.
 
 Package-specific test environments and their coverage reports remain separate
-from the full-workspace measurement. The five package groups place the API and
+from the full-workspace measurement. When they run, the five package groups place the API and
 Dagster tests in different jobs while retaining each package's own dependency
 environment; the API group uses four work-stealing workers because it contains a
 single large package. The workspace shards also include
 quickstart; its integration-lane execution retains the smoke-test artifacts.
-Each measured source tree has independent line and branch coverage floors.
+Each measured source tree has independent line and branch coverage floors, or the
+default floor until one is committed.
 
-Mutation checks use `scripts/check_mutation.py`, because `mutmut run` exits zero
+The weekly mutation run uses `scripts/check_mutation.py`, because `mutmut run` exits zero
 even with surviving mutants. Missing results, uncovered mutations, timeouts,
 skips and unreviewed survivors fail. `security/mutation-exceptions.json` names
 specific equivalent or diagnostic-only changes, with rationale and exact diff
@@ -158,7 +173,9 @@ explains how build concurrency differs from merge limits.
 All tracked Python and npm consumer locks, including examples, use one
 revision-bound OSV inventory. PRs block introduced risk at every severity; queues
 also block existing findings without a reviewed, bounded exception. Releases
-block every finding. Scanner failure is unavailable evidence, not a clean scan.
+read only the shipped lockfiles and block fixable critical, high or unrated
+findings without an active waiver. Scanner failure is unavailable evidence, not
+a clean scan.
 See the [dependency policy](../../security/dependency-policy.md).
 
 The independent daily Security run hands authenticated JSON findings to one
@@ -186,35 +203,41 @@ schedule must be active; the workflow does not provision one.
 
 ## Artifact readiness and publication
 
-Ordinary main pushes are not release candidates. ReleaseX still proposes the
-version PR. After an in-repository `relx/release/` PR merges, **Release on merge**
-authenticates its exact merge SHA, waits for source health, and dispatches
-**Release Stage**, two **Release Artifact Acceptance** runs, and
-**Release Promotion** with `execute: true`. It uses only Actions write and
-read-only repository access. Existing successful or running producers are
-reused; failed attempts stop automation without restaging or blind retries.
-See [release publication and manual recovery](release-publication.md).
-Staging first requires a fresh release-mode dependency assessment and successful
-exact-SHA main source health, then reserves the candidate once. It builds package
-distributions once, reuses those wheels in native image builds, scans images,
-pins their digests and records a BOM and provenance. A failed or expired staging
-attempt does not permit restaging that SHA.
+### Release rehearsal
 
-Dispatch **Release Artifact Acceptance** with the candidate SHA and staging run.
-Clean amd64 and arm64 hosts exercise staged artifacts, never source builds.
-Missing BOMs fail. Promotion authenticates every candidate acceptance attempt,
-including failures, and requires three qualifying bundles. Two successful
-dispatches produce four bundles. Runs may share a clean
-host and UTC calendar day; there is no host-diversity or two-day waiting gate.
+**Release Rehearsal** runs the release build and smoke (`release-build.yml`)
+without publishing anything. It builds the distributions and images exactly as
+the release does, pins them in a BOM under `rehearsal-<sha>` image tags, and
+runs the artifact golden path against those bytes. The upgrade baseline is the
+latest published release. It runs on the ReleaseX PR, on PRs that change
+release machinery (release workflows and scripts, Dockerfiles, `service.yaml`
+files, `relx.toml` and the support manifest), and nightly on main.
 
-**Release Promotion** defaults to a dry run. Set `execute: true` on a fresh
-dispatch to publish during manual recovery. The coordinator sets it automatically.
-GitHub authenticates the dispatch actor, and promotion verifies the live workflow
-run on protected `main`. The `pypi` environment and trusted publisher identity
-remain unchanged. Promotion rejects long-lived publication tokens and publishes
-the authorized staged bytes without rebuilding and reconciles published digests.
-Development images use a separate `-development:<SHA>` namespace.
-Only Release Stage dispatches build and upload these staging images.
+A rehearsal BOM records `"rehearsal": true`, and publishing refuses it. The
+amd64 golden path must pass. PR rehearsals run the golden path on amd64 only;
+the nightly rehearsal and Release also run arm64, which reports without
+blocking. Images are still built for both architectures on every rehearsal. It is not part of
+`pr / required`, but a red rehearsal on the ReleaseX PR means the release will
+fail.
+
+Scheduled Nightly and Release Rehearsal failures open, or comment on, one
+issue per workflow (`ci: nightly is failing`,
+`ci: nightly release rehearsal is failing`), assigned to the maintainer. Close
+the issue once the workflow is green again.
+
+### Release
+
+**Release** (`release-promotion.yml`) runs on every main push and continues
+only for the exact merge commit of the in-repository ReleaseX PR. It calls the
+same `release-build.yml` as the rehearsal, then publishes the tested bytes:
+tag, PyPI, signed image tags and the GitHub release. Each step skips what is
+already public with the tested digest and fails closed on a difference, so
+"Re-run failed jobs" resumes a partial release. See
+[Publish a release](../../RELEASING.md) and
+[ADR 0068](../architecture/decisions/0068-release-publishing.md).
+
+Development images use a separate `-development:<SHA>` namespace. Only
+`release-build.yml` builds and uploads them, for a release or a rehearsal.
 Ordinary non-release pushes cannot invoke the image publisher. PR, queue and main checks
 reuse installed-provider image builds for local scans by image ID, with no
 registry writes or duplicate builds.
@@ -234,13 +257,14 @@ to enforce policy against every immutable architecture digest.
 
 MinIO is an independently published provider dependency. **Publish MinIO Image**
 is a separate manual dispatch on `main`, with its own image version and no PyPI
-publication or whole-release acceptance gate. Both publishers reuse
+publication or release golden path. Both publishers reuse
 `build-service-images.yml` for native builds, immutable-digest scans and manifest
 assembly. The MinIO publisher also tests health and an object roundtrip on each
-architecture, and refuses to overwrite a published tag. Phlo staging records
-the existing MinIO digest in its BOM without rebuilding or promoting the image.
-ReleaseX does not bump MinIO image tags. Nightly rescans include the latest
-independently published MinIO image as well as the released Phlo fleet.
+architecture, and refuses to overwrite a published tag. The release build
+records the existing MinIO digest in its BOM without rebuilding or retagging the
+image. ReleaseX does not bump MinIO image tags. The weekly Container Rescan
+includes the latest independently published MinIO image as well as the released
+Phlo fleet.
 See [MinIO image publication](../../packages/phlo-minio/README.md#publish-an-image-only-fix).
 
 **Publish MinIO Plugin** independently publishes `phlo-minio` from protected
@@ -248,32 +272,13 @@ See [MinIO image publication](../../packages/phlo-minio/README.md#publish-an-ima
 distribution, and installs the wheel against published dependencies before
 an isolated job publishes the same bytes to PyPI.
 It also requires real Docker migration tests. This bounded publisher uses the
-existing `release` environment and `PYPI_API_TOKEN`, without a core release,
-whole-release acceptance span, or mandatory reviewer protection. It does not
-publish images or lakehouse examples, or change the whole-release promotion contract.
+existing `release` environment and `PYPI_API_TOKEN`, without a core release or
+mandatory reviewer protection. It does not publish images or lakehouse examples.
 See [plugin publication](../../packages/phlo-minio/README.md#publish-the-minio-plugin-independently).
 
-The publication plan binds the exact BOM bytes and qualifying evidence set.
-Execution reauthenticates both; changes require a fresh dispatch.
-Promotion reruns are rejected; authorization belongs to the original dispatch
-and run attempt. After a partial publication, dispatch again with the same
-staging identity: matching public tags, package files, images and release assets
-are reused; missing ones complete forward. Conflicting bytes or unverifiable
-public digests fail closed. Never restage or rebuild to recover publication.
+## Measurement
 
-## Rollout and measurement
-
-1. Merge dependency remediation [#1063](https://github.com/phlohouse/phlo/pull/1063)
-   first. Do not grandfather its vulnerable baseline or add resolver overrides.
-2. Merge the CI contract changes through the existing required queue check.
-3. Observe reuse decisions and required job inventories on real GitHub runs.
-   Validate Windows/native arm64 there; an x64 orb cannot prove those platforms.
-4. Configure release credentials and optional human agent-intake identity.
-   Exercise staging, acceptance and dry-run promotion before publishing.
-5. Collect two weeks of timings, queue delay, first actionable failure, cache
-   hit rate and retries before tuning shard weights.
-
-Target selected-PR median ≤5 minutes and p95 ≤8; full-queue median ≤8 and p95
-≤12. These are measurement goals, not verified savings. Preserve behavioural
-contracts while optimising bootstrap and proven duplication. Do not retry a
-correctness failure until it passes or silently quarantine a critical contract.
+Target a selected-PR median of 5 minutes or less (p95 8) and a full-queue median
+of 8 minutes or less (p95 12). These are goals, not measured results. Optimise
+setup and proven duplication, not behavioural contracts. Do not retry a
+correctness failure until it passes, and do not quarantine a required contract.

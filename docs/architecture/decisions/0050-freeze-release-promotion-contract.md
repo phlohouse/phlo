@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded (2026-11-20) by [ADR 0068](0068-release-publishing.md). Building once, publishing the tested bytes, forward completion and the qualification scope carry over. The repeated qualifying runs, staging reservation, canonical candidate digest, evidence archive and daily reconciliation are dropped.
+
 Accepted (2026-09-03). Supersedes no prior ADR; there are no ADRs previously committed to this repository. Companion decisions: ADR 0047 (production trust and readiness contract), ADR 0048 (run-evidence semantics), ADR 0049 (continuity and upgrade contract) — all local to the programme register.
 
 Amended (2026-10-15): remove host and calendar-day diversity requirements. Three complete qualifying runs remain required, but they may execute on the same clean host on the same UTC day.

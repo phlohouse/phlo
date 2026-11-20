@@ -11,7 +11,8 @@ and bounded rate storage. It measures `src/phlo`, `scripts`, and every
 `packages/*/src` tree.
 `scripts/coverage_report.py` publishes separate line and branch percentages and
 checks each against `tests/coverage-floors.json`. A new source tree without a
-measurement or floor fails. The existing package-specific coverage collection
+committed floor must meet the default floor (70% line, 50% branch), and a floor
+without a measurement fails. The existing package-specific coverage collection
 remains in CI.
 
 CI measures the same workspace with four module-preserving shards and runs the
@@ -65,29 +66,28 @@ conversion, and ingestion. They do not claim complete external-service coverage.
 
 ### Parallel integration contracts
 
-CI runs the storage contracts and four API groups on separate runners. The API
+CI runs the storage contracts and two API groups on separate runners. The API
 partition keeps module fixtures together and includes newly added API integration
 tests in the `api-contracts` group automatically. That group uses two loadscope
-workers because its modules own independent containers and ports. The
-preview-provision module runs separately because its catalog, object-store and TLS
-setup takes longer than the other API contracts combined. All groups retain the
-required plugin, so skips, expected failures and empty selections fail their job.
+workers because its modules own independent containers and ports. The PostgreSQL
+modules and the complete dataset and signed-branch journeys run once, in the
+PostgreSQL coverage job (`make test-coverage-postgres`), not again here. All
+groups retain the required plugin, so skips, expected failures and empty
+selections fail their job.
 
 | Group | Required selection |
 | --- | --- |
 | `storage` | Iceberg, Dagster, MinIO migration, dbt quality, schema generation, schema conversion and ingestion |
-| `api-contracts` | Integration tests under `packages/phlo-api/tests`, except the preview-provision and Trino journey modules |
-| `api-preview` | The preview provision, read, write-denial and evidence-recovery module |
-| `api-query-journey` | The complete dataset journey and Trino integration modules |
-| `api-branch-journey` | The complete signed branch journey module |
+| `api-contracts` | Integration tests under `packages/phlo-api/tests`, except the Trino module and the PostgreSQL coverage modules |
+| `api-query` | The Trino usage integration module |
 | `all` | The complete original selection; this remains the default local command |
 
 After `make setup`, with Docker running, build the checked-in MinIO image once
 and run a group from the repository root:
 
 ```bash
-docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.4 packages/phlo-minio/src/phlo_minio
-uv run --locked python scripts/run_integration.py --group api-query-journey
+docker build --tag ghcr.io/phlohouse/phlo-minio:0.17.5 packages/phlo-minio/src/phlo_minio
+uv run --locked python scripts/run_integration.py --group api-query
 ```
 
 Omit `--group` to run every original named contract. Each invocation writes

@@ -276,8 +276,15 @@ def _build_distributions_from_tree(
     projects: dict[str, str],
     distributions_dir: Path,
     built_distributions: Path | None = None,
+    *,
+    reuse_published: bool = False,
 ) -> list[dict[str, object]]:
     """Build each release-set package once from the pinned tree and stage the bytes.
+
+    With ``reuse_published``, a package whose pinned version is already on PyPI
+    is staged from PyPI's bytes instead. ReleaseX only bumps a package that
+    changed, so an unchanged version is one users already install, and the
+    release smoke must test those bytes rather than a rebuild of them.
 
     Python distributions are built once from the release commit. When the
     release_set version is not published on PyPI (a
@@ -317,6 +324,12 @@ def _build_distributions_from_tree(
 
         staged: list[dict[str, object]] = []
         for project, version in sorted(projects.items()):
+            if reuse_published and _pypi_release_files(project, version, allow_missing=True):
+                staged.extend(
+                    _download_distribution(project, version, kind, distributions_dir)
+                    for kind in (KIND_SDIST, KIND_WHEEL)
+                )
+                continue
             for kind in (KIND_SDIST, KIND_WHEEL):
                 matches = [
                     path
@@ -416,6 +429,7 @@ def _distribution_artifacts(
     *,
     build_from_tree: bool,
     built_distributions: Path | None,
+    reuse_published: bool = False,
 ) -> list[dict[str, object]]:
     """Build or download the sdist and wheel for every release-set package."""
     if distributions_dir is None:
@@ -425,7 +439,11 @@ def _distribution_artifacts(
         )
     if build_from_tree or built_distributions is not None:
         return _build_distributions_from_tree(
-            tree, package_versions, distributions_dir, built_distributions
+            tree,
+            package_versions,
+            distributions_dir,
+            built_distributions,
+            reuse_published=reuse_published,
         )
     return [
         _download_distribution(project, version, kind, distributions_dir)
@@ -531,6 +549,7 @@ def build_bom_artifacts(
     build_from_tree: bool = False,
     built_distributions: Path | None = None,
     image_digests: dict[str, str] | None = None,
+    reuse_published: bool = False,
 ) -> list[dict[str, object]]:
     """Enumerate the exact artifact inventory at the pinned identity."""
     support_bytes, version, package_versions = _release_inventory(tree)
@@ -542,6 +561,7 @@ def build_bom_artifacts(
             distributions_dir,
             build_from_tree=build_from_tree,
             built_distributions=built_distributions,
+            reuse_published=reuse_published,
         )
     )
     artifacts.extend(_image_artifacts(tree, image_digests))
@@ -740,6 +760,7 @@ def stage(
     build_from_tree: bool = False,
     built_distributions: Path | None = None,
     image_digests: dict[str, str] | None = None,
+    reuse_published: bool = False,
 ) -> StagedCandidate:
     """Stage one immutable candidate BOM into an append-only staging directory."""
     tree = ReleaseTree(repo_root, release_ref)
@@ -754,6 +775,7 @@ def stage(
         build_from_tree=build_from_tree,
         built_distributions=built_distributions,
         image_digests=image_digests,
+        reuse_published=reuse_published,
     )
 
     commit = _run_git(

@@ -3,6 +3,10 @@
 Never install or execute either revision. Existing package versions share one
 query result across base and head, so advisory churn cannot make them a delta.
 All newly introduced vulnerable versions block, regardless of severity.
+
+Release mode assesses only the lockfiles whose packages ship in the release,
+and blocks fixable critical or high findings there that no active waiver in
+``security/dependency-risks.json`` covers (ADR 0063).
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -24,6 +29,18 @@ Package = tuple[str, str, str]
 LOCKFILE_ALIASES = {
     "apps/phlo-github-writer/package-lock.json": ("apps/phlo-agent/package-lock.json",),
 }
+# Lockfiles whose resolved packages ship in release wheels and images. Example
+# projects and the separately deployed GitHub writer do not ship in a release.
+SHIPPED_LOCKFILES = frozenset(
+    {
+        "uv.lock",
+        "packages/phlo-observatory/src/phlo_observatory/package-lock.json",
+    }
+)
+# Longest waiver a maintainer may grant, in days from first_seen.
+WAIVER_DAYS = {"critical": 7, "high": 30, "moderate": 90, "low": 90}
+EXPLOITED_WAIVER_DAYS = 7
+RELEASE_BLOCKING = frozenset({"critical", "high", "unknown"})
 
 
 def parse_lock(path: str, content: bytes) -> set[Package]:
@@ -150,64 +167,69 @@ def compare(base: dict, head: dict, results: dict) -> dict:
     return report
 
 
-def verify_risk_review(record: dict) -> None:
-    """Require an actual maintainer approval of the exact recorded exception."""
-    match = re.fullmatch(r"https://github.com/phlohouse/phlo/pull/(\d+)", record["review_url"])
-    if match is None:
-        raise ValueError("Risk review must name a repository pull request")
-    endpoint = f"repos/phlohouse/phlo/pulls/{match[1]}"
-
-    def api(path: str, *, paginate: bool = False):
-        args = ["gh", "api", path]
-        if paginate:
-            args.extend(["--paginate", "--slurp"])
-        return json.loads(subprocess.run(args, capture_output=True, text=True, check=True).stdout)
-
-    pull = api(endpoint)
-    if not pull.get("merged_at") or pull["base"]["ref"] != "main":
-        raise ValueError("Risk exception must have merged through protected main")
-    head = pull["head"]["sha"]
-    ledger = json.loads(
-        subprocess.run(
-            ["git", "show", f"{head}:security/dependency-risks.json"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-    )
-    if record not in ledger:
-        raise ValueError("Approved revision does not contain this exact risk record")
-    permission = api(f"repos/phlohouse/phlo/collaborators/{record['reviewed_by']}/permission")
-    if permission.get("permission") not in {"write", "maintain", "admin"}:
-        raise ValueError("Risk approver is not a repository maintainer")
-    reviews = [
-        review for page in api(endpoint + "/reviews?per_page=100", paginate=True) for review in page
-    ]
-    reviewer = record["reviewed_by"]
-    latest = [
-        review
-        for review in reviews
-        if review.get("user", {}).get("login") == reviewer and review.get("state") != "COMMENTED"
-    ]
-    if not latest:
-        raise ValueError("No authenticated human approval for the exception")
-    review = max(latest, key=lambda item: item["id"])
-    if (
-        review.get("state") != "APPROVED"
-        or review.get("commit_id") != head
-        or review["user"].get("type") != "User"
-    ):
-        raise ValueError("Exception was not approved at its exact final revision")
+def advisory_detail(advisory: str) -> dict:
+    """Read one OSV advisory, failing closed on any error."""
+    with urllib.request.urlopen(
+        "https://api.osv.dev/v1/vulns/" + urllib.parse.quote(advisory, safe=""), timeout=60
+    ) as response:
+        detail = json.load(response)
+    if not isinstance(detail, dict):
+        raise ValueError(f"Malformed OSV advisory {advisory}")
+    return detail
 
 
-def assess_existing(findings: list[dict], ledger: Path, now: datetime | None = None) -> list[dict]:
-    """Accept only exact, human-reviewed, time-bounded existing risks."""
+def advisory_severity(detail: dict) -> str:
+    """Return critical, high, moderate, low or unknown from OSV database data."""
+    severity = str(detail.get("database_specific", {}).get("severity", "unknown")).lower()
+    if severity == "medium":
+        severity = "moderate"
+    return severity if severity in WAIVER_DAYS else "unknown"
+
+
+def rated_severity(data: dict, detail: Callable[[str], dict]) -> str:
+    """Rate an advisory, reading a GHSA alias when the record has no severity.
+
+    PYSEC records usually carry no severity; their GHSA alias does.
+    """
+    severity = advisory_severity(data)
+    for alias in data.get("aliases", []) or []:
+        if severity != "unknown":
+            break
+        if str(alias).startswith("GHSA-"):
+            severity = advisory_severity(detail(alias))
+    return severity
+
+
+def advisory_fixable(detail: dict, ecosystem: str, name: str) -> bool:
+    """True when OSV records a fixed version for this package."""
+    for affected in detail.get("affected", []) or []:
+        package = affected.get("package", {})
+        if package.get("ecosystem") != ecosystem or package.get("name", "").lower() != name.lower():
+            continue
+        for ranges in affected.get("ranges", []) or []:
+            if any("fixed" in event for event in ranges.get("events", []) or []):
+                return True
+    return False
+
+
+def assess_existing(
+    findings: list[dict],
+    ledger: Path,
+    now: datetime | None = None,
+    detail: Callable[[str], dict] | None = None,
+) -> list[dict]:
+    """Accept only exact, time-bounded waivers merged to main by a maintainer.
+
+    The ledger is read from the trusted main checkout, so merging the waiver is
+    its approval. The maintainer may approve their own waiver (ADR 0063).
+    """
     now = now or datetime.now(UTC)
+    detail = detail or advisory_detail
     records = json.loads(ledger.read_text())
     if not isinstance(records, list):
         raise ValueError("Risk ledger must be a list")
     accepted = {}
-    windows = {"critical": 1, "high": 7, "moderate": 30, "low": 30}
+    windows = WAIVER_DAYS
     needed = {
         tuple(finding[field] for field in ("lockfile", "ecosystem", "name", "version"))
         + (advisory,)
@@ -227,8 +249,6 @@ def assess_existing(findings: list[dict], ledger: Path, now: datetime | None = N
             "rationale",
             "first_seen",
             "expires",
-            "reviewed_by",
-            "review_url",
         }
         if not isinstance(record, dict) or set(record) != required:
             raise ValueError("Malformed risk record")
@@ -239,15 +259,11 @@ def assess_existing(findings: list[dict], ledger: Path, now: datetime | None = N
             raise ValueError("Risk fields must be nonempty strings")
         if type(record["exploited"]) is not bool or record["severity"] not in windows:
             raise ValueError("Unknown severity or exploitation status")
-        if (
-            record["reviewed_by"] == record["owner"]
-            or re.search(r"agent|\[bot\]", record["reviewed_by"], re.I)
-            or not record["review_url"].startswith("https://github.com/phlohouse/phlo/pull/")
-        ):
-            raise ValueError("Independent human review is required")
+        if re.search(r"agent|\[bot\]", record["owner"], re.I):
+            raise ValueError("A waiver must be owned by a human maintainer")
         first = datetime.fromisoformat(record["first_seen"])
         expires = datetime.fromisoformat(record["expires"])
-        days = 1 if record["exploited"] else windows[record["severity"]]
+        days = EXPLOITED_WAIVER_DAYS if record["exploited"] else windows[record["severity"]]
         if (
             first.tzinfo is None
             or expires.tzinfo is None
@@ -270,20 +286,31 @@ def assess_existing(findings: list[dict], ledger: Path, now: datetime | None = N
             ) + (advisory,)
             record = accepted.get(key)
             if record is not None:
-                verify_risk_review(record)
-                with urllib.request.urlopen(
-                    "https://api.osv.dev/v1/vulns/" + urllib.parse.quote(advisory, safe=""),
-                    timeout=60,
-                ) as response:
-                    detail = json.load(response)
-                severity = detail.get("database_specific", {}).get("severity", "unknown").lower()
-                if severity == "medium":
-                    severity = "moderate"
-                if severity not in windows or severity != record["severity"]:
+                severity = rated_severity(detail(advisory), detail)
+                if severity != record["severity"]:
                     raise ValueError(f"Unconfirmed severity for {advisory}")
             else:
                 unaccepted.append({**finding, "advisories": [advisory]})
     return unaccepted
+
+
+def release_blocking(
+    findings: list[dict], detail: Callable[[str], dict] | None = None
+) -> list[dict]:
+    """Keep fixable critical, high or unrated advisories in shipped lockfiles."""
+    detail = detail or advisory_detail
+    blocking = []
+    for finding in findings:
+        if finding["lockfile"] not in SHIPPED_LOCKFILES:
+            continue
+        for advisory in finding["advisories"]:
+            data = detail(advisory)
+            severity = rated_severity(data, detail)
+            if severity in RELEASE_BLOCKING and advisory_fixable(
+                data, finding["ecosystem"], finding["name"]
+            ):
+                blocking.append({**finding, "advisories": [advisory], "severity": severity})
+    return blocking
 
 
 def main() -> int:
@@ -309,7 +336,9 @@ def main() -> int:
         )
         status = 1 if report["introduced"] else 0
         if args.mode == "release":
-            status = int(bool(report["introduced"] or report["existing"]))
+            shipped = release_blocking(report["introduced"] + report["existing"])
+            report["release_blocking"] = assess_existing(shipped, args.ledger)
+            status = int(bool(report["release_blocking"]))
         elif args.mode == "queue":
             report["unaccepted"] = assess_existing(report["existing"], args.ledger)
             status = int(bool(report["introduced"] or report["unaccepted"]))

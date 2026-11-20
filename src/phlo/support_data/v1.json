@@ -33,9 +33,9 @@
       {"name": "dagster-daemon", "image_reference": "ghcr.io/phlohouse/phlo-dagster:0.19.0"},
       {"name": "postgres", "image_reference": "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"},
       {"name": "postgres-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
-      {"name": "minio", "image_reference": "ghcr.io/phlohouse/phlo-minio:0.17.4"},
+      {"name": "minio", "image_reference": "ghcr.io/phlohouse/phlo-minio:0.17.5"},
       {"name": "minio-volume-setup", "image_reference": "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"},
-      {"name": "minio-setup", "image_reference": "ghcr.io/phlohouse/phlo-minio:0.17.4"},
+      {"name": "minio-setup", "image_reference": "ghcr.io/phlohouse/phlo-minio:0.17.5"},
       {"name": "nessie", "image_reference": "ghcr.io/projectnessie/nessie:0.108.3@sha256:219709df809fcfac7abe0491b2070c8d56178ed29828fb30968a4365b62bcc8a"},
       {"name": "trino", "image_reference": "trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534"},
       {"name": "phlo-api", "image_reference": "ghcr.io/phlohouse/phlo-api:0.19.0"},
@@ -1324,7 +1324,7 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "Required CI builds the provider wheelhouse and runs the installed provider artifacts jobs, which install the wheels, build and health-check provider images, and scan first-party images. Nightly runs the release golden path, and 0.18.0 passed Release Artifact Acceptance from its staged BOM on amd64 and arm64. That acceptance used artifact qualification scope (alpha, production_ready false), which skips the production_preflight, supported_upgrade, and upgrade_recovery demonstrations. Missing: a production-scope qualification run; it is blocked by the production preflight and live upgrade gaps recorded under secure_production_deployment and upgrade_restore.",
+      "reason": "Required CI builds the provider wheelhouse and runs the installed provider artifacts jobs, which install the wheels and build and health-check provider images. Release Build runs the artifact golden path against the built release set on every ReleaseX PR, nightly, and inside every release before anything is published, on amd64 (blocking) and arm64 (reported). It uses artifact qualification scope (alpha, production_ready false), which skips the production_preflight, supported_upgrade, and upgrade_recovery demonstrations. Missing: a production-scope qualification run; it is blocked by the production preflight and live upgrade gaps recorded under secure_production_deployment and upgrade_restore.",
       "evidence": [
         "scripts/release_golden_path.py",
         "tests/scripts/test_release_golden_path.py",
@@ -1332,9 +1332,9 @@
         ".github/workflows/ci.yml",
         "scripts/verify_installed_provider_artifacts.py",
         ".github/workflows/nightly.yml",
-        ".github/workflows/release-artifact-acceptance.yml",
+        ".github/workflows/release-build.yml",
         "scripts/release_evidence.py",
-        "docs/architecture/decisions/0050-freeze-release-promotion-contract.md"
+        "docs/architecture/decisions/0068-release-publishing.md"
       ]
     }
   ],

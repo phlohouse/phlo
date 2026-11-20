@@ -2,8 +2,10 @@ name: Container Rescan
 
 on:
   workflow_dispatch:
+  # Weekly: published digests are immutable, so only fresh CVE data changes
+  # the result. Release publishing already verifies bytes and signatures.
   schedule:
-    - cron: "25 4 * * *"
+    - cron: "25 4 * * 1"
 
 permissions:
   actions: read
@@ -105,36 +107,6 @@ jobs:
             '. + $minio | unique_by(.image)' published/generated-service-images.json \
             > "$RUNNER_TEMP/rescan-images.json"
           mv "$RUNNER_TEMP/rescan-images.json" published/generated-service-images.json
-      - name: Reconcile published bytes and signatures against the release BOM
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          mkdir -p published/downloads published/candidate/distributions reports
-          gh release download "$RELEASE_TAG" --pattern bom.json --dir published/candidate
-          gh release download "$RELEASE_TAG" --pattern '*.whl' --pattern '*.tar.gz' \
-            --dir published/downloads
-          python3 - <<'PY'
-          import shutil
-          import sys
-          from pathlib import Path
-          sys.path.insert(0, "scripts")
-          import release_candidate_bom as candidate_bom
-          candidate = Path("published/candidate")
-          bom = candidate_bom.load_bom(candidate / "bom.json")
-          digests = {
-              artifact["digest"] for artifact in bom["artifacts"]
-              if artifact["kind"] in (candidate_bom.KIND_WHEEL, candidate_bom.KIND_SDIST)
-          }
-          for path in Path("published/downloads").iterdir():
-              if candidate_bom.file_sha256(path) in digests:
-                  shutil.copyfile(path, candidate / "distributions" / path.name)
-          PY
-          python3 scripts/promote_release_candidate.py verify-published \
-            --candidate-bom published/candidate/bom.json --staging-dir published/candidate \
-            --report-output reports/publication-audit.json
       - name: Verify signatures for every first-party rescan subject
         if: ${{ !cancelled() && steps.fleet.outcome == 'success' }}
         run: |

@@ -1,79 +1,116 @@
-name: Release Promotion
-run-name: promote ${{ inputs.candidate_sha }} stage ${{ inputs.stage_run }} execute ${{ inputs.execute }}
+name: Release
+run-name: release ${{ inputs.sha || github.sha }}
+
+# One workflow from ReleaseX merge to published release (ADR 0068).
+#
+# Merging the ReleaseX PR is the approval. This workflow then builds the
+# release set once, runs the artifact golden path against those bytes
+# (release-build.yml, the same jobs Release Rehearsal runs nightly), and
+# publishes exactly what it tested. Every publish step skips work that is
+# already public with the tested digest and fails closed on any difference,
+# so "Re-run failed jobs" completes a partial release forward.
+#
+# To apply a workflow fix to a release, merge the fix and dispatch this
+# workflow with the release commit SHA. A rebuild whose bytes differ from
+# files already public stops before uploading anything.
+#
+# The publish job stays inline in this file, on refs/heads/main, in the pypi
+# environment: PyPI trusted publishers and the cosign identity are bound to
+# .github/workflows/release-promotion.yml@refs/heads/main.
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
-      candidate_sha:
-        description: Exact staged release commit SHA
-        required: true
+      sha:
+        description: Full SHA of the ReleaseX merge commit to (re)publish
         type: string
-      stage_run:
-        description: Successful immutable release-stage run ID, attempt 1
         required: true
-        type: string
-      execute:
-        description: Publish staged bytes from this workflow dispatch. Default publishes nothing.
-        type: boolean
-        default: false
 
 permissions:
   contents: read
-  actions: read
-
-concurrency:
-  group: release-promotion
-  cancel-in-progress: false
 
 jobs:
-  gate:
+  select:
+    name: release / select
     if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.select.outputs.release }}
+      sha: ${{ steps.select.outputs.sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-      - name: Authenticate stage and every candidate acceptance attempt
+      - name: Publish only the exact ReleaseX merge commit
+        id: select
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          STAGE_RUN: ${{ inputs.stage_run }}
-        run: >-
-          python3 scripts/release_provenance.py collect --candidate-sha "$CANDIDATE_SHA"
-          --stage-run "$STAGE_RUN" --output inputs --evidence inputs/evidence
-      - name: Apply unchanged repeated-run gate and plan publication
-        env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-        run: >-
-          python3 scripts/promote_release_candidate.py promote
-          --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json"
-          --staging-dir "inputs/candidate-$CANDIDATE_SHA"
-          --staged-utc "$(jq -r .staged_utc "inputs/candidate-$CANDIDATE_SHA/provenance.json")"
-          --evidence inputs/evidence --receipt-output dry-run-receipt.json
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: dry-run-receipt-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dry-run-receipt.json
-          if-no-files-found: error
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            sha="$DISPATCH_SHA"
+            python3 scripts/release_publish.py select --sha "$sha" --require >> "$GITHUB_OUTPUT"
+          else
+            sha="$GITHUB_SHA"
+            python3 scripts/release_publish.py select --sha "$sha" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-  promote:
-    if: inputs.execute
-    needs: gate
+  security:
+    needs: select
+    if: needs.select.outputs.release == 'true'
+    uses: ./.github/workflows/security.yml
+    # security.yml nests dependency-triage; GitHub validates its permissions
+    # at startup even though the job only runs on the scheduled Security run.
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: write
+    with:
+      base-sha: ${{ needs.select.outputs.sha }}
+      head-sha: ${{ needs.select.outputs.sha }}
+      mode: release
+
+  build:
+    needs: select
+    if: needs.select.outputs.release == 'true'
+    uses: ./.github/workflows/release-build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      sha: ${{ needs.select.outputs.sha }}
+      rehearsal: false
+
+  publish:
+    needs: [select, security, build]
+    name: release / publish
     environment: pypi
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     permissions:
       contents: write
-      actions: read
-      pull-requests: read
       packages: write
       id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
           fetch-depth: 0
+          filter: blob:none
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
         with:
           version: "0.12.1"
@@ -81,63 +118,59 @@ jobs:
       - uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22
         with:
           cosign-release: v3.0.5
-      - name: Reauthenticate all attempts and authorize the workflow dispatch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          STAGE_RUN: ${{ inputs.stage_run }}
-        run: |
-          set -euo pipefail
-          python3 scripts/release_provenance.py collect --candidate-sha "$CANDIDATE_SHA" \
-            --stage-run "$STAGE_RUN" --output inputs --evidence inputs/evidence
-          python3 scripts/release_provenance.py authorize \
-            --bom "inputs/candidate-$CANDIDATE_SHA/bom.json" \
-            --evidence inputs/evidence --output authorization.json
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-set-${{ needs.build.outputs.sha }}
+          path: candidate
+      - name: Attest build provenance for the tested distributions
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: candidate/distributions/*
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Publish only the authorized staged bytes, never rebuild
+      - name: Publish the tested bytes, skipping anything already public
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          # bsdtar on macOS would otherwise add AppleDouble ._* members.
-          COPYFILE_DISABLE: "1"
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           gh auth setup-git
-          archive="qualification-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
-          tar -czf "$archive" authorization.json -C inputs evidence \
-            -C "candidate-$CANDIDATE_SHA" bom.json provenance.json
-          python3 scripts/promote_release_candidate.py promote \
-            --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json" \
-            --staging-dir "inputs/candidate-$CANDIDATE_SHA" --evidence inputs/evidence \
-            --staged-utc "$(jq -r .staged_utc "inputs/candidate-$CANDIDATE_SHA/provenance.json")" \
-            --authorization authorization.json --qualification-archive "$archive" \
-            --execute --receipt-output promotion-receipt.json
-      - name: Archive the matched final promotion receipt on the release
+          python3 scripts/release_publish.py publish --candidate candidate
+
+  arm64:
+    name: release / report arm64 smoke
+    needs: [select, security, build, publish]
+    # arm64 smoke never blocks a release (ADR 0068); a red one opens an issue.
+    if: always() && needs.select.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Find the arm64 smoke result
+        id: arm64
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          # bsdtar on macOS would otherwise add AppleDouble ._* members.
-          COPYFILE_DISABLE: "1"
         run: |
           set -euo pipefail
-          jq -e '.status == "promoted" and .success == true' promotion-receipt.json > /dev/null
-          version="$(jq -er '.artifacts[] | select(.kind == "source") | .version' "inputs/candidate-$CANDIDATE_SHA/bom.json")"
-          archive="release-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
-          tar -czf "$archive" promotion-receipt.json
-          gh release upload "v$version" "$archive"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        if: always()
+          conclusion="$(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+              --jq '.jobs[] | select(.name | endswith("artifact golden path (arm64)")) | .conclusion'
+          )"
+          echo "arm64 smoke: ${conclusion:-missing}" >> "$GITHUB_STEP_SUMMARY"
+          # Skipped (an earlier job failed) is not an arm64 failure.
+          echo "red=$([ "$conclusion" = failure ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: steps.arm64.outputs.red == 'true'
+        uses: ./.github/actions/report-red-run
         with:
-          name: promotion-receipt-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            promotion-receipt.json
-            authorization.json
-            qualification-evidence-*.tar.gz
-            release-evidence-*.tar.gz
-          if-no-files-found: error
+          title: "ci: release arm64 smoke is failing"
+          github-token: ${{ github.token }}

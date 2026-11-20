@@ -21,6 +21,7 @@ The module skips cleanly when its external services are unavailable.
 
 from __future__ import annotations
 
+import statistics
 import time
 from typing import Any
 
@@ -811,32 +812,53 @@ def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bu
         result = dagster.materialize([asset_def])
         assert result.success
 
+    def _configure(enabled: bool) -> None:
+        phlo_observe.reset_for_tests()
+        if enabled:
+            assert phlo_observe.configure(
+                enabled=True, runtime_backend="capture", drains=[], service_name="phlo-test"
+            )
+        else:
+            # The production "PHLO_OBSERVE_ENABLED=false" state.
+            assert phlo_observe.configure(enabled=False, drains=[], service_name="phlo-test")
+
+    def _timed() -> float:
+        # Process CPU time counts this process's threads, including the
+        # observability runtime, but not other test workers sharing the runner.
+        start = time.process_time()
+        _materialize_once()
+        return time.process_time() - start
+
     _materialize_once()  # warm-up: module imports, job graph construction
     captured.clear()
 
-    n = 5
-    start = time.perf_counter()
+    # Alternate the legs so both see the same machine state, and warm each
+    # fresh configuration before timing it: wall-clock blocks on a shared
+    # four-worker runner measured neighbouring load, not observability.
+    n = 4
+    enabled_runs: list[float] = []
+    disabled_runs: list[float] = []
+    enabled_events = 0
     for _ in range(n):
+        _configure(True)
         _materialize_once()
-    enabled_s = time.perf_counter() - start
-    enabled_events = len(captured.payloads())
+        _backend().clear()
+        enabled_runs.append(_timed())
+        enabled_events += len(_backend().payloads())
+        _configure(False)
+        _materialize_once()
+        disabled_runs.append(_timed())
     assert enabled_events > 0
+    _configure(True)
+    assert len(_backend().payloads()) == 0
 
-    # Disabled leg: the production "PHLO_OBSERVE_ENABLED=false" state.
-    phlo_observe.reset_for_tests()
-    assert phlo_observe.configure(enabled=False, drains=[], service_name="phlo-test")
-    captured.clear()
-    start = time.perf_counter()
-    for _ in range(n):
-        _materialize_once()
-    disabled_s = time.perf_counter() - start
-    assert len(captured.payloads()) == 0
-
-    overhead_s = (enabled_s - disabled_s) / n
-    # 500ms/materialization is ~50x the measured delta; it fails only if
-    # observability introduces blocking or runaway emission into the step.
+    enabled_s = statistics.median(enabled_runs)
+    disabled_s = statistics.median(disabled_runs)
+    overhead_s = enabled_s - disabled_s
+    # 500ms of CPU per materialization is ~50x the measured delta; it fails
+    # only if observability introduces runaway work or emission into the step.
     assert overhead_s < 0.5, (
         f"observability added {overhead_s * 1000:.1f}ms/materialization "
-        f"(enabled={enabled_s:.3f}s disabled={disabled_s:.3f}s over {n} runs, "
+        f"(median CPU enabled={enabled_s:.3f}s disabled={disabled_s:.3f}s over {n} pairs, "
         f"{enabled_events} events)"
     )

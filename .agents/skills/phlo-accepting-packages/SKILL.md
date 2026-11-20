@@ -12,15 +12,15 @@ before running commands. Read the package and integration rows of the
 ## 1. Bind the inputs
 
 For development validation, record the checkout revision, local modifications,
-package inventory, and build outputs. For a staged candidate, record its exact
-candidate SHA, staging run, BOM digest, and previous candidate identity.
+package inventory, and build outputs. For a built release set, record its exact
+commit SHA, the Release Build run, the BOM digest, and the upgrade baseline release.
 Use the release set in `registry/support/v1.json` for current-source work and
 the authenticated BOM's embedded support manifest for candidate requirements.
 
-Read the [release publication procedure](../../../docs/contributing/release-publication.md)
-before candidate acceptance. It owns qualification rules, repeated-run evidence,
-and recovery. Dispatching staging, acceptance, or promotion is not authorised
-merely by loading this skill. Request explicit permission for remote workflow
+Read the [release publication procedure](../../../RELEASING.md)
+before accepting a built release set. It owns qualification rules and recovery.
+Dispatching Release Rehearsal or Release is not authorised merely by loading
+this skill. Request explicit permission for remote workflow
 dispatch or writes to shared infrastructure.
 
 ## 2. Validate development wheels outside the workspace
@@ -48,10 +48,10 @@ discovery, and generated project through the installed CLI. Use a fresh
 consumer directory and verify imported module paths. An editable installation
 or source bind mount cannot establish wheel contents.
 
-## 3. Accept a staged candidate without rebuilding
+## 3. Accept a built release set without rebuilding
 
-Reuse the authenticated producer and exact artifact bytes. The existing
-`.github/workflows/release-artifact-acceptance.yml` owns the hosted path.
+Reuse the exact artifact bytes from a Release Build run (its `release-set-<sha>`
+artifact). `.github/workflows/release-build.yml` owns the hosted path.
 For authorised local execution, inspect the golden-path driver and run:
 
 ```bash
@@ -79,7 +79,7 @@ the required checks to obtain passing evidence.
 
 Record input identities, commands, architecture, installed import provenance,
 passed boundaries, failures, and omitted checks. Separate development wheel
-validation, staged-artifact acceptance, and production qualification. A single
-local success does not satisfy repeated-run release requirements. For public
+validation, built-artifact acceptance, and production qualification. A local
+success does not replace the hosted release smoke. For public
 publication checks, continue with
 [release verification](../phlo-verifying-releases/SKILL.md).

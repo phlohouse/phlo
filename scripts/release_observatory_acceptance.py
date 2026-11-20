@@ -32,7 +32,7 @@ ROUTES = {
     "": "Overview",
     "assets": "Assets",
     "incidents": "Incidents",
-    "pipelines": "Jobs",
+    "pipelines": "Pipelines",
     "query": "Query",
     "branches": "Branches",
 }
@@ -326,10 +326,7 @@ print('{}')
 
 def provision_preview(config: golden.RunConfig, binding: dict) -> list:
     document = golden.compose_config_json(config)
-    networks = document["networks"]
-    if len(networks) != 1:
-        raise golden.CandidateError("Acceptance requires one explicit shared test network")
-    network = next(iter(networks.values()))["name"]
+    network = golden.shared_compose_network(document)
     inputs = preview_config(config, binding, network)
     output = inputs.parent / "generated"
     golden.run(
@@ -389,7 +386,7 @@ def preview_layer(config: golden.RunConfig, output: Path, api_definition: dict) 
         """
 import json, sys, yaml
 from pathlib import Path
-root=Path.cwd(); output=Path(sys.argv[1]); layer=yaml.safe_load((output/'compose.yaml').read_text())
+root=Path.cwd(); output=Path(sys.argv[1]).resolve(); layer=yaml.safe_load((output/'compose.yaml').read_text())
 service=layer['services']['trino-preview']
 for definition in layer['services'].values():
     for index,mount in enumerate(definition.get('volumes',[])):
@@ -839,7 +836,8 @@ def browser_journey(config: golden.RunConfig, binding: dict, artifacts: Path) ->
         _browser(session, "open", f"{base}/query?env={env}")
         _browser(session, "wait", ".cm-content")
         _browser(session, "click", ".cm-content")
-        _browser(session, "press", "Control+A")
+        # CodeMirror binds select-all to the platform modifier (Cmd on macOS).
+        _browser(session, "press", "Meta+A" if sys.platform == "darwin" else "Control+A")
         _browser(session, "press", "Backspace")
         _browser(
             session,
@@ -1061,6 +1059,88 @@ def recover(config: golden.RunConfig, binding: dict, query_id: str) -> dict:
     }
 
 
+MINIO_IMAGE_MIGRATION = "phlo minio migrate-image"
+
+
+def review_upgrade_plan(
+    candidate: golden.RunConfig,
+    pristine: Path,
+    plan_file: Path,
+    ownership_options: tuple[str, ...],
+) -> dict:
+    """Write a reviewed upgrade plan and report its migrations, conflicts and token."""
+    golden.run(
+        golden.command(
+            str(candidate.operator_bin),
+            "services",
+            "upgrade",
+            "--observatory-dev",
+            *ownership_options,
+            "--previous-generated",
+            str(pristine),
+            "--dry-run",
+            "--output",
+            str(plan_file),
+        ),
+        cwd=candidate.project_dir,
+        capture_output=True,
+    )
+    return installed(
+        candidate,
+        """
+import json,sys
+from pathlib import Path
+from phlo.operations.generated_stack import GeneratedStackPlan
+plan=GeneratedStackPlan.model_validate_json(Path(sys.argv[1]).read_text())
+print(json.dumps({'migrations':list(plan.migrations),
+    'conflict':any(change.state=='conflict' for change in plan.files),
+    'token':plan.token()}))
+""",
+        str(plan_file),
+    )
+
+
+def migrate_minio_image(
+    previous: golden.RunConfig, candidate: golden.RunConfig, pristine: Path
+) -> None:
+    """Run the installed MinIO image migration on the retained project.
+
+    The migration refuses Compose layers that override MinIO, so the owned
+    acceptance pin layers are removed for it and then restored without their
+    MinIO entries: the reviewed upgrade still resolves every other service to
+    its pinned digest, while MinIO keeps the migrated image. Candidate pinning
+    is re-applied after the reviewed upgrade, and retained objects are verified
+    on restart.
+    Its provider-owned rewrite of the generated Compose file is carried into the
+    previous-generated baseline only when that file was unmodified generated
+    output, so any other customization still surfaces as a plan conflict.
+    """
+    compose_file = candidate.project_dir / ".phlo/docker-compose.yml"
+    baseline_file = pristine / ".phlo/docker-compose.yml"
+    before = compose_file.read_bytes()
+    if baseline_file.read_bytes() != before:
+        raise golden.CandidateError(
+            "MinIO migration requires the unmodified generated Compose file"
+        )
+    pins_file = candidate.project_dir / ".phlo/compose.candidate.json"
+    pins = json.loads(pins_file.read_text())
+    had_start_pins = (candidate.project_dir / ".phlo/compose.local.yaml").exists()
+    installed_start_pins(previous, remove=True)
+    pins_file.unlink()
+    for options in ((), ("--apply",)):
+        golden.run(
+            golden.command(str(candidate.operator_bin), "minio", "migrate-image", *options),
+            cwd=candidate.project_dir,
+            capture_output=True,
+        )
+    baseline_file.write_bytes(compose_file.read_bytes())
+    for name in ("minio", "minio-setup"):
+        pins["services"].pop(name, None)
+    pins_file.write_text(json.dumps(pins, indent=2) + "\n", encoding="utf-8")
+    if had_start_pins:
+        installed_start_pins(previous)
+
+
 def transition(
     previous: golden.RunConfig, candidate: golden.RunConfig, binding: dict, pristine: Path
 ) -> dict:
@@ -1136,35 +1216,21 @@ print('{}')
     )
     plan_file = candidate.project_dir.parent / "reviewed-upgrade.json"
     ownership_options = ("--repair-empty-api-binds",) if sys.platform == "linux" else ()
-    golden.run(
-        golden.command(
-            str(candidate.operator_bin),
-            "services",
-            "upgrade",
-            "--observatory-dev",
-            *ownership_options,
-            "--previous-generated",
-            str(pristine),
-            "--dry-run",
-            "--output",
-            str(plan_file),
-        ),
-        cwd=candidate.project_dir,
-        capture_output=True,
-    )
-    token = installed(
-        candidate,
-        """
-import json,sys
-from pathlib import Path
-from phlo.operations.generated_stack import GeneratedStackPlan
-plan=GeneratedStackPlan.model_validate_json(Path(sys.argv[1]).read_text())
-if plan.migrations or any(change.state=='conflict' for change in plan.files):
-    raise SystemExit('Provider migration or customization conflict requires review')
-print(json.dumps({'value':plan.token()}))
-""",
-        str(plan_file),
-    )["value"]
+    plan = review_upgrade_plan(candidate, pristine, plan_file, ownership_options)
+    minio_image_migrated = False
+    if (
+        plan["migrations"]
+        and not plan["conflict"]
+        and all(migration.startswith(MINIO_IMAGE_MIGRATION) for migration in plan["migrations"])
+    ):
+        # The documented operator path for a MinIO image change: migrate the
+        # retained storage with the installed provider, then plan again.
+        migrate_minio_image(previous, candidate, pristine)
+        minio_image_migrated = True
+        plan = review_upgrade_plan(candidate, pristine, plan_file, ownership_options)
+    if plan["migrations"] or plan["conflict"]:
+        raise golden.CandidateError("Provider migration or customization conflict requires review")
+    token = plan["token"]
     # The source project and its volumes are retained; --force and fixture
     # substrate upgrades are deliberately absent.
     command = golden.command(
@@ -1199,6 +1265,17 @@ print('{}')
     installed_start_pins(previous, remove=True)
     (candidate.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
     golden.pin_candidate_images(candidate)
+    # The upgraded API binds directories that older releases never created;
+    # `phlo services start` prepares them, so do the same before running it.
+    installed(
+        candidate,
+        """
+from pathlib import Path
+from phlo.cli.commands.services.utils import prepare_api_runtime_directories
+prepare_api_runtime_directories(Path.cwd()/'.phlo', ['phlo-api'])
+print('{}')
+""",
+    )
     # Previous installations may never have used the incident/usage stores.
     # Delegate their additive bootstrap to the same installed owners as API
     # startup, with writers still stopped, before checking old constraints.
@@ -1280,6 +1357,7 @@ print('{}')
         )
     return {
         "reviewed_plan_applied_twice": True,
+        "minio_image_migrated": minio_image_migrated,
         "verified_database_backup": True,
         "database_restore": restore,
         "retained_project": True,
@@ -1323,7 +1401,9 @@ def start(config: golden.RunConfig, *, legacy: bool = False) -> None:
     document = golden.compose_config_json(config)
     if any(definition.get("build") for definition in document["services"].values()):
         raise golden.CandidateError("Installed startup must not have a build fallback")
-    compose(config, "--profile", "api", "pull")
+    # Pull output names only images and registries; show it so a registry
+    # failure is diagnosable instead of a bare CalledProcessError.
+    compose(config, "--profile", "api", "pull", capture=False)
     golden.run(
         golden.command(str(config.operator_bin), "services", "start"),
         cwd=config.project_dir,
@@ -1422,24 +1502,31 @@ def run_one(
             compose(config, "down", "--volumes", "--remove-orphans")
 
 
-def run_journey(
-    config: golden.RunConfig, *, previous_bom: Path | None, artifacts: Path
-) -> tuple[dict, list]:
-    """Called by exact-BOM acceptance, never by source-mode fixture demonstrations."""
+def _require_tools(config: golden.RunConfig) -> None:
     for executable in ("agent-browser", "openssl", "docker", "certutil"):
         if not shutil.which(executable):
             raise golden.CandidateError(f"Installed Observatory acceptance requires {executable}")
-    if previous_bom is None:
-        raise golden.CandidateError(
-            "Retained-volume Observatory acceptance requires an explicit previous candidate BOM"
-        )
     if config.bom is None:
         raise golden.CandidateError(
             "Installed Observatory acceptance requires an exact candidate BOM"
         )
-    previous = bom_module.load_bom(previous_bom)
-    if previous["canonical_candidate_digest"] == config.bom["canonical_candidate_digest"]:
-        raise golden.CandidateError("Previous and candidate BOMs must identify different artifacts")
+
+
+def _run_private(action, temporary: Path) -> tuple[dict, list]:
+    try:
+        result = action()
+    except Exception as exc:
+        # Do not copy secrets or raw provider errors to public evidence.
+        raise golden.CandidateError(
+            f"Observatory acceptance failed ({type(exc).__name__}); private regression state retained at {temporary}"
+        ) from exc
+    golden.remove_tree(temporary)
+    return result
+
+
+def run_fresh(config: golden.RunConfig, *, artifacts: Path) -> tuple[dict, list]:
+    """Install the candidate on empty volumes and run the Observatory journey."""
+    _require_tools(config)
     temporary = Path(tempfile.mkdtemp(prefix="phlo-observatory-acceptance-"))
     fresh = replace(
         config,
@@ -1447,6 +1534,25 @@ def run_journey(
         operator_env=temporary / "fresh-operator",
         project_name=f"{config.project_name}-fresh",
     )
+    return _run_private(
+        lambda: run_one(fresh, candidate=None, artifacts=artifacts / "fresh"), temporary
+    )
+
+
+def run_upgrade(
+    config: golden.RunConfig, *, previous_bom: Path | None, artifacts: Path
+) -> tuple[dict, list]:
+    """Install the previous release, upgrade it to the candidate, and rerun the journey."""
+    if previous_bom is None:
+        raise golden.CandidateError(
+            "Retained-volume Observatory acceptance requires an explicit previous candidate BOM"
+        )
+    _require_tools(config)
+    assert config.bom is not None
+    previous = bom_module.load_bom(previous_bom)
+    if previous["canonical_candidate_digest"] == config.bom["canonical_candidate_digest"]:
+        raise golden.CandidateError("Previous and candidate BOMs must identify different artifacts")
+    temporary = Path(tempfile.mkdtemp(prefix="phlo-observatory-acceptance-"))
     old = replace(
         config,
         project_dir=temporary / f"{config.project_name}-upgrade",
@@ -1463,17 +1569,9 @@ def run_journey(
         staging_dir=config.staging_dir,
         wheelhouse=config.wheelhouse,
     )
-    try:
-        fresh_result, exercised = run_one(fresh, candidate=None, artifacts=artifacts / "fresh")
-        upgrade_result, _ = run_one(old, candidate=candidate, artifacts=artifacts / "upgrade")
-    except Exception as exc:
-        # Do not copy secrets or raw provider errors to public evidence.
-        raise golden.CandidateError(
-            f"Observatory acceptance failed ({type(exc).__name__}); private regression state retained at {temporary}"
-        ) from exc
-    shutil.rmtree(temporary)
-    return {
-        "fresh": fresh_result,
-        "upgrade": upgrade_result,
-        "previous_candidate_digest": previous["canonical_candidate_digest"],
-    }, exercised
+    result, _ = _run_private(
+        lambda: run_one(old, candidate=candidate, artifacts=artifacts / "upgrade"), temporary
+    )
+    # The upgrade installs the previous release's wheels first, which are not
+    # candidate artifacts; the fresh journey records what the candidate exercised.
+    return {**result, "previous_candidate_digest": previous["canonical_candidate_digest"]}, []

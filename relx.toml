@@ -254,8 +254,8 @@ sections.style = false
 sections.test = false
 
 [publish]
-# ReleaseX creates version PRs only. Publication is owned by the qualified,
-# build-once release-promotion.yml path, never ReleaseX's build/publish path.
+# ReleaseX creates version PRs only. Publication is owned by the build-once
+# release-promotion.yml workflow (ADR 0068), never ReleaseX's build/publish path.
 enabled = false
 provider = "uv"
 repository = "pypi"

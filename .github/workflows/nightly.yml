@@ -39,7 +39,7 @@ jobs:
         id: build
         uses: ./.github/actions/build-minio-image
         with:
-          image: ghcr.io/phlohouse/phlo-minio:0.17.4
+          image: ghcr.io/phlohouse/phlo-minio:0.17.5
 
   upstream-compatibility:
     name: nightly / fresh provider dependencies
@@ -109,16 +109,6 @@ jobs:
       - name: Run release artifact golden path
         run: python3 scripts/release_golden_path.py
 
-  release-artifact-acceptance:
-    name: nightly / artifact staging outcome (not qualification)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Record artifact-not-staged separately from maintenance success
-        run: |
-          echo 'Artifact qualification: artifact-not-staged. Maintenance does not stage a release candidate.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Use Release Stage and Release Artifact Acceptance for immutable candidate qualification.' >> "$GITHUB_STEP_SUMMARY"
-
   operations-evidence:
     name: python / security + maintenance evidence
     runs-on: ubuntu-latest
@@ -152,6 +142,56 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
 
+  python-313:
+    name: nightly / Python 3.13 workspace tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/docker-mirror
+      - uses: ./.github/actions/python-workspace
+        with:
+          python-version: "3.13"
+      - name: Run the non-integration workspace suite on 3.13
+        run: >-
+          uv run --locked python -m pytest -m "not integration"
+          -n 4 --dist worksteal --timeout=300 --tb=short
+
+  package-selection:
+    name: nightly / package test selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      selection: ${{ steps.select.outputs.selection }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Select every isolated package group
+        id: select
+        run: |
+          set -euo pipefail
+          # PRs run these groups only when a dependency manifest changes.
+          selection="$(python3 scripts/select_ci.py --base HEAD --head HEAD | jq -c '
+            {groups, python: false, frontend: false, writer: false, integration: false,
+             docs: false, plugin: false, mutation: false,
+             reasons: {packages: "nightly isolated package dependency check"}}')"
+          test "$(jq '.groups | length' <<< "$selection")" -gt 0
+          echo "selection=$selection" >> "$GITHUB_OUTPUT"
+
+  package-tests:
+    name: nightly / isolated package tests
+    needs: package-selection
+    uses: ./.github/workflows/ci.yml
+    with:
+      selection: ${{ needs.package-selection.outputs.selection }}
+
+  windows-portability:
+    name: nightly / Windows compose portability
+    uses: ./.github/workflows/windows-compose-portability.yml
+
   nightly-status:
     name: nightly / status
     if: always()
@@ -160,8 +200,10 @@ jobs:
       - upstream-compatibility
       - full-integration
       - release-golden-path
-      - release-artifact-acceptance
       - operations-evidence
+      - python-313
+      - package-tests
+      - windows-portability
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -172,8 +214,10 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           FULL_INTEGRATION: ${{ needs.full-integration.result }}
           RELEASE_GOLDEN_PATH: ${{ needs.release-golden-path.result }}
-          RELEASE_ARTIFACT_ACCEPTANCE: ${{ needs.release-artifact-acceptance.result }}
           OPERATIONS_EVIDENCE: ${{ needs.operations-evidence.result }}
+          PYTHON_313: ${{ needs.python-313.result }}
+          PACKAGE_TESTS: ${{ needs.package-tests.result }}
+          WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
         run: |
           set -euo pipefail
           echo "Fresh dependency resolution: $UPSTREAM_COMPATIBILITY" >> "$GITHUB_STEP_SUMMARY"
@@ -182,14 +226,27 @@ jobs:
             echo "::error::Scheduled fresh resolution failed: $UPSTREAM_COMPATIBILITY"
             exit 1
           fi
-          for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH" "$OPERATIONS_EVIDENCE"; do
+          for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH" "$OPERATIONS_EVIDENCE" "$PYTHON_313" "$PACKAGE_TESTS" "$WINDOWS_PORTABILITY"; do
             if [ "$result" != "success" ]; then
               echo "::error::Required nightly check finished with result: $result"
               exit 1
             fi
           done
-          echo 'Artifact qualification: artifact-not-staged (not release evidence).' >> "$GITHUB_STEP_SUMMARY"
-          if [ "$RELEASE_ARTIFACT_ACCEPTANCE" != "success" ]; then
-            echo "::error::Staging outcome report failed: $RELEASE_ARTIFACT_ACCEPTANCE"
-            exit 1
-          fi
+
+  report:
+    name: nightly / report red schedule
+    needs: nightly-status
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/report-red-run
+        with:
+          title: "ci: nightly is failing"
+          github-token: ${{ github.token }}

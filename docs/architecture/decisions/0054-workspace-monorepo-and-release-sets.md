@@ -6,6 +6,8 @@
 
 Amended (2026-11-01): decision 2 applies to releases below `1.0.0`. From `1.0.0`, every distribution in the release set shares one version under [ADR 0053](0053-what-1-0-promises.md) decision 4, resolved by `scripts/release_lockstep_version.py` and checked by `scripts/validate_support_manifest.py` ([#1231](https://github.com/phlohouse/phlo/pull/1231)). Each `pyproject.toml` remains its distribution's only version authority.
 
+Amended (2026-11-20): publication belongs to the release workflow in [ADR 0068](0068-release-publishing.md), which supersedes ADR 0050. A package whose version is already on PyPI ships PyPI's bytes rather than a rebuild.
+
 - Original decision: March 2026 (ReleaseX adoption), extended August–October 2026
 - Evidence: [#300](https://github.com/phlohouse/phlo/pull/300) (2026-03-26),
   commit `8f8247e2` (2026-03-28, "adopt ReleaseX release_set mode"),
@@ -64,14 +66,14 @@ root is 0.18.0 and the 39 workspace packages range from 0.1.0 to 0.18.0.
    runs the support-matrix and example-lock transformers and the checked
    replacements for the support manifest, first-party image tags and example
    pins ([#732](https://github.com/phlohouse/phlo/pull/732)). Publication
-   belongs to the promotion workflow defined by
-   [ADR 0050](0050-freeze-release-promotion-contract.md).
+   belongs to the release workflow defined by
+   [ADR 0068](0068-release-publishing.md).
 7. **Two channels.** `main` produces stable versions; `beta` produces `b`
    pre-releases.
 
 ## Consequences
 
-- One human merge of the release PR versions the whole set; ADR 0050 makes that
+- One human merge of the release PR versions the whole set; ADR 0068 makes that
   merge the publication authority.
 - A core minor release re-versions nearly every provider, because each provider's
   core range changes. The 0.18.0 release PR
@@ -93,12 +95,13 @@ root is 0.18.0 and the 39 workspace packages range from 0.1.0 to 0.18.0.
 - **Lockstep versioning of every distribution:** not adopted below `1.0.0`.
   Packages keep independent versions, and the core-minor range carries
   compatibility instead. ADR 0053 decision 4 adopts it from `1.0.0`.
-- **Publishing from ReleaseX:** disabled in favour of the build-once promotion
-  path in ADR 0050.
+- **Publishing from ReleaseX:** disabled in favour of the build-once release
+  workflow in ADR 0068.
 
 ## Related
 
-- [ADR 0050](0050-freeze-release-promotion-contract.md): release promotion contract.
+- [ADR 0068](0068-release-publishing.md): release publishing, superseding
+  [ADR 0050](0050-freeze-release-promotion-contract.md).
 - [ADR 0058](0058-support-manifest-as-support-authority.md): support manifest and release set.
 - [relx.toml](../../../relx.toml), [scripts/check_version_drift.py](../../../scripts/check_version_drift.py).
-- [Qualify a trusted-publishing release](../../contributing/release-publication.md).
+- [Qualify a trusted-publishing release](../../../RELEASING.md).

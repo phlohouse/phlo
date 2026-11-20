@@ -20,17 +20,14 @@ INTEGRATION_JOBS = {
     "integration / integration / MinIO source image",
     "integration / integration / storage contracts",
     "integration / integration / api-contracts",
-    "integration / integration / api-preview",
-    "integration / integration / api-query-journey",
-    "integration / integration / api-branch-journey",
+    "integration / integration / api-query",
     "integration / integration / operations",
     "integration / integration / required suites",
 }
 PROVIDER_JOBS = {f"ci / python / installed provider artifacts ({index})" for index in range(2)}
 NODE_JOBS = {
     "ci / behaviour / JavaScript",
-    "ci / behaviour / GitHub writer",
-    "ci / behaviour / GitHub plugin",
+    "ci / behaviour / GitHub writer and plugin",
 }
 
 
@@ -157,7 +154,7 @@ def test_missing_queue_artifact_uses_full_fallback(tmp_path, monkeypatch):
 
 def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     jobs = evidence.expected_jobs()
-    assert {f"ci / python / core tests (3.12, shard {i})" for i in range(3)} <= jobs
+    assert not any("core tests" in name or "3.13" in name for name in jobs)
     assert {name for name in jobs if "installed provider artifacts" in name} == PROVIDER_JOBS
     assert {f"ci / python / workspace coverage (shard {i})" for i in range(4)} <= jobs
     assert jobs >= NODE_JOBS

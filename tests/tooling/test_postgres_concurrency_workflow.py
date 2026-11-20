@@ -33,8 +33,8 @@ CORE_REGRESSION_MARKER = "core_regression"
 GATE_JOB = "integration"
 OPERATIONS_JOB = "operations"
 GATE_STEP = "Run PostgreSQL concurrency gates"
-API_GROUPS = ("api-contracts", "api-preview", "api-query-journey", "api-branch-journey")
-MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.4"
+API_GROUPS = ("api-contracts", "api-query")
+MINIO_IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.5"
 MINIO_IMAGE_ID = "sha256:" + "a" * 64
 GATE_DSN_ENV_VARS = (
     "PHLO_SERVICE_TOKEN_TEST_POSTGRES_DSN",
@@ -80,26 +80,19 @@ def _make_recipe(target: str) -> str:
 
 def test_core_regression_lane_selects_tests_through_the_marker_filter() -> None:
     ci = _parse_yaml(WORKFLOW_ROOT / CI_WORKFLOW)
-    job = ci["jobs"]["python-core-tests"]
-
-    regression_step = _step_named(job, "Run core regression suite")
-    assert regression_step.get("id") == "core_regression"
-    assert regression_step.get("run") == f"make {CORE_REGRESSION_TARGET}"
+    workspace = ci["jobs"]["python-coverage-workspace"]
+    measured = _step_named(
+        workspace, "Measure the complete workspace with module-preserving shards"
+    )
+    assert "make test-coverage-workspace" in (measured.get("run") or "")
+    workspace_tokens = _make_recipe("test-coverage-workspace").split()
+    assert "'not" in workspace_tokens, "PR CI must run every non-integration test once"
 
     recipe_tokens = _make_recipe(CORE_REGRESSION_TARGET).split()
     marker_indexes = [index for index, token in enumerate(recipe_tokens) if token == "-m"]
     assert any(recipe_tokens[index + 1] == CORE_REGRESSION_MARKER for index in marker_indexes), (
         f"{CORE_REGRESSION_TARGET} must select tests via -m {CORE_REGRESSION_MARKER}"
     )
-
-    general_run = _step_named(job, "Run core tests").get("run") or ""
-    marker_expression = re.search(r"""-m\s+(?P<quote>['"])(?P<expr>.*?)(?P=quote)""", general_run)
-    assert marker_expression, "general core lane must filter with a quoted -m expression"
-    expression_tokens = marker_expression.group("expr").split()
-    assert any(
-        expression_tokens[index] == "not" and expression_tokens[index + 1] == CORE_REGRESSION_MARKER
-        for index in range(len(expression_tokens) - 1)
-    ), "general core lane must exclude the core_regression marker"
 
 
 def test_postgres_gate_is_required_and_runs_the_lock_guard_suites() -> None:

@@ -13,7 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEPENDENCY_PATTERN = re.compile(r"^(phlo(?:-[a-z0-9-]+)?)\b")
 # Supported Python versions; every package test group runs on each one.
-PYTHON_VERSIONS = ("3.12", "3.13")
+# Images and the runtime baseline ship 3.12 (ADR 0059). 3.13 runs nightly.
+PYTHON_VERSIONS = ("3.12",)
 
 
 def inert_doc(path: str) -> bool:
@@ -24,7 +25,14 @@ def inert_doc(path: str) -> bool:
 
 
 def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
-    """Fail open for unrecognised paths; expand package changes to their dependents."""
+    """Fail open for unrecognised paths; expand package changes to their dependents.
+
+    Workspace coverage runs every package's tests on each PR. The isolated
+    package groups only add a check of each package's declared dependencies,
+    so they run when a dependency manifest changes and for an empty diff: the
+    merge queue, manual runs and nightly, whose full evidence covers every
+    configured job.
+    """
     groups = {
         group: packages.split()
         for group, packages in json.loads(
@@ -53,33 +61,6 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
         for path in paths
         if path.startswith("packages/") and len(path.split("/")) > 2
     }
-    broad = (
-        not paths
-        or bool(package_changes - package_names)
-        or any(path.startswith("packages/") and len(path.split("/")) < 3 for path in paths)
-        or any(
-            not path.startswith(("packages/", "apps/phlo-github-writer/", ".amp/plugins/"))
-            and not inert_doc(path)
-            for path in paths
-        )
-    )
-    if broad:
-        return {
-            "groups": [
-                {"group": group, "packages": " ".join(packages), "python-version": version}
-                for version in PYTHON_VERSIONS
-                for group, packages in groups.items()
-            ],
-            "python": True,
-            "frontend": True,
-            "writer": True,
-            "integration": True,
-            "docs": True,
-            "plugin": True,
-            "mutation": True,
-            "reasons": {"all": "empty diff or unrecognised path requires full validation"},
-        }
-
     dependents: dict[str, set[str]] = {package: set() for package in package_names}
     for package in package_names:
         metadata = tomllib.loads((root / "packages" / package / "pyproject.toml").read_text())
@@ -93,24 +74,79 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
             match = DEPENDENCY_PATTERN.match(requirement)
             if match and match[1] in dependents:
                 dependents[match[1]].add(package)
-    affected = set(package_changes)
-    pending = list(affected)
-    while pending:
-        for dependent in dependents[pending.pop()] - affected:
-            affected.add(dependent)
-            pending.append(dependent)
-    selected = [
-        {"group": group, "packages": " ".join(packages), "python-version": version}
-        for version in PYTHON_VERSIONS
-        for group, packages in groups.items()
-        if affected.intersection(packages)
-    ]
+
+    def with_dependents(changed: set[str]) -> set[str]:
+        affected = set(changed)
+        pending = list(affected)
+        while pending:
+            for dependent in dependents[pending.pop()] - affected:
+                affected.add(dependent)
+                pending.append(dependent)
+        return affected
+
+    def package_groups(packages_to_test: set[str]) -> list[dict[str, str]]:
+        return [
+            {"group": group, "packages": " ".join(packages), "python-version": version}
+            for version in PYTHON_VERSIONS
+            for group, packages in groups.items()
+            if packages_to_test.intersection(packages)
+        ]
+
+    manifests = {
+        path.split("/")[1]
+        for path in paths
+        if path.startswith("packages/")
+        and path.count("/") == 2
+        and path.endswith("/pyproject.toml")
+    } & package_names
+    workspace_manifest = bool({"pyproject.toml", "uv.lock"} & paths)
+    if not paths or workspace_manifest:
+        isolated = package_groups(package_names)
+        isolated_reason = (
+            "empty diff (merge queue, manual or nightly) or workspace dependency manifest"
+        )
+    else:
+        isolated = package_groups(with_dependents(manifests))
+        isolated_reason = (
+            "dependency manifests and reverse dependencies: "
+            + ", ".join(sorted(with_dependents(manifests)))
+            if manifests
+            else "no dependency manifest changes; workspace coverage runs package tests"
+        )
+
+    broad = (
+        not paths
+        or bool(package_changes - package_names)
+        or any(path.startswith("packages/") and len(path.split("/")) < 3 for path in paths)
+        or any(
+            not path.startswith(("packages/", "apps/phlo-github-writer/", ".amp/plugins/"))
+            and not inert_doc(path)
+            for path in paths
+        )
+    )
+    if broad:
+        return {
+            "groups": isolated,
+            "python": True,
+            "frontend": True,
+            "writer": True,
+            "integration": True,
+            "docs": True,
+            "plugin": True,
+            "mutation": True,
+            "reasons": {
+                "all": "empty diff or unrecognised path requires full validation",
+                "packages": isolated_reason,
+            },
+        }
+
+    affected = with_dependents(package_changes)
     frontend = "phlo-api" in affected or any(
         path.startswith("packages/phlo-observatory/") for path in paths
     )
     writer = any(path.startswith("apps/phlo-github-writer/") for path in paths)
     return {
-        "groups": selected,
+        "groups": isolated,
         "python": bool(package_changes),
         "frontend": frontend,
         "writer": writer,
@@ -119,7 +155,8 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
         "plugin": any(path.startswith(".amp/plugins/") for path in paths),
         "mutation": "phlo-api" in affected,
         "reasons": {
-            "packages": "changed packages and reverse dependencies: " + ", ".join(sorted(affected)),
+            "python": "changed packages and reverse dependencies: " + ", ".join(sorted(affected)),
+            "packages": isolated_reason,
             "frontend": "Observatory or authoritative API inputs"
             if frontend
             else "no client/API changes",

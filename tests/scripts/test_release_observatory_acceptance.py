@@ -579,3 +579,114 @@ def test_oidc_acceptance_requires_verified_role_denial_and_honest_receipt(
         assert result["canonical_role"] == "viewer"
         assert result["environment_denied"] and result["admin_denied"]
         assert result["logout_denied"] and result["api_no_token_denied"]
+
+
+def test_minio_migration_carries_provider_rewrite_into_baseline(
+    tmp_path, observatory, config, monkeypatch
+) -> None:
+    project = config.project_dir / ".phlo"
+    project.mkdir(parents=True)
+    pristine = tmp_path / "pristine"
+    (pristine / ".phlo").mkdir(parents=True)
+    generated = b"services:\n  minio:\n    image: ghcr.io/phlohouse/phlo-minio:0.17.1\n"
+    (project / "docker-compose.yml").write_bytes(generated)
+    (pristine / ".phlo/docker-compose.yml").write_bytes(generated)
+    migrated = b"services:\n  minio:\n    image: ghcr.io/phlohouse/phlo-minio:0.17.4\n"
+    pinned_api = "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64
+    (project / "compose.candidate.json").write_text(
+        json.dumps(
+            {
+                "services": {
+                    "minio": {"image": "ghcr.io/phlohouse/phlo-minio@sha256:" + "1" * 64},
+                    "minio-setup": {"image": "ghcr.io/phlohouse/phlo-minio@sha256:" + "1" * 64},
+                    "phlo-api": {"image": pinned_api},
+                }
+            }
+        )
+    )
+    (project / "compose.local.yaml").write_text("# owned pins\n")
+    restored = []
+    calls = []
+
+    def run(args, **_):
+        calls.append(args[1:])
+        if "--apply" in args:
+            (project / "docker-compose.yml").write_bytes(migrated)
+
+    def start_pins(_config, *, remove=False):
+        if remove:
+            (project / "compose.local.yaml").unlink()
+        else:
+            restored.append(json.loads((project / "compose.candidate.json").read_text()))
+
+    monkeypatch.setattr(observatory, "installed_start_pins", start_pins)
+    monkeypatch.setattr(observatory.golden, "run", run)
+
+    observatory.migrate_minio_image(config, config, pristine)
+
+    assert calls == [["minio", "migrate-image"], ["minio", "migrate-image", "--apply"]]
+    assert (pristine / ".phlo/docker-compose.yml").read_bytes() == migrated
+    # Every other service stays digest-pinned; MinIO keeps the migrated image.
+    assert restored == [{"services": {"phlo-api": {"image": pinned_api}}}]
+
+
+def test_minio_migration_refuses_a_customized_generated_compose(
+    tmp_path, observatory, config, monkeypatch
+) -> None:
+    (config.project_dir / ".phlo").mkdir(parents=True)
+    pristine = tmp_path / "pristine"
+    (pristine / ".phlo").mkdir(parents=True)
+    (config.project_dir / ".phlo/docker-compose.yml").write_text("services: {custom: {}}\n")
+    (pristine / ".phlo/docker-compose.yml").write_text("services: {}\n")
+    monkeypatch.setattr(
+        observatory.golden, "run", lambda *_, **__: pytest.fail("migration must not run")
+    )
+
+    with pytest.raises(observatory.golden.CandidateError, match="unmodified generated Compose"):
+        observatory.migrate_minio_image(config, config, pristine)
+
+
+def test_login_return_wait_retries_only_browser_timeouts(observatory, monkeypatch) -> None:
+    import release_observatory_oidc as oidc
+
+    calls = []
+
+    def browser(*args):
+        calls.append(args)
+        if len(calls) < 3:
+            raise subprocess.CalledProcessError(1, "agent-browser", output="Wait timed out")
+        return {}
+
+    monkeypatch.setattr(oidc.observatory, "_browser", browser)
+    oidc.wait_for_login_return("session")
+    assert len(calls) == 3
+
+    def denied(*args):
+        raise subprocess.CalledProcessError(1, "agent-browser", output="net::ERR_CERT")
+
+    monkeypatch.setattr(oidc.observatory, "_browser", denied)
+    with pytest.raises(subprocess.CalledProcessError):
+        oidc.wait_for_login_return("session")
+
+
+def test_installed_start_streams_pull_output_and_keeps_other_output_private(
+    monkeypatch, observatory, config
+):
+    calls = []
+    monkeypatch.setattr(observatory, "installed_start_pins", lambda _config: None)
+    monkeypatch.setattr(
+        observatory.golden,
+        "compose_config_json",
+        lambda _config: {"services": {"api": {"image": "ghcr.io/example/api@sha256:" + "0" * 64}}},
+    )
+
+    def run(args, *, cwd, capture_output=False, env=None):
+        calls.append((args, capture_output))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(observatory.golden, "run", run)
+    observatory.start(config)
+    pull = [capture for args, capture in calls if args[-1] == "pull"]
+    assert pull == [False]
+    starts = [capture for args, capture in calls if args[-2:] == ["services", "start"]]
+    assert starts == [True]

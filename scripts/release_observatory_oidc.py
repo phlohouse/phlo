@@ -126,7 +126,7 @@ def prepare(
     observatory.private_file(root / "import/realm.json", json.dumps(realm))
     observatory.private_file(root / "login.json", json.dumps({"password": password, "base": base}))
     document = golden.compose_config_json(config)
-    network = next(iter(document["networks"].values()))["name"]
+    network = golden.shared_compose_network(document)
     api_image = document["services"]["phlo-api"]["image"]
     # The denial target is real, not an alias or placeholder environment.
     private_ref = "acceptance-denied-" + secrets.token_hex(6)
@@ -270,6 +270,23 @@ def wait_https(url: str, context: ssl.SSLContext) -> None:
     raise golden.CandidateError("Disposable OIDC HTTPS endpoint did not become ready")
 
 
+def wait_for_login_return(session: str, attempts: int = 4) -> None:
+    """Wait for the identity provider to redirect back to the Observatory.
+
+    The redirect can exceed one 25 second browser wait on a loaded runner, so
+    keep waiting, bounded, but only when the wait itself timed out.
+    """
+    for attempt in range(attempts):
+        try:
+            observatory._browser(
+                session, "wait", "--fn", "location.hostname==='observatory.phlo.localhost'"
+            )
+            return
+        except subprocess.CalledProcessError as exc:
+            if attempt == attempts - 1 or "Wait timed out" not in (exc.stdout or ""):
+                raise
+
+
 def run(config: golden.RunConfig, binding: dict, artifacts: Path, proxy_image: str) -> dict:
     root, issuer, base, private_ref = prepare(config, binding, proxy_image)
     fixture = [
@@ -370,9 +387,7 @@ def run(config: golden.RunConfig, binding: dict, artifacts: Path, proxy_image: s
             text=True,
             check=True,
         )
-        observatory._browser(
-            session, "wait", "--fn", "location.hostname==='observatory.phlo.localhost'"
-        )
+        wait_for_login_return(session)
         identity = observatory._browser(
             session, "eval", "fetch('/oauth2/userinfo').then(r=>r.json())"
         )

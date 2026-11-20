@@ -27,6 +27,13 @@ from phlo_api.api.authorization import (
 )
 
 
+def setup_function() -> None:
+    # Another module on the same worker may leave a provider registered; the
+    # fail-closed tests below require a registry with no backend at all.
+    clear_all_capabilities()
+    clear_config_cache()
+
+
 def teardown_function() -> None:
     clear_all_capabilities()
     clear_config_cache()

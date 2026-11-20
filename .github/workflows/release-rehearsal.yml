@@ -1,0 +1,94 @@
+name: Release Rehearsal
+
+# Run the release build and smoke (release-build.yml) exactly as Release does,
+# without publishing. It runs on the ReleaseX PR, on PRs that change release
+# machinery, and nightly on main, so a broken release path shows up when it
+# breaks rather than on release day. A rehearsal BOM is refused by publishing.
+
+on:
+  pull_request:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rehearsal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  select:
+    name: rehearsal / select
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Decide whether this change needs a rehearsal
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo "run=$([ "$GITHUB_REF" = refs/heads/main ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fork PRs cannot push rehearsal images; they never rehearse.
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$HEAD_REF" = relx/release/monorepo/main-release-set ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          pattern='^(\.github/workflows/(release-|build-)|\.github/actions/|scripts/(release_|github_api|check_published_extras|generated_image_matrix|golden_path_common|run_golden_path)|security/container-waivers\.yml|relx\.toml|registry/support/|.*Dockerfile[^/]*$|.*/service\.yaml$)'
+          if grep -Eq "$pattern" <<< "$changed"; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: select
+    if: needs.select.outputs.run == 'true'
+    uses: ./.github/workflows/release-build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      rehearsal: true
+      # PRs prove amd64; the nightly schedule and Release also prove arm64.
+      hosts: ${{ github.event_name == 'pull_request' && '["amd64"]' || '["amd64","arm64"]' }}
+
+  report:
+    name: rehearsal / report red schedule
+    needs: [select, build]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/report-red-run
+        with:
+          title: "ci: nightly release rehearsal is failing"
+          github-token: ${{ github.token }}

@@ -525,3 +525,36 @@ def test_upstream_runtime_candidates_reject_cross_repository_replacements(
 
     with pytest.raises(ValueError, match="must retain upstream repository alpine; got busybox"):
         container_security.upstream_runtime_candidates("base", "head")
+
+
+def test_an_active_waiver_defers_a_fixable_finding_until_it_expires() -> None:
+    import datetime as dt
+
+    report = {
+        "Results": [
+            {
+                "Vulnerabilities": [
+                    {
+                        "VulnerabilityID": "CVE-2026-0002",
+                        "Severity": "CRITICAL",
+                        "FixedVersion": "2.0",
+                    }
+                ]
+            }
+        ]
+    }
+    waiver = {
+        "id": "api-cve-2026-0002",
+        "image": "ghcr.io/phlohouse/phlo-api",
+        "vulnerability_id": "CVE-2026-0002",
+        "approval_date": "2026-11-20",
+        "expiry_date": "2026-12-10",
+    }
+    image = "ghcr.io/phlohouse/phlo-api:1"
+    errors, warnings = container_security.apply_policy(
+        report, image, [waiver], dt.date(2026, 11, 25)
+    )
+    assert errors == []
+    assert warnings == [f"{image}: fixable CRITICAL CVE-2026-0002 deferred by an active waiver"]
+    errors, _ = container_security.apply_policy(report, image, [waiver], dt.date(2026, 12, 11))
+    assert errors == [f"{image}: fixable CRITICAL CVE-2026-0002 (fixed in 2.0)"]
