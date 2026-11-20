@@ -582,17 +582,19 @@ def _tail(log: Path, headline: str) -> str:
 # -- HTTP ---------------------------------------------------------------------------
 
 
-def make_app(host: KernelHost, token: str) -> Any:
-    """The host's HTTP application. Every route but /health needs the bearer token."""
-    import tornado.web
-    import tornado.websocket
-
+def _authorizer(token: str) -> Callable[[Any], bool]:
     expected = token.encode()
 
-    def authorized(handler: tornado.web.RequestHandler) -> bool:
+    def authorized(handler: Any) -> bool:
         header = handler.request.headers.get("Authorization", "")
         scheme, _, value = header.partition(" ")
         return scheme.lower() == "bearer" and hmac.compare_digest(value.encode(), expected)
+
+    return authorized
+
+
+def _base_handler(authorized: Callable[[Any], bool]) -> Any:
+    import tornado.web
 
     class Base(tornado.web.RequestHandler):
         def prepare(self) -> None:
@@ -621,10 +623,10 @@ def make_app(host: KernelHost, token: str) -> Any:
             self.set_status(error.status)
             self.finish({"error": error.code, "message": str(error)})
 
-    class Health(tornado.web.RequestHandler):
-        def get(self) -> None:
-            self.finish({"status": "ok"})
+    return Base
 
+
+def _kernel_handlers(host: KernelHost, Base: Any) -> dict[str, Any]:
     class Kernels(Base):
         def get(self) -> None:
             self.finish({"kernels": [kernel.view() for kernel in host.kernels.values()]})
@@ -671,6 +673,66 @@ def make_app(host: KernelHost, token: str) -> Any:
                 return
             self.finish(kernel.view())
 
+    return {"kernels": Kernels, "one": OneKernel, "interrupt": Interrupt, "restart": Restart}
+
+
+def _shell_request(raw: str | bytes) -> dict[str, Any] | None:
+    """Return a client's shell request when it is one the bridge forwards, else None."""
+    try:
+        data = json.loads(raw)
+        message = data["msg"]
+        if data.get("channel") != "shell" or message["header"]["msg_type"] not in _SHELL_REQUESTS:
+            return None
+        if not isinstance(message.get("content"), dict):
+            return None
+    except (ValueError, KeyError, TypeError):
+        return None
+    return message
+
+
+async def _pump_channel(
+    handler: Any, channel: str, receive: Callable[..., Any], closed: type[Exception]
+) -> None:
+    """Relay one kernel channel to the API until the socket closes."""
+    while True:
+        try:
+            message = await receive(timeout=1.0)
+        except Exception:  # reason: an empty poll is not an error
+            if handler.ws_connection is None:
+                return
+            continue
+        if handler.kernel is not None:
+            handler.kernel.last_used = time.time()
+        message.pop("buffers", None)
+        try:
+            await handler.write_message(
+                json.dumps({"channel": channel, "msg": message}, default=str)
+            )
+        except closed:
+            return
+
+
+def _resigned(session: Any, message: dict[str, Any]) -> dict[str, Any]:
+    """Re-sign a request with this kernel's key, keeping the client's msg_id.
+
+    Keeping the id lets the client match the kernel's replies to its request.
+    """
+    msg_type = message["header"]["msg_type"]
+    metadata = message.get("metadata")
+    return session.msg(
+        msg_type,
+        content=message["content"],
+        header={
+            **session.msg_header(msg_type),
+            "msg_id": str(message["header"].get("msg_id") or uuid4().hex),
+        },
+        metadata=metadata if isinstance(metadata, dict) else {},
+    )
+
+
+def _channels_handler(host: KernelHost, authorized: Callable[[Any], bool]) -> Any:
+    import tornado.websocket
+
     class Channels(tornado.websocket.WebSocketHandler):
         """Jupyter messages both ways; the host signs them with the kernel's key."""
 
@@ -705,53 +767,16 @@ def make_app(host: KernelHost, token: str) -> Any:
             ]
 
         async def _pump(self, channel: str, receive: Callable[..., Any]) -> None:
-            while True:
-                try:
-                    message = await receive(timeout=1.0)
-                except Exception:  # reason: an empty poll is not an error
-                    if self.ws_connection is None:
-                        return
-                    continue
-                if self.kernel is not None:
-                    self.kernel.last_used = time.time()
-                message.pop("buffers", None)
-                try:
-                    await self.write_message(
-                        json.dumps({"channel": channel, "msg": message}, default=str)
-                    )
-                except tornado.websocket.WebSocketClosedError:
-                    return
+            await _pump_channel(self, channel, receive, tornado.websocket.WebSocketClosedError)
 
         def on_message(self, message: str | bytes) -> None:
-            try:
-                data = json.loads(message)
-                message = data["msg"]
-                if (
-                    data.get("channel") != "shell"
-                    or message["header"]["msg_type"] not in _SHELL_REQUESTS
-                ):
-                    raise ValueError("refused")
-                if not isinstance(message.get("content"), dict):
-                    raise ValueError("refused")
-            except (ValueError, KeyError, TypeError):
+            request = _shell_request(message)
+            if request is None:
                 self.close(code=4400, reason="message refused")
                 return
             if self.kernel is not None:
                 self.kernel.last_used = time.time()
-            # Re-signed with this kernel's key; the client's own header is kept so
-            # its replies are matched to its msg_id.
-            outgoing = self.client.session.msg(
-                message["header"]["msg_type"],
-                content=message["content"],
-                header={
-                    **self.client.session.msg_header(message["header"]["msg_type"]),
-                    "msg_id": str(message["header"].get("msg_id") or uuid4().hex),
-                },
-                metadata=message.get("metadata")
-                if isinstance(message.get("metadata"), dict)
-                else {},
-            )
-            self.client.shell_channel.send(outgoing)
+            self.client.shell_channel.send(_resigned(self.client.session, request))
 
         def on_close(self) -> None:
             for pump in getattr(self, "pumps", []):
@@ -760,15 +785,29 @@ def make_app(host: KernelHost, token: str) -> Any:
                 with suppress(Exception):
                     self.client.stop_channels()
 
+    return Channels
+
+
+def make_app(host: KernelHost, token: str) -> Any:
+    """The host's HTTP application. Every route but /health needs the bearer token."""
+    import tornado.web
+
+    class Health(tornado.web.RequestHandler):
+        def get(self) -> None:
+            self.finish({"status": "ok"})
+
+    authorized = _authorizer(token)
+    rest = _kernel_handlers(host, _base_handler(authorized))
+    channels = _channels_handler(host, authorized)
     kernel_id = r"([a-f0-9]{16,32})"
     return tornado.web.Application(
         [
             (r"/health", Health),
-            (r"/kernels", Kernels),
-            (rf"/kernels/{kernel_id}", OneKernel),
-            (rf"/kernels/{kernel_id}/interrupt", Interrupt),
-            (rf"/kernels/{kernel_id}/restart", Restart),
-            (rf"/kernels/{kernel_id}/channels", Channels),
+            (r"/kernels", rest["kernels"]),
+            (rf"/kernels/{kernel_id}", rest["one"]),
+            (rf"/kernels/{kernel_id}/interrupt", rest["interrupt"]),
+            (rf"/kernels/{kernel_id}/restart", rest["restart"]),
+            (rf"/kernels/{kernel_id}/channels", channels),
         ],
         websocket_max_message_size=MAX_MESSAGE_BYTES,
         max_body_size=1024 * 1024,
