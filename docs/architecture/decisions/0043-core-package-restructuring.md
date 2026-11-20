@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed**
+Superseded (2026-11-20) by [ADR 0044](0044-cli-command-ownership-by-package.md) and [ADR 0056](0056-core-layering-and-acyclic-imports.md). The CLI split into `cli/commands/` landed; 0044 then moved command ownership to packages and 0056 made layering an enforced import-linter contract.
 
 ## Context
 

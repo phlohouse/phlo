@@ -104,4 +104,4 @@ root is 0.18.0 and the 39 workspace packages range from 0.1.0 to 0.18.0.
   [ADR 0050](0050-freeze-release-promotion-contract.md).
 - [ADR 0058](0058-support-manifest-as-support-authority.md): support manifest and release set.
 - [relx.toml](../../../relx.toml), [scripts/check_version_drift.py](../../../scripts/check_version_drift.py).
-- [Qualify a trusted-publishing release](../../contributing/release-publication.md).
+- [Qualify a trusted-publishing release](../../../RELEASING.md).

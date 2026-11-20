@@ -8,7 +8,7 @@ After Python (`make install`), application (`make setup-js`) or full (`make setu
 bootstrap, `make check-changed BASE=origin/main` uses the CI selector for committed
 and working-tree changes. It runs native checks without provisioning Docker or
 scanners. Preview with `python3 scripts/check_changed.py --dry-run`; local success
-does not satisfy required CI. See [CI contracts and rollout](ci.md).
+does not satisfy required CI. See [CI contracts](ci.md).
 
 | Change surface | Targeted checks | Broader checks and acceptance |
 | --- | --- | --- |

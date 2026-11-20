@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed**
+Accepted (2026-11-20). The canonical contract model and `.phlo/contracts` export are implemented in `src/phlo/schema_migration/artifacts.py`.
 
 ## Date
 
