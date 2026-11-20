@@ -152,6 +152,27 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
 
+  python-313:
+    name: nightly / Python 3.13 workspace tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/docker-mirror
+      - uses: ./.github/actions/python-workspace
+        with:
+          python-version: "3.13"
+      - name: Run the non-integration workspace suite on 3.13
+        run: >-
+          uv run --locked python -m pytest -m "not integration"
+          -n 4 --dist worksteal --timeout=300 --tb=short
+
+  windows-portability:
+    name: nightly / Windows compose portability
+    uses: ./.github/workflows/windows-compose-portability.yml
+
   nightly-status:
     name: nightly / status
     if: always()
@@ -162,6 +183,8 @@ jobs:
       - release-golden-path
       - release-artifact-acceptance
       - operations-evidence
+      - python-313
+      - windows-portability
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -174,6 +197,8 @@ jobs:
           RELEASE_GOLDEN_PATH: ${{ needs.release-golden-path.result }}
           RELEASE_ARTIFACT_ACCEPTANCE: ${{ needs.release-artifact-acceptance.result }}
           OPERATIONS_EVIDENCE: ${{ needs.operations-evidence.result }}
+          PYTHON_313: ${{ needs.python-313.result }}
+          WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
         run: |
           set -euo pipefail
           echo "Fresh dependency resolution: $UPSTREAM_COMPATIBILITY" >> "$GITHUB_STEP_SUMMARY"
@@ -182,7 +207,7 @@ jobs:
             echo "::error::Scheduled fresh resolution failed: $UPSTREAM_COMPATIBILITY"
             exit 1
           fi
-          for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH" "$OPERATIONS_EVIDENCE"; do
+          for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH" "$OPERATIONS_EVIDENCE" "$PYTHON_313" "$WINDOWS_PORTABILITY"; do
             if [ "$result" != "success" ]; then
               echo "::error::Required nightly check finished with result: $result"
               exit 1

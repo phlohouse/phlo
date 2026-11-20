@@ -36,17 +36,23 @@ def totals(report: dict, root: Path) -> dict[str, dict[str, float]]:
     return result
 
 
+# A source tree with no committed floor must still meet this minimum, so a new
+# package can land without editing the floors file but cannot land untested.
+DEFAULT_FLOOR = {"line": 70.0, "branch": 50.0}
+
+
 def check(measured: dict, floors: dict) -> list[str]:
-    """Reject missing measurements and any percentage below its committed floor."""
+    """Reject stale floors and any percentage below its committed or default floor."""
     errors = []
     for name in measured.keys() | floors.keys():
-        if name not in measured or name not in floors:
-            errors.append(f"{name}: measurement/floor missing")
+        if name not in measured:
+            errors.append(f"{name}: floor has no measurement; remove it with its source tree")
             continue
+        floor = floors.get(name, DEFAULT_FLOOR)
         for metric in ("line", "branch"):
-            if measured[name][metric] + 1e-9 < floors[name][metric]:
+            if measured[name][metric] + 1e-9 < floor[metric]:
                 errors.append(
-                    f"{name} {metric}: {measured[name][metric]:.2f}% < {floors[name][metric]:.2f}%"
+                    f"{name} {metric}: {measured[name][metric]:.2f}% < {floor[metric]:.2f}%"
                 )
     return errors
 

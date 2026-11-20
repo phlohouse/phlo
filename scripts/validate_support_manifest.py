@@ -1077,7 +1077,11 @@ def _python_runtime_errors(ctx: _ManifestContext) -> list[str]:
         for version in supported_python | advertised_unverified
         if f"{classifier_prefix}{version}" not in classifiers
     )
-    ci_text = (ctx.repo_root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    # A supported version is evidenced by PR CI or by the nightly suite.
+    ci_text = "\n".join(
+        (ctx.repo_root / ".github/workflows" / name).read_text(encoding="utf-8")
+        for name in ("ci.yml", "nightly.yml")
+    )
     errors.extend(
         f"runtime Python claim {version!r} has no CI matrix evidence"
         for version in supported_python

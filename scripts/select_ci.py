@@ -13,7 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEPENDENCY_PATTERN = re.compile(r"^(phlo(?:-[a-z0-9-]+)?)\b")
 # Supported Python versions; every package test group runs on each one.
-PYTHON_VERSIONS = ("3.12", "3.13")
+# Images and the runtime baseline ship 3.12 (ADR 0059). 3.13 runs nightly.
+PYTHON_VERSIONS = ("3.12",)
 
 
 def inert_doc(path: str) -> bool:

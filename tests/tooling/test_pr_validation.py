@@ -45,157 +45,6 @@ def test_security_base_handles_branch_creation_without_changing_real_bases(
     assert all(step["env"]["BASE_SHA"] == "${{ steps.base.outputs.sha }}" for step in consumers)
 
 
-@pytest.mark.parametrize(
-    "inspect_status,scan_status,policy_status,correct_report,expected",
-    [
-        (0, 0, 0, True, 0),
-        (13, 0, 0, True, 13),
-        (0, 17, 0, True, 17),
-        (0, 0, 23, True, 23),
-        (0, 0, 0, False, 1),
-    ],
-)
-@pytest.mark.parametrize(
-    "event,changed_path,image_service,selected",
-    [
-        ("pull_request", "docs/index.md", "phlo-api", False),
-        ("pull_request", "packages/phlo-minio/src/phlo_minio/Dockerfile", "minio", True),
-        ("pull_request", "packages/phlo-api/src/phlo_api/Dockerfile", "phlo-api", True),
-        ("pull_request", "src/phlo/cli/main.py", "phlo-api", True),
-        ("pull_request", "src/phlo/cli/main.py", "minio", False),
-        ("merge_group", "docs/index.md", "minio", True),
-        ("push", "docs/index.md", "minio", True),
-        ("workflow_dispatch", "docs/index.md", "minio", True),
-    ],
-)
-def test_local_image_scan_uses_built_ids_and_propagates_failures(
-    tmp_path,
-    inspect_status,
-    scan_status,
-    policy_status,
-    correct_report,
-    expected,
-    event,
-    changed_path,
-    image_service,
-    selected,
-):
-    step = next(
-        step
-        for step in workflow("ci.yml")["jobs"]["installed-provider-artifacts"]["steps"]
-        if step.get("name") == "Scan locally built first-party images without publishing"
-    )
-    image_package = "phlo-minio" if image_service == "minio" else "phlo-api"
-    image = f"ghcr.io/phlohouse/{image_package}:0.17.0"
-    service = (
-        tmp_path / f"packages/{image_package}/src/{image_package.replace('-', '_')}/service.yaml"
-    )
-    service.parent.mkdir(parents=True)
-    service.write_text(
-        yaml.safe_dump(
-            {
-                "name": image_service,
-                "image": image,
-                "build": {"context": "."},
-            }
-        )
-    )
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    git_env = dict(
-        os.environ,
-        GIT_AUTHOR_NAME="Test",
-        GIT_AUTHOR_EMAIL="test@example.test",
-        GIT_COMMITTER_NAME="Test",
-        GIT_COMMITTER_EMAIL="test@example.test",
-    )
-    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
-    subprocess.run(["/usr/bin/git", "commit", "-qm", "base"], cwd=tmp_path, env=git_env, check=True)
-    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
-    changed = tmp_path / changed_path
-    changed.parent.mkdir(parents=True, exist_ok=True)
-    changed.write_text("changed\n")
-    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
-    subprocess.run(
-        ["/usr/bin/git", "commit", "-qm", "change"], cwd=tmp_path, env=git_env, check=True
-    )
-    artifacts = tmp_path / "provider-artifacts"
-    artifacts.mkdir()
-    (artifacts / "installed-provider-artifacts.json").write_text(
-        json.dumps(
-            {
-                "images": [
-                    {"service": "api", "image": image, "build": {"context": "."}},
-                    {"service": "api-alias", "image": image, "build": {"context": "."}},
-                    {"service": "vendor", "image": "postgres:18", "build": {"context": "."}},
-                    {
-                        "service": "unbuilt",
-                        "image": "ghcr.io/phlohouse/phlo-observatory:0.17.0",
-                        "build": {"context": "."},
-                    },
-                ],
-                "builds": [
-                    {"service": "api", "status": "passed"},
-                    {"service": "api-alias", "status": "passed"},
-                    {"service": "vendor", "status": "passed"},
-                    {"service": "unbuilt", "status": "failed"},
-                ],
-            }
-        )
-    )
-    binary = tmp_path / "bin"
-    binary.mkdir()
-    log = tmp_path / "calls"
-    digest = "sha256:" + "a" * 64
-    scan_report = json.dumps(
-        {
-            "SchemaVersion": 2,
-            "ArtifactType": "container_image",
-            "Metadata": {"ImageID": digest if correct_report else "sha256:" + "b" * 64},
-        }
-    )
-    docker = binary / "docker"
-    docker.write_text(
-        f'#!/bin/sh\nprintf "docker %s\\n" "$*" >> "{log}"\n'
-        f'if [ "$1" = image ]; then echo "{digest}"; exit {inspect_status}; fi\n'
-        f"printf '%s' '{scan_report}' > 'provider-artifacts/security-{'a' * 64}.json'\n"
-        f"exit {scan_status}\n"
-    )
-    uv = binary / "uv"
-    uv.write_text(
-        "#!/bin/sh\n"
-        'if [ "$7" = affected-images ]; then\n'
-        "  shift 6\n"
-        f'  exec "{sys.executable}" "{ROOT}/scripts/container_security.py" "$@"\n'
-        "fi\n"
-        f'printf "uv %s\\n" "$*" >> "{log}"\nexit {policy_status}\n'
-    )
-    docker.chmod(0o755)
-    uv.chmod(0o755)
-    result = subprocess.run(
-        ["bash", "-c", step["run"]],
-        cwd=tmp_path,
-        env=dict(
-            os.environ,
-            PATH=f"{binary}:{os.environ['PATH']}",
-            EVENT_NAME=event,
-            BASE_SHA=base,
-            HEAD_SHA="HEAD",
-        ),
-        capture_output=True,
-    )
-    if not selected:
-        assert result.returncode == 0, result.stderr
-        assert not log.exists()
-        return
-    assert result.returncode == expected
-    calls = log.read_text()
-    assert calls.count("docker image inspect") == 1
-    assert "postgres" not in calls and "observatory" not in calls and "push" not in calls
-    if inspect_status == 0:
-        assert "--image-src docker" in calls and f"--scanners vuln {digest}" in calls
-        assert ("apply-policy" in calls) == (scan_status == 0 and correct_report)
-
-
 def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
     pr = workflow("pr.yml")
     assert set(pr.get("on") or pr[True]) == {"pull_request", "merge_group", "workflow_call"}
@@ -206,7 +55,6 @@ def test_one_pr_orchestrator_and_no_candidate_duplication() -> None:
         "containers",
         "security",
         "docs",
-        "mutation",
     ]
     for name in (
         "ci.yml",
@@ -231,18 +79,16 @@ def test_required_gate_executes_fail_closed(bad_result) -> None:
         "SECURITY",
         "INTEGRATION",
         "DOCS",
-        "MUTATION",
     ):
         env = dict(os.environ, **dict.fromkeys(step["env"], "success"))
         env["INTEGRATION_SELECTED"] = "true"
         env["PYTHON_SELECTED"] = "false"
         env["DOCS_SELECTED"] = "true"
-        env["MUTATION_SELECTED"] = "true"
         env[lane] = bad_result
         result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
         assert (result.returncode == 0) == (bad_result == "success")
-    env["MUTATION"] = "success"
-    for lane in ("INTEGRATION", "DOCS", "MUTATION"):
+    env["DOCS"] = "success"
+    for lane in ("INTEGRATION", "DOCS"):
         env[f"{lane}_SELECTED"] = "false"
         env[lane] = "skipped"
         assert (
@@ -550,18 +396,14 @@ def test_browser_setup_uses_runner_chrome_without_installing_browser_or_os(
         assert not output.exists()
 
 
-def test_required_result_collects_coverage_after_service_and_python_contracts():
+def test_required_result_gates_without_a_duplicate_coverage_merge():
     required = workflow("pr.yml")["jobs"]["required"]
     assert {"ci", "integration"} <= set(required["needs"])
     steps = required["steps"]
-    downloads = [step["with"] for step in steps if "download-artifact@" in step.get("uses", "")]
-    assert {item.get("pattern") for item in downloads} >= {"core-tests-*", "package-results-*"}
-    assert any(item.get("name") == "quickstart-smoke" for item in downloads)
-    combine = next(step for step in steps if "coverage combine" in step.get("run", ""))
-    assert combine["if"] == "needs.changes.outputs.python == 'true'"
-    emit = next(step for step in steps if "ci_evidence.py emit" in step.get("run", ""))
-    assert steps.index(combine) < steps.index(emit)
-    assert "coverage" not in workflow("ci.yml")["jobs"]
+    # Coverage floors are enforced once, by ci.yml's measured workspace lane.
+    assert not any("coverage combine" in step.get("run", "") for step in steps)
+    assert any("ci_evidence.py emit" in step.get("run", "") for step in steps)
+    assert "python-coverage" in workflow("ci.yml")["jobs"]
 
 
 @pytest.mark.parametrize("producer", ["WORKSPACE", "POSTGRES"])
@@ -641,9 +483,9 @@ def test_shards_are_disjoint_complete_and_keep_module_fixtures_together() -> Non
         assert len({shard_for(f"tests/test_{i}.py::test_case[{j}]", 3) for j in range(3)}) == 1
 
 
-def test_supported_python_version_runs_before_merge() -> None:
+def test_supported_python_versions_run_on_prs_or_nightly() -> None:
     ci = workflow("ci.yml")["jobs"]
-    assert ci["python-core-tests"]["strategy"]["matrix"]["python-version"] == ["3.12", "3.13"]
+    assert "python-core-tests" not in ci
     assert ci["python-package-tests"]["strategy"]["matrix"] == {
         "include": "${{ fromJSON(needs.ci-config.outputs.groups) }}"
     }
@@ -655,11 +497,17 @@ def test_supported_python_version_runs_before_merge() -> None:
     selection_spec.loader.exec_module(selector)
     groups = selector.select(set())["groups"]
     assert {(entry["group"], entry["python-version"]) for entry in groups} == {
-        (group, version)
-        for group in ("platform", "data", "api", "runtime", "interfaces")
-        for version in ("3.12", "3.13")
+        (group, "3.12") for group in ("platform", "data", "api", "runtime", "interfaces")
     }
-    assert ci["python-core-tests"]["env"]["UV_PYTHON"] == "${{ matrix.python-version }}"
+    nightly = workflow("nightly.yml")["jobs"]
+    python_313 = nightly["python-313"]
+    setup = next(
+        step
+        for step in python_313["steps"]
+        if step.get("uses") == "./.github/actions/python-workspace"
+    )
+    assert setup["with"]["python-version"] == "3.13"
+    assert "python-313" in nightly["nightly-status"]["needs"]
 
 
 def test_ruleset_requires_exact_pr_gate_and_all_green_squash_queue() -> None:

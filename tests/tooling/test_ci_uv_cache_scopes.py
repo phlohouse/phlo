@@ -83,15 +83,12 @@ def _pr_consumers(python_selected="true", matrix=None):
 def test_partial_installs_cannot_win_the_full_workspace_cache(python_selected):
     consumers = _pr_consumers(python_selected)
     workspace_jobs = {
-        ("ci.yml", "python-core-tests"),
         ("ci.yml", "python-coverage-workspace"),
         ("ci.yml", "python-coverage-postgres"),
         ("ci.yml", "frontend"),
         ("integration.yml", "contracts"),
         ("integration.yml", "api"),
         ("integration.yml", "operations"),
-        ("mutation.yml", "mutation"),
-        ("windows-compose-portability.yml", "generate-linux-fixture"),
     }
     if python_selected == "true":
         workspace_jobs.add(("ci.yml", "python-quality"))

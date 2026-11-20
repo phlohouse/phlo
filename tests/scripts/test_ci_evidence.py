@@ -157,7 +157,7 @@ def test_missing_queue_artifact_uses_full_fallback(tmp_path, monkeypatch):
 
 def test_full_graph_has_every_matrix_entry_and_new_required_lane():
     jobs = evidence.expected_jobs()
-    assert {f"ci / python / core tests (3.12, shard {i})" for i in range(3)} <= jobs
+    assert not any("core tests" in name or "3.13" in name for name in jobs)
     assert {name for name in jobs if "installed provider artifacts" in name} == PROVIDER_JOBS
     assert {f"ci / python / workspace coverage (shard {i})" for i in range(4)} <= jobs
     assert jobs >= NODE_JOBS
