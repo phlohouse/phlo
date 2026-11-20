@@ -22,6 +22,7 @@ const scheduleSchema = z.object({
   cron: z.string(),
   env: environmentSchema,
   owner: z.string(),
+  approved: z.boolean().default(true),
   enabled: z.boolean(),
 })
 const notebookSchema = z.object({

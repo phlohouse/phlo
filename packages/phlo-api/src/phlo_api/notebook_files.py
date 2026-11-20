@@ -76,6 +76,11 @@ class NotebookSchedule:
     # When it was set (epoch seconds). Due times before it never run, so a new
     # schedule does not fire at once for the slot it was set in.
     since: int | None = None
+    # Whether the owner could query the lakehouse when they set it.
+    query: bool = False
+    # The API's HMAC over the schedule and the notebook's code (see
+    # ``notebook_signing``). A schedule without a valid one never runs.
+    signature: str | None = None
 
 
 @dataclass(frozen=True)
@@ -209,6 +214,10 @@ def _settings_from_json(metadata: object) -> NotebookSettings:
                     owner=owner[:256],
                     enabled=raw.get("enabled") is not False,
                     since=raw["since"] if type(raw.get("since")) is int else None,
+                    query=raw.get("query") is True,
+                    signature=raw["signature"][:128]
+                    if isinstance(raw.get("signature"), str)
+                    else None,
                 )
             except NotebookInvalid:
                 schedule = None
@@ -232,6 +241,10 @@ def _settings_to_json(settings: NotebookSettings) -> dict[str, Any]:
         }
         if settings.schedule.since is not None:
             schedule["since"] = settings.schedule.since
+        if settings.schedule.query:
+            schedule["query"] = True
+        if settings.schedule.signature:
+            schedule["signature"] = settings.schedule.signature
         phlo["schedule"] = schedule
     return phlo
 

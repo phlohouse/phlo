@@ -1,15 +1,19 @@
-"""Jupyter kernels for Observatory notebooks, shared by every API worker on one host.
+"""Observatory notebook kernels, run by the separate notebook kernel host.
 
-Each kernel belongs to one signed-in person and one notebook. Kernels start
-with a scrubbed environment, so API secrets (Trino passwords, tokens) never
-reach notebook code. Lakehouse data enters a kernel only as rows from a
-validated read-only query, bound under a name the person chose.
+Each kernel belongs to one signed-in person and one notebook. The kernels
+themselves run in the ``phlo-notebook-kernels`` container (see
+:mod:`phlo_api.notebook_gateway`), each as its own Unix user with no network
+access, so notebook code never shares a process, a user or a network with
+the API, never sees API credentials and cannot reach another person's kernel.
+Lakehouse data enters a kernel only as rows from a validated read-only query,
+bound under a name the person chose and sent through the host.
 
-Kernels are plain ``ipykernel`` processes described by a record in a private
-folder (``PHLO_NOTEBOOK_KERNEL_DIR``), so their state survives an API reload and
-a stray kernel is never lost track of. The API runs as one process. Cells run
-as background runs whose output is written to the kernel's folder as it
-arrives, so a long cell never holds an HTTP request open.
+The API keeps its own records of kernels and background runs in a private
+folder (``PHLO_NOTEBOOK_KERNEL_DIR``) and talks to the host over HTTP with a
+bearer token (``PHLO_NOTEBOOK_GATEWAY_URL``, ``PHLO_NOTEBOOK_GATEWAY_TOKEN``).
+The host holds each kernel's signing key; the API never does. The API runs as
+one process. Cells run as background runs whose output is written to the
+kernel's folder as it arrives, so a long cell never holds an HTTP request open.
 
 Kernel output is plain text, PNG images and structured table previews. HTML
 output is dropped on purpose: Observatory renders tables with its own
@@ -20,16 +24,10 @@ from __future__ import annotations
 
 import asyncio
 import errno
-import hashlib
-import importlib.util
 import json
 import os
 import re
 import shutil
-import signal
-import subprocess
-import sys
-import sysconfig
 import tempfile
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -58,28 +56,13 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _ID = re.compile(r"^[a-f0-9]{16,32}$")
 _MARKER = "__phlo_json__:"
-_ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TZ", "SYSTEMROOT")
-# Installers may need the host's proxy and certificate settings; kernels never get them.
-_INSTALL_ENV_PREFIXES = ("PIP_", "UV_", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_")
-_INSTALL_ENV_KEYS = {"REQUESTS_CA_BUNDLE", "http_proxy", "https_proxy", "no_proxy", "HOME"}
+INSTALL_SECONDS = 900.0
+GATEWAY_SECONDS = 30.0
 
 # Runs once in every new or restarted kernel. Helpers are underscored so the
-# Variables panel hides them. The watchdog stops a kernel whose API has gone
-# away: the API touches ``alive`` on every use.
+# Variables panel hides them. The kernel host stops kernels left idle.
 _PREAMBLE = r"""
 import json as __phlo_json
-
-def __phlo_watchdog(path, idle):
-    import os, threading, time
-    def check():
-        while True:
-            time.sleep(30)
-            try:
-                if time.time() - os.path.getmtime(path) > idle:
-                    os._exit(0)
-            except OSError:
-                os._exit(0)
-    threading.Thread(target=check, daemon=True, name="phlo-watchdog").start()
 
 def __phlo_frame(payload):
     data = __phlo_json.loads(payload)
@@ -191,7 +174,7 @@ def __phlo_packages(env_site):
 
 
 class KernelsUnavailable(RuntimeError):
-    """Jupyter is not installed, or the host cannot keep kernel state safely."""
+    """The kernel host is not configured or not reachable, or kernel state cannot be kept safely."""
 
 
 class KernelLimitReached(RuntimeError):
@@ -271,24 +254,6 @@ class RunRecord:
     result: dict[str, Any] | None = None
 
 
-def kernel_environment() -> dict[str, str]:
-    """Only locale and PATH reach a kernel; credentials in the API process stay there."""
-    env = {key: value for key, value in os.environ.items() if key in _ENV_KEEP}
-    env["PYTHONUNBUFFERED"] = "1"
-    # Jupyter's inline backend, so plt.show() and a figure as the last line
-    # come back as images; a GUI backend would have nowhere to draw.
-    env["MPLBACKEND"] = "module://matplotlib_inline.backend_inline"
-    return env
-
-
-def _install_environment() -> dict[str, str]:
-    env = kernel_environment()
-    for key, value in os.environ.items():
-        if key in _INSTALL_ENV_KEYS or key.startswith(_INSTALL_ENV_PREFIXES):
-            env[key] = value
-    return env
-
-
 def normalize_packages(packages: list[str]) -> list[str]:
     """Accept only ``name[extras] <specifier>`` requirements: no URLs, paths or options."""
     from packaging.requirements import InvalidRequirement, Requirement
@@ -306,6 +271,8 @@ def normalize_packages(packages: list[str]) -> list[str]:
             raise PackagesInvalid(f"'{raw}' is not a package requirement.") from exc
         if requirement.url:
             raise PackagesInvalid(f"'{raw}' points at a URL. Use a package name and version.")
+        if requirement.marker is not None:
+            raise PackagesInvalid(f"'{raw}' has an environment marker. Use a name and version.")
         normalized[requirement.name.lower()] = str(requirement)
     return [normalized[key] for key in sorted(normalized)]
 
@@ -317,23 +284,6 @@ def _lock_nb(descriptor: int) -> None:
 
 def _clean(text: str) -> str:
     return _ANSI.sub("", text)
-
-
-def _alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    stat = Path(f"/proc/{pid}/stat")
-    if stat.exists():
-        with suppress(OSError, IndexError):
-            if stat.read_text().rsplit(")", 1)[1].split()[0] == "Z":
-                return False
-    return True
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -401,16 +351,19 @@ def default_kernel_root() -> Path:
 
 
 class KernelRegistry:
-    """Kernel records in a private folder owned by the API user."""
+    """Kernel records in a private folder owned by the API user; kernels on the kernel host."""
 
-    def __init__(self, root: Path | None = None, package_index: str | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        gateway_url: str | None = None,
+        gateway_token: str | None = None,
+    ) -> None:
         self._root = root
-        self._package_index = package_index
-        self._children: dict[int, subprocess.Popen[bytes]] = {}
+        self._gateway_url = gateway_url
+        self._gateway_token = gateway_token
         self._tasks: set[asyncio.Task[Any]] = set()
-        self._run_hook: Callable[[KernelRecord, RunRecord, str | None], Awaitable[None]] | None = (
-            None
-        )
 
     # -- folders -----------------------------------------------------------------
 
@@ -429,11 +382,14 @@ class KernelRegistry:
             )
         return root
 
-    def configure(self, *, root: Path | None, package_index: str | None) -> None:
+    def configure(
+        self, *, root: Path | None, gateway_url: str | None, gateway_token: str | None
+    ) -> None:
         """Apply operator settings; the folder is created on first use."""
         if root is not None:
             self._root = root
-        self._package_index = package_index
+        self._gateway_url = gateway_url
+        self._gateway_token = gateway_token
 
     def _folder(self, kernel_id: str) -> Path:
         if not _ID.fullmatch(kernel_id):
@@ -460,20 +416,71 @@ class KernelRegistry:
         return found
 
     def touch(self, record: KernelRecord) -> None:
-        folder = self._folder(record.id)
-        alive = folder / "alive"
-        alive.touch()
         record.last_used = time.time()
+
+    # -- kernel host -------------------------------------------------------------
+
+    def _gateway(self) -> tuple[str, dict[str, str]]:
+        if not self._gateway_url or not self._gateway_token:
+            raise KernelsUnavailable(
+                "Notebook kernels run on the notebook kernel host. Start it with "
+                "`phlo services start --profile notebooks` and set PHLO_NOTEBOOK_GATEWAY_URL "
+                "and PHLO_NOTEBOOK_GATEWAY_TOKEN for the API."
+            )
+        return self._gateway_url.rstrip("/"), {"Authorization": f"Bearer {self._gateway_token}"}
+
+    async def _host(
+        self, method: str, path: str, body: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        """One call to the kernel host; ``None`` when it does not know the kernel."""
+        import httpx
+
+        url, headers = self._gateway()
+        try:
+            async with httpx.AsyncClient(timeout=GATEWAY_SECONDS, trust_env=False) as http:
+                response = await http.request(method, url + path, json=body, headers=headers)
+        except httpx.HTTPError as exc:
+            raise KernelsUnavailable(
+                "The notebook kernel host is not reachable. Check that the "
+                "phlo-notebook-kernels service is running."
+            ) from exc
+        if response.status_code == 404:
+            return None
+        if response.status_code == 401:
+            raise KernelsUnavailable(
+                "The notebook kernel host refused the API's token. "
+                "PHLO_NOTEBOOK_GATEWAY_TOKEN must match on both."
+            )
+        if response.status_code == 204:
+            return {}
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise KernelsUnavailable(
+                "The notebook kernel host answered with invalid JSON."
+            ) from exc
+        if response.status_code == 409 and payload.get("error") == "kernel_limit":
+            raise KernelLimitReached(payload.get("message") or "All notebook kernels are in use.")
+        if response.status_code == 422:
+            raise PackagesInvalid(payload.get("message") or "A package requirement is invalid.")
+        if response.status_code >= 400:
+            raise KernelsUnavailable(payload.get("message") or "The notebook kernel host failed.")
+        return payload
+
+    async def _host_state(self, record: KernelRecord) -> dict[str, Any] | None:
+        return await self._host("GET", f"/kernels/{record.id}")
 
     # -- lookup ------------------------------------------------------------------
 
-    def get(self, kernel_id: str, actor: str) -> KernelRecord:
+    async def get(self, kernel_id: str, actor: str) -> KernelRecord:
         record = self._read(kernel_id)
         if record is None or record.actor != actor:
             raise KernelNotFound(kernel_id)
-        if record.state == "ready" and not _alive(record.pid):
-            self._remove(record)
-            raise KernelNotFound(kernel_id)
+        if record.state == "ready":
+            remote = await self._host_state(record)
+            if remote is None or remote.get("state") != "ready":
+                self._remove(record)
+                raise KernelNotFound(kernel_id)
         return record
 
     def for_actor(self, actor: str) -> list[KernelRecord]:
@@ -492,20 +499,25 @@ class KernelRegistry:
 
     # -- lifecycle ---------------------------------------------------------------
 
-    def prune(self) -> None:
-        """Drop dead kernels, stop idle ones and forget stalled starts."""
+    async def prune(self) -> None:
+        """Forget kernels the host lost, stop idle ones and stop host kernels with no record."""
         cutoff = time.time() - IDLE_SECONDS
-        for pid, child in list(self._children.items()):
-            if child.poll() is not None:
-                self._children.pop(pid, None)
+        listed = await self._host("GET", "/kernels") or {}
+        remote = {item["id"]: item for item in listed.get("kernels", [])}
+        known = set()
         for record in self.records():
-            if record.state == "ready" and not _alive(record.pid):
+            known.add(record.id)
+            if record.state == "ready" and remote.get(record.id, {}).get("state") != "ready":
+                await self._stop_remote(record)
                 self._remove(record)
             elif record.state in {"installing", "starting"} and record.started_at < cutoff:
+                await self._stop_remote(record)
                 self._remove(record)
             elif record.last_used < cutoff and self.status(record) != "busy":
-                self._stop_process(record)
+                await self._stop_remote(record)
                 self._remove(record)
+        for kernel_id in set(remote) - known:
+            await self._host("DELETE", f"/kernels/{kernel_id}")
 
     async def start(
         self, *, actor: str, env: str, path: str, packages: list[str], allow_packages: bool
@@ -514,24 +526,24 @@ class KernelRegistry:
 
         Kernels without packages are ready when this returns. A kernel whose
         notebook lists packages comes back ``installing`` and becomes ready in
-        the background once its environment is built.
+        the background once the host has built its environment.
         """
-        _jupyter()
         packages = normalize_packages(packages)
         if packages and not allow_packages:
             raise PackagesDisabled(
                 "This notebook lists Python packages, and an operator has not allowed them. "
                 "Set PHLO_NOTEBOOK_PACKAGES=1, or remove the packages."
             )
+        self._gateway()
         async with _aflock(self.root / "registry.lock"):
-            await asyncio.to_thread(self.prune)
+            await self.prune()
             for existing in self.for_actor(actor):
                 if existing.path == path and existing.env == env:
                     if existing.packages == packages and existing.state != "failed":
                         self.touch(existing)
                         self._save(existing)
                         return existing
-                    await asyncio.to_thread(self._stop_process, existing)
+                    await self._stop_remote(existing)
                     self._remove(existing)
             records = self.records()
             if len(records) >= MAX_KERNELS:
@@ -544,15 +556,14 @@ class KernelRegistry:
             record.packages = packages
             folder = self.root / record.id
             folder.mkdir(mode=0o700)
-            (folder / "work").mkdir()
             (folder / "runs").mkdir()
-            (folder / "alive").touch()
+            remote = await self._host("POST", "/kernels", {"id": record.id, "packages": packages})
             record.state = (
-                "installing" if packages and not self._env_ready(packages) else "starting"
+                "installing" if (remote or {}).get("state") == "installing" else "starting"
             )
             self._save(record)
         if record.state == "installing":
-            self.spawn(self._install_then_launch(record))
+            self.spawn(self._launch_quietly(record))
             return record
         await self._launch(record)
         return record
@@ -562,39 +573,38 @@ class KernelRegistry:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _install_then_launch(self, record: KernelRecord) -> None:
-        try:
-            await self.ensure_environment(record.packages)
-        except Exception as exc:  # reason: any installer failure is reported on the kernel
-            record.state = "failed"
-            record.message = str(exc)[-2000:] or "Installing packages failed."
-            self._save(record)
-            return
-        record.state = "starting"
-        self._save(record)
+    async def _launch_quietly(self, record: KernelRecord) -> None:
         with suppress(Exception):
             await self._launch(record)
 
     async def _launch(self, record: KernelRecord) -> None:
-        folder = self._folder(record.id)
-        python, site = self._python(record.packages)
+        """Wait for the host to report the kernel ready, then load the helpers into it."""
+        deadline = time.monotonic() + INSTALL_SECONDS + READY_SECONDS
         try:
-            pid = await asyncio.to_thread(self._spawn_process, folder, python)
-            record.pid, record.python, record.site = pid, python, site
-            self._save(record)
+            while True:
+                remote = await self._host_state(record)
+                if remote is None:
+                    raise RuntimeError("The kernel host lost the kernel.")
+                if remote.get("state") == "ready":
+                    record.site = remote.get("site")
+                    break
+                if remote.get("state") == "failed":
+                    raise RuntimeError(remote.get("message") or "The kernel did not start.")
+                if remote.get("state") == "starting" and record.state == "installing":
+                    record.state = "starting"
+                    self._save(record)
+                if time.monotonic() > deadline:
+                    raise TimeoutError("The kernel did not become ready in time.")
+                await asyncio.sleep(0.25)
             async with self._client(record) as client:
-                await self._execute(
-                    client,
-                    _PREAMBLE
-                    + f"\n__phlo_watchdog({json.dumps(str(folder / 'alive'))}, {IDLE_SECONDS + 300})\n",
-                    silent=True,
-                    timeout=READY_SECONDS,
-                )
+                await self._execute(client, _PREAMBLE, silent=True, timeout=READY_SECONDS)
         except Exception as exc:
-            self._stop_process(record)
+            with suppress(Exception):
+                await self._stop_remote(record)
             record.state = "failed"
             record.message = f"The kernel did not start: {exc}"[:2000]
-            self._save(record)
+            if self._folder(record.id).exists():
+                self._save(record)
             raise
         record.state = "ready"
         record.message = None
@@ -602,50 +612,15 @@ class KernelRegistry:
         self.touch(record)
         self._save(record)
 
-    def _spawn_process(self, folder: Path, python: str) -> int:
-        from jupyter_client.connect import write_connection_file
-
-        connection = folder / "kernel.json"
-        connection.unlink(missing_ok=True)
-        # IPC sockets in the kernel's own private folder: nothing listens on TCP.
-        write_connection_file(str(connection), transport="ipc", ip=str(folder / "k"))
-        with open(folder / "kernel.log", "ab") as log:
-            child = subprocess.Popen(
-                [python, "-m", "ipykernel_launcher", "-f", str(connection)],
-                env=kernel_environment(),
-                cwd=folder / "work",
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=log,
-                start_new_session=True,
-            )
-        self._children[child.pid] = child
-        return child.pid
-
-    def _stop_process(self, record: KernelRecord) -> None:
-        if not record.pid or not _alive(record.pid):
-            return
-        with suppress(ProcessLookupError, PermissionError):
-            os.killpg(record.pid, signal.SIGTERM)
-        deadline = time.monotonic() + 3
-        while _alive(record.pid) and time.monotonic() < deadline:
-            child = self._children.get(record.pid)
-            if child is not None:
-                child.poll()
-            time.sleep(0.05)
-        if _alive(record.pid):
-            with suppress(ProcessLookupError, PermissionError):
-                os.killpg(record.pid, signal.SIGKILL)
-        child = self._children.pop(record.pid, None)
-        if child is not None:
-            with suppress(subprocess.TimeoutExpired):
-                child.wait(timeout=2)
+    async def _stop_remote(self, record: KernelRecord) -> None:
+        with suppress(KernelsUnavailable):
+            await self._host("DELETE", f"/kernels/{record.id}")
 
     def _remove(self, record: KernelRecord) -> None:
         shutil.rmtree(self.root / record.id, ignore_errors=True)
 
     async def shutdown(self, record: KernelRecord) -> None:
-        await asyncio.to_thread(self._stop_process, record)
+        await self._stop_remote(record)
         self._remove(record)
 
     async def shutdown_all(self) -> None:
@@ -654,117 +629,40 @@ class KernelRegistry:
         if self._root is None or not self._root.exists():
             return
         for record in self.records():
-            if record.pid in self._children:
-                await self.shutdown(record)
+            await self.shutdown(record)
 
-    def interrupt(self, record: KernelRecord) -> None:
+    async def interrupt(self, record: KernelRecord) -> None:
         (self._folder(record.id) / "cancel").touch()
-        if record.pid and _alive(record.pid):
-            with suppress(ProcessLookupError, PermissionError):
-                os.kill(record.pid, signal.SIGINT)
+        with suppress(KernelsUnavailable):
+            await self._host("POST", f"/kernels/{record.id}/interrupt")
 
     async def restart(self, record: KernelRecord) -> KernelRecord:
         descriptor = _try_lock(self._folder(record.id) / "busy.lock")
         if descriptor is None:
-            self.interrupt(record)
+            await self.interrupt(record)
             await asyncio.sleep(0.5)
         else:
             os.close(descriptor)
-        await asyncio.to_thread(self._stop_process, record)
         record.state = "starting"
         self._save(record)
+        if await self._host("POST", f"/kernels/{record.id}/restart") is None:
+            self._remove(record)
+            raise KernelNotFound(record.id)
         await self._launch(record)
         return record
-
-    # -- package environments ----------------------------------------------------
-
-    def _env_key(self, packages: list[str]) -> str:
-        payload = json.dumps([sys.version, packages, self._package_index])
-        return hashlib.sha256(payload.encode()).hexdigest()[:16]
-
-    def _env_dir(self, packages: list[str]) -> Path:
-        return self.root / "envs" / self._env_key(packages)
-
-    def _env_ready(self, packages: list[str]) -> bool:
-        return (self._env_dir(packages) / ".ready").exists()
-
-    def _python(self, packages: list[str]) -> tuple[str, str | None]:
-        if not packages:
-            return sys.executable, None
-        folder = self._env_dir(packages)
-        python = folder / "bin" / "python"
-        site = sysconfig.get_path("purelib", vars={"base": str(folder), "platbase": str(folder)})
-        return str(python), site
-
-    async def ensure_environment(self, packages: list[str]) -> Path:
-        """Build (once per package set) a virtual environment layered over the API's packages."""
-        folder = self._env_dir(packages)
-        if (folder / ".ready").exists():
-            return folder
-        (self.root / "envs").mkdir(mode=0o700, exist_ok=True)
-        lock = self.root / "envs" / f"{folder.name}.lock"
-        await asyncio.to_thread(self._build_environment, folder, packages, lock)
-        return folder
-
-    def _build_environment(self, folder: Path, packages: list[str], lock: Path) -> None:
-        with _flock(lock, wait=900):
-            if (folder / ".ready").exists():
-                return
-            shutil.rmtree(folder, ignore_errors=True)
-            index = self._package_index
-            uv = shutil.which("uv")
-            log = folder.parent / f"{folder.name}.log"
-            env = _install_environment()
-            python = folder / "bin" / "python"
-            if uv:
-                steps = [[uv, "venv", "--python", sys.executable, str(folder)]]
-                install = [uv, "pip", "install", "--python", str(python)]
-            else:
-                steps = [[sys.executable, "-m", "venv", str(folder)]]
-                install = [str(python), "-m", "pip", "install", "--disable-pip-version-check"]
-            if index:
-                install += ["--index-url", index]
-            steps.append([*install, *packages])
-            with open(log, "wb") as stream:
-                for index_step, command in enumerate(steps):
-                    if index_step == 1:
-                        self._layer_base_packages(folder)
-                    done = subprocess.run(
-                        command, stdout=stream, stderr=subprocess.STDOUT, env=env, timeout=900
-                    )
-                    if done.returncode != 0:
-                        tail = log.read_text(errors="replace").strip().splitlines()[-12:]
-                        raise RuntimeError("Installing packages failed:\n" + "\n".join(tail))
-            (folder / ".ready").touch()
-
-    @staticmethod
-    def _layer_base_packages(folder: Path) -> None:
-        """Let the notebook environment import the API's own packages (ipykernel, pandas, duckdb).
-
-        The ``.pth`` path is appended after the environment's own site-packages, so a
-        version the notebook asked for wins over the base one.
-        """
-        site = Path(
-            sysconfig.get_path("purelib", vars={"base": str(folder), "platbase": str(folder)})
-        )
-        site.mkdir(parents=True, exist_ok=True)
-        base = {sysconfig.get_path("purelib"), sysconfig.get_path("platlib")}
-        (site / "_phlo_base.pth").write_text("\n".join(sorted(base)) + "\n")
 
     # -- running code ------------------------------------------------------------
 
     @asynccontextmanager
-    async def _client(self, record: KernelRecord) -> AsyncIterator[Any]:
-        from jupyter_client.asynchronous import AsyncKernelClient
-
-        client = AsyncKernelClient()
-        client.load_connection_file(str(self._folder(record.id) / "kernel.json"))
-        client.start_channels()
+    async def _client(self, record: KernelRecord) -> AsyncIterator[HostChannel]:
+        url, headers = self._gateway()
+        channel = HostChannel(url, record.id, headers)
+        await channel.open()
         try:
-            await client.wait_for_ready(timeout=READY_SECONDS)
-            yield client
+            await channel.wait_for_ready(timeout=READY_SECONDS)
+            yield channel
         finally:
-            client.stop_channels()
+            await channel.close()
 
     @contextmanager
     def busy(self, record: KernelRecord) -> Iterator[None]:
@@ -1013,7 +911,7 @@ class KernelRegistry:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 if record is not None:
-                    self.interrupt(record)
+                    await self.interrupt(record)
                 result.status = "timeout"
                 break
             try:
@@ -1049,6 +947,129 @@ class KernelRegistry:
         return result
 
 
+class HostChannel:
+    """One conversation with a kernel through the kernel host's WebSocket.
+
+    Messages are Jupyter messages without signatures: the host signs them with
+    the kernel's key, which never leaves the host. Shaped like the parts of
+    ``jupyter_client``'s client the registry uses.
+    """
+
+    def __init__(self, url: str, kernel_id: str, headers: dict[str, str]) -> None:
+        scheme, rest = url.split("://", 1)
+        self._url = (
+            "wss" if scheme == "https" else "ws"
+        ) + f"://{rest}/kernels/{kernel_id}/channels"
+        self._headers = headers
+        self._session = uuid4().hex
+        self._socket: Any = None
+        self._reader: asyncio.Task[None] | None = None
+        self._sends: set[asyncio.Task[None]] = set()
+        self._queues: dict[str, asyncio.Queue[dict[str, Any]]] = {
+            "iopub": asyncio.Queue(),
+            "shell": asyncio.Queue(),
+        }
+
+    async def open(self) -> None:
+        from websockets.asyncio.client import connect
+        from websockets.exceptions import WebSocketException
+
+        try:
+            self._socket = await connect(
+                self._url,
+                additional_headers=self._headers,
+                max_size=64 * 1024 * 1024,
+                open_timeout=GATEWAY_SECONDS,
+                proxy=None,
+            )
+        except (OSError, WebSocketException, TimeoutError) as exc:
+            raise KernelNotReady("The kernel host did not open a channel to the kernel.") from exc
+        self._reader = asyncio.ensure_future(self._read())
+
+    async def _read(self) -> None:
+        from websockets.exceptions import ConnectionClosed
+
+        try:
+            async for raw in self._socket:
+                with suppress(ValueError, KeyError, TypeError):
+                    data = json.loads(raw)
+                    queue = self._queues.get(data["channel"])
+                    if queue is not None and isinstance(data["msg"], dict):
+                        queue.put_nowait(data["msg"])
+        except ConnectionClosed:
+            return
+
+    def _send(self, msg_type: str, content: dict[str, Any]) -> str:
+        msg_id = uuid4().hex
+        message = {
+            "header": {
+                "msg_id": msg_id,
+                "msg_type": msg_type,
+                "session": self._session,
+                "username": "phlo",
+                "version": "5.3",
+            },
+            "parent_header": {},
+            "metadata": {},
+            "content": content,
+        }
+        task = asyncio.ensure_future(
+            self._socket.send(json.dumps({"channel": "shell", "msg": message}))
+        )
+        self._sends.add(task)
+        task.add_done_callback(self._sends.discard)
+        return msg_id
+
+    def execute(self, code: str, *, store_history: bool = True, allow_stdin: bool = False) -> str:
+        return self._send(
+            "execute_request",
+            {
+                "code": code,
+                "silent": False,
+                "store_history": store_history,
+                "user_expressions": {},
+                "allow_stdin": allow_stdin,
+                "stop_on_error": True,
+            },
+        )
+
+    def complete(self, code: str, cursor_pos: int) -> str:
+        return self._send("complete_request", {"code": code, "cursor_pos": cursor_pos})
+
+    async def _get(self, channel: str, timeout: float) -> dict[str, Any]:
+        if self._reader is not None and self._reader.done() and self._queues[channel].empty():
+            raise KernelNotReady("The kernel host closed the channel.")
+        return await asyncio.wait_for(self._queues[channel].get(), timeout=max(timeout, 0.0))
+
+    async def get_iopub_msg(self, timeout: float) -> dict[str, Any]:
+        return await self._get("iopub", timeout)
+
+    async def get_shell_msg(self, timeout: float) -> dict[str, Any]:
+        return await self._get("shell", timeout)
+
+    async def wait_for_ready(self, timeout: float) -> None:
+        msg_id = self._send("kernel_info_request", {})
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                reply = await self.get_shell_msg(timeout=deadline - time.monotonic())
+            except TimeoutError:
+                break
+            if reply.get("parent_header", {}).get("msg_id") == msg_id:
+                return
+        raise KernelNotReady("The kernel did not answer.")
+
+    async def close(self) -> None:
+        if self._sends:
+            await asyncio.gather(*self._sends, return_exceptions=True)
+        if self._socket is not None:
+            with suppress(Exception):
+                await self._socket.close()
+        if self._reader is not None:
+            self._reader.cancel()
+            await asyncio.gather(self._reader, return_exceptions=True)
+
+
 def _copy_running(result: ExecutionResult) -> ExecutionResult:
     return ExecutionResult(
         "running",
@@ -1068,16 +1089,6 @@ def _result_dict(result: ExecutionResult) -> dict[str, Any]:
         "truncated": result.truncated,
         "table": result.table,
     }
-
-
-def _jupyter() -> None:
-    if (
-        importlib.util.find_spec("ipykernel") is None
-        or importlib.util.find_spec("jupyter_client") is None
-    ):
-        raise KernelsUnavailable(
-            "Notebook kernels need the phlo-api 'notebooks' extra (jupyter-client and ipykernel)."
-        )
 
 
 def _to_output(kind: str, content: dict[str, Any]) -> KernelOutput | None:

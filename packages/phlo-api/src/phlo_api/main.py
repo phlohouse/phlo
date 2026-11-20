@@ -111,6 +111,7 @@ def _notebook_scheduler() -> Any:
         output_days=deployment.notebook_output_days,
         allow_packages=deployment.notebook_packages,
         envs=lambda: set(_targets()),
+        schedule_key=lambda: get_deployment_settings().notebook_schedule_key(),
     )
     scheduler.start()
     return scheduler

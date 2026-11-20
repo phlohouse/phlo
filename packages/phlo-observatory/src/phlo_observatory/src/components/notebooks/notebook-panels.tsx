@@ -243,8 +243,12 @@ function NotebookRunsTable({
         </span>
         {schedule ? (
           <span className="ml-auto text-muted-foreground">
-            {schedule.enabled ? 'Scheduled' : 'Paused'}:{' '}
-            {describeCron(schedule.cron)} UTC in {schedule.env}
+            {!schedule.approved
+              ? 'Paused until set again'
+              : schedule.enabled
+                ? 'Scheduled'
+                : 'Paused'}
+            : {describeCron(schedule.cron)} UTC in {schedule.env}
           </span>
         ) : null}
       </div>
@@ -504,7 +508,7 @@ export function NotebookOutline({
     [
       'Schedule',
       schedule
-        ? `${schedule.enabled ? '' : 'Paused · '}${describeCron(schedule.cron)}`
+        ? `${schedule.enabled && schedule.approved ? '' : 'Paused · '}${describeCron(schedule.cron)}`
         : 'None',
     ],
   ]

@@ -30,6 +30,7 @@ name = "Phlo Team"
 
 [project.entry-points."phlo.plugins.services"]
 phlo-api = "phlo_api.plugin:PhloApiServicePlugin"
+phlo-notebook-kernels = "phlo_api.plugin:PhloNotebookKernelsServicePlugin"
 
 [project.license]
 text = "MIT"
@@ -43,11 +44,17 @@ dev = [
 dlt = ["phlo-dlt>=0.18.0,<0.19"]
 iceberg = ["phlo-iceberg>=0.18.0,<0.19"]
 lineage = ["phlo-lineage>=0.1.0"]
+# The API side of notebooks only: kernels run on the notebook kernel host image.
 notebooks = [
     "croniter>=2.0",
+    "websockets>=15.0",
+]
+# What the notebook kernel host runs; its image pins exact versions.
+notebook-host = [
     "duckdb>=1.1",
     "ipykernel>=6.29",
     "jupyter-client>=8.6",
+    "matplotlib>=3.9",
     "pandas>=2.2",
 ]
 transform = ["phlo-transform>=0.2.0,<0.3"]
@@ -76,6 +83,8 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_api = [
     "service.yaml",
+    "notebook-kernels.yaml",
+    "notebook_host/*",
     "Dockerfile",
     "entrypoint.sh",
     "observatory_api/**/*.py",

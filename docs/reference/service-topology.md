@@ -35,6 +35,7 @@
 | `openmetadata-setup` | [phlo-openmetadata](../../packages/phlo-openmetadata/src/phlo_openmetadata/openmetadata-setup.yaml) | `openmetadata-elasticsearch`, `openmetadata-mysql` | none | openmetadata | false |
 | `pgweb` | [phlo-pgweb](../../packages/phlo-pgweb/src/phlo_pgweb/service.yaml) | `postgres` | 8081 → 8081/tcp (PGWEB_PORT) | none | true |
 | `phlo-api` | [phlo-api](../../packages/phlo-api/src/phlo_api/service.yaml) | `postgres` | 4000 → 4000/tcp (PHLO_API_PORT) | api | false |
+| `phlo-notebook-kernels` | [phlo-api](../../packages/phlo-api/src/phlo_api/notebook-kernels.yaml) | none | 10090 → 8890/tcp (PHLO_NOTEBOOK_GATEWAY_PORT) | notebooks | false |
 | `phlo-observer` | [phlo-observe-plugin](../../packages/phlo-observe-plugin/src/phlo_observe_plugin/service.yaml) | `phlo-observer-db-setup`, `postgres` | 10010 → 8080/tcp (PHLO_OBSERVER_PORT) | observability | false |
 | `phlo-observer-db-setup` | [phlo-observe-plugin](../../packages/phlo-observe-plugin/src/phlo_observe_plugin/db-setup.yaml) | `postgres` | none | observability | false |
 | `polaris` | [phlo-polaris](../../packages/phlo-polaris/src/phlo_polaris/service.yaml) | `minio`, `polaris-bootstrap` | 10018 → 8181/tcp (POLARIS_PORT) | none | false |

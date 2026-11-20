@@ -24,6 +24,7 @@ from typing import Any
 from uuid import uuid4
 
 from phlo_api import notebook_files as files
+from phlo_api import notebook_signing as signing
 from phlo_api import notebook_state as state
 from phlo_api.notebook_kernels import (
     ExecutionResult,
@@ -164,7 +165,7 @@ async def _wait_ready(registry: KernelRegistry, record: KernelRecord) -> KernelR
     deadline = time.monotonic() + 1800
     while record.state in {"installing", "starting"} and time.monotonic() < deadline:
         await asyncio.sleep(1)
-        fresh = registry.get(record.id, record.actor)
+        fresh = await registry.get(record.id, record.actor)
         record = fresh
     if record.state != "ready":
         raise RuntimeError(record.message or "The kernel did not start.")
@@ -257,6 +258,7 @@ class NotebookScheduler:
         output_days: int,
         allow_packages: bool,
         envs: Callable[[], set[str]],
+        schedule_key: Callable[[], str | None],
         interval: float = 30.0,
     ) -> None:
         self._registry = registry
@@ -266,6 +268,7 @@ class NotebookScheduler:
         self._output_days = output_days
         self._allow_packages = allow_packages
         self._envs = envs
+        self._schedule_key = schedule_key
         self._interval = interval
         self._task: asyncio.Task[None] | None = None
         # The due time each notebook last fired for, so one slot runs once.
@@ -307,9 +310,10 @@ class NotebookScheduler:
         envs = self._envs()
         for item in items:
             try:
-                schedule = files.read_notebook(project, item.path).settings.schedule
+                document = files.read_notebook(project, item.path)
             except (files.NotebookInvalid, files.NotebookPathError, OSError):
                 continue
+            schedule = document.settings.schedule
             if schedule is None or not schedule.enabled or schedule.env not in envs:
                 continue
             due = previous_due(schedule.cron, now)
@@ -331,6 +335,10 @@ class NotebookScheduler:
                 continue
             self._fired[item.path] = due.timestamp()
             started.append(item.path)
+            refusal = _refusal(self._schedule_key(), document)
+            if refusal is not None:
+                _record_refused(project, item.path, schedule, refusal)
+                continue
             await run_notebook(
                 self._registry,
                 project=project,
@@ -344,3 +352,39 @@ class NotebookScheduler:
                 allow_packages=self._allow_packages,
             )
         return started
+
+
+def _refusal(key: str | None, document: files.NotebookDocument) -> str | None:
+    """Why a due schedule must not run, or ``None`` when it may."""
+    if key is None:
+        return "Schedules are unavailable: PHLO_NOTEBOOK_SCHEDULE_KEY is not set."
+    if not signing.verify(key, document):
+        return (
+            "This schedule is paused: the notebook changed since it was scheduled, or the "
+            "schedule was not set from Observatory. Set the schedule again to resume it."
+        )
+    schedule = document.settings.schedule
+    if schedule is not None and signing.needs_query(document) and not schedule.query:
+        return "This schedule may not query the lakehouse. Set the schedule again."
+    return None
+
+
+def _record_refused(
+    project: Path, path: str, schedule: files.NotebookSchedule, message: str
+) -> None:
+    now = time.time()
+    state.record_run(
+        project,
+        path,
+        {
+            "id": uuid4().hex,
+            "trigger": "schedule",
+            "actor": schedule.owner,
+            "env": schedule.env,
+            "status": "failed",
+            "started_at": now,
+            "finished_at": now,
+            "message": message,
+            "cells": [],
+        },
+    )

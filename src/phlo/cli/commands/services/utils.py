@@ -122,20 +122,26 @@ def prepare_api_runtime_directories(phlo_dir: Path, service_names: Iterable[str]
     if "phlo-api" not in service_names:
         return
     root = phlo_dir.parent
-    for relative in (
-        ".phlo/logs",
-        ".phlo/audit",
-        ".phlo/state",
-        ".phlo/observatory",
-        ".phlo/uploads",
-        ".phlo/transform-editor",
-        "contracts/uploads",
-        "workflows/uploads",
+    for relative, mode in (
+        (".phlo/logs", 0o700),
+        (".phlo/audit", 0o700),
+        (".phlo/state", 0o700),
+        (".phlo/observatory", 0o700),
+        (".phlo/uploads", 0o700),
+        (".phlo/transform-editor", 0o700),
+        ("contracts/uploads", 0o700),
+        ("workflows/uploads", 0o700),
+        # Observatory notebooks: the files, their saved outputs and run history,
+        # and the dbt models promoted from them. Project source, so readable.
+        (".phlo/notebook-outputs", 0o700),
+        (".phlo/notebook-runs", 0o700),
+        ("notebooks", 0o755),
+        ("workflows/transforms/dbt/models/notebooks", 0o755),
     ):
         path = root / relative
         if any(parent.is_symlink() for parent in (path, path.parent)):
             raise click.ClickException(f"API writable bind must not follow a symlink: {relative}")
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.mkdir(mode=mode, parents=True, exist_ok=True)
 
 
 def stage_uv_lock_metadata(project_root: Path, phlo_dir: Path) -> bool:

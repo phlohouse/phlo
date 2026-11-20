@@ -132,7 +132,9 @@ export function ScheduleDialog({
           </label>
           <p className="text-xs text-muted-foreground">
             {schedule
-              ? `Runs as ${schedule.owner}. Saving makes you the owner, so runs use your access.`
+              ? schedule.approved
+                ? `Runs as ${schedule.owner}. Saving makes you the owner, so runs use your access.`
+                : `Paused: the notebook changed since ${schedule.owner} scheduled it. Save to resume it with your access.`
               : 'Runs use your access. A missed run is not caught up later.'}
           </p>
           {error ? (

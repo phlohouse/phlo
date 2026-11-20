@@ -30,10 +30,11 @@ from phlo_api.notebook_kernels import (
     _PREAMBLE,
     KernelRegistry,
     PackagesInvalid,
-    kernel_environment,
     normalize_packages,
 )
 from phlo_api.notebook_runner import NotebookScheduler
+
+SCHEDULE_KEY = "schedule-key-" + "k" * 40
 
 SAMPLE = {
     "cells": [
@@ -79,6 +80,7 @@ def notebook_api(monkeypatch: pytest.MonkeyPatch, tmp_path, actor, denied):
     )
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.delenv("PHLO_NOTEBOOK_KERNELS", raising=False)
+    monkeypatch.setenv("PHLO_NOTEBOOK_SCHEDULE_KEY", SCHEDULE_KEY)
     monkeypatch.setattr(
         v1_notebooks,
         "get_request_principal",
@@ -158,17 +160,6 @@ def test_kernels_are_off_unless_the_operator_turns_them_on(notebook_api):
     )
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "notebook_kernels_disabled"
-
-
-def test_kernel_environment_drops_api_secrets(monkeypatch):
-    monkeypatch.setenv("PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD", "secret")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
-    env = kernel_environment()
-    assert "PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD" not in env
-    assert "AWS_SECRET_ACCESS_KEY" not in env
-    assert not any("secret" == value for value in env.values())
-    # Plots come back inline as images, as in Jupyter, not swallowed by Agg.
-    assert env["MPLBACKEND"] == "module://matplotlib_inline.backend_inline"
 
 
 def test_notebook_file_round_trip_keeps_jupyter_compatible_shape():
@@ -262,6 +253,7 @@ def test_schedule_has_its_own_permission_and_survives_saves(notebook_api, actor,
         "env": "prod",
         "owner": "analyst",
         "enabled": True,
+        "approved": True,
     }
     actor["subject"] = "editor"
     resaved = client.put(
@@ -404,13 +396,59 @@ def kernel_dir():
 
 
 @pytest.fixture
-def kernel_api(notebook_api, monkeypatch, kernel_dir):
+def kernel_host(kernel_dir):
+    """A real kernel host on a free port, with kernels as this test's own user.
+
+    The tests cover the API's side of the conversation; the host's isolation
+    (separate users, no network) is exercised in its container, not here.
+    """
     pytest.importorskip("jupyter_client")
     pytest.importorskip("ipykernel")
+    import asyncio
+    from types import SimpleNamespace
+
+    import tornado.httpserver
+    import tornado.netutil
+
+    from phlo_api import notebook_gateway
+
+    launcher = notebook_gateway.SameUserLauncher(kernel_dir / "host")
+    launcher.prepare()
+    token = "test-token-" + "x" * 40
+    loop = asyncio.new_event_loop()
+    started = threading.Event()
+    state = SimpleNamespace(loop=loop, token=token, url="", host=None)
+
+    def serve() -> None:
+        asyncio.set_event_loop(loop)
+        state.host = notebook_gateway.KernelHost(launcher)
+        sockets = tornado.netutil.bind_sockets(0, "127.0.0.1")
+        server = tornado.httpserver.HTTPServer(notebook_gateway.make_app(state.host, token))
+        server.add_sockets(sockets)
+        state.url = f"http://127.0.0.1:{sockets[0].getsockname()[1]}"
+        started.set()
+        loop.run_forever()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    assert started.wait(10)
+    yield state
+    asyncio.run_coroutine_threadsafe(state.host.stop_all(), loop).result(30)
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(10)
+
+
+@pytest.fixture
+def kernel_api(notebook_api, monkeypatch, kernel_dir, kernel_host):
     monkeypatch.setenv("PHLO_NOTEBOOK_KERNELS", "1")
     monkeypatch.setenv("PHLO_V1_QUERY_SINGLE_PROCESS", "1")
     monkeypatch.setenv("PHLO_NOTEBOOK_KERNEL_DIR", str(kernel_dir))
-    registry = KernelRegistry(kernel_dir)
+    monkeypatch.setenv("PHLO_NOTEBOOK_GATEWAY_URL", kernel_host.url)
+    monkeypatch.setenv("PHLO_NOTEBOOK_GATEWAY_TOKEN", kernel_host.token)
+    monkeypatch.setenv("PHLO_NOTEBOOK_SCHEDULE_KEY", SCHEDULE_KEY)
+    registry = KernelRegistry(
+        kernel_dir, gateway_url=kernel_host.url, gateway_token=kernel_host.token
+    )
     monkeypatch.setattr(v1_notebooks, "REGISTRY", registry)
     monkeypatch.setattr(v1_notebooks, "preview_catalog", lambda env, ref: "lake")
     queries: list[str] = []
@@ -426,7 +464,6 @@ def kernel_api(notebook_api, monkeypatch, kernel_dir):
     client, root = notebook_api
     yield client, root, registry, queries
     for record in registry.records():
-        registry._stop_process(record)
         registry._remove(record)
 
 
@@ -628,7 +665,7 @@ def package_index(tmp_path):
 
 @pytest.mark.timeout(600)
 def test_notebook_packages_install_into_their_own_environment(
-    kernel_api, monkeypatch, package_index
+    kernel_api, kernel_host, monkeypatch, package_index
 ):
     client, _, registry, _ = kernel_api
     document = _open(client)
@@ -648,7 +685,7 @@ def test_notebook_packages_install_into_their_own_environment(
     assert refused.json()["error"]["code"] == "notebook_packages_disabled"
 
     monkeypatch.setenv("PHLO_NOTEBOOK_PACKAGES", "1")
-    monkeypatch.setenv("PHLO_NOTEBOOK_PACKAGE_INDEX", package_index)
+    kernel_host.host.package_index = package_index
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
     first = client.post("/api/v1/notebooks/kernels?env=prod", json={"path": "market/trials.ipynb"})
@@ -705,6 +742,7 @@ def test_run_all_in_background_and_on_a_schedule(kernel_api, monkeypatch, kernel
         output_days=14,
         allow_packages=False,
         envs=lambda: {"prod"},
+        schedule_key=lambda: SCHEDULE_KEY,
     )
     import asyncio
 
@@ -718,6 +756,63 @@ def test_run_all_in_background_and_on_a_schedule(kernel_api, monkeypatch, kernel
     scheduled = client.get("/api/v1/notebooks/runs?env=prod&path=market/trials.ipynb").json()
     assert scheduled["items"][0]["trigger"] == "schedule"
     assert scheduled["items"][0]["actor"] == "analyst"
+
+    # The notebook file alone cannot name who a schedule runs as: a forged
+    # owner breaks the signature, and the due run is refused and reported.
+    path = root / "notebooks" / "market" / "trials.ipynb"
+    raw = json.loads(path.read_text())
+    raw["metadata"]["phlo"]["schedule"]["owner"] = "admin"
+    path.write_text(json.dumps(raw))
+    later = now + timedelta(minutes=15)
+    assert asyncio.run(scheduler.tick(later)) == ["market/trials.ipynb"]
+    refused = client.get("/api/v1/notebooks/runs?env=prod&path=market/trials.ipynb").json()
+    assert refused["items"][0]["status"] == "failed"
+    assert "paused" in refused["items"][0]["message"]
+    assert len(registry.records()) == 0
+
+
+def test_editing_a_scheduled_notebook_pauses_it_unless_its_owner_saves(
+    kernel_api, actor, monkeypatch
+):
+    pytest.importorskip("croniter")
+    client, root, _, _ = kernel_api
+    from phlo_api import notebook_signing
+
+    url = "/api/v1/notebooks/schedule?env=prod&path=market/trials.ipynb"
+    document = _open(client)
+    scheduled = client.put(url, json={"cron": "0 * * * *", "expected_digest": document["digest"]})
+    assert scheduled.status_code == 200, scheduled.text
+
+    def valid() -> bool:
+        current = notebook_files.read_notebook(root, "market/trials.ipynb")
+        return notebook_signing.verify(SCHEDULE_KEY, current)
+
+    assert valid()
+    content = "/api/v1/notebooks/content?env=prod&path=market/trials.ipynb"
+    document = _open(client)
+    cells = [*document["cells"], {"id": "py2", "kind": "python", "source": "print(1)"}]
+    saved = client.put(content, json={"cells": cells, "expected_digest": document["digest"]})
+    assert saved.status_code == 200, saved.text
+    assert valid()  # its owner saved: still signed, for the new code
+
+    actor["subject"] = "editor"
+    document = _open(client)
+    cells = [*document["cells"], {"id": "py3", "kind": "python", "source": "print(2)"}]
+    saved = client.put(content, json={"cells": cells, "expected_digest": document["digest"]})
+    assert saved.status_code == 200, saved.text
+    assert not valid()  # someone else's edit pauses it
+
+
+def test_schedules_need_a_signing_key(notebook_api, monkeypatch):
+    client, _ = notebook_api
+    monkeypatch.delenv("PHLO_NOTEBOOK_SCHEDULE_KEY", raising=False)
+    document = _open(client)
+    refused = client.put(
+        "/api/v1/notebooks/schedule?env=prod&path=market/trials.ipynb",
+        json={"cron": "0 * * * *", "expected_digest": document["digest"]},
+    )
+    assert refused.status_code == 503
+    assert refused.json()["error"]["code"] == "notebook_schedules_unavailable"
 
 
 # -- publishing -----------------------------------------------------------------

@@ -29,7 +29,7 @@ ARG PHLO_API_EXTRAS=
 
 ENV PHLO_API_EXTRAS=${PHLO_API_EXTRAS}
 
-RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"].split(","))); unknown = extras - {"dagster", "dlt", "iceberg", "lineage", "transform", "trino"}; assert not unknown, f"Unsupported API provider extras: {sorted(unknown)}"'
+RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"].split(","))); unknown = extras - {"dagster", "dlt", "iceberg", "lineage", "notebooks", "transform", "trino"}; assert not unknown, f"Unsupported API provider extras: {sorted(unknown)}"'
 
 # Match the existing GNU-native provider runtime rather than relying on musl shims.
 # Apply Debian fixes even when the digest-pinned base predates them.

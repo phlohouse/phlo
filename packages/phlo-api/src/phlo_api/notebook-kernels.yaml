@@ -1,0 +1,78 @@
+# Companion service for phlo-api: runs Observatory notebook kernels.
+name: phlo-notebook-kernels
+description: Observatory notebook kernels, one Unix user per kernel and no network for kernel code
+category: api
+default: false
+profile: notebooks
+
+image: ghcr.io/phlohouse/phlo-notebook-kernels:0.19.0
+build:
+    context: ./phlo-notebook-kernels
+    dockerfile: Dockerfile
+
+compose:
+    restart: unless-stopped
+    # Root inside the container only to run each kernel as its own user and to
+    # install the network rules; every other capability is dropped.
+    user: "0:0"
+    cap_drop:
+        - ALL
+    cap_add:
+        - CHOWN
+        - DAC_OVERRIDE
+        - FOWNER
+        - KILL
+        - NET_ADMIN
+        - SETGID
+        - SETUID
+    security_opt:
+        - no-new-privileges:true
+    read_only: true
+    tmpfs:
+        - /tmp
+    pids_limit: 1024
+    mem_limit: ${PHLO_NOTEBOOK_KERNELS_MEMORY:-4g}
+    environment:
+        PHLO_NOTEBOOK_GATEWAY_TOKEN: ${PHLO_NOTEBOOK_GATEWAY_TOKEN:?Run phlo services init to generate PHLO_NOTEBOOK_GATEWAY_TOKEN}
+        PHLO_NOTEBOOK_PACKAGE_INDEX: ${PHLO_NOTEBOOK_PACKAGE_INDEX:-}
+    ports:
+        - "${PHLO_NOTEBOOK_GATEWAY_PORT:-10090}:8890"
+    volumes:
+        # Kernel folders (wiped on start) and the per-notebook package cache.
+        - notebook-kernels:/var/lib/phlo-kernels
+    healthcheck:
+        test:
+            [
+                "CMD",
+                "python",
+                "-c",
+                "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8890/health', timeout=4)",
+            ]
+        interval: 15s
+        timeout: 5s
+        retries: 5
+        start_period: 10s
+
+env_vars:
+    PHLO_NOTEBOOK_GATEWAY_TOKEN:
+        description: Bearer token shared by the API and the notebook kernel host
+        secret: true
+    PHLO_NOTEBOOK_PACKAGE_INDEX:
+        default: ""
+        description: Package index URL for notebook packages; empty uses PyPI. The host installs wheels only
+    PHLO_NOTEBOOK_GATEWAY_PORT:
+        default: 10090
+        description: Host port for the notebook kernel host, used by an API running outside Docker
+    PHLO_NOTEBOOK_KERNELS_MEMORY:
+        default: 4g
+        description: Memory limit shared by all notebook kernels
+
+files:
+    - source: notebook_host/Dockerfile
+      dest: phlo-notebook-kernels/Dockerfile
+    - source: notebook_host/entrypoint.sh
+      dest: phlo-notebook-kernels/entrypoint.sh
+    - source: notebook_host/requirements.txt
+      dest: phlo-notebook-kernels/requirements.txt
+    - source: notebook_gateway.py
+      dest: phlo-notebook-kernels/notebook_gateway.py

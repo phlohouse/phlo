@@ -18,6 +18,7 @@ import hashlib
 import time
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -29,6 +30,7 @@ from pydantic import Field
 from phlo.rbac.models import CanonicalAction
 from phlo_api import notebook_files as files
 from phlo_api import notebook_git, notebook_promote
+from phlo_api import notebook_signing as signing
 from phlo_api import notebook_state as state
 from phlo_api.api.authentication import get_request_principal
 from phlo_api.api.operation_controls import audit_operation, project_root
@@ -105,6 +107,9 @@ class NotebookScheduleView(WireModel):
     env: Environment
     owner: str
     enabled: bool
+    # False when the notebook changed since it was scheduled (or the file was
+    # edited outside Observatory): it will not run until it is set again.
+    approved: bool = True
 
 
 class NotebookAccess(WireModel):
@@ -348,7 +353,8 @@ def _deployment() -> ApiDeploymentSettings:
 def _registry(deployment: ApiDeploymentSettings) -> Any:
     REGISTRY.configure(
         root=Path(deployment.notebook_kernel_dir) if deployment.notebook_kernel_dir else None,
-        package_index=deployment.notebook_package_index,
+        gateway_url=deployment.notebook_gateway_url,
+        gateway_token=deployment.notebook_gateway_token(),
     )
     return REGISTRY
 
@@ -370,6 +376,68 @@ def _require_kernels() -> ApiDeploymentSettings:
     return deployment
 
 
+def _schedule_key() -> str:
+    key = _deployment().notebook_schedule_key()
+    if key is None:
+        raise BackendUnavailableError(
+            "Notebook schedules need PHLO_NOTEBOOK_SCHEDULE_KEY (at least 32 characters). "
+            "Run phlo services init to generate it.",
+            code="notebook_schedules_unavailable",
+        )
+    return key
+
+
+def _resign_for(
+    request: Request,
+    env: Environment,
+    path: str,
+    schedule: files.NotebookSchedule,
+    cells: list[files.NotebookCell],
+    packages: tuple[str, ...],
+) -> files.NotebookSchedule:
+    """Re-sign a schedule for new code only when its owner, still allowed to run it, saves."""
+    key = _deployment().notebook_schedule_key()
+    draft = files.NotebookDocument(
+        path=path, digest="", cells=tuple(cells), settings=files.NotebookSettings(packages)
+    )
+    query = signing.needs_query(draft)
+    if (
+        key is None
+        or schedule.owner != _actor(request)
+        or not is_allowed(request, schedule.env, CanonicalAction.RUN_MANAGE.value, "project")
+        or not is_allowed(request, schedule.env, CanonicalAction.RUN_EXECUTE.value, "project")
+        or (
+            query
+            and not is_allowed(
+                request, schedule.env, CanonicalAction.DATASET_QUERY.value, "project"
+            )
+        )
+    ):
+        return schedule
+    return signing.sign(key, path, replace(schedule, query=query), draft)
+
+
+def _carry_schedule(
+    project: Path, old_path: str, document: files.NotebookDocument
+) -> files.NotebookDocument:
+    """Keep a moved notebook's valid schedule valid at its new path."""
+    schedule = document.settings.schedule
+    key = _deployment().notebook_schedule_key()
+    if schedule is None or key is None:
+        return document
+    before = replace(document, path=old_path)
+    if not signing.verify(key, before):
+        return document
+    moved = signing.sign(key, document.path, replace(schedule, signature=None), document)
+    return files.write_notebook(
+        project,
+        document.path,
+        list(document.cells),
+        document.digest,
+        replace(document.settings, schedule=moved),
+    )
+
+
 def _require_query(request: Request, env: Environment) -> None:
     """Trino cells read lakehouse data: the same permission as the Query page."""
     if not is_allowed(request, env, CanonicalAction.DATASET_QUERY.value, "project"):
@@ -378,11 +446,11 @@ def _require_query(request: Request, env: Environment) -> None:
         )
 
 
-def _kernel(request: Request, env: Environment, kernel_id: str) -> KernelRecord:
+async def _kernel(request: Request, env: Environment, kernel_id: str) -> KernelRecord:
     _target(request, env)
     _require_kernels()
     try:
-        record = REGISTRY.get(kernel_id, _actor(request))
+        record = await REGISTRY.get(kernel_id, _actor(request))
     except KernelNotFound as exc:
         raise NotFoundError("This kernel has stopped. Start it again from the notebook.") from exc
     except KernelsUnavailable as exc:
@@ -439,7 +507,11 @@ def _document(
         packages=list(document.settings.packages),
         schedule=(
             NotebookScheduleView(
-                cron=schedule.cron, env=schedule.env, owner=schedule.owner, enabled=schedule.enabled
+                cron=schedule.cron,
+                env=schedule.env,
+                owner=schedule.owner,
+                enabled=schedule.enabled,
+                approved=signing.verify(_deployment().notebook_schedule_key(), document),
             )
             if schedule
             else None
@@ -538,6 +610,10 @@ async def v1_notebook_save(
     if payload.expected_digest is not None:
         with suppress(FileNotFoundError, files.NotebookInvalid, files.NotebookPathError):
             schedule = files.read_notebook(project_root(), path).settings.schedule
+    if schedule is not None:
+        # Its owner saving keeps it running; anyone else's edit pauses it until
+        # someone who may schedule it sets it again (see notebook_signing).
+        schedule = _resign_for(request, env, path, schedule, cells, packages)
     settings = files.NotebookSettings(packages=packages, schedule=schedule)
     try:
         document = files.write_notebook(
@@ -581,6 +657,7 @@ async def v1_notebook_move(
     except files.NotebookInvalid as exc:
         raise UnprocessableInputError(str(exc), code="notebook_invalid") from exc
     state.move_state(project, path, payload.to)
+    document = _carry_schedule(project, path, document)
     _audit(request, "notebook.move", f"{env}:{path}", {"to": payload.to}, "moved")
     return _document(request, env, target.nessie_ref, document)
 
@@ -621,12 +698,27 @@ async def v1_notebook_schedule(
             cron = files.validate_cron(payload.cron)
         except files.NotebookInvalid as exc:
             raise UnprocessableInputError(str(exc), code="notebook_invalid") from exc
-        schedule = files.NotebookSchedule(
-            cron=cron,
-            env=run_env,
-            owner=_actor(request),
-            enabled=payload.enabled,
-            since=int(time.time()),
+        key = _schedule_key()
+        query = signing.needs_query(current)
+        if query:
+            _require_query(request, run_env)
+        if not is_allowed(request, run_env, CanonicalAction.RUN_EXECUTE.value, "project"):
+            raise ForbiddenError(
+                "Scheduling runs the notebook as you, and you may not run notebooks here.",
+                code="notebook_run_denied",
+            )
+        schedule = signing.sign(
+            key,
+            current.path,
+            files.NotebookSchedule(
+                cron=cron,
+                env=run_env,
+                owner=_actor(request),
+                enabled=payload.enabled,
+                since=int(time.time()),
+                query=query,
+            ),
+            current,
         )
     settings = files.NotebookSettings(packages=current.settings.packages, schedule=schedule)
     try:
@@ -913,7 +1005,7 @@ async def v1_notebook_kernel_run(
     request: Request, env: Environment, kernel_id: str, payload: RunStart
 ) -> RunView:
     """Start running a cell. Poll the run for output; it keeps going if the page leaves."""
-    record = _kernel(request, env, kernel_id)
+    record = await _kernel(request, env, kernel_id)
     deployment = _deployment()
     work = _work(payload)
     if work.kind == "trino":
@@ -988,7 +1080,7 @@ def _error(message: str, name: str) -> ExecutionResult:
 async def v1_notebook_kernel_run_status(
     request: Request, env: Environment, kernel_id: str, run_id: str
 ) -> RunView:
-    record = _kernel(request, env, kernel_id)
+    record = await _kernel(request, env, kernel_id)
     try:
         return _run_view(REGISTRY.get_run(record, run_id))
     except KernelNotFound as exc:
@@ -1003,7 +1095,7 @@ def _busy() -> ConflictError:
 async def v1_notebook_kernel_variables(
     request: Request, env: Environment, kernel_id: str
 ) -> KernelVariables:
-    record = _kernel(request, env, kernel_id)
+    record = await _kernel(request, env, kernel_id)
     try:
         items = await REGISTRY.variables(record)
     except (KernelBusy, KernelNotReady) as exc:
@@ -1016,7 +1108,7 @@ async def v1_notebook_kernel_packages(
     request: Request, env: Environment, kernel_id: str
 ) -> KernelPackages:
     """Every importable distribution in the kernel, marking the notebook's own."""
-    record = _kernel(request, env, kernel_id)
+    record = await _kernel(request, env, kernel_id)
     try:
         items = await REGISTRY.packages(record)
     except (KernelBusy, KernelNotReady) as exc:
@@ -1031,7 +1123,7 @@ async def v1_notebook_kernel_complete(
     request: Request, env: Environment, kernel_id: str, payload: CompleteRequest
 ) -> Completions:
     """Python completions from the live kernel; empty while it runs a cell."""
-    record = _kernel(request, env, kernel_id)
+    record = await _kernel(request, env, kernel_id)
     cursor = min(payload.cursor, len(payload.code))
     return Completions.model_validate(await REGISTRY.complete(record, payload.code, cursor))
 
@@ -1040,8 +1132,8 @@ async def v1_notebook_kernel_complete(
 async def v1_notebook_kernel_interrupt(
     request: Request, env: Environment, kernel_id: str
 ) -> KernelView:
-    record = _kernel(request, env, kernel_id)
-    REGISTRY.interrupt(record)
+    record = await _kernel(request, env, kernel_id)
+    await REGISTRY.interrupt(record)
     _audit(
         request,
         "notebook.kernel.interrupt",
@@ -1056,7 +1148,7 @@ async def v1_notebook_kernel_interrupt(
 async def v1_notebook_kernel_restart(
     request: Request, env: Environment, kernel_id: str
 ) -> KernelView:
-    record = _kernel(request, env, kernel_id)
+    record = await _kernel(request, env, kernel_id)
     try:
         record = await REGISTRY.restart(record)
     except Exception as exc:  # reason: a failed restart leaves a failed kernel to report
@@ -1073,7 +1165,7 @@ async def v1_notebook_kernel_restart(
 
 @router.delete("/notebooks/kernels/{kernel_id}", status_code=204)
 async def v1_notebook_kernel_stop(request: Request, env: Environment, kernel_id: str) -> Response:
-    record = _kernel(request, env, kernel_id)
+    record = await _kernel(request, env, kernel_id)
     await REGISTRY.shutdown(record)
     _audit(
         request, "notebook.kernel.stop", f"{env}:{record.path}", {"kernel": kernel_id}, "stopped"
