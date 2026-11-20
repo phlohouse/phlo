@@ -49,7 +49,7 @@ if [ "$PHLO_DEV_MODE" = "true" ] && [ -f "$PHLO_DEV_ROOT/pyproject.toml" ]; then
             chmod -R u+w "$DEV_INSTALL_ROOT/packages/$package"
             requirement="$DEV_INSTALL_ROOT/packages/$package"
             if [ "$package" = "phlo-api" ] && [ -n "$api_extras" ]; then
-                requirement="$requirement[$api_extras]"
+                requirement="${requirement}[${api_extras}]"
             fi
             install_editable "$requirement" "/tmp/$package-package-install.log"
             # Live sources shadow the copied build tree and installed distributions.

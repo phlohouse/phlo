@@ -5,54 +5,47 @@ with Python cells, which run in Jupyter kernels. Kernels run in a separate
 `phlo-notebook-kernels` service, never inside the API. Notebooks are files in
 `notebooks/`, so they are reviewed and versioned with the rest of the project.
 
-Notebooks are a preview feature. Every switch below is off by default.
+Notebooks are a preview feature. They are off until you add them.
 
 ## Turn notebooks on
 
-1. Add the notebook settings to the `env:` block in `phlo.yaml`:
+Add notebooks to the project's stack. In a project that already runs Observatory:
 
-   ```yaml
-   env:
-     PHLO_API_EXTRAS: notebooks,trino
-     PHLO_NOTEBOOK_KERNELS: "1"
-     # Kernels and query sessions live in one API process.
-     PHLO_V1_QUERY_SINGLE_PROCESS: "1"
-     # Optional: let people add packages to a notebook.
-     PHLO_NOTEBOOK_PACKAGES: "1"
-     # Optional: let people run notebooks on a schedule.
-     PHLO_NOTEBOOK_SCHEDULES: "1"
-   ```
+```bash
+phlo services add notebooks
+```
 
-   Only `1` turns a switch on.
+When you set up a new project, choose the profile at the start instead:
 
-2. Generate the services configuration with the `api` and `notebooks` profiles:
+```bash
+phlo services init --observatory-dev --profile notebooks
+phlo services start
+```
 
-   ```bash
-   phlo services init --profile api --profile notebooks
-   ```
+Then open **Notebooks** in Observatory. There is nothing else to set.
 
-   This adds the `phlo-notebook-kernels` service and writes two generated
-   secrets to `.phlo/secrets/.env`:
+Adding notebooks:
 
-   - `PHLO_NOTEBOOK_GATEWAY_TOKEN`, which the API uses to reach the kernel host.
-   - `PHLO_NOTEBOOK_SCHEDULE_KEY`, which signs schedules.
+- adds the `phlo-notebook-kernels` service and builds the API with notebook support;
+- turns on kernels, notebook packages and schedules, and records that the
+  generated API runs as one process, which kernels need;
+- writes two generated secrets to `.phlo/secrets/.env`: the token the API uses
+  to reach the kernel host, and the key that signs schedules;
+- with the local development sign-in from `--observatory-dev`, lets `dev_user`
+  edit, run and query notebooks in each configured environment.
 
-   Both are required. The kernel host refuses to start without a token of at
-   least 32 characters, and schedules are refused without the key.
-
-3. Start the stack and open **Notebooks** in Observatory:
-
-   ```bash
-   phlo services start --profile api --profile notebooks --build
-   ```
+To keep a part off, set it to `0` in the `env:` block of `phlo.yaml`, for
+example `PHLO_NOTEBOOK_PACKAGES: "0"`, and run `phlo services init` again.
 
 Trino SQL cells use the same preview catalog and Trino credentials as the
 Query page. If Query works for an environment, Trino cells work there too.
 Python and DuckDB cells need only the kernel host.
 
-The person using notebooks needs `object.read` and `object.write` on the
-environment to open and save them, `run.execute` to start kernels, and
-`dataset.query` for SQL cells. Scheduling needs `run.manage` as well.
+With your own authorization setup, the person using notebooks needs
+`object.read` and `object.write` on the environment to open and save them,
+`run.execute` to start kernels, and `dataset.query` for SQL cells. Scheduling
+needs `run.manage` as well, and promoting a cell to a dbt model needs
+`asset.manage`.
 
 ## How kernels are isolated
 
