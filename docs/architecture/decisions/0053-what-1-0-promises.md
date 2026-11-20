@@ -6,6 +6,8 @@
 
 Amended (2026-11-01): `0.19.0` is the last alpha release and is not a `1.0.0` candidate. The legacy route deletion ships in `0.20.0`, and the candidate is a build at or after it. Decision 7 is cut to five exit criteria. Phlo has a single maintainer who is also its only user, so criteria written for an audience that does not exist yet (a required macOS CI lane, `blessed_core`-only lockstep versioning, external-consumer evidence) are deferred until a second user appears. Decisions 1, 3, 4 and 5 are amended to match: decision 1 names the maintainer's deployment as the live deployment and defines the candidate, decision 3 moves the route deletion to `0.20.0`, decision 4 applies the shared version to the whole workspace, and decision 5 replaces the macOS CI lane with a recorded manual run. Decisions 2 and 6 are unchanged. ADR 0054 is amended in the same change to scope its per-package versioning to releases below `1.0.0`.
 
+Amended (2026-11-20): decision 5's Python 3.13 evidence is the scheduled Nightly 3.13 lane, not a required PR lane, under ADR 0064 decision 5. The 3.13 support claim is unchanged.
+
 - Date: 2026-10-30
 - Decision owner: iamgp
 - Scope: the `1.0.0` release of the `blessed_core` profile in `registry/support/v1.json`, and the compatibility rules for the `1.x` release line
@@ -112,7 +114,7 @@ The deprecations already scheduled for 0.19.0 complete before `1.0.0`, so `1.0.0
 
 | Dimension | 1.0 support | Required evidence |
 | --- | --- | --- |
-| Python | 3.12 and 3.13 | Core and package test lanes run on both versions in required CI. |
+| Python | 3.12 and 3.13 | Amended 2026-11-20: core and package tests run on 3.12 in required PR CI and on 3.13 in the scheduled Nightly, whose failures open an issue ([ADR 0064](0064-ci-contracts-and-required-lanes.md)). |
 | Linux | Supported for the full stack and the quickstart path | The existing `ubuntu-latest` lanes, plus the clean-host qualifying runs under ADR 0050. |
 | macOS | Supported for the quickstart path with Docker Desktop or another Compose v2 provider | Amended 2026-11-01: a recorded manual quickstart run on the maintainer's Apple-silicon Mac, from `phlo init` through a materialised table viewed in Observatory, noting the architecture and Compose provider. A required CI lane is deferred until a second user depends on macOS. |
 | Windows | Supported only through WSL 2, as the install guide documents | The existing Windows Compose portability lane, unchanged. |
