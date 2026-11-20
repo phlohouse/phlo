@@ -157,60 +157,26 @@ def test_required_suite_executes_and_rejects_skips(tmp_path, body) -> None:
     assert (tmp_path / "result.xml").exists()
 
 
-@pytest.mark.parametrize(
-    ("changed", "groups"),
-    [
-        ("scripts/tool.py", set()),
-        ("uv.lock", {"platform", "data"}),
-        ("packages/phlo-traefik/pyproject.toml", {"platform"}),
-    ],
-)
-def test_merge_queue_runs_every_lane_and_package_groups_only_for_dependencies(
-    tmp_path, changed, groups
-) -> None:
-    source = tmp_path / "source"
-
-    def git(*args):
-        return subprocess.check_output(["git", *args], cwd=source, text=True).strip()
-
-    files = {
-        "scripts/select_ci.py": (ROOT / "scripts/select_ci.py").read_text(),
-        ".github/ci-package-groups.json": json.dumps(
-            {"platform": "phlo-traefik", "data": "phlo-trino"}
-        ),
-        "packages/phlo-traefik/pyproject.toml": '[project]\nname="phlo-traefik"\n',
-        "packages/phlo-trino/pyproject.toml": '[project]\nname="phlo-trino"\n',
-        "scripts/tool.py": "VALUE = 1\n",
-        "uv.lock": "version = 1\n",
-    }
-    for name, contents in files.items():
-        (source / name).parent.mkdir(parents=True, exist_ok=True)
-        (source / name).write_text(contents)
-    git("init", "-qb", "main")
-    git("remote", "add", "origin", source.as_uri())
-    git("add", ".")
-    git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base")
-    base = git("rev-parse", "HEAD")
-    with (source / changed).open("a") as handle:
-        handle.write("# queued change\n")
-    git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qam", "head")
-    head = git("rev-parse", "HEAD")
-
+def test_merge_queue_executes_full_selection(tmp_path) -> None:
     step = workflow("pr.yml")["jobs"]["changes"]["steps"][-1]
     output = tmp_path / "output"
     summary = tmp_path / "summary"
     env = dict(
         os.environ,
         EVENT_NAME="merge_group",
-        BASE_SHA=base,
-        HEAD_SHA=head,
         GITHUB_OUTPUT=str(output),
         GITHUB_STEP_SUMMARY=str(summary),
     )
-    subprocess.run(["bash", "-c", step["run"]], cwd=source, env=env, check=True)
+    subprocess.run(["bash", "-c", step["run"]], cwd=ROOT, env=env, check=True)
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
     selection = json.loads(values["selection"])
-    assert {entry["group"] for entry in selection["groups"]} == groups
+    assert {entry["group"] for entry in selection["groups"]} == {
+        "platform",
+        "data",
+        "api",
+        "runtime",
+        "interfaces",
+    }
     assert all(
         selection[lane]
         for lane in ("python", "frontend", "writer", "integration", "docs", "plugin", "mutation")

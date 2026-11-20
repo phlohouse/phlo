@@ -12,10 +12,11 @@ lanes. Every merge group runs every lane on its prospective merge SHA.
 
 Isolated package tests run each package in its own dependency environment. The
 workspace coverage shards already run those tests, so the isolated groups only
-check declared dependencies. PRs and merge groups run them when a dependency
-manifest changes: a package's `pyproject.toml` selects that package and its
-reverse dependencies, and the root `pyproject.toml` or `uv.lock` selects every
-group. Nightly runs every group.
+check declared dependencies. PRs run them only when a dependency manifest
+changes: a package's `pyproject.toml` selects that package and its reverse
+dependencies, and the root `pyproject.toml` or `uv.lock` selects every group.
+Merge groups and nightly run every group, because merge-queue evidence must
+cover every configured job.
 
 Required lanes cover Python quality and behaviour, installed provider artifacts,
 PostgreSQL concurrency, quickstart and recovery, Observatory, GitHub writer and
@@ -39,7 +40,7 @@ environments.
 | Bucket | Execution layout |
 | --- | --- |
 | Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job and retry the npm install twice. |
-| Behaviour | The measured workspace shards run every non-integration test once. Isolated package tests run only for dependency manifest changes and nightly. Observatory runs in its own Node job; the GitHub writer and webhook plugin share one Node job, each step running only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
+| Behaviour | The measured workspace shards run every non-integration test once. Isolated package tests run on PRs only for dependency manifest changes, and in every merge group and nightly run. Observatory runs in its own Node job; the GitHub writer and webhook plugin share one Node job, each step running only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
 | Integration and portability | Storage/catalog contracts and two API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks run nightly in one native Windows job. |
 | Artifact and dependency safety | Preparation builds wheels once for provider shards. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 

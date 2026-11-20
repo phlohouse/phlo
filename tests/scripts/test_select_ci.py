@@ -35,7 +35,6 @@ def test_source_changes_leave_isolated_package_groups_to_dependency_changes() ->
     assert selection["integration"] is True
     assert "phlo-nessie" in selection["reasons"]["python"]
     assert select({"scripts/select_ci.py"})["groups"] == []
-    assert select({"scripts/select_ci.py"}, full=True)["groups"] == []
 
 
 def test_trino_manifest_selects_reverse_dependency_groups() -> None:

@@ -24,14 +24,14 @@ def inert_doc(path: str) -> bool:
     )
 
 
-def select(paths: set[str], root: Path = ROOT, *, full: bool = False) -> dict[str, object]:
+def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     """Fail open for unrecognised paths; expand package changes to their dependents.
 
     Workspace coverage runs every package's tests on each PR. The isolated
     package groups only add a check of each package's declared dependencies,
-    so they run when a dependency manifest changes, for an empty diff (manual
-    and nightly full CI) and never otherwise. ``full`` selects every other
-    lane while still choosing package groups from the diff (the merge queue).
+    so they run when a dependency manifest changes and for an empty diff: the
+    merge queue, manual runs and nightly, whose full evidence covers every
+    configured job.
     """
     groups = {
         group: packages.split()
@@ -102,7 +102,9 @@ def select(paths: set[str], root: Path = ROOT, *, full: bool = False) -> dict[st
     workspace_manifest = bool({"pyproject.toml", "uv.lock"} & paths)
     if not paths or workspace_manifest:
         isolated = package_groups(package_names)
-        isolated_reason = "empty diff or workspace dependency manifest"
+        isolated_reason = (
+            "empty diff (merge queue, manual or nightly) or workspace dependency manifest"
+        )
     else:
         isolated = package_groups(with_dependents(manifests))
         isolated_reason = (
@@ -113,8 +115,7 @@ def select(paths: set[str], root: Path = ROOT, *, full: bool = False) -> dict[st
         )
 
     broad = (
-        full
-        or not paths
+        not paths
         or bool(package_changes - package_names)
         or any(path.startswith("packages/") and len(path.split("/")) < 3 for path in paths)
         or any(
@@ -134,7 +135,7 @@ def select(paths: set[str], root: Path = ROOT, *, full: bool = False) -> dict[st
             "plugin": True,
             "mutation": True,
             "reasons": {
-                "all": "empty diff, merge queue or unrecognised path requires full validation",
+                "all": "empty diff or unrecognised path requires full validation",
                 "packages": isolated_reason,
             },
         }
@@ -191,14 +192,9 @@ def main() -> None:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--working-tree", action="store_true")
-    parser.add_argument(
-        "--full",
-        action="store_true",
-        help="select every lane; package groups still follow dependency manifests",
-    )
     args = parser.parse_args()
     paths = git_paths(args.base, args.head, working_tree=args.working_tree)
-    print(json.dumps(select(paths, full=args.full), separators=(",", ":")))
+    print(json.dumps(select(paths), separators=(",", ":")))
 
 
 if __name__ == "__main__":

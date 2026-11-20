@@ -36,21 +36,17 @@ jobs:
         id: select
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = pull_request ] || [ "$EVENT_NAME" = merge_group ]; then
+          if [ "$EVENT_NAME" = pull_request ]; then
             # The event base can precede the merge commit's parent. Fetch both
             # exact endpoints without changing the checked-out merge result.
             git fetch --no-tags --no-recurse-submodules --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
             git cat-file -e "$BASE_SHA^{commit}"
             git cat-file -e "$HEAD_SHA^{commit}"
-            # The queue runs every lane; isolated package groups still need a
-            # dependency manifest change, as on the PR.
-            full=()
-            if [ "$EVENT_NAME" = merge_group ]; then full=(--full); fi
-            selection="$(python3 scripts/select_ci.py --base "$BASE_SHA" --head "$HEAD_SHA" "${full[@]}")"
+            selection="$(python3 scripts/select_ci.py --base "$BASE_SHA" --head "$HEAD_SHA")"
           else
             selection="$(python3 scripts/select_ci.py --base HEAD --head HEAD)"
           fi
