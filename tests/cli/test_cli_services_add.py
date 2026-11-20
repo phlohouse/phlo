@@ -146,3 +146,94 @@ def test_services_add_remove_report_malformed_phlo_yaml_without_traceback(
         assert "invalid phlo.yaml" in result.output
         assert "Traceback" not in result.output
         assert not isinstance(result.exception, yaml.YAMLError)
+
+
+def test_services_add_installs_the_package_of_a_registry_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """A service the registry lists is installed, then added, in one command."""
+    from phlo.cli.commands.services import add as add_module
+    from phlo.plugins.registry_client import RegistryPlugin
+
+    grafana = _service("grafana")
+    services: dict[str, ServiceDefinition] = {}
+    installed: list[list[str]] = []
+
+    class InstallingFakeDiscovery(FakeDiscovery):
+        def discover(self) -> dict[str, ServiceDefinition]:
+            return dict(services)
+
+    def fake_install(packages: list[str]) -> str:
+        installed.append(packages)
+        services["grafana"] = grafana
+        return "project"
+
+    entry = RegistryPlugin(
+        name="grafana",
+        type="service",
+        package="phlo-grafana",
+        version=None,
+        description="Dashboards",
+        author="Phlo Team",
+        homepage=None,
+        tags=[],
+        verified=True,
+        core=False,
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".phlo").mkdir()
+    (tmp_path / "phlo.yaml").write_text("services:\n  enabled: []\n")
+    monkeypatch.setattr(add_module, "ServiceDiscovery", InstallingFakeDiscovery)
+    monkeypatch.setattr(add_module, "_regenerate_compose", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("phlo.plugins.registry_client.get_plugin", lambda name: entry)
+    monkeypatch.setattr("phlo.plugins.project_install.install_packages", fake_install)
+
+    result = CliRunner().invoke(add_module.add_cmd, ["grafana", "--no-start"])
+
+    assert result.exit_code == 0, result.output
+    assert installed == [["phlo-grafana"]]
+    assert yaml.safe_load((tmp_path / "phlo.yaml").read_text())["services"]["enabled"] == [
+        "grafana"
+    ]
+
+
+def test_services_add_reports_a_package_it_cannot_install(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    from phlo.cli.commands.services import add as add_module
+    from phlo.plugins.project_install import PluginInstallError
+    from phlo.plugins.registry_client import RegistryPlugin
+
+    class EmptyDiscovery(FakeDiscovery):
+        def discover(self) -> dict[str, ServiceDefinition]:
+            return {}
+
+    def refuse(packages: list[str]) -> str:
+        raise PluginInstallError("phlo-grafana is not published with phlo 0.19.0")
+
+    entry = RegistryPlugin(
+        name="grafana",
+        type="service",
+        package="phlo-grafana",
+        version=None,
+        description="Dashboards",
+        author="Phlo Team",
+        homepage=None,
+        tags=[],
+        verified=True,
+        core=False,
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".phlo").mkdir()
+    (tmp_path / "phlo.yaml").write_text("services:\n  enabled: []\n")
+    monkeypatch.setattr(add_module, "ServiceDiscovery", EmptyDiscovery)
+    monkeypatch.setattr("phlo.plugins.registry_client.get_plugin", lambda name: entry)
+    monkeypatch.setattr("phlo.plugins.project_install.install_packages", refuse)
+
+    result = CliRunner().invoke(add_module.add_cmd, ["grafana", "--no-start"])
+
+    assert result.exit_code == 1
+    assert "phlo-grafana is not published with phlo 0.19.0" in result.output
+    assert "Traceback" not in result.output

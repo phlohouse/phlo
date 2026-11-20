@@ -196,6 +196,11 @@ def add_cmd(
 
     unknown_services = [name for name in explicit_services if name not in all_services]
     if unknown_services:
+        _install_service_packages(unknown_services)
+        discovery = ServiceDiscovery()
+        all_services = discovery.discover()
+        unknown_services = [name for name in explicit_services if name not in all_services]
+    if unknown_services:
         raise click.ClickException(f"Unknown service name(s): {', '.join(unknown_services)}")
 
     profile_services = get_profile_service_names(normalized_profiles)
@@ -238,4 +243,33 @@ def add_cmd(
     else:
         click.echo(
             "Services added but not started; run phlo services start once the error is fixed."
+        )
+
+
+def _install_service_packages(names: list[str]) -> None:
+    """Install the first-party packages that provide ``names``, as uv add would.
+
+    Only names the plugin registry lists as services are installed; any other
+    name is reported as unknown by the caller.
+    """
+    from phlo.plugins.project_install import PluginInstallError, install_packages
+    from phlo.plugins.registry_client import get_plugin
+
+    packages = []
+    for name in names:
+        entry = get_plugin(name)
+        if entry is not None and entry.type == "service":
+            packages.append(entry.package)
+    if not packages:
+        return
+    packages = list(dict.fromkeys(packages))
+    click.echo(f"Installing {', '.join(packages)}...")
+    try:
+        target = install_packages(packages)
+    except PluginInstallError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if target == "project-env":
+        raise click.ClickException(
+            f"Added {', '.join(packages)} to the project. Run `uv run phlo services add "
+            f"{' '.join(names)}` to render it."
         )

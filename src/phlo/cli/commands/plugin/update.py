@@ -1,8 +1,9 @@
 """Plugin update command.
 
-Compares installed plugins against the registry and upgrades them with
-pip. Read-only modes (--json, --dry-run) bypass mutation authorization;
-the actual update requires the "plugin.update" mutation. Per-plugin
+Compares installed plugins against the registry and upgrades them in the
+project without changing the installed Phlo. Read-only modes (--json,
+--dry-run) bypass mutation authorization; the actual update requires the
+"plugin.update" mutation. Per-plugin
 failures are collected, reported, and fail the command with exit 1
 after every remaining update has been attempted.
 """
@@ -14,10 +15,11 @@ import sys
 import click
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
-from phlo.cli.commands.plugin.utils import console, find_available_updates, run_pip
+from phlo.cli.commands.plugin.utils import console, find_available_updates
 from phlo.cli.contract import PhloCommand
 from phlo.cli.output import json_envelope, user_error
 from phlo.logging import get_logger
+from phlo.plugins.project_install import install_packages
 from phlo.plugins.registry_client import fetch_registry, list_registry_plugins
 
 logger = get_logger(__name__)
@@ -98,9 +100,7 @@ def update_cmd(output_json: bool, dry_run: bool):
         failures: list[dict[str, str]] = []
         for update in updates:
             try:
-                run_pip(
-                    ["install", "--upgrade", f"{update['package']}=={update['available_version']}"]
-                )
+                install_packages([f"{update['package']}=={update['available_version']}"])
             except Exception as exc:
                 logger.warning(
                     "plugin_update_package_failed",
