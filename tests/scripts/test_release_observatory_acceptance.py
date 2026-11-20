@@ -592,6 +592,20 @@ def test_minio_migration_carries_provider_rewrite_into_baseline(
     (project / "docker-compose.yml").write_bytes(generated)
     (pristine / ".phlo/docker-compose.yml").write_bytes(generated)
     migrated = b"services:\n  minio:\n    image: ghcr.io/phlohouse/phlo-minio:0.17.4\n"
+    pinned_api = "ghcr.io/phlohouse/phlo-api@sha256:" + "d" * 64
+    (project / "compose.candidate.json").write_text(
+        json.dumps(
+            {
+                "services": {
+                    "minio": {"image": "ghcr.io/phlohouse/phlo-minio@sha256:" + "1" * 64},
+                    "minio-setup": {"image": "ghcr.io/phlohouse/phlo-minio@sha256:" + "1" * 64},
+                    "phlo-api": {"image": pinned_api},
+                }
+            }
+        )
+    )
+    (project / "compose.local.yaml").write_text("# owned pins\n")
+    restored = []
     calls = []
 
     def run(args, **_):
@@ -599,13 +613,21 @@ def test_minio_migration_carries_provider_rewrite_into_baseline(
         if "--apply" in args:
             (project / "docker-compose.yml").write_bytes(migrated)
 
-    monkeypatch.setattr(observatory, "installed_start_pins", lambda *_, **__: None)
+    def start_pins(_config, *, remove=False):
+        if remove:
+            (project / "compose.local.yaml").unlink()
+        else:
+            restored.append(json.loads((project / "compose.candidate.json").read_text()))
+
+    monkeypatch.setattr(observatory, "installed_start_pins", start_pins)
     monkeypatch.setattr(observatory.golden, "run", run)
 
     observatory.migrate_minio_image(config, config, pristine)
 
     assert calls == [["minio", "migrate-image"], ["minio", "migrate-image", "--apply"]]
     assert (pristine / ".phlo/docker-compose.yml").read_bytes() == migrated
+    # Every other service stays digest-pinned; MinIO keeps the migrated image.
+    assert restored == [{"services": {"phlo-api": {"image": pinned_api}}}]
 
 
 def test_minio_migration_refuses_a_customized_generated_compose(
@@ -622,3 +644,26 @@ def test_minio_migration_refuses_a_customized_generated_compose(
 
     with pytest.raises(observatory.golden.CandidateError, match="unmodified generated Compose"):
         observatory.migrate_minio_image(config, config, pristine)
+
+
+def test_login_return_wait_retries_only_browser_timeouts(observatory, monkeypatch) -> None:
+    import release_observatory_oidc as oidc
+
+    calls = []
+
+    def browser(*args):
+        calls.append(args)
+        if len(calls) < 3:
+            raise subprocess.CalledProcessError(1, "agent-browser", output="Wait timed out")
+        return {}
+
+    monkeypatch.setattr(oidc.observatory, "_browser", browser)
+    oidc.wait_for_login_return("session")
+    assert len(calls) == 3
+
+    def denied(*args):
+        raise subprocess.CalledProcessError(1, "agent-browser", output="net::ERR_CERT")
+
+    monkeypatch.setattr(oidc.observatory, "_browser", denied)
+    with pytest.raises(subprocess.CalledProcessError):
+        oidc.wait_for_login_return("session")
