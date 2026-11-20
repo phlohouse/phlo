@@ -1,5 +1,5 @@
 {
-  "component_count": 98,
+  "component_count": 99,
   "components": [
     {
       "applicable_gates": [
@@ -1262,6 +1262,15 @@
       "readiness": "blocked",
       "target_profile": "blessed_core",
       "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:trino-preview",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
     }
   ],
   "gate_status": {

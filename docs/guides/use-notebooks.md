@@ -37,8 +37,10 @@ Adding notebooks:
 To keep a part off, set it to `0` in the `env:` block of `phlo.yaml`, for
 example `PHLO_NOTEBOOK_PACKAGES: "0"`, and run `phlo services init` again.
 
-Trino SQL cells use the same preview catalog and Trino credentials as the
-Query page. If Query works for an environment, Trino cells work there too.
+Trino SQL cells read through the same read-only `trino-preview` service as the
+Query page, which phlo adds with the API, so they work without setup in every
+environment in `phlo.yaml`. See
+[Query page](set-up-observatory-locally.md#query-page).
 Python and DuckDB cells need only the kernel host.
 
 With your own authorization setup, the person using notebooks needs

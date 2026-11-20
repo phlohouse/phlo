@@ -449,7 +449,7 @@ def wait_observatory_development(
                         "Authenticated dashboard access is verified. Configure additional roles with phlo authz before enabling mutations."
                     )
                     click.echo(
-                        "Query preview is optional. See the local Observatory guide for its separate secure opt-in setup."
+                        "The Query page and notebook SQL cells read through the read-only trino-preview service."
                     )
                     return
             except (httpx.HTTPError, ValueError, KeyError, TypeError):

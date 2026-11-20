@@ -65,6 +65,11 @@ compose:
         PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD:-}
         PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING:-}
         PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        # Set by phlo services init when it adds the trino-preview service.
+        PHLO_V1_PREVIEW_TRINO_URL: ${PHLO_V1_PREVIEW_TRINO_URL:-}
+        PHLO_V1_PREVIEW_TRINO_CA_FILE: ${PHLO_V1_PREVIEW_TRINO_CA_FILE:-}
+        PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES:-}
+        PHLO_V1_PREVIEW_STATE_DIR: ${PHLO_V1_PREVIEW_STATE_DIR:-}
         PHLO_V1_QUERY_SINGLE_REPLICA: ${PHLO_V1_QUERY_SINGLE_REPLICA:-}
         PHLO_V1_USAGE_TRINO_SOURCES: ${PHLO_V1_USAGE_TRINO_SOURCES:-}
         PHLO_V1_GIT_REVIEW_REPOSITORY: ${PHLO_V1_GIT_REVIEW_REPOSITORY:-}
@@ -115,6 +120,8 @@ compose:
         - ../.phlo/observatory:/app/.phlo/observatory
         - ../.phlo/state:/app/.phlo/state
         - ../.phlo/audit:/app/.phlo/audit
+        # Credentials for the generated preview Trino, private to the API user.
+        - query-preview:/var/lib/phlo-preview
         # These sources stay in the project tree so Dagster sees the same artifacts.
         - type: bind
           source: ../.phlo/uploads
@@ -267,6 +274,18 @@ env_vars:
     PHLO_V1_PREVIEW_CATALOGS:
         default: ""
         description: JSON allowlist mapping prod and staging to distinct pre-provisioned Nessie-ref-pinned Trino catalogs
+    PHLO_V1_PREVIEW_TRINO_URL:
+        default: ""
+        description: HTTPS URL of the read-only preview Trino; phlo services init sets it to the generated trino-preview service
+    PHLO_V1_PREVIEW_TRINO_CA_FILE:
+        default: ""
+        description: CA bundle the API trusts for the preview Trino
+    PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES:
+        default: ""
+        description: JSON map of environment to the private file holding its preview Trino password
+    PHLO_V1_PREVIEW_STATE_DIR:
+        default: ""
+        description: Folder where the API makes the generated preview Trino's certificate and passwords on start
     PHLO_V1_QUERY_SINGLE_REPLICA:
         default: ""
         description: Explicit operator assertion that this API deployment has exactly one replica for query sessions and saved-query writes

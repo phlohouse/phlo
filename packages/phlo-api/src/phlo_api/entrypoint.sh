@@ -58,4 +58,12 @@ if [ "$PHLO_DEV_MODE" = "true" ] && [ -f "$PHLO_DEV_ROOT/pyproject.toml" ]; then
     done
 fi
 
+# Generated stacks pair the API with a read-only preview Trino; make its TLS
+# certificate and passwords before the API starts, so both agree on them.
+if [ -n "${PHLO_V1_PREVIEW_STATE_DIR:-}" ]; then
+    if ! python -m phlo_api.preview_bootstrap; then
+        echo "The Query page stays unavailable until the preview setup above is fixed." >&2
+    fi
+fi
+
 exec "$@"

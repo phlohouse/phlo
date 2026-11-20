@@ -221,7 +221,7 @@ def preview_preflight(env: str | None = None) -> list[dict[str, str]]:
             "disabled",
             "intentionally_disabled",
             "Query preview is not configured.",
-            "Provision a dedicated preview coordinator with phlo trino preview provision --config INPUT --output NEW_DIRECTORY; review the preview deployment guide.",
+            "Run phlo services init with phlo-api and trino installed to add the read-only trino-preview service, or provision your own with phlo trino preview provision.",
         )
         return checks
     for name, present in (

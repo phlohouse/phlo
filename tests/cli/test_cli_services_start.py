@@ -500,7 +500,7 @@ def test_get_profile_service_names_returns_profile_services() -> None:
     ]
 
     result = get_profile_service_names(("api",))
-    assert sorted(result) == ["hasura", "observatory", "phlo-api", "postgrest"]
+    assert sorted(result) == ["hasura", "observatory", "phlo-api", "postgrest", "trino-preview"]
 
     result = get_profile_service_names(("observability", "api"))
     assert sorted(result) == [
@@ -519,6 +519,7 @@ def test_get_profile_service_names_returns_profile_services() -> None:
         "postgrest",
         "prometheus",
         "prometheus-setup",
+        "trino-preview",
     ]
 
     result = get_profile_service_names(())

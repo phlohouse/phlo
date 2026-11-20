@@ -772,6 +772,18 @@
       ],
       "profile": null,
       "source": "packages/phlo-trino/src/phlo_trino/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "phlo-api",
+        "trino"
+      ],
+      "name": "trino-preview",
+      "package": "phlo-trino",
+      "ports": [],
+      "profile": "api",
+      "source": "packages/phlo-trino/src/phlo_trino/preview-service.yaml"
     }
   ]
 }

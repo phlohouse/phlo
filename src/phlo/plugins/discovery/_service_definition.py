@@ -121,6 +121,9 @@ class ServiceDefinition:
     source_path: Path | None = None
     phlo_dev: bool = False
     core: bool = False
+    # Pulled in automatically once every service it depends on is selected,
+    # like a "-setup" job, but kept running as an ordinary service.
+    companion: bool = False
     file_validator: Callable[[str, str], None] | None = field(
         default=None, repr=False, compare=False
     )
@@ -190,6 +193,7 @@ class ServiceDefinition:
             source_path=source_path,
             phlo_dev=data.get("phlo_dev", False),
             core=data.get("core", False),
+            companion=data.get("companion", False),
         )
 
     @classmethod
@@ -217,6 +221,7 @@ class ServiceDefinition:
             source_path=source_path,
             phlo_dev=data.get("phlo_dev", False),
             core=data.get("core", False),
+            companion=data.get("companion", False),
         )
 
     @classmethod

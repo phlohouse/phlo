@@ -82,7 +82,8 @@ RUN if [ -f /usr/local/bin/phlo-transform ]; then phlo-transform --version; fi
 
 RUN groupadd --system phlo \
     && useradd --system --gid phlo --home-dir /app --no-create-home phlo \
-    && chown -R phlo:phlo /app
+    && chown -R phlo:phlo /app \
+    && install -d -m 0700 -o phlo -g phlo /var/lib/phlo-preview
 
 USER phlo
 

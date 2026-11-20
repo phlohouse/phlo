@@ -59,6 +59,17 @@ TrinoServicePlugin = service_plugin_class(
 )
 
 
+TrinoPreviewServicePlugin = service_plugin_class(
+    "TrinoPreviewServicePlugin",
+    name="trino-preview",
+    version="0.1.0",
+    description="Read-only Trino for Observatory queries",
+    author="Phlo Team",
+    tags=["core", "query"],
+    service_definition_file="preview-service.yaml",
+)
+
+
 class TrinoResourceProvider(ResourceProviderPlugin):
     def get_backend_readiness(self) -> list[BackendReadinessSpec]:
         """Expose the trino security readiness inspector (read-only)."""

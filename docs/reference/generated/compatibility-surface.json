@@ -7325,7 +7325,7 @@
   "counts": {
     "cli_commands": 135,
     "entry_point_groups": 14,
-    "entry_points": 48,
+    "entry_points": 49,
     "hook_event_types": 11,
     "http_routes": 205,
     "python_api_names": 59
@@ -7395,7 +7395,8 @@
       "phlo-postgres: postgres = phlo_postgres.plugin:PostgresServicePlugin",
       "phlo-postgres: postgres-exporter = phlo_postgres.plugin:PostgresExporterServicePlugin",
       "phlo-postgres: postgres-volume-setup = phlo_postgres.plugin:PostgresVolumeSetupServicePlugin",
-      "phlo-trino: trino = phlo_trino.plugin:TrinoServicePlugin"
+      "phlo-trino: trino = phlo_trino.plugin:TrinoServicePlugin",
+      "phlo-trino: trino-preview = phlo_trino.plugin:TrinoPreviewServicePlugin"
     ],
     "phlo.plugins.sources": [
       "phlo-core-plugins: rest_api = phlo_core.sources.rest_api:RestAPIPlugin"

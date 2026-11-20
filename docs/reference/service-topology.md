@@ -53,3 +53,4 @@
 | `traefik` | [phlo-traefik](../../packages/phlo-traefik/src/phlo_traefik/service.yaml) | `traefik-docker` | 80 → 80/tcp (TRAEFIK_HTTP_PORT) | proxy | false |
 | `traefik-docker` | [phlo-traefik](../../packages/phlo-traefik/src/phlo_traefik/traefik-docker-daemon.yaml) | none | none | proxy | false |
 | `trino` | [phlo-trino](../../packages/phlo-trino/src/phlo_trino/service.yaml) | `minio`, `nessie` | 10005 → 8080/tcp (TRINO_PORT) | none | true |
+| `trino-preview` | [phlo-trino](../../packages/phlo-trino/src/phlo_trino/preview-service.yaml) | `phlo-api`, `trino` | none | api | false |

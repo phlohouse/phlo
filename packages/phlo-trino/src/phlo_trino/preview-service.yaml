@@ -1,0 +1,61 @@
+# Read-only Trino for Observatory's Query page and notebook SQL cells.
+# phlo adds it whenever phlo-api and trino are both installed. phlo-api makes
+# its TLS certificate and per-environment passwords on start (see
+# phlo_api.preview_bootstrap); this container copies them into a private
+# tmpfs, derives one read-only catalog per environment from the main Iceberg
+# catalog, and then runs Trino as its own user with the preview budgets.
+name: trino-preview
+description: Read-only Trino for Observatory queries, with per-environment identities and query budgets
+category: core
+default: false
+profile: api
+companion: true
+
+image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
+
+depends_on:
+  - trino
+  - phlo-api
+
+compose:
+  # A project without environments has nothing to serve: the entrypoint exits 0
+  # and stays stopped instead of restarting.
+  restart: on-failure
+  user: "0:0"
+  entrypoint: ["/bin/bash", "/etc/trino-preview/entrypoint.sh"]
+  command: ["/usr/lib/trino/bin/run-trino"]
+  environment:
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Run phlo services init to generate MINIO_ROOT_PASSWORD}
+    AWS_REGION: us-east-1
+  mem_limit: 2g
+  tmpfs:
+    - /etc/trino:mode=0755
+  volumes:
+    - ./trino-preview:/etc/trino-preview:ro
+    - ./trino/catalog/iceberg.properties:/etc/trino-source/iceberg.properties:ro
+    - query-preview:/var/lib/phlo-preview:ro
+  healthcheck:
+    test: ["CMD-SHELL", "[ \"$(curl -fsS --cacert /etc/trino/secrets/ca.pem https://localhost:8443/v1/info/state | tr -d '\"')\" = \"ACTIVE\" ]"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+    start_period: 90s
+
+files:
+  - source: preview/entrypoint.sh
+    dest: trino-preview/entrypoint.sh
+  - source: jvm.config
+    dest: trino-preview/jvm.config
+  - source: node.properties
+    dest: trino-preview/node.properties
+  - source: preview/config.properties.template
+    dest: trino-preview/config.properties.template
+  - source: preview/access-control.properties
+    dest: trino-preview/access-control.properties
+  - source: preview/password-authenticator.properties
+    dest: trino-preview/password-authenticator.properties
+  - source: preview/resource-groups.properties
+    dest: trino-preview/resource-groups.properties
+  - source: preview/resource-groups.json
+    dest: trino-preview/resource-groups.json

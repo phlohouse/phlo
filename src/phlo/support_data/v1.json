@@ -138,6 +138,7 @@
         "service:kafka",
         "service:postgres-exporter",
         "service:phlo-notebook-kernels",
+        "service:trino-preview",
         "service:alloy",
         "service:alloy-docker",
         "service:airbyte-temporal",
@@ -772,6 +773,20 @@
       "evidence": [
         "packages/phlo-api/src/phlo_api/notebook-kernels.yaml",
         "packages/phlo-api/tests/test_v1_notebooks_api.py"
+      ]
+    },
+    {
+      "name": "trino-preview",
+      "package": "phlo-trino",
+      "source": "packages/phlo-trino/src/phlo_trino/preview-service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Read-only Trino added with phlo-api for the Query page and notebook SQL cells; its credentials are generated locally on start.",
+      "evidence": [
+        "packages/phlo-trino/src/phlo_trino/preview-service.yaml",
+        "packages/phlo-api/tests/test_preview_bootstrap.py",
+        "tests/cli/test_cli_services_notebooks.py"
       ]
     },
     {

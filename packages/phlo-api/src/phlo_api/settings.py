@@ -406,6 +406,11 @@ class ApiProcessSettings(ProcessOverrides):
         validation_alias="PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES",
         description="JSON configured-environment to private password file map, reread for rotation.",
     )
+    phlo_v1_preview_state_dir: str | None = Field(
+        None,
+        validation_alias="PHLO_V1_PREVIEW_STATE_DIR",
+        description="Private folder where the API makes the generated local preview Trino's TLS and passwords.",
+    )
     phlo_v1_preview_trino_password_prod: str | None = Field(
         None,
         validation_alias="PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD",

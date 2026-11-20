@@ -713,3 +713,10 @@ Run `make docs-reference-generate` to regenerate it with the other references. `
 - Current maturity: `alpha`; readiness: `blocked`.
 - Applicable gates: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
 - Blockers: `security`, `upgrade_restore`, `golden_path`, `run_evidence`, `maintenance`.
+
+### `trino-preview`
+
+- Target profile: `optional`; target status: `preview`.
+- Current maturity: `preview`; readiness: `not gated`.
+- Applicable gates: none.
+- Blockers: none.

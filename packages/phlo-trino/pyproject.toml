@@ -33,6 +33,7 @@ trino = "phlo_trino.plugin:TrinoResourceProvider"
 
 [project.entry-points."phlo.plugins.services"]
 trino = "phlo_trino.plugin:TrinoServicePlugin"
+trino-preview = "phlo_trino.plugin:TrinoPreviewServicePlugin"
 
 [project.license]
 text = "MIT"
@@ -59,6 +60,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 phlo_trino = [
     "service.yaml",
+    "preview-service.yaml",
     "entrypoint.sh",
     "jvm.config",
     "config.properties",

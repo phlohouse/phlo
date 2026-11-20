@@ -53,7 +53,7 @@ shared network. It is not a production login mechanism.
    The receipt records an observation, not a continuing health guarantee. Each
    startup invalidates the old receipt before preflight. The dashboard gate waits
    up to 180 seconds, with a 10-second timeout per HTTP request.
-   Query preview is optional and can remain disabled.
+   The Query page works on first start, as described in step 4.
    A readiness failure returns non-zero, preserves services and data, and prints
    diagnostic next steps. Retry ordinary `phlo services start` after repair.
 
@@ -76,12 +76,37 @@ shared network. It is not a production login mechanism.
    development identity, and the normal authorisation backend evaluates policy.
 
    A backend outage must remain visible. Do not add a dummy environment to hide
-   an unavailable target. Optional preview requires separate provider setup and
-   is not enabled by this command. Use `phlo trino preview provision --help` and
-   the preview provider's deployment guide to opt in with a dedicated coordinator,
-   TLS, and private credentials. Additional roles and mutation grants require an
+   an unavailable target. Additional roles and mutation grants require an
    explicit `phlo authz` setup. The generated identity has environment-scoped
-   reads, not query permission.
+   reads, plus permission to run and save queries on the Query page.
+
+## Query page
+
+The Query page and notebook SQL cells never use the Trino that ingestion
+writes through. They use a separate read-only Trino, `trino-preview`, which
+`phlo services init` adds whenever `phlo-api` and `trino` are both installed.
+There is nothing to configure:
+
+- On start, the API makes a local CA, a TLS certificate for `trino-preview`,
+  and one random password per `phlo.yaml` environment. They live in the
+  `query-preview` volume, readable only by the API user; the preview server
+  gets the certificate and password hashes, never the passwords.
+- Each environment has its own identity, `phlo_api_preview_<env>`, which may
+  only read its own catalog, `preview_<env>`. That catalog is the main Iceberg
+  catalog pinned to the environment's `nessie_ref`, and it is read-only.
+- The server applies the preview query budgets (20 s run time, 5 s planning,
+  256 MB scanned per query) to every query.
+- `phlo services init` records that the generated API runs as one container and
+  one process, which the Query page needs.
+
+After you add or rename an environment in `phlo.yaml`, run `phlo services init`
+again and restart the API and `trino-preview`.
+
+To run the preview on your own coordinator instead, provision it with
+`phlo trino preview provision --help` and set `PHLO_V1_PREVIEW_TRINO_URL` and
+the other preview settings in the `env:` block of `phlo.yaml`. phlo then leaves
+the preview settings alone. To leave the Query page off, add `trino-preview` to
+`services.disabled` in `phlo.yaml`.
 
 ## Configure deployed targets
 

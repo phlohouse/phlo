@@ -155,11 +155,12 @@ def test_service_manifest_disagreement_fails_read_only_projection_check(
     if mutation == "identity":
         # Rename both ends so the graph remains valid. Only projection drift fails.
         manifest["name"] = "phlo-api-renamed"
-        dependent = tmp_path / "packages/phlo-observatory/src/phlo_observatory/service.yaml"
-        dependent.write_text(
-            dependent.read_text(encoding="utf-8").replace("- phlo-api", "- phlo-api-renamed"),
-            encoding="utf-8",
-        )
+        for dependent in tmp_path.glob("packages/*/src/*/*.yaml"):
+            text = dependent.read_text(encoding="utf-8")
+            if dependent != manifest_path and "- phlo-api\n" in text:
+                dependent.write_text(
+                    text.replace("- phlo-api\n", "- phlo-api-renamed\n"), encoding="utf-8"
+                )
     elif mutation == "port":
         manifest["compose"]["ports"] = ["${PHLO_API_PORT:-4000}:4001"]
     else:

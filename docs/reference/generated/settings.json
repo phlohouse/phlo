@@ -1,5 +1,5 @@
 {
-  "field_count": 350,
+  "field_count": 351,
   "model_count": 52,
   "models": [
     {
@@ -1888,6 +1888,17 @@
             "PHLO_V1_PREVIEW_CATALOGS"
           ],
           "name": "phlo_v1_preview_catalogs",
+          "required": false
+        },
+        {
+          "alias": "PHLO_V1_PREVIEW_STATE_DIR",
+          "annotation": "str | None",
+          "default": null,
+          "description": "Private folder where the API makes the generated local preview Trino's TLS and passwords.",
+          "environment_names": [
+            "PHLO_V1_PREVIEW_STATE_DIR"
+          ],
+          "name": "phlo_v1_preview_state_dir",
           "required": false
         },
         {
