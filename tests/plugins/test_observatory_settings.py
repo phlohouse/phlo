@@ -49,6 +49,8 @@ def _isolate(monkeypatch):
     """Ensure each test starts with a clean capability registry and memory cache."""
     _clear_settings_store_capability()
     _reset_memory_service()
+    # Installed provider plugins would register a real store; tests register their own.
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
     monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "postgres")
     monkeypatch.delenv("PHLO_OBSERVATORY_SETTINGS_DB_URL", raising=False)
     yield
@@ -128,7 +130,6 @@ def test_postgres_mode_resolves_capability() -> None:
 def test_postgres_mode_without_capability_raises_storage_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
     with pytest.raises(StorageUnavailableError, match="not available"):
         get_settings_service()
 
