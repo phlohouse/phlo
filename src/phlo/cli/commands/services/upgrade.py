@@ -35,7 +35,9 @@ from phlo.operations.api_runtime import (
 )
 from phlo.operations.generated_stack import (
     BASELINE,
+    REWRITES,
     GeneratedStackPlan,
+    apply_rewrites,
     checked_path,
     file_digest,
     generation_baseline,
@@ -231,7 +233,8 @@ def build_plan(
                 if not name.startswith(".phlo/") or name.startswith(".phlo/authorization/")
             }
         )
-    inputs = ["phlo.yaml", f".phlo/{BASELINE}"]
+    baseline = apply_rewrites(root, baseline)
+    inputs = ["phlo.yaml", f".phlo/{BASELINE}", f".phlo/{REWRITES}"]
     if observatory_dev:
         inputs.extend((".phlo/authorization/roles.yaml", ".phlo/authorization/policies.yaml"))
     inputs.extend(path.relative_to(root).as_posix() for path in project_env_paths(root / ".phlo"))
@@ -385,7 +388,7 @@ def _write_upgrade(
         backup / "plan.json", current.model_dump_json(indent=2), allow_insecure=allow_insecure
     )
     originals: dict[str, tuple[bytes, int] | None] = {}
-    for name in [*(change.path for change in changes), f".phlo/{BASELINE}"]:
+    for name in [*(change.path for change in changes), f".phlo/{BASELINE}", f".phlo/{REWRITES}"]:
         target = checked_path(root, name)
         originals[name] = (
             (target.read_bytes(), target.stat().st_mode & 0o777) if target.exists() else None
@@ -414,6 +417,8 @@ def _write_upgrade(
             target.chmod(mode)
         baseline = generation_baseline(root, list(files))
         write_sensitive_file(root / ".phlo" / BASELINE, baseline, allow_insecure=allow_insecure)
+        # The fresh baseline already covers any recorded provider rewrites.
+        checked_path(root, f".phlo/{REWRITES}").unlink(missing_ok=True)
         write_sensitive_file(
             backup / "receipt.json",
             json.dumps(

@@ -625,7 +625,8 @@ def test_minio_migration_carries_provider_rewrite_into_baseline(
     observatory.migrate_minio_image(config, config, pristine)
 
     assert calls == [["minio", "migrate-image"], ["minio", "migrate-image", "--apply"]]
-    assert (pristine / ".phlo/docker-compose.yml").read_bytes() == migrated
+    # The pristine baseline is left alone; the migration's own rewrite record covers it.
+    assert (pristine / ".phlo/docker-compose.yml").read_bytes() == generated
     # Every other service stays digest-pinned; MinIO keeps the migrated image.
     assert restored == [{"services": {"phlo-api": {"image": pinned_api}}}]
 

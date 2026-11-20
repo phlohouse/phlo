@@ -1111,9 +1111,9 @@ def migrate_minio_image(
     its pinned digest, while MinIO keeps the migrated image. Candidate pinning
     is re-applied after the reviewed upgrade, and retained objects are verified
     on restart.
-    Its provider-owned rewrite of the generated Compose file is carried into the
-    previous-generated baseline only when that file was unmodified generated
-    output, so any other customization still surfaces as a plan conflict.
+    The migration records its rewrite of the generated Compose file, and the
+    replan follows that record from the untouched previous-generated baseline,
+    as it would for an operator. Any other customization still conflicts.
     """
     compose_file = candidate.project_dir / ".phlo/docker-compose.yml"
     baseline_file = pristine / ".phlo/docker-compose.yml"
@@ -1133,7 +1133,6 @@ def migrate_minio_image(
             cwd=candidate.project_dir,
             capture_output=True,
         )
-    baseline_file.write_bytes(compose_file.read_bytes())
     for name in ("minio", "minio-setup"):
         pins["services"].pop(name, None)
     pins_file.write_text(json.dumps(pins, indent=2) + "\n", encoding="utf-8")

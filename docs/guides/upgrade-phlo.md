@@ -59,7 +59,7 @@ phlo minio migrate-image
 phlo minio migrate-image --apply
 ```
 
-Verify existing object reads and credentials, then generate a new upgrade plan. Other storage-image changes require a provider-supported migration and data validation before replanning. Container health alone does not prove storage-format compatibility.
+The migration records its rewrite of `.phlo/docker-compose.yml` in `.phlo/upgrade-rewrites.json` (digests only), so the next plan still treats that file as generated output, with either the recorded baseline or `--previous-generated`. A Compose file you had already edited still conflicts. Applying an upgrade folds the record into the new baseline and removes it. Verify existing object reads and credentials, then generate a new upgrade plan. Other storage-image changes require a provider-supported migration and data validation before replanning. Container health alone does not prove storage-format compatibility.
 
 After reviewing the concrete plan, apply with its printed token:
 
