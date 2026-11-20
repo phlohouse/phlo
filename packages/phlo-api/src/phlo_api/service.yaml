@@ -81,6 +81,10 @@ compose:
         PHLO_V1_BRANCH_CHECK_JOBS: ${PHLO_V1_BRANCH_CHECK_JOBS:-}
         PHLO_API_OPERATION_CONTROLS_DB_URL: ${PHLO_API_OPERATION_CONTROLS_DB_URL:-}
         PHLO_API_OPERATION_CONTROLS_NAMESPACE: ${PHLO_API_OPERATION_CONTROLS_NAMESPACE:-}
+        # Observatory actions claim a durable journal before they launch runs.
+        # Shared operation controls take precedence; otherwise it is kept in
+        # the API's persistent state directory.
+        PHLO_OPERATIONS_JOURNAL_DIR: ${PHLO_OPERATIONS_JOURNAL_DIR:-/app/.phlo/state/operations-journal}
         WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
         POSTGRES_HOST: postgres
         POSTGRES_PORT: "5432"
@@ -202,6 +206,9 @@ env_vars:
     PHLO_API_OPERATION_CONTROLS_NAMESPACE:
         default: ""
         description: Stable project identity shared by every API replica; required with the controls DSN
+    PHLO_OPERATIONS_JOURNAL_DIR:
+        default: ""
+        description: Durable operation journal for Observatory actions when no shared operation controls are configured; empty uses the API state directory
     PHLO_VERSION:
         default: ""
         package: phlo
