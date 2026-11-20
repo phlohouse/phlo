@@ -138,9 +138,9 @@ jobs:
 
   smoke:
     needs: [distributions, pin]
-    name: build / artifact golden path (${{ matrix.host.label }})
+    name: build / golden path part (${{ matrix.host.label }}, ${{ matrix.part }})
     runs-on: ${{ matrix.host.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 45
     permissions:
       contents: read
     # arm64 reports but never blocks: its failures so far were runner tooling.
@@ -153,6 +153,8 @@ jobs:
             runner: ubuntu-latest
           - label: arm64
             runner: ubuntu-24.04-arm
+        # Each part starts its own stack; together they are the whole golden path.
+        part: [core, observatory-fresh, observatory-upgrade]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -179,6 +181,7 @@ jobs:
           rm -f previous/distributions/qualification-evidence-*.tar.gz previous/distributions/release-evidence-*.tar.gz
           echo "Upgrade baseline: $tag" >> "$GITHUB_STEP_SUMMARY"
       - name: Install pinned browser driver and Chromium
+        if: matrix.part != 'core'
         # Disposable acceptance tooling, not a product dependency.
         run: | # zizmor: ignore[adhoc-packages]
           sudo apt-get update
@@ -192,23 +195,64 @@ jobs:
           else
             agent-browser install --with-deps
           fi
-      - name: Run the artifact golden path against the built bytes
+      - name: Run this part of the artifact golden path against the built bytes
+        env:
+          PART: ${{ matrix.part }}
         run: >-
           python3 scripts/release_golden_path.py
           --candidate-bom candidate/bom.json
           --previous-candidate-bom previous/bom.json
-          --evidence-output "$RUNNER_TEMP/evidence.json"
-      - name: Validate evidence
-        run: >-
-          python3 scripts/validate_release_evidence.py
-          --bundle "$RUNNER_TEMP/evidence.json"
-          --candidate-bom candidate/bom.json
+          --part "$PART"
+          --evidence-output "$RUNNER_TEMP/evidence-$PART.json"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:
-          name: smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host.label }}
+          name: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host.label }}-${{ matrix.part }}
           path: |
-            ${{ runner.temp }}/evidence.json
-            ${{ runner.temp }}/evidence-observatory/
+            ${{ runner.temp }}/evidence-${{ matrix.part }}.json
+            ${{ runner.temp }}/evidence-${{ matrix.part }}-observatory/
+          if-no-files-found: warn
+          retention-days: 14
+
+  golden-path:
+    needs: [distributions, smoke]
+    if: ${{ !cancelled() && needs.distributions.result == 'success' }}
+    name: build / artifact golden path (${{ matrix.host }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    continue-on-error: ${{ matrix.host == 'arm64' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-set-${{ needs.distributions.outputs.sha }}
+          path: candidate
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host }}-*
+          path: parts
+          merge-multiple: true
+      - name: Merge and validate the evidence of every part
+        # A missing or failed part fails here: the merged bundle must hold every demonstration.
+        run: >-
+          python3 scripts/validate_release_evidence.py
+          --bundle parts/evidence-core.json
+          --bundle parts/evidence-observatory-fresh.json
+          --bundle parts/evidence-observatory-upgrade.json
+          --candidate-bom candidate/bom.json
+          --output "$RUNNER_TEMP/evidence.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host }}
+          path: ${{ runner.temp }}/evidence.json
           if-no-files-found: warn
           retention-days: 14

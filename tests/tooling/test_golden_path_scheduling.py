@@ -170,11 +170,15 @@ def test_optional_minio_cache_result_is_reported_without_replacing_nightly_gates
         ) in summary.read_text().splitlines()
 
 
-def test_release_smoke_runs_the_golden_path_on_the_pinned_bom() -> None:
+def test_release_smoke_runs_every_golden_path_part_and_merges_their_evidence() -> None:
     workflow = yaml.safe_load((WORKFLOW_ROOT / "release-build.yml").read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["smoke"]["steps"]
-    scripts = [step for step in steps if "run" in step]
-    acceptance = next(step for step in scripts if "scripts/release_golden_path.py" in step["run"])
+    smoke = workflow["jobs"]["smoke"]
+    parts = smoke["strategy"]["matrix"]["part"]
+    assert parts == ["core", "observatory-fresh", "observatory-upgrade"]
+    acceptance = next(
+        step for step in smoke["steps"] if "scripts/release_golden_path.py" in step.get("run", "")
+    )
+    assert "if" not in acceptance
     assert shlex.split(acceptance["run"]) == [
         "python3",
         "scripts/release_golden_path.py",
@@ -182,9 +186,19 @@ def test_release_smoke_runs_the_golden_path_on_the_pinned_bom() -> None:
         "candidate/bom.json",
         "--previous-candidate-bom",
         "previous/bom.json",
+        "--part",
+        "$PART",
         "--evidence-output",
-        "$RUNNER_TEMP/evidence.json",
+        "$RUNNER_TEMP/evidence-$PART.json",
     ]
-    validate = next(step for step in scripts if "validate_release_evidence.py" in step["run"])
-    assert "--candidate-bom candidate/bom.json" in validate["run"]
-    assert all("if" not in step for step in scripts)
+    merge = workflow["jobs"]["golden-path"]
+    assert merge["needs"] == ["distributions", "smoke"]
+    assert merge["name"].startswith("build / artifact golden path (")
+    validate = next(
+        step for step in merge["steps"] if "validate_release_evidence.py" in step.get("run", "")
+    )
+    assert "if" not in validate
+    arguments = shlex.split(validate["run"])
+    bundles = [arguments[i + 1] for i, value in enumerate(arguments) if value == "--bundle"]
+    assert bundles == [f"parts/evidence-{part}.json" for part in parts]
+    assert "--candidate-bom" in arguments
