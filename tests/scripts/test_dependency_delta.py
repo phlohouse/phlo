@@ -205,7 +205,7 @@ def test_added_nested_lock_is_new_risk_and_deleted_lock_disappears():
     assert not report["existing"]
 
 
-def test_reviewed_window_and_invalid_records(tmp_path, monkeypatch):
+def test_self_approved_waiver_window_and_invalid_records(tmp_path, monkeypatch):
     import io
     from datetime import datetime
 
@@ -221,9 +221,7 @@ def test_reviewed_window_and_invalid_records(tmp_path, monkeypatch):
         "owner": "maintainer-a",
         "rationale": "Fix is being validated",
         "first_seen": "2026-10-01T00:00:00+00:00",
-        "expires": "2026-10-08T00:00:00+00:00",
-        "reviewed_by": "maintainer-b",
-        "review_url": "https://github.com/phlohouse/phlo/pull/123",
+        "expires": "2026-10-31T00:00:00+00:00",
     }
     finding = {key: record[key] for key in ("lockfile", "ecosystem", "name", "version")}
     finding["advisories"] = ["CVE-1"]
@@ -233,16 +231,16 @@ def test_reviewed_window_and_invalid_records(tmp_path, monkeypatch):
         "urlopen",
         lambda *a, **kw: io.BytesIO(b'{"database_specific":{"severity":"HIGH"}}'),
     )
-    monkeypatch.setattr(delta, "verify_risk_review", lambda record: None)
     ledger.write_text(json.dumps([record]))
     assert delta.assess_existing([finding], ledger, now) == []
     for changes in (
         {"severity": "unknown"},
         {"expires": "2026-10-05T00:00:00+00:00"},
         {"expires": "2026-11-01T00:00:00+00:00"},
-        {"reviewed_by": "phlo-agent"},
+        {"owner": "phlo-agent"},
         {"owner": ""},
         {"exploited": True},
+        {"reviewed_by": "maintainer-b"},
     ):
         ledger.write_text(json.dumps([{**record, **changes}]))
         with pytest.raises(ValueError):
@@ -257,7 +255,21 @@ def test_reviewed_window_and_invalid_records(tmp_path, monkeypatch):
 @pytest.mark.parametrize("mode, expected", [("delta", 0), ("queue", 1), ("release", 1)])
 def test_full_modes_block_existing_debt(mode, expected, tmp_path, monkeypatch):
     package = ("npm", "example", "1.0.0")
-    monkeypatch.setattr(delta, "inventory", lambda ref: {"nested/package-lock.json": {package}})
+    lockfile = "packages/phlo-observatory/src/phlo_observatory/package-lock.json"
+    monkeypatch.setattr(delta, "inventory", lambda ref: {lockfile: {package}})
+    monkeypatch.setattr(
+        delta,
+        "advisory_detail",
+        lambda advisory: {
+            "database_specific": {"severity": "HIGH"},
+            "affected": [
+                {
+                    "package": {"ecosystem": "npm", "name": "example"},
+                    "ranges": [{"events": [{"introduced": "0"}, {"fixed": "1.0.1"}]}],
+                }
+            ],
+        },
+    )
     monkeypatch.setattr(delta, "query_osv", lambda packages: {package: ["CVE-1"]})
     ledger = tmp_path / "ledger.json"
     ledger.write_text("[]")
@@ -306,42 +318,91 @@ def test_tracked_nested_inventory_reads_revision_not_worktree(tmp_path, monkeypa
     assert delta.compare({}, inventory, {package: ["CVE-1"]})["introduced"]
 
 
+def osv(severity: str | None, fixed: bool, name: str = "example") -> dict:
+    events = [{"introduced": "0"}] + ([{"fixed": "2.0"}] if fixed else [])
+    detail = {
+        "affected": [
+            {"package": {"ecosystem": "PyPI", "name": name}, "ranges": [{"events": events}]}
+        ]
+    }
+    if severity:
+        detail["database_specific"] = {"severity": severity}
+    return detail
+
+
 @pytest.mark.parametrize(
-    "latest,accepted", [("COMMENTED", True), ("CHANGES_REQUESTED", False), ("DISMISSED", False)]
+    "lockfile, severity, fixed, blocks",
+    [
+        ("uv.lock", "CRITICAL", True, True),
+        ("uv.lock", "HIGH", True, True),
+        ("uv.lock", None, True, True),
+        ("uv.lock", "MODERATE", True, False),
+        ("uv.lock", "HIGH", False, False),
+        ("examples/lakehouses/customer360/uv.lock", "CRITICAL", True, False),
+        ("apps/phlo-github-writer/package-lock.json", "CRITICAL", True, False),
+    ],
 )
-def test_risk_review_checks_authenticated_final_revision_and_revocation(
-    monkeypatch, latest, accepted
-):
-    record = {
-        "reviewed_by": "maintainer",
-        "review_url": "https://github.com/phlohouse/phlo/pull/123",
+def test_release_blocks_only_fixable_severe_findings_in_shipped_locks(
+    lockfile, severity, fixed, blocks
+) -> None:
+    finding = {
+        "lockfile": lockfile,
+        "ecosystem": "PyPI",
+        "name": "Example",
+        "version": "1.0",
+        "advisories": ["GHSA-1"],
     }
-    head = "a" * 40
-    approval = {
-        "id": 1,
-        "state": "APPROVED",
-        "commit_id": head,
-        "user": {"login": "maintainer", "type": "User"},
-    }
-    responses = {
-        "repos/phlohouse/phlo/pulls/123": {
-            "merged_at": "2026-10-06",
-            "base": {"ref": "main"},
-            "head": {"sha": head},
-        },
-        "repos/phlohouse/phlo/collaborators/maintainer/permission": {"permission": "maintain"},
-        "repos/phlohouse/phlo/pulls/123/reviews?per_page=100": [
-            [approval, {**approval, "id": 2, "state": latest}]
-        ],
-    }
+    result = delta.release_blocking([finding], lambda _: osv(severity, fixed))
+    assert bool(result) is blocks
 
-    def process(args, **kwargs):
-        value = [record] if args[0] == "git" else responses[args[2]]
-        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(value))
 
-    monkeypatch.setattr(delta.subprocess, "run", process)
-    if accepted:
-        delta.verify_risk_review(record)
-        approval["commit_id"] = "b" * 40
-    with pytest.raises(ValueError, match="exact final revision"):
-        delta.verify_risk_review(record)
+def test_release_honours_an_active_waiver(tmp_path) -> None:
+    from datetime import datetime
+
+    finding = {
+        "lockfile": "uv.lock",
+        "ecosystem": "PyPI",
+        "name": "example",
+        "version": "1.0",
+        "advisories": ["GHSA-1"],
+    }
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(
+        json.dumps(
+            [
+                {
+                    **{key: finding[key] for key in ("lockfile", "ecosystem", "name", "version")},
+                    "advisory": "GHSA-1",
+                    "severity": "critical",
+                    "exploited": False,
+                    "owner": "iamgp",
+                    "rationale": "Upstream fix breaks the Iceberg writer; pinned until 1.2",
+                    "first_seen": "2026-11-18T00:00:00+00:00",
+                    "expires": "2026-11-25T00:00:00+00:00",
+                }
+            ]
+        )
+    )
+    detail = lambda _: osv("CRITICAL", True)  # noqa: E731
+    shipped = delta.release_blocking([finding], detail)
+    assert shipped
+    now = datetime(2026, 11, 20, tzinfo=UTC)
+    assert delta.assess_existing(shipped, ledger, now, detail) == []
+    later = datetime(2026, 11, 26, tzinfo=UTC)
+    with pytest.raises(ValueError, match="Expired"):
+        delta.assess_existing(shipped, ledger, later, detail)
+
+
+def test_release_rates_an_unrated_advisory_through_its_ghsa_alias() -> None:
+    finding = {
+        "lockfile": "uv.lock",
+        "ecosystem": "PyPI",
+        "name": "example",
+        "version": "1.0",
+        "advisories": ["PYSEC-1"],
+    }
+    details = {"PYSEC-1": {**osv(None, True), "aliases": ["CVE-1", "GHSA-low"]}}
+    details["GHSA-low"] = osv("LOW", True)
+    assert delta.release_blocking([finding], details.__getitem__) == []
+    details["GHSA-low"] = osv("HIGH", True)
+    assert delta.release_blocking([finding], details.__getitem__)[0]["severity"] == "high"

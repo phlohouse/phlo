@@ -2,9 +2,9 @@
 """Derive container inventories, validate Trivy reports, and enforce Phlo scan policy.
 
 Findings with an available fix block publication until an image rebuild picks
-them up. Findings without any available fix belong to the upstream base image
-and are reported as warnings instead of blocking; waivers remain available for
-tracking time-limited exceptions.
+them up, unless an active, time-limited waiver defers them. Findings without any
+available fix belong to the upstream base image and are reported as warnings
+instead of blocking.
 """
 
 from __future__ import annotations
@@ -162,9 +162,10 @@ def render_waivers(waivers: list[dict[str, Any]], today: dt.date | None = None) 
         "This report is generated from [`container-waivers.yml`](container-waivers.yml).",
         "It records temporary exceptions only. Fixable critical findings, and fixable",
         "high findings in production images, block publication and rescans until the",
-        "image is rebuilt; a waiver cannot defer them. Critical/high findings without a",
-        "fix are inherited from upstream and reported as non-blocking notices; record a",
-        "waiver here only to track an accepted exception. Expired waivers block.",
+        "image is rebuilt, unless an active waiver here defers them for at most 30",
+        "days. The maintainer approves a waiver by merging it. Critical/high findings",
+        "without a fix are inherited from upstream and reported as non-blocking notices.",
+        "Expired waivers block.",
         "",
     ]
     for title, key in (
@@ -807,11 +808,21 @@ def compare_upstream_candidate_reports(
     return "\n".join(lines), errors
 
 
-def _waived(waivers: list[dict[str, Any]], image: str, vulnerability_id: str) -> bool:
+def _waived(
+    waivers: list[dict[str, Any]], image: str, vulnerability_id: str, today: dt.date
+) -> bool:
     # Waivers may name either the full digest-pinned reference, the bare
     # repository@tag form with the digest stripped, or a tagged variant of it.
+    # Only a waiver inside its approval window counts.
     image_name = image.split("@", 1)[0]
     for waiver in waivers:
+        try:
+            approved = _date(waiver.get("approval_date"), "approval_date")
+            expires = _date(waiver.get("expiry_date"), "expiry_date")
+        except ValueError:
+            continue
+        if not approved <= today <= expires:
+            continue
         if str(waiver.get("vulnerability_id")) != vulnerability_id:
             continue
         candidate = str(waiver.get("image"))
@@ -820,17 +831,21 @@ def _waived(waivers: list[dict[str, Any]], image: str, vulnerability_id: str) ->
     return False
 
 
-# A finding with an available fix always blocks until the image is rebuilt on a
-# patched base. Unfixed findings are inherited from upstream and reported as
-# warnings; waivers document accepted exceptions without changing enforcement.
+# A finding with an available fix blocks until the image is rebuilt on a patched
+# base, unless an active maintainer waiver defers it (ADR 0063). Unfixed
+# findings are inherited from upstream and reported as warnings.
 def apply_policy(
-    report: dict[str, Any], image: str, waivers: list[dict[str, Any]]
+    report: dict[str, Any],
+    image: str,
+    waivers: list[dict[str, Any]],
+    today: dt.date | None = None,
 ) -> tuple[list[str], list[str]]:
     """Apply blocking-severity policy to one Trivy report.
 
-    Returns unwaived fixable blocking findings as errors and unfixed findings
-    (inherited from upstream) as warnings.
+    Returns unwaived fixable blocking findings as errors, and waived fixable or
+    unfixed findings as warnings.
     """
+    today = today or dt.datetime.now(dt.UTC).date()
     errors: list[str] = []
     warnings: list[str] = []
     for result in report.get("Results", []) or []:
@@ -842,11 +857,16 @@ def apply_policy(
             blocks = severity == "CRITICAL" or (severity == "HIGH" and production)
             if not blocks:
                 continue
-            if fixed:
+            waived = _waived(waivers, image, vulnerability_id, today)
+            if fixed and waived:
+                warnings.append(
+                    f"{image}: fixable {severity} {vulnerability_id} deferred by an active waiver"
+                )
+            elif fixed:
                 errors.append(
                     f"{image}: fixable {severity} {vulnerability_id} (fixed in {finding['FixedVersion']})"
                 )
-            elif not _waived(waivers, image, vulnerability_id):
+            elif not waived:
                 warnings.append(
                     f"{image}: unfixed {severity} {vulnerability_id} inherited from upstream"
                 )
