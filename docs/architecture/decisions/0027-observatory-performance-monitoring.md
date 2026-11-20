@@ -6,6 +6,8 @@ Date: 2025-12-20
 
 Accepted
 
+Historical (2026-11-20): this records an Observatory UI feature as it was designed. It is not a platform contract and is not kept in step with the code. The code and its tests are the current reference.
+
 ## Context
 
 Observatory needs performance observability to ensure good user experience and diagnose issues. Currently there is no:

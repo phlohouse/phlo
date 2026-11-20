@@ -4,7 +4,9 @@ Date: 2025-12-18
 
 ## Status
 
-Proposed
+Accepted (2026-11-20). Saved queries shipped in the query workspace.
+
+Historical (2026-11-20): this records an Observatory UI feature as it was designed. It is not a platform contract and is not kept in step with the code. The code and its tests are the current reference.
 
 ## Context
 

@@ -6,6 +6,8 @@ Date: 2025-12-17
 
 Accepted
 
+Historical (2026-11-20): this records an Observatory UI feature as it was designed. It is not a platform contract and is not kept in step with the code. The code and its tests are the current reference.
+
 ## Context
 
 Observatory needs a quick way to navigate across different entity types: Dagster assets, Iceberg tables,

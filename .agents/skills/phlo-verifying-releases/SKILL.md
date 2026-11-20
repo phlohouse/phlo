@@ -6,7 +6,7 @@ description: "Verifies an exact Phlo release: its smoke run, public package hash
 # Verify a release
 
 Inspect current release state without changing it. Read the
-[release procedure](../../../docs/contributing/release-publication.md) and
+[release procedure](../../../RELEASING.md) and
 [release publishing ADR](../../../docs/architecture/decisions/0068-release-publishing.md).
 Those sources own publisher identities, qualification and recovery rules.
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed**
+Superseded (2026-11-20) by [ADR 0064](0064-ci-contracts-and-required-lanes.md). Skipping when a service is unreachable conflicts with 0064's rule that required lanes never skip silently.
 
 ## Context
 

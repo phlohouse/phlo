@@ -1,6 +1,6 @@
-# Publish a release
+# Releasing
 
-[ADR 0068](../architecture/decisions/0068-release-publishing.md) defines the
+[ADR 0068](docs/architecture/decisions/0068-release-publishing.md) defines the
 release contract. In short: the release build and smoke run continuously, and a
 release publishes exactly the bytes its own smoke tested.
 
@@ -73,7 +73,7 @@ before the release PR. Publishing never changes the support manifest.
 
 Below `1.0.0`, ReleaseX versions each package from its own conventional
 commits. From `1.0.0`, every `blessed_core` package shares one version
-([ADR 0053](../architecture/decisions/0053-what-1-0-promises.md) decision 4).
+([ADR 0053](docs/architecture/decisions/0053-what-1-0-promises.md) decision 4).
 
 ReleaseX has no shared-version group. Its `--next-version` option applies one
 version to every selected package. The root package owns every path, and

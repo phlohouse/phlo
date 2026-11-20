@@ -1,7 +1,7 @@
-# CI contracts and rollout
+# CI contracts
 
 Phlo separates **safe to merge**, **source health**, **artifact readiness** and
-**maintenance health**. A passing source check is not release acceptance.
+**maintenance health**. A passing source check does not mean a release will pass.
 
 ## Merge safety
 
@@ -42,8 +42,8 @@ environments.
 | Merge queue | All buckets on the exact prospective merge SHA, including the full dependency policy. |
 | Main and beta | Authenticate and reuse full queue evidence. Run the full fallback only when evidence cannot be reused. |
 | Scheduled maintenance | Nightly: full integration, the source golden path, Python 3.13, Windows portability and the release rehearsal with image scans. Weekly: mutation report. Red scheduled runs open a tracking issue. |
-| Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
-| Release acceptance and promotion | Exercise staged bytes on required platforms and repeated runs, then publish through the authenticated promotion dispatch. Release merges coordinate these dispatches automatically. |
+| Release Rehearsal | On the ReleaseX PR, release-machinery PRs and nightly: build the distributions and images once and run the artifact golden path against them. Publishes nothing. |
+| Release | On the ReleaseX merge commit: the release-mode dependency assessment, the same build and smoke, then publish the tested bytes. |
 
 `pr / required` records queue evidence after every selected lane finishes. The
 line and branch coverage gate runs the complete workspace in four
@@ -221,7 +221,7 @@ same `release-build.yml` as the rehearsal, then publishes the tested bytes:
 tag, PyPI, signed image tags and the GitHub release. Each step skips what is
 already public with the tested digest and fails closed on a difference, so
 "Re-run failed jobs" resumes a partial release. See
-[Publish a release](release-publication.md) and
+[Publish a release](../../RELEASING.md) and
 [ADR 0068](../architecture/decisions/0068-release-publishing.md).
 
 Development images use a separate `-development:<SHA>` namespace. Only
@@ -245,13 +245,14 @@ to enforce policy against every immutable architecture digest.
 
 MinIO is an independently published provider dependency. **Publish MinIO Image**
 is a separate manual dispatch on `main`, with its own image version and no PyPI
-publication or whole-release acceptance gate. Both publishers reuse
+publication or release golden path. Both publishers reuse
 `build-service-images.yml` for native builds, immutable-digest scans and manifest
 assembly. The MinIO publisher also tests health and an object roundtrip on each
-architecture, and refuses to overwrite a published tag. Phlo staging records
-the existing MinIO digest in its BOM without rebuilding or promoting the image.
-ReleaseX does not bump MinIO image tags. Nightly rescans include the latest
-independently published MinIO image as well as the released Phlo fleet.
+architecture, and refuses to overwrite a published tag. The release build
+records the existing MinIO digest in its BOM without rebuilding or retagging the
+image. ReleaseX does not bump MinIO image tags. The weekly Container Rescan
+includes the latest independently published MinIO image as well as the released
+Phlo fleet.
 See [MinIO image publication](../../packages/phlo-minio/README.md#publish-an-image-only-fix).
 
 **Publish MinIO Plugin** independently publishes `phlo-minio` from protected
@@ -259,32 +260,13 @@ See [MinIO image publication](../../packages/phlo-minio/README.md#publish-an-ima
 distribution, and installs the wheel against published dependencies before
 an isolated job publishes the same bytes to PyPI.
 It also requires real Docker migration tests. This bounded publisher uses the
-existing `release` environment and `PYPI_API_TOKEN`, without a core release,
-whole-release acceptance span, or mandatory reviewer protection. It does not
-publish images or lakehouse examples, or change the whole-release promotion contract.
+existing `release` environment and `PYPI_API_TOKEN`, without a core release or
+mandatory reviewer protection. It does not publish images or lakehouse examples.
 See [plugin publication](../../packages/phlo-minio/README.md#publish-the-minio-plugin-independently).
 
-The publication plan binds the exact BOM bytes and qualifying evidence set.
-Execution reauthenticates both; changes require a fresh dispatch.
-Promotion reruns are rejected; authorization belongs to the original dispatch
-and run attempt. After a partial publication, dispatch again with the same
-staging identity: matching public tags, package files, images and release assets
-are reused; missing ones complete forward. Conflicting bytes or unverifiable
-public digests fail closed. Never restage or rebuild to recover publication.
+## Measurement
 
-## Rollout and measurement
-
-1. Merge dependency remediation [#1063](https://github.com/phlohouse/phlo/pull/1063)
-   first. Do not grandfather its vulnerable baseline or add resolver overrides.
-2. Merge the CI contract changes through the existing required queue check.
-3. Observe reuse decisions and required job inventories on real GitHub runs.
-   Validate Windows/native arm64 there; an x64 orb cannot prove those platforms.
-4. Configure release credentials and optional human agent-intake identity.
-   Exercise staging, acceptance and dry-run promotion before publishing.
-5. Collect two weeks of timings, queue delay, first actionable failure, cache
-   hit rate and retries before tuning shard weights.
-
-Target selected-PR median ≤5 minutes and p95 ≤8; full-queue median ≤8 and p95
-≤12. These are measurement goals, not verified savings. Preserve behavioural
-contracts while optimising bootstrap and proven duplication. Do not retry a
-correctness failure until it passes or silently quarantine a critical contract.
+Target a selected-PR median of 5 minutes or less (p95 8) and a full-queue median
+of 8 minutes or less (p95 12). These are goals, not measured results. Optimise
+setup and proven duplication, not behavioural contracts. Do not retry a
+correctness failure until it passes, and do not quarantine a required contract.
