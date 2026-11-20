@@ -5,6 +5,26 @@ waivers: []
 
 # Runtime exceptions are separate from vulnerability waivers. They do not waive CVEs.
 runtime_waivers:
+  - id: notebook-kernel-host-root
+    service: phlo-notebook-kernels
+    image: ghcr.io/phlohouse/phlo-notebook-kernels:0.19.0
+    exception: root-runtime
+    rationale: >-
+      The kernel host isolates notebook kernels from each other by running each
+      one as its own Unix user, and installs owner-match iptables rules that cut
+      kernel users off the network. Switching users and loading those rules need
+      root (SETUID, SETGID, NET_ADMIN) inside the container.
+    compensating_control: >-
+      Kernels and package installs never run as root. All capabilities are dropped
+      except CHOWN, DAC_OVERRIDE, FOWNER, KILL, NET_ADMIN, SETGID and SETUID;
+      no-new-privileges, a read-only root filesystem, pids and memory limits apply.
+      The host refuses to start unless its rules stop a kernel user connecting out.
+      The container holds no Phlo secrets other than its own API token, has no
+      Docker socket, publishes its port on loopback and is off unless the notebooks
+      profile is enabled.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/pull/1292
+    review_by: 2027-02-20
   - id: trino-catalog-bootstrap
     service: trino
     image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534

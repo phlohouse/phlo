@@ -72,6 +72,10 @@ def test_every_generated_build_uses_a_versioned_ghcr_image() -> None:
         for entry in support_manifest["release_set"]["services"]
         if entry["name"] in {"phlo-api", "dagster", "minio", "observatory"}
     }
+    # The optional notebook kernel host ships with phlo-api, outside the
+    # blessed-core release set.
+    api_image = next(image for image in release_images if "/phlo-api:" in image)
+    release_images.add(api_image.replace("/phlo-api:", "/phlo-notebook-kernels:"))
     assert {image for _, image in build_definitions} == release_images
     for service_file, image in build_definitions:
         assert image.startswith("ghcr.io/phlohouse/phlo-"), service_file
