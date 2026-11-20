@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from importlib.metadata import distributions
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
@@ -18,6 +19,9 @@ from pydantic import BaseModel, ConfigDict
 from phlo.operations.api_runtime import ApiRuntimeDirectory
 
 BASELINE = "upgrade-baseline.json"
+# Provider commands that rewrite a generated file record the rewrite here, so a
+# later upgrade plan still recognises that file as unmodified generated output.
+REWRITES = "upgrade-rewrites.json"
 
 
 def installed_distributions() -> dict[str, str]:
@@ -103,6 +107,40 @@ def generation_baseline(root: Path, files: list[str]) -> str:
         )
         + "\n"
     )
+
+
+def record_rewrite(phlo_dir: Path, name: str, before: bytes, after: bytes, by: str) -> None:
+    """Record that ``by`` rewrote generated file ``name`` from ``before`` to ``after``.
+
+    Only digests are stored. The rewrite counts during planning only when the
+    baseline digest equals ``before``, so a file the operator had already
+    edited still conflicts.
+    """
+    from phlo.cli.infrastructure.secure_files import write_sensitive_file
+
+    path = phlo_dir / REWRITES
+    recorded = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    rewrites = recorded.setdefault("rewrites", [])
+    rewrites.append({"path": name, "from": digest(before), "to": digest(after), "by": by})
+    write_sensitive_file(path, json.dumps(recorded, indent=2) + "\n")
+
+
+def apply_rewrites(root: Path, baseline: Mapping[str, str | None]) -> dict[str, str | None]:
+    """Follow recorded provider rewrites from each baseline digest, in recorded order."""
+    path = checked_path(root, f".phlo/{REWRITES}")
+    if not path.exists():
+        return dict(baseline)
+    rewrites = json.loads(path.read_text(encoding="utf-8")).get("rewrites", [])
+    if not isinstance(rewrites, list):
+        raise ValueError(f".phlo/{REWRITES} is not a list of rewrites")
+    followed = dict(baseline)
+    for rewrite in rewrites:
+        if not isinstance(rewrite, dict) or not {"path", "from", "to"} <= set(rewrite):
+            raise ValueError(f".phlo/{REWRITES} has a malformed rewrite")
+        name = rewrite["path"]
+        if name in followed and followed[name] == rewrite["from"]:
+            followed[name] = rewrite["to"]
+    return followed
 
 
 def plan_generated_stack(

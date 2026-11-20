@@ -15,6 +15,7 @@ from phlo.cli.commands.services.utils import ensure_compose_project, require_con
 from phlo.cli.infrastructure.command import CommandError, run_command
 from phlo.cli.infrastructure.compose import compose_base_cmd
 from phlo.cli.infrastructure.utils import get_project_name
+from phlo.operations.generated_stack import REWRITES, record_rewrite
 from phlo_minio.authorization import get_minio_cli_adapter
 
 
@@ -100,6 +101,7 @@ def migrate_image(apply: bool) -> None:
             "migrate other container backends manually."
         )
     path = phlo_dir / "docker-compose.yml"
+    original_bytes = path.read_bytes()
     original = path.read_text(encoding="utf-8")
     document = yaml.safe_load(original)
     image = yaml.safe_load(Path(__file__).with_name("service.yaml").read_text())["image"]
@@ -123,11 +125,27 @@ def migrate_image(apply: bool) -> None:
         if not backup.exists():
             backup.touch(mode=0o600, exist_ok=False)
             backup.write_text(original, encoding="utf-8")
-        path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        migrated = yaml.safe_dump(document, sort_keys=False)
+        rewrites = phlo_dir / REWRITES
+        recorded = rewrites.read_bytes() if rewrites.exists() else None
+        path.write_text(migrated, encoding="utf-8")
+        # Lets `phlo services upgrade` keep treating the rewritten Compose file
+        # as generated output, with a live or a --previous-generated baseline.
+        record_rewrite(
+            phlo_dir,
+            ".phlo/docker-compose.yml",
+            original_bytes,
+            path.read_bytes(),
+            "phlo minio migrate-image",
+        )
         try:
             run_command([*base, "pull", "minio", "minio-setup"], timeout_seconds=600)
         except (CommandError, TimeoutExpired):
             path.write_text(original, encoding="utf-8")
+            if recorded is None:
+                rewrites.unlink(missing_ok=True)
+            else:
+                rewrites.write_bytes(recorded)
             raise
         run_command([*base, "stop", "minio-setup", "minio"], timeout_seconds=120)
         run_command(

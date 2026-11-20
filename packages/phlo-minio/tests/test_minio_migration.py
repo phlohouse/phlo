@@ -12,6 +12,7 @@ import yaml
 from click.testing import CliRunner
 
 from phlo.cli.infrastructure.command import CommandError
+from phlo.operations.generated_stack import REWRITES, apply_rewrites, digest, file_digest
 from phlo_minio.cli import minio_group
 
 IMAGE = "ghcr.io/phlohouse/phlo-minio:0.17.5"
@@ -159,6 +160,52 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
         backup = path.with_name("docker-compose.pre-minio-image.yml")
         assert backup.read_text() == original
         assert backup.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("outcome", ["apply", "pull-failure", "edited"])
+def test_migration_keeps_compose_recognised_as_generated(tmp_path, monkeypatch, outcome):
+    """A replan after migrating must not report the migrated Compose file as a conflict (#1293).
+
+    The baseline may be the live one or one rebuilt from --previous-generated;
+    both are followed through the recorded rewrite.
+    """
+    path = _project(tmp_path)
+    upstream = yaml.safe_load(path.read_text())
+    upstream["services"]["minio"]["image"] = "quay.io/minio/minio:old-server"
+    upstream["services"]["minio-setup"]["image"] = "quay.io/minio/mc:old-client"
+    path.write_text(yaml.safe_dump(upstream, sort_keys=False))
+    generated = path.read_bytes()
+    if outcome == "edited":
+        path.write_text(path.read_text() + "# local edit\n")
+    baseline = {".phlo/docker-compose.yml": digest(generated), "phlo.yaml": "unrelated"}
+    effective = copy.deepcopy(yaml.safe_load(path.read_text()))
+    effective["volumes"]["minio-data"]["name"] = "existing-lakehouse_minio-data"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("phlo_minio.migrate.require_container_backend", lambda: None)
+
+    def execute(command, **kwargs):
+        if "config" in command:
+            return subprocess.CompletedProcess(command, 0, json.dumps(effective), "")
+        if outcome == "pull-failure" and "pull" in command:
+            raise CommandError(tuple(command), 1, "", "unavailable")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("phlo_minio.migrate.run_command", execute)
+    result = CliRunner().invoke(minio_group, ["migrate-image", "--apply"])
+    assert (result.exit_code == 0) == (outcome != "pull-failure"), result.output
+    rewrites = path.with_name(REWRITES)
+    if outcome == "pull-failure":
+        assert not rewrites.exists()
+        assert path.read_bytes() == generated
+        return
+    assert rewrites.stat().st_mode & 0o777 == 0o600
+    followed = apply_rewrites(tmp_path, baseline)
+    assert followed["phlo.yaml"] == "unrelated"
+    matches = followed[".phlo/docker-compose.yml"] == file_digest(
+        tmp_path, ".phlo/docker-compose.yml"
+    )
+    # Unmodified generated output stays replaceable; a local edit still conflicts.
+    assert matches == (outcome == "apply")
 
 
 @pytest.mark.integration
