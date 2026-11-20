@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from time import monotonic, sleep
 
-import release_provenance as github
+import github_api as github
 
 PRODUCER = "security / dependency assessment"
 SECURITY_WORKFLOW = ".github/workflows/security.yml"

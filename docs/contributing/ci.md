@@ -195,55 +195,37 @@ schedule must be active; the workflow does not provision one.
 
 ### Release rehearsal
 
-**Release Rehearsal** runs the release path without publishing anything. It
-builds the distributions and images exactly as Release Stage does, pins them in
-a BOM under `rehearsal-<sha>` image tags, and runs the artifact golden path
-against those bytes. The upgrade baseline is the latest published release. It
-runs on the ReleaseX PR, on PRs that change release machinery (release
-workflows and scripts, Dockerfiles, `service.yaml` files, `relx.toml` and the
-support manifest), and nightly on main.
+**Release Rehearsal** runs the release build and smoke (`release-build.yml`)
+without publishing anything. It builds the distributions and images exactly as
+the release does, pins them in a BOM under `rehearsal-<sha>` image tags, and
+runs the artifact golden path against those bytes. The upgrade baseline is the
+latest published release. It runs on the ReleaseX PR, on PRs that change
+release machinery (release workflows and scripts, Dockerfiles, `service.yaml`
+files, `relx.toml` and the support manifest), and nightly on main.
 
-A rehearsal never reserves a candidate. Its provenance records
-`"rehearsal": true`, and promotion refuses any such BOM. The amd64 golden path
-must pass; arm64 reports without blocking. It is not part of `pr / required`,
-but a red rehearsal on the ReleaseX PR means the release will fail.
+A rehearsal BOM records `"rehearsal": true`, and publishing refuses it. The
+amd64 golden path must pass; arm64 reports without blocking. It is not part of
+`pr / required`, but a red rehearsal on the ReleaseX PR means the release will
+fail.
 
 Scheduled Nightly and Release Rehearsal failures open, or comment on, one
 issue per workflow (`ci: nightly is failing`,
 `ci: nightly release rehearsal is failing`), assigned to the maintainer. Close
 the issue once the workflow is green again.
 
-### Release on merge
+### Release
 
-Ordinary main pushes are not release candidates. ReleaseX still proposes the
-version PR. After an in-repository `relx/release/` PR merges, **Release on merge**
-authenticates its exact merge SHA, waits for source health, and dispatches
-**Release Stage**, two **Release Artifact Acceptance** runs, and
-**Release Promotion** with `execute: true`. It uses only Actions write and
-read-only repository access. Existing successful or running producers are
-reused; failed attempts stop automation without restaging or blind retries.
-See [release publication and manual recovery](release-publication.md).
-Staging first requires a fresh release-mode dependency assessment and successful
-exact-SHA main source health, then reserves the candidate once. It builds package
-distributions once, reuses those wheels in native image builds, scans images,
-pins their digests and records a BOM and provenance. A failed or expired staging
-attempt does not permit restaging that SHA.
+**Release** (`release-promotion.yml`) runs on every main push and continues
+only for the exact merge commit of the in-repository ReleaseX PR. It calls the
+same `release-build.yml` as the rehearsal, then publishes the tested bytes:
+tag, PyPI, signed image tags and the GitHub release. Each step skips what is
+already public with the tested digest and fails closed on a difference, so
+"Re-run failed jobs" resumes a partial release. See
+[Publish a release](release-publication.md) and
+[ADR 0068](../architecture/decisions/0068-release-publishing.md).
 
-Dispatch **Release Artifact Acceptance** with the candidate SHA and staging run.
-Clean amd64 and arm64 hosts exercise staged artifacts, never source builds.
-Missing BOMs fail. Promotion authenticates every candidate acceptance attempt,
-including failures, and requires three qualifying bundles. Two successful
-dispatches produce four bundles. Runs may share a clean
-host and UTC calendar day; there is no host-diversity or two-day waiting gate.
-
-**Release Promotion** defaults to a dry run. Set `execute: true` on a fresh
-dispatch to publish during manual recovery. The coordinator sets it automatically.
-GitHub authenticates the dispatch actor, and promotion verifies the live workflow
-run on protected `main`. The `pypi` environment and trusted publisher identity
-remain unchanged. Promotion rejects long-lived publication tokens and publishes
-the authorized staged bytes without rebuilding and reconciles published digests.
-Development images use a separate `-development:<SHA>` namespace.
-Only Release Stage dispatches build and upload these staging images.
+Development images use a separate `-development:<SHA>` namespace. Only
+`release-build.yml` builds and uploads them, for a release or a rehearsal.
 Ordinary non-release pushes cannot invoke the image publisher. PR, queue and main checks
 reuse installed-provider image builds for local scans by image ID, with no
 registry writes or duplicate builds.

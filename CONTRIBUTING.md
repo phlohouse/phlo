@@ -20,8 +20,8 @@ Use a focused `uv run --locked pytest <test-path>` during the edit loop;
 selected checks are not a substitute for required CI or release acceptance.
 
 The [CI contracts and rollout](docs/contributing/ci.md),
-[release staging workflow](.github/workflows/release-stage.yml) and [release promotion
-contract](docs/architecture/decisions/0050-freeze-release-promotion-contract.md)
+[release procedure](docs/contributing/release-publication.md) and [release
+publishing ADR](docs/architecture/decisions/0068-release-publishing.md)
 describe the release process.
 
 The [change, ownership, and release policy](docs/contributing/change-policy.md)

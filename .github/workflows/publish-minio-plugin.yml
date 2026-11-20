@@ -1,4 +1,4 @@
-name: Validate MinIO Plugin (publication uses Release Promotion)
+name: Validate MinIO Plugin (publication uses Release)
 
 on:
   workflow_dispatch:

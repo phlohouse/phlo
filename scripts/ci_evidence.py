@@ -18,7 +18,7 @@ from pathlib import Path
 
 import container_security
 import dependency_delta
-import release_provenance as github
+import github_api as github
 import select_ci
 import yaml
 

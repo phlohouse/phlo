@@ -67,6 +67,7 @@
     "0064-ci-contracts-and-required-lanes",
     "0065-deprecation-and-removal-schedule",
     "0066-observatory-node-runtime-as-api-adapter-tier",
-    "0067-explicit-freshness-grain-and-data-interval-contracts"
+    "0067-explicit-freshness-grain-and-data-interval-contracts",
+    "0068-release-publishing"
   ]
 }

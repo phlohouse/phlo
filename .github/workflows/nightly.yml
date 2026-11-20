@@ -109,16 +109,6 @@ jobs:
       - name: Run release artifact golden path
         run: python3 scripts/release_golden_path.py
 
-  release-artifact-acceptance:
-    name: nightly / artifact staging outcome (not qualification)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Record artifact-not-staged separately from maintenance success
-        run: |
-          echo 'Artifact qualification: artifact-not-staged. Maintenance does not stage a release candidate.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Use Release Stage and Release Artifact Acceptance for immutable candidate qualification.' >> "$GITHUB_STEP_SUMMARY"
-
   operations-evidence:
     name: python / security + maintenance evidence
     runs-on: ubuntu-latest
@@ -181,7 +171,6 @@ jobs:
       - upstream-compatibility
       - full-integration
       - release-golden-path
-      - release-artifact-acceptance
       - operations-evidence
       - python-313
       - windows-portability
@@ -195,7 +184,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           FULL_INTEGRATION: ${{ needs.full-integration.result }}
           RELEASE_GOLDEN_PATH: ${{ needs.release-golden-path.result }}
-          RELEASE_ARTIFACT_ACCEPTANCE: ${{ needs.release-artifact-acceptance.result }}
           OPERATIONS_EVIDENCE: ${{ needs.operations-evidence.result }}
           PYTHON_313: ${{ needs.python-313.result }}
           WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
@@ -213,11 +201,6 @@ jobs:
               exit 1
             fi
           done
-          echo 'Artifact qualification: artifact-not-staged (not release evidence).' >> "$GITHUB_STEP_SUMMARY"
-          if [ "$RELEASE_ARTIFACT_ACCEPTANCE" != "success" ]; then
-            echo "::error::Staging outcome report failed: $RELEASE_ARTIFACT_ACCEPTANCE"
-            exit 1
-          fi
 
   report:
     name: nightly / report red schedule

@@ -14,9 +14,9 @@ These controls are unchanged and remain in force:
 
 - [CONTRIBUTING.md](../../CONTRIBUTING.md)
   requires behavioural tests and discussion of substantial changes.
-- [ADR 0050](../architecture/decisions/0050-freeze-release-promotion-contract.md)
-  requires release-owner authorisation for an exact candidate and its
-  evidence.
+- [ADR 0068](../architecture/decisions/0068-release-publishing.md)
+  makes the ReleaseX PR merge the release approval, and publishes only the
+  bytes the release smoke tested.
 - The [publication procedure](release-publication.md)
   defines manual dispatch, `execute=false` by default, qualification, and
   separate approval for shared settings.
@@ -68,8 +68,8 @@ For material changes, record:
   [#998](https://github.com/phlohouse/phlo/issues/998) owns the CI enforcement.
 - A rollback or forward-recovery procedure, its prerequisites, the data-loss
   boundaries, and the check that verifies recovery. A source revert does not
-  undo a publication or an irreversible migration. ADR 0050's
-  forward-completion and revocation rules govern release recovery.
+  undo a publication or an irreversible migration. ADR 0068's
+  resume and revocation rules govern release recovery.
 
 The squash commit body for a material change keeps the reason, the issue and
 PR references, the evidence, and any exceptions. The PR remains the detailed

@@ -54,9 +54,9 @@ have exercised nothing. CI ran every lane for every change.
    `phlo.merge-validation/v1` evidence bound to the exact SHA, attempt, policy
    digest and dependency assessment. A push to `main` reuses it only when it is
    authentic and fresh, and otherwise runs the full fallback.
-7. **Release acceptance is separate.** Release staging requires source health and
-   fresh release-mode dependency evidence, then builds and accepts immutable
-   artifacts as defined in [ADR 0050](0050-freeze-release-promotion-contract.md).
+7. **Release acceptance is separate.** The release builds once and smokes the
+   built artifacts, as defined in [ADR 0068](0068-release-publishing.md), which
+   supersedes ADR 0050. Release Rehearsal runs the same jobs before release day.
 8. **Mutation results are a weekly report.** The scheduled mutation run keeps
    `scripts/check_mutation.py` and its reviewed exceptions, but it no longer
    gates pull requests.
@@ -87,6 +87,6 @@ have exercised nothing. CI ran every lane for every change.
 
 ## Related
 
-- [ADR 0050](0050-freeze-release-promotion-contract.md): release staging and promotion.
+- [ADR 0068](0068-release-publishing.md): release build, smoke and publishing.
 - [ADR 0063](0063-dependency-and-container-vulnerability-policy.md): dependency and container gates within these contracts.
 - [CI contracts and rollout](../../contributing/ci.md), [test and contract gates](../../contributing/testing-gates.md).
