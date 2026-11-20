@@ -8,9 +8,27 @@ source_dir=/var/lib/phlo-preview/server
 templates=/etc/trino-preview
 config=/etc/trino
 
-if [ ! -s "$source_dir/targets" ]; then
-    echo "trino-preview: phlo-api has not set up the query preview, usually because phlo.yaml has no environments. Not starting." >&2
-    exit 0
+idle() {
+    echo "trino-preview: $1" >&2
+    touch "$config/disabled"
+    exec chroot --skip-chdir --userspec=trino:trino --groups=trino / sleep infinity
+}
+
+expected="${PHLO_V1_PREVIEW_TARGETS:-}"
+if [ -z "$expected" ]; then
+    idle "no generated query preview is configured (phlo.yaml has no environments, or the project runs its own). Idle."
+fi
+# phlo-api starts alongside this container and writes the credentials first and
+# the target list last, so wait until the list it wrote is the one expected.
+for _ in $(seq 1 300); do
+    if [ -s "$source_dir/targets" ] && [ "$(paste -sd, "$source_dir/targets")" = "$expected" ]; then
+        break
+    fi
+    sleep 1
+done
+if [ "$(paste -sd, "$source_dir/targets" 2>/dev/null)" != "$expected" ]; then
+    echo "trino-preview: phlo-api did not publish the expected query preview targets. Check phlo-api logs." >&2
+    exit 1
 fi
 
 umask 077

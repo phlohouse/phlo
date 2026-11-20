@@ -848,6 +848,10 @@ def apply_preview_defaults(services: list, env_overrides: dict, environments: An
                 separators=compact,
             ),
             "PHLO_V1_PREVIEW_STATE_DIR": _PREVIEW_STATE_DIR,
+            # trino-preview waits until phlo-api has published exactly these.
+            "PHLO_V1_PREVIEW_TARGETS": ",".join(
+                f"{item['catalog']} {item['nessie_ref']}" for item in catalogs.values()
+            ),
         }
     )
     # True of the generated stack: one API container running one process, and

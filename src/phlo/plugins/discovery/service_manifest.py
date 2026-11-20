@@ -182,15 +182,18 @@ class ServiceManifestResolver:
         for service in services:
             include(service_by_name[service.name])
         # A "-setup" or companion service is pulled in automatically, but only
-        # when every dependency it declares is already part of the selection; it
+        # when every service it serves is already part of the selection; it
         # must never drag in services that were not requested.
+
+        def serves(service: ServiceDefinition) -> list[str]:
+            if service.companion_of:
+                return service.companion_of
+            return service.depends_on if service.name.endswith("-setup") else []
 
         bootstrap_companions = [
             service
             for service in service_by_name.values()
-            if (service.name.endswith("-setup") or service.companion)
-            and service.depends_on
-            and all(dependency in selected for dependency in service.depends_on)
+            if serves(service) and all(name in selected for name in serves(service))
         ]
         for companion in bootstrap_companions:
             selected.setdefault(companion.name, companion)

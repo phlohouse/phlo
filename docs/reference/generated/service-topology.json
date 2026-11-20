@@ -776,7 +776,6 @@
     {
       "default": false,
       "depends_on": [
-        "phlo-api",
         "trino"
       ],
       "name": "trino-preview",

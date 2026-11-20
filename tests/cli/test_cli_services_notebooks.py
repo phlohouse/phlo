@@ -18,8 +18,8 @@ from tests.support import _service
 KERNELS = _service("phlo-notebook-kernels")
 API = _service("phlo-api")
 TRINO = _service("trino")
-PREVIEW = _service("trino-preview", depends_on=["trino", "phlo-api"])
-PREVIEW.companion = True
+PREVIEW = _service("trino-preview", depends_on=["trino"])
+PREVIEW.companion_of = ["trino", "phlo-api"]
 ENVS = {"sandbox": {"nessie_ref": "main"}, "pre-prod": {"nessie_ref": "release_1"}}
 
 
@@ -122,6 +122,7 @@ def test_preview_defaults_point_the_api_at_the_generated_server() -> None:
     files = json.loads(result["PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES"])
     assert files["pre-prod"] == "/var/lib/phlo-preview/api/password-pre-prod"
     assert result["PHLO_V1_PREVIEW_STATE_DIR"] == "/var/lib/phlo-preview"
+    assert result["PHLO_V1_PREVIEW_TARGETS"] == "preview_sandbox main,preview_pre_prod release_1"
     for name in (
         "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
         "PHLO_V1_QUERY_SINGLE_REPLICA",

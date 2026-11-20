@@ -9,17 +9,20 @@ description: Read-only Trino for Observatory queries, with per-environment ident
 category: core
 default: false
 profile: api
-companion: true
+# Added with phlo-api and trino, but started beside the API rather than after
+# it is healthy: the entrypoint waits only for the files the API writes first.
+companion_of:
+  - trino
+  - phlo-api
 
 image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
 
 depends_on:
   - trino
-  - phlo-api
 
 compose:
-  # A project without environments has nothing to serve: the entrypoint exits 0
-  # and stays stopped instead of restarting.
+  # A project without environments, or with its own preview server, has
+  # nothing to serve here: the container idles and reports healthy.
   restart: on-failure
   # Root only long enough to copy phlo-api's 0700 files into the tmpfs and
   # hand them to Trino's user; see security/container-waivers.yml.
@@ -40,6 +43,8 @@ compose:
     AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
     AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Run phlo services init to generate MINIO_ROOT_PASSWORD}
     AWS_REGION: us-east-1
+    # "catalog ref" pairs that phlo services init expects phlo-api to publish.
+    PHLO_V1_PREVIEW_TARGETS: ${PHLO_V1_PREVIEW_TARGETS:-}
   mem_limit: 2g
   tmpfs:
     - /etc/trino:mode=0755
@@ -48,11 +53,12 @@ compose:
     - ./trino/catalog/iceberg.properties:/etc/trino-source/iceberg.properties:ro
     - query-preview:/var/lib/phlo-preview:ro
   healthcheck:
-    test: ["CMD-SHELL", "[ \"$(curl -fsS --cacert /etc/trino/secrets/ca.pem https://localhost:8443/v1/info/state | tr -d '\"')\" = \"ACTIVE\" ]"]
+    test: ["CMD-SHELL", "[ -f /etc/trino/disabled ] || [ \"$(curl -fsS --cacert /etc/trino/secrets/ca.pem https://localhost:8443/v1/info/state | tr -d '\"')\" = \"ACTIVE\" ]"]
     interval: 10s
     timeout: 5s
     retries: 10
     start_period: 90s
+    start_interval: 2s
 
 files:
   - source: preview/entrypoint.sh
