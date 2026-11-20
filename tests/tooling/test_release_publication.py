@@ -435,6 +435,9 @@ def test_qualification_archive_is_created_before_publication(
     evidence = tmp_path / "inputs/evidence"
     evidence.mkdir()
     (evidence / "bundle.json").write_text('{"qualifying":true}')
+    screenshots = evidence / "evidence-observatory/fresh"
+    screenshots.mkdir(parents=True)
+    (screenshots / "overview.png").write_bytes(b"png")
     if not missing_input:
         (tmp_path / "authorization.json").write_text('{"authorized":true}')
     for command in ("git", "gh", "python3"):
@@ -463,6 +466,8 @@ def test_qualification_archive_is_created_before_publication(
             assert archive.extractfile("evidence/bundle.json").read() == b'{"qualifying":true}'
             assert archive.extractfile("bom.json").read() == bom_bytes
             assert archive.extractfile("provenance.json").read() == b'{"staged":true}'
+            # Only adjudicated JSON bundles are qualification members.
+            assert not any("evidence-observatory" in name for name in archive.getnames())
 
 
 @pytest.mark.parametrize("promoted", [True, False])

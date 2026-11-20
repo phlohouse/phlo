@@ -110,7 +110,13 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           gh auth setup-git
           archive="qualification-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
-          tar -czf "$archive" authorization.json -C inputs evidence \
+          # Archive exactly the adjudicated JSON bundles; acceptance screenshots
+          # stay in their run artifacts and are not qualification members.
+          members=()
+          while IFS= read -r member; do members+=("$member"); done \
+            < <(cd inputs && find evidence -type f -name '*.json' | LC_ALL=C sort)
+          [ "${#members[@]}" -gt 0 ]
+          tar -czf "$archive" authorization.json -C inputs "${members[@]}" \
             -C "candidate-$CANDIDATE_SHA" bom.json provenance.json
           python3 scripts/promote_release_candidate.py promote \
             --candidate-bom "inputs/candidate-$CANDIDATE_SHA/bom.json" \
