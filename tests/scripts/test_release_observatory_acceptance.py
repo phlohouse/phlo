@@ -667,3 +667,26 @@ def test_login_return_wait_retries_only_browser_timeouts(observatory, monkeypatc
     monkeypatch.setattr(oidc.observatory, "_browser", denied)
     with pytest.raises(subprocess.CalledProcessError):
         oidc.wait_for_login_return("session")
+
+
+def test_installed_start_streams_pull_output_and_keeps_other_output_private(
+    monkeypatch, observatory, config
+):
+    calls = []
+    monkeypatch.setattr(observatory, "installed_start_pins", lambda _config: None)
+    monkeypatch.setattr(
+        observatory.golden,
+        "compose_config_json",
+        lambda _config: {"services": {"api": {"image": "ghcr.io/example/api@sha256:" + "0" * 64}}},
+    )
+
+    def run(args, *, cwd, capture_output=False, env=None):
+        calls.append((args, capture_output))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(observatory.golden, "run", run)
+    observatory.start(config)
+    pull = [capture for args, capture in calls if args[-1] == "pull"]
+    assert pull == [False]
+    starts = [capture for args, capture in calls if args[-2:] == ["services", "start"]]
+    assert starts == [True]

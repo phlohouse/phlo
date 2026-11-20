@@ -1401,7 +1401,9 @@ def start(config: golden.RunConfig, *, legacy: bool = False) -> None:
     document = golden.compose_config_json(config)
     if any(definition.get("build") for definition in document["services"].values()):
         raise golden.CandidateError("Installed startup must not have a build fallback")
-    compose(config, "--profile", "api", "pull")
+    # Pull output names only images and registries; show it so a registry
+    # failure is diagnosable instead of a bare CalledProcessError.
+    compose(config, "--profile", "api", "pull", capture=False)
     golden.run(
         golden.command(str(config.operator_bin), "services", "start"),
         cwd=config.project_dir,
