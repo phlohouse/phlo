@@ -5,6 +5,7 @@ demonstrations, and the failure-path invariants promotion gating consumes.
 """
 
 import hashlib
+import importlib
 import importlib.util
 import json
 import sys
@@ -245,3 +246,112 @@ def test_written_bundle_round_trips_through_the_validator(tmp_path: Path) -> Non
     assert json.loads(path.read_text(encoding="utf-8")) == json.loads(
         path.read_text(encoding="utf-8")
     )
+
+
+def _part(ids: set[str], *, host: str, fail: str | None = None) -> dict[str, object]:
+    bundle = release_evidence.new_bundle(
+        release_commit="e" * 40,
+        canonical_candidate_digest="a" * 64,
+        artifact_count=1,
+        environment={"host": host, "runner": "test", "promoting": False},
+    )
+    for demonstration_id, title in release_evidence.REQUIRED_DEMONSTRATIONS:
+        if demonstration_id in ids:
+            release_evidence.record_demonstration(
+                bundle,
+                demonstration_id=demonstration_id,
+                title=title,
+                status=(
+                    release_evidence.STATUS_FAILED
+                    if demonstration_id == fail
+                    else release_evidence.STATUS_PASSED
+                ),
+                result={"ok": True},
+                artifacts=[{"kind": "sdist", "name": "phlo", "digest": "b" * 64}],
+                error="boom" if demonstration_id == fail else None,
+            )
+    return release_evidence.finalize_bundle(bundle)
+
+
+def _split(fail: str | None = None) -> list[dict[str, object]]:
+    golden = importlib.import_module("release_golden_path")
+    ids = {item for item, _ in release_evidence.REQUIRED_DEMONSTRATIONS}
+    return [
+        _part({i for i in ids if golden.in_part(i, part)}, host=part, fail=fail)
+        for part in ("core", "observatory-fresh", "observatory-upgrade")
+    ]
+
+
+def test_golden_path_parts_cover_every_demonstration_once() -> None:
+    golden = importlib.import_module("release_golden_path")
+    ids = [item for item, _ in release_evidence.REQUIRED_DEMONSTRATIONS]
+    parts = ("core", "observatory-fresh", "observatory-upgrade")
+    for demonstration_id in ids:
+        owners = [part for part in parts if golden.in_part(demonstration_id, part)]
+        if demonstration_id == "candidate_bom_verification":
+            assert owners == list(parts)
+        else:
+            assert len(owners) == 1, demonstration_id
+        assert golden.in_part(demonstration_id, "all")
+
+
+def test_merged_parts_validate_like_one_bundle() -> None:
+    merged = release_evidence.merge_bundles(_split())
+    assert release_evidence.validate_bundle(merged, _bom()) is merged
+    assert merged["conclusion"] == release_evidence.CONCLUSION_PASSED
+    ids = [item["id"] for item in merged["demonstrations"]]
+    assert sorted(ids) == sorted(item for item, _ in release_evidence.REQUIRED_DEMONSTRATIONS)
+    assert [part["host"] for part in merged["environment"]["parts"]] == [
+        "core",
+        "observatory-fresh",
+        "observatory-upgrade",
+    ]
+
+
+def test_a_missing_part_cannot_pass() -> None:
+    merged = release_evidence.merge_bundles(_split()[:2])
+    with pytest.raises(release_evidence.EvidenceError, match="missing demonstrations"):
+        release_evidence.validate_bundle(merged, _bom())
+
+
+def test_a_failed_part_fails_the_merged_bundle() -> None:
+    merged = release_evidence.merge_bundles(_split(fail="observatory_retained_upgrade"))
+    assert merged["conclusion"] == release_evidence.CONCLUSION_FAILED
+    assert merged["failure"]["demonstration"] == "observatory_retained_upgrade"
+
+
+@pytest.mark.parametrize("change", ["candidate", "repeat", "tamper"])
+def test_parts_must_agree_and_be_intact(change: str) -> None:
+    parts = _split()
+    if change == "candidate":
+        parts[1]["candidate"] = {**parts[1]["candidate"], "release_commit": "f" * 40}
+        parts[1]["checksum"]["value"] = release_evidence.bundle_checksum(parts[1])
+    elif change == "repeat":
+        parts[2]["demonstrations"][0]["result"] = {"ok": False}
+        parts[2]["checksum"]["value"] = release_evidence.bundle_checksum(parts[2])
+    else:
+        parts[0]["demonstrations"][1]["status"] = release_evidence.STATUS_FAILED
+    with pytest.raises(release_evidence.EvidenceError):
+        release_evidence.merge_bundles(parts)
+
+
+def test_validator_merges_part_bundles(tmp_path: Path, capsys) -> None:
+    validator = importlib.import_module("validate_release_evidence")
+    candidate = importlib.import_module("release_candidate_bom")
+    bom = tmp_path / "bom.json"
+    bom.write_text(json.dumps(_bom()))
+    args = []
+    for index, part in enumerate(_split()):
+        path = tmp_path / f"part-{index}.json"
+        release_evidence.write_bundle(part, path)
+        args += ["--bundle", str(path)]
+    merged = tmp_path / "evidence.json"
+    original = candidate.load_bom
+    try:
+        candidate.load_bom = lambda path: json.loads(Path(path).read_text())
+        assert validator.main([*args, "--candidate-bom", str(bom), "--output", str(merged)]) == 0
+        assert validator.main([*args[:4], "--candidate-bom", str(bom)]) == 1
+    finally:
+        candidate.load_bom = original
+    assert release_evidence.load_bundle(merged)["conclusion"] == "passed"
+    assert "missing demonstrations" in capsys.readouterr().err

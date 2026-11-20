@@ -19,7 +19,9 @@ continues only for the exact merge commit of that PR. Then it:
    parallel builds the sdists, wheels and images once (`release-build.yml`),
    staging any package whose version is already on PyPI from PyPI's bytes;
 2. pins them into `bom.json` and runs the artifact golden path against them on
-   amd64 (blocking) and arm64 (reported, never blocking);
+   amd64 (blocking) and arm64 (reported, never blocking). Its three parts (the
+   core journey, the fresh Observatory install and the retained-volume upgrade)
+   run on separate runners, and one job merges and validates their evidence;
 3. attests build provenance for the distributions;
 4. creates the `v<version>` tag on the release commit;
 5. uploads the distributions to PyPI through trusted publishing;

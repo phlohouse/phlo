@@ -1667,7 +1667,8 @@ def test_production_preflight_reads_report_from_cli_envelope(tmp_path, monkeypat
 def test_observatory_acceptance_is_required_in_both_qualification_profiles():
     for profile in ("artifact", "deployment"):
         required = dict(release_golden_path.release_evidence.required_demonstrations(profile))
-        assert "observatory_installed_journeys" in required
+        assert "observatory_fresh_install" in required
+        assert "observatory_retained_upgrade" in required
 
 
 def test_observatory_acceptance_requires_previous_bom_before_running(tmp_path, monkeypatch):
@@ -1676,7 +1677,7 @@ def test_observatory_acceptance_requires_previous_bom_before_running(tmp_path, m
 
     monkeypatch.setattr(observatory.shutil, "which", lambda name: name)
     with pytest.raises(release_golden_path.CandidateError, match="previous candidate BOM"):
-        observatory.run_journey(_config(tmp_path), previous_bom=None, artifacts=tmp_path)
+        observatory.run_upgrade(_config(tmp_path), previous_bom=None, artifacts=tmp_path)
 
 
 @pytest.mark.parametrize("repeat", [False, True])

@@ -104,7 +104,7 @@ After a process crash, do not remove `.phlo/upgrade.lock` and retry blindly. Com
 
 ## Installed Observatory acceptance
 
-The exact-BOM runner requires `observatory_installed_journeys` for both artifact and deployment evidence. Missing candidate or previous BOMs, unavailable tooling, activation conflicts, private-mount access failures and unverified preview enforcement fail acceptance. Source tests, locally built packages, synthetic driver pages and the operations fixture cannot replace released-candidate qualification.
+The exact-BOM runner requires `observatory_fresh_install` and `observatory_retained_upgrade` for both artifact and deployment evidence. The release build runs them on separate runners beside the core journey and merges the three evidence bundles before validating them. Missing candidate or previous BOMs, unavailable tooling, activation conflicts, private-mount access failures and unverified preview enforcement fail acceptance. Source tests, locally built packages, synthetic driver pages and the operations fixture cannot replace released-candidate qualification.
 
 The runner accepts a separate immutable previous release BOM:
 

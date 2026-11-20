@@ -1500,24 +1500,31 @@ def run_one(
             compose(config, "down", "--volumes", "--remove-orphans")
 
 
-def run_journey(
-    config: golden.RunConfig, *, previous_bom: Path | None, artifacts: Path
-) -> tuple[dict, list]:
-    """Called by exact-BOM acceptance, never by source-mode fixture demonstrations."""
+def _require_tools(config: golden.RunConfig) -> None:
     for executable in ("agent-browser", "openssl", "docker", "certutil"):
         if not shutil.which(executable):
             raise golden.CandidateError(f"Installed Observatory acceptance requires {executable}")
-    if previous_bom is None:
-        raise golden.CandidateError(
-            "Retained-volume Observatory acceptance requires an explicit previous candidate BOM"
-        )
     if config.bom is None:
         raise golden.CandidateError(
             "Installed Observatory acceptance requires an exact candidate BOM"
         )
-    previous = bom_module.load_bom(previous_bom)
-    if previous["canonical_candidate_digest"] == config.bom["canonical_candidate_digest"]:
-        raise golden.CandidateError("Previous and candidate BOMs must identify different artifacts")
+
+
+def _run_private(action, temporary: Path) -> tuple[dict, list]:
+    try:
+        result = action()
+    except Exception as exc:
+        # Do not copy secrets or raw provider errors to public evidence.
+        raise golden.CandidateError(
+            f"Observatory acceptance failed ({type(exc).__name__}); private regression state retained at {temporary}"
+        ) from exc
+    golden.remove_tree(temporary)
+    return result
+
+
+def run_fresh(config: golden.RunConfig, *, artifacts: Path) -> tuple[dict, list]:
+    """Install the candidate on empty volumes and run the Observatory journey."""
+    _require_tools(config)
     temporary = Path(tempfile.mkdtemp(prefix="phlo-observatory-acceptance-"))
     fresh = replace(
         config,
@@ -1525,6 +1532,25 @@ def run_journey(
         operator_env=temporary / "fresh-operator",
         project_name=f"{config.project_name}-fresh",
     )
+    return _run_private(
+        lambda: run_one(fresh, candidate=None, artifacts=artifacts / "fresh"), temporary
+    )
+
+
+def run_upgrade(
+    config: golden.RunConfig, *, previous_bom: Path | None, artifacts: Path
+) -> tuple[dict, list]:
+    """Install the previous release, upgrade it to the candidate, and rerun the journey."""
+    if previous_bom is None:
+        raise golden.CandidateError(
+            "Retained-volume Observatory acceptance requires an explicit previous candidate BOM"
+        )
+    _require_tools(config)
+    assert config.bom is not None
+    previous = bom_module.load_bom(previous_bom)
+    if previous["canonical_candidate_digest"] == config.bom["canonical_candidate_digest"]:
+        raise golden.CandidateError("Previous and candidate BOMs must identify different artifacts")
+    temporary = Path(tempfile.mkdtemp(prefix="phlo-observatory-acceptance-"))
     old = replace(
         config,
         project_dir=temporary / f"{config.project_name}-upgrade",
@@ -1541,17 +1567,9 @@ def run_journey(
         staging_dir=config.staging_dir,
         wheelhouse=config.wheelhouse,
     )
-    try:
-        fresh_result, exercised = run_one(fresh, candidate=None, artifacts=artifacts / "fresh")
-        upgrade_result, _ = run_one(old, candidate=candidate, artifacts=artifacts / "upgrade")
-    except Exception as exc:
-        # Do not copy secrets or raw provider errors to public evidence.
-        raise golden.CandidateError(
-            f"Observatory acceptance failed ({type(exc).__name__}); private regression state retained at {temporary}"
-        ) from exc
-    golden.remove_tree(temporary)
-    return {
-        "fresh": fresh_result,
-        "upgrade": upgrade_result,
-        "previous_candidate_digest": previous["canonical_candidate_digest"],
-    }, exercised
+    result, _ = _run_private(
+        lambda: run_one(old, candidate=candidate, artifacts=artifacts / "upgrade"), temporary
+    )
+    # The upgrade installs the previous release's wheels first, which are not
+    # candidate artifacts; the fresh journey records what the candidate exercised.
+    return {**result, "previous_candidate_digest": previous["canonical_candidate_digest"]}, []
