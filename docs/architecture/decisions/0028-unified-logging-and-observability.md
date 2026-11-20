@@ -4,7 +4,7 @@ Date: 2025-12-21
 
 ## Status
 
-Proposed
+Accepted (2026-11-20). The correlation fields are implemented in `src/phlo/logging.py`, and ADR 0040 builds the logging layer on them.
 
 ## Context
 

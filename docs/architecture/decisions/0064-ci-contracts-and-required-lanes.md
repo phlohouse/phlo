@@ -89,4 +89,4 @@ have exercised nothing. CI ran every lane for every change.
 
 - [ADR 0068](0068-release-publishing.md): release build, smoke and publishing.
 - [ADR 0063](0063-dependency-and-container-vulnerability-policy.md): dependency and container gates within these contracts.
-- [CI contracts and rollout](../../contributing/ci.md), [test and contract gates](../../contributing/testing-gates.md).
+- [CI contracts](../../contributing/ci.md), [test and contract gates](../../contributing/testing-gates.md).

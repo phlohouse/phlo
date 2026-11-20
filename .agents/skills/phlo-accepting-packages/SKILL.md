@@ -17,7 +17,7 @@ commit SHA, the Release Build run, the BOM digest, and the upgrade baseline rele
 Use the release set in `registry/support/v1.json` for current-source work and
 the authenticated BOM's embedded support manifest for candidate requirements.
 
-Read the [release publication procedure](../../../docs/contributing/release-publication.md)
+Read the [release publication procedure](../../../RELEASING.md)
 before accepting a built release set. It owns qualification rules and recovery.
 Dispatching Release Rehearsal or Release is not authorised merely by loading
 this skill. Request explicit permission for remote workflow

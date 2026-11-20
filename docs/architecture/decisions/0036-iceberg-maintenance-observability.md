@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed**
+Accepted (2026-11-20). Maintenance runs emit `iceberg.maintenance.*` telemetry events, which `phlo.capabilities.maintenance` reads into the maintenance status, metrics and health summary.
 
 ## Context
 

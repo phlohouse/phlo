@@ -6,6 +6,8 @@ Date: 2025-12-14
 
 Accepted
 
+Historical (2026-11-20): this records an Observatory UI feature as it was designed. It is not a platform contract and is not kept in step with the code. The code and its tests are the current reference.
+
 ## Context
 
 The Observatory UI currently uses ad-hoc Tailwind styling and bespoke components, making it hard to

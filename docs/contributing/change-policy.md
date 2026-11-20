@@ -17,7 +17,7 @@ These controls are unchanged and remain in force:
 - [ADR 0068](../architecture/decisions/0068-release-publishing.md)
   makes the ReleaseX PR merge the release approval, and publishes only the
   bytes the release smoke tested.
-- The [publication procedure](release-publication.md)
+- The [publication procedure](../../RELEASING.md)
   defines manual dispatch, `execute=false` by default, qualification, and
   separate approval for shared settings.
 

@@ -11,6 +11,10 @@
   [#1106](https://github.com/phlohouse/phlo/pull/1106) (merged 2026-10-11)
 - Decision owner: Phlo project maintainers
 
+Amended (2026-11-20): a before-and-after complexity table in a refactor pull
+request is guidance, not a requirement. The gate, the shrinking baseline and
+tests-first refactoring are unchanged.
+
 ## Context
 
 Before September 2026 Phlo had no complexity threshold. Ruff's `select` did
@@ -44,7 +48,9 @@ reporting tools for refactor pull requests.
    the refactor pull request adds behavioural tests for the moved branches before
    the refactor commit. Refactors extract pure decision functions before I/O
    helpers, keep behaviour and contract tests unchanged, keep coverage the same
-   or higher, and include a before-and-after complexity table (#996).
+   or higher. A before-and-after complexity table (#996) is useful in the pull
+   request description but is not required; the gate and the removed marker are
+   the evidence.
 
 ## Consequences
 
@@ -54,7 +60,6 @@ reporting tools for refactor pull requests.
 - The Observatory suppression file from #1033 was deleted when the legacy UI was
   replaced ([#1051](https://github.com/phlohouse/phlo/pull/1051)). The replacement
   application passes the rule without a baseline.
-  [CONTRIBUTING.md](../../../CONTRIBUTING.md) still describes the suppression file.
 - The gate does not prove that complex code is well tested. #996 states that its
   closure does not claim every production function is below the threshold.
 - `apps/phlo-github-writer` has no ESLint configuration and is outside the gate.
