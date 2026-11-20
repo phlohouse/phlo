@@ -23,11 +23,13 @@ from phlo.cli.commands.services.utils import (
     _get_env_overrides,
     _get_service_overrides,
     _warn_secret_env_overrides,
+    apply_notebook_defaults,
     apply_uv_lock_env_override,
     detect_phlo_source_path,
     expand_service_dependencies,
     generate_compose_or_fail,
     get_phlo_dir,
+    grant_dev_notebooks,
     prepare_api_runtime_directories,
     resolve_phlo_package_dir,
 )
@@ -308,6 +310,7 @@ def init_cmd(
     selection_plan, services_to_install = _select_initial_services(
         discovery, all_services, existing_config, user_overrides, env_overrides, profiles
     )
+    env_overrides = apply_notebook_defaults(services_to_install, env_overrides)
     _warn_secret_env_overrides(env_overrides, services_to_install)
 
     # Generate docker-compose.yml
@@ -373,6 +376,7 @@ def init_cmd(
     volumes_dir = phlo_dir / "volumes"
     volumes_dir.mkdir(exist_ok=True)
     prepare_api_runtime_directories(phlo_dir, (service.name for service in services_to_install))
+    grant_dev_notebooks(phlo_dir, services_to_install, existing_config.get("environments") or {})
 
     # Copy service files (Dockerfiles, configs, etc.)
     copied_files = service_files.write(overwrite=not preserve_shared)
