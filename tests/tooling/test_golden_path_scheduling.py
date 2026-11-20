@@ -202,3 +202,22 @@ def test_release_smoke_runs_every_golden_path_part_and_merges_their_evidence() -
     bundles = [arguments[i + 1] for i, value in enumerate(arguments) if value == "--bundle"]
     assert bundles == [f"parts/evidence-{part}.json" for part in parts]
     assert "--candidate-bom" in arguments
+
+
+def test_release_smoke_evidence_survives_a_rerun_of_only_the_failed_jobs() -> None:
+    # Re-running failed jobs starts a new attempt in which the parts that passed
+    # do not run again, so their evidence must be found without the attempt.
+    workflow = yaml.safe_load((WORKFLOW_ROOT / "release-build.yml").read_text(encoding="utf-8"))
+    smoke = workflow["jobs"]["smoke"]["steps"]
+    upload = next(step for step in smoke if "smoke-part-" in str(step.get("with", {}).get("name")))
+    assert "run_attempt" not in upload["with"]["name"]
+    assert upload["with"]["overwrite"] is True
+    assert upload["if"] == "always()"
+    marker = smoke[smoke.index(upload) - 1]
+    assert marker["if"] == "always()"
+    download = next(
+        step
+        for step in workflow["jobs"]["golden-path"]["steps"]
+        if "smoke-part-" in str(step.get("with", {}).get("pattern"))
+    )
+    assert "run_attempt" not in download["with"]["pattern"]
