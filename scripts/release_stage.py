@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reserve a candidate once, then pin already-built package and image bytes."""
+"""Pin already-built package and image bytes into the release BOM."""
 
 from __future__ import annotations
 
@@ -11,111 +11,29 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+import github_api as github
 import release_candidate_bom as bom
-import release_provenance as provenance
 
 
 def validate_candidate(sha: str) -> None:
     """Require a reviewed commit on the protected default branch."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("candidate must be a full lowercase SHA")
-    if os.environ.get("GITHUB_REPOSITORY") != provenance.REPOSITORY:
+    if os.environ.get("GITHUB_REPOSITORY") != github.REPOSITORY:
         raise ValueError("repository is not allowlisted")
     if os.environ.get("GITHUB_REF") != "refs/heads/main":
         raise ValueError("workflow must execute from main")
-    branch = provenance.api(f"repos/{provenance.REPOSITORY}/branches/main")
+    branch = github.api(f"repos/{github.REPOSITORY}/branches/main")
     if branch.get("protected") is not True:
         raise ValueError("default branch is not protected")
     subprocess.run(["git", "merge-base", "--is-ancestor", sha, "origin/main"], check=True)
-
-
-def verify_source_health(sha: str) -> None:
-    """Authenticate the latest exact-SHA source aggregate, including a safe full fallback."""
-    workflow = provenance.api(
-        f"repos/{provenance.REPOSITORY}/actions/workflows/release-candidate.yml"
-    )
-    runs = provenance.pages(
-        f"repos/{provenance.REPOSITORY}/actions/workflows/{workflow['id']}/runs?head_sha={sha}",
-        "workflow_runs",
-    )
-    if not runs:
-        raise ValueError("candidate has no exact-SHA source-health run")
-    latest = max(runs, key=lambda run: run["id"])
-    if (
-        latest.get("head_sha") != sha
-        or latest.get("repository", {}).get("full_name") != provenance.REPOSITORY
-        or latest.get("head_repository", {}).get("full_name") != provenance.REPOSITORY
-        or latest.get("path", "").split("@")[0] != workflow["path"]
-        or latest.get("workflow_id") != workflow["id"]
-        or latest.get("status") != "completed"
-        or latest.get("event") != "push"
-        or latest.get("head_branch") != "main"
-    ):
-        raise ValueError("candidate source-health producer is not trusted/completed")
-    jobs = provenance.pages(
-        f"repos/{provenance.REPOSITORY}/actions/runs/{latest['id']}/attempts/{latest['run_attempt']}/jobs",
-        "jobs",
-    )
-    gate = [job for job in jobs if job.get("name") == "release candidate / status"]
-    if len(gate) != 1 or any(
-        job.get("head_sha") != sha
-        or job.get("status") != "completed"
-        or job.get("conclusion") != "success"
-        for job in gate
-    ):
-        raise ValueError("candidate has no successful exact-SHA source-health aggregate")
-
-
-def reserve(sha: str) -> None:
-    """Claim the SHA before building; even a failed stage may not be rebuilt."""
-    validate_candidate(sha)
-    if os.environ.get("GITHUB_RUN_ATTEMPT") != "1":
-        raise ValueError("staging may not be rerun")
-    previous = provenance.pages(f"repos/{provenance.REPOSITORY}/releases", "")
-    if any(release.get("tag_name") == f"candidate-{sha}" for release in previous):
-        raise ValueError("candidate was already reserved; restaging is forbidden")
-    stage_workflow = provenance.api(
-        f"repos/{provenance.REPOSITORY}/actions/workflows/release-stage.yml"
-    )
-    stage_runs = provenance.pages(
-        f"repos/{provenance.REPOSITORY}/actions/workflows/{stage_workflow['id']}/runs",
-        "workflow_runs",
-    )
-    if any(
-        run.get("display_title") == f"stage {sha}" and run["id"] != int(os.environ["GITHUB_RUN_ID"])
-        for run in stage_runs
-    ):
-        raise ValueError(
-            "candidate has a prior staging attempt; deletion/expiry never permits restaging"
-        )
-    verify_source_health(sha)
-    # Workflow concurrency serialises claims for one SHA. Keep the draft
-    # reservation even after failure, so no later attempt rebuilds it.
-    subprocess.run(
-        [
-            "gh",
-            "release",
-            "create",
-            f"candidate-{sha}",
-            "--repo",
-            provenance.REPOSITORY,
-            "--target",
-            sha,
-            "--draft",
-            "--title",
-            f"Candidate {sha}",
-            "--notes",
-            f"Immutable staging claim, run {os.environ['GITHUB_RUN_ID']}. Do not restage.",
-        ],
-        check=True,
-    )
 
 
 def validate_rehearsal(sha: str) -> None:
     """Allow a rehearsal BOM for any commit of this repository, but never a release tag."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("candidate must be a full lowercase SHA")
-    if os.environ.get("GITHUB_REPOSITORY") != provenance.REPOSITORY:
+    if os.environ.get("GITHUB_REPOSITORY") != github.REPOSITORY:
         raise ValueError("repository is not allowlisted")
     subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], check=True)
 
@@ -126,8 +44,8 @@ def pin(
     """Copy scanned development digests to staging and record every byte in a BOM.
 
     A rehearsal copies the same digests to ``rehearsal-<sha>`` tags instead of
-    ``candidate-<sha>``. Promotion only accepts BOMs produced by Release Stage, so a
-    rehearsal BOM can never be published.
+    ``candidate-<sha>`` and records ``"rehearsal": true``, which publishing
+    refuses, so a rehearsal BOM can never be published.
     """
     if rehearsal:
         validate_rehearsal(sha)
@@ -169,7 +87,14 @@ def pin(
             raise ValueError("duplicate candidate image")
         digests[target] = digest
     staged = bom.stage(
-        Path.cwd(), sha, output, built_distributions=distributions, image_digests=digests
+        Path.cwd(),
+        sha,
+        output,
+        built_distributions=distributions,
+        image_digests=digests,
+        # A release ships PyPI's bytes for unchanged versions. A rehearsal tests the
+        # current tree, so it always rebuilds.
+        reuse_published=not rehearsal,
     )
     provenance_record = {
         "candidate_sha": sha,
@@ -187,9 +112,9 @@ def pin(
 
 
 def main() -> None:
-    """Run reservation or pinning. The caller owns isolated build jobs."""
+    """Pin the release set. The caller owns isolated build jobs."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("reserve", "pin"))
+    parser.add_argument("command", choices=("pin",))
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--images", type=Path)
     parser.add_argument("--distributions", type=Path)
@@ -197,21 +122,16 @@ def main() -> None:
     parser.add_argument(
         "--rehearsal",
         action="store_true",
-        help="Pin a rehearsal BOM under rehearsal-<sha> tags; never valid for promotion.",
+        help="Pin a rehearsal BOM under rehearsal-<sha> tags; never publishable.",
     )
     args = parser.parse_args()
-    if args.command == "reserve":
-        if args.rehearsal:
-            parser.error("reserve has no rehearsal mode")
-        reserve(args.candidate_sha)
-    else:
-        pin(
-            args.candidate_sha,
-            args.images,
-            args.distributions,
-            args.output,
-            rehearsal=args.rehearsal,
-        )
+    pin(
+        args.candidate_sha,
+        args.images,
+        args.distributions,
+        args.output,
+        rehearsal=args.rehearsal,
+    )
 
 
 if __name__ == "__main__":

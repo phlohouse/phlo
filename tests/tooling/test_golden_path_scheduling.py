@@ -11,25 +11,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
 
 
-def test_nightly_maintenance_does_not_claim_artifact_qualification(tmp_path: Path) -> None:
+def test_nightly_leaves_artifact_qualification_to_the_release_build() -> None:
     ci = yaml.safe_load((WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8"))
     nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text(encoding="utf-8"))
     assert "release-golden-path" not in ci["jobs"]
-    report = nightly["jobs"]["release-artifact-acceptance"]
-    output = tmp_path / "summary"
-    result = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", report["steps"][0]["run"]],
-        env={"GITHUB_STEP_SUMMARY": str(output)},
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0
-    assert output.read_text().splitlines() == [
-        "Artifact qualification: artifact-not-staged. Maintenance does not stage a release candidate.",
-        "Use Release Stage and Release Artifact Acceptance for immutable candidate qualification.",
-    ]
+    assert "release-artifact-acceptance" not in nightly["jobs"]
     summary = nightly["jobs"]["nightly-status"]
     assert "upstream-compatibility" in summary["needs"]
+    rehearsal = yaml.safe_load(
+        (WORKFLOW_ROOT / "release-rehearsal.yml").read_text(encoding="utf-8")
+    )
+    assert {"cron": "30 2 * * *"} in (rehearsal.get("on") or rehearsal[True])["schedule"]
 
 
 def test_windows_portability_runs_release_contracts_in_an_isolated_environment() -> None:
@@ -102,7 +94,6 @@ def test_windows_portability_runs_release_contracts_in_an_isolated_environment()
             1,
             "Required nightly check finished with result: skipped",
         ),
-        ({"RELEASE_ARTIFACT_ACCEPTANCE": "failure"}, 1, "Staging outcome report failed: failure"),
     ],
 )
 def test_nightly_status_reports_and_propagates_results(tmp_path, overrides, exit_code, message):
@@ -119,11 +110,6 @@ def test_nightly_status_reports_and_propagates_results(tmp_path, overrides, exit
         output.read_text().splitlines()[0]
         == f"Fresh dependency resolution: {env['UPSTREAM_COMPATIBILITY']}"
     )
-    if exit_code == 0:
-        assert (
-            output.read_text().splitlines()[-1]
-            == "Artifact qualification: artifact-not-staged (not release evidence)."
-        )
 
 
 def test_nightly_release_golden_path_keeps_dispatch_and_schedule() -> None:
@@ -184,44 +170,35 @@ def test_optional_minio_cache_result_is_reported_without_replacing_nightly_gates
         ) in summary.read_text().splitlines()
 
 
-def test_artifact_acceptance_requires_authenticated_staging_without_missing_bom_escape() -> None:
-    workflow = yaml.safe_load(
-        (WORKFLOW_ROOT / "release-artifact-acceptance.yml").read_text(encoding="utf-8")
+def test_release_smoke_runs_every_golden_path_part_and_merges_their_evidence() -> None:
+    workflow = yaml.safe_load((WORKFLOW_ROOT / "release-build.yml").read_text(encoding="utf-8"))
+    smoke = workflow["jobs"]["smoke"]
+    parts = smoke["strategy"]["matrix"]["part"]
+    assert parts == ["core", "observatory-fresh", "observatory-upgrade"]
+    acceptance = next(
+        step for step in smoke["steps"] if "scripts/release_golden_path.py" in step.get("run", "")
     )
-    steps = workflow["jobs"]["acceptance"]["steps"]
-    scripts = [step for step in steps if "run" in step]
-    assert shlex.split(scripts[0]["run"]) == [
-        "python3",
-        "scripts/release_provenance.py",
-        "collect",
-        "--candidate-sha",
-        "$CANDIDATE_SHA",
-        "--stage-run",
-        "$STAGE_RUN",
-        "--output",
-        "inputs",
-    ]
-    assert shlex.split(scripts[1]["run"]) == [
-        "python3",
-        "scripts/release_provenance.py",
-        "collect",
-        "--candidate-sha",
-        "$PREVIOUS_CANDIDATE_SHA",
-        "--stage-run",
-        "$PREVIOUS_STAGE_RUN",
-        "--output",
-        "previous-inputs",
-    ]
-    acceptance = next(step for step in scripts if "scripts/release_golden_path.py" in step["run"])
+    assert "if" not in acceptance
     assert shlex.split(acceptance["run"]) == [
         "python3",
         "scripts/release_golden_path.py",
         "--candidate-bom",
-        "inputs/candidate-$CANDIDATE_SHA/bom.json",
+        "candidate/bom.json",
         "--previous-candidate-bom",
-        "previous-inputs/candidate-$PREVIOUS_CANDIDATE_SHA/bom.json",
+        "previous/bom.json",
+        "--part",
+        "$PART",
         "--evidence-output",
-        "$RUNNER_TEMP/evidence.json",
+        "$RUNNER_TEMP/evidence-$PART.json",
     ]
-    assert all("if" not in step for step in scripts)
-    assert steps[-1]["with"]["if-no-files-found"] == "error"
+    merge = workflow["jobs"]["golden-path"]
+    assert merge["needs"] == ["distributions", "smoke"]
+    assert merge["name"].startswith("build / artifact golden path (")
+    validate = next(
+        step for step in merge["steps"] if "validate_release_evidence.py" in step.get("run", "")
+    )
+    assert "if" not in validate
+    arguments = shlex.split(validate["run"])
+    bundles = [arguments[i + 1] for i, value in enumerate(arguments) if value == "--bundle"]
+    assert bundles == [f"parts/evidence-{part}.json" for part in parts]
+    assert "--candidate-bom" in arguments

@@ -1324,7 +1324,7 @@
       "scope": "blessed_core",
       "target_status": "required",
       "current_maturity": "planned",
-      "reason": "Required CI builds the provider wheelhouse and runs the installed provider artifacts jobs, which install the wheels, build and health-check provider images, and scan first-party images. Nightly runs the release golden path, and 0.18.0 passed Release Artifact Acceptance from its staged BOM on amd64 and arm64. That acceptance used artifact qualification scope (alpha, production_ready false), which skips the production_preflight, supported_upgrade, and upgrade_recovery demonstrations. Missing: a production-scope qualification run; it is blocked by the production preflight and live upgrade gaps recorded under secure_production_deployment and upgrade_restore.",
+      "reason": "Required CI builds the provider wheelhouse and runs the installed provider artifacts jobs, which install the wheels and build and health-check provider images. Release Build runs the artifact golden path against the built release set on every ReleaseX PR, nightly, and inside every release before anything is published, on amd64 (blocking) and arm64 (reported). It uses artifact qualification scope (alpha, production_ready false), which skips the production_preflight, supported_upgrade, and upgrade_recovery demonstrations. Missing: a production-scope qualification run; it is blocked by the production preflight and live upgrade gaps recorded under secure_production_deployment and upgrade_restore.",
       "evidence": [
         "scripts/release_golden_path.py",
         "tests/scripts/test_release_golden_path.py",
@@ -1332,9 +1332,9 @@
         ".github/workflows/ci.yml",
         "scripts/verify_installed_provider_artifacts.py",
         ".github/workflows/nightly.yml",
-        ".github/workflows/release-artifact-acceptance.yml",
+        ".github/workflows/release-build.yml",
         "scripts/release_evidence.py",
-        "docs/architecture/decisions/0050-freeze-release-promotion-contract.md"
+        "docs/architecture/decisions/0068-release-publishing.md"
       ]
     }
   ],

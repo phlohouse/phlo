@@ -1,0 +1,258 @@
+name: Release Build
+
+# Build the release set once, pin it into a BOM, and run the artifact golden
+# path against exactly those bytes. Release Rehearsal calls this on ReleaseX
+# PRs, release-machinery PRs and nightly; Release calls it before publishing,
+# so release day runs the same jobs that have been green all month.
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit to build. Empty builds the checked-out commit (a PR merge ref).
+        type: string
+        default: ""
+      rehearsal:
+        description: Pin under rehearsal-<sha> tags; the BOM can never be published.
+        type: boolean
+        default: true
+    outputs:
+      sha:
+        description: The commit that was built.
+        value: ${{ jobs.distributions.outputs.sha }}
+
+permissions: {}
+
+jobs:
+  distributions:
+    name: build / distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Resolve the commit to build
+        id: sha
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          REHEARSAL: ${{ inputs.rehearsal }}
+        run: |
+          set -euo pipefail
+          sha="${REQUESTED_SHA:-$(git rev-parse HEAD)}"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "$sha^{commit}"
+          if [ "$REHEARSAL" != true ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            git merge-base --is-ancestor "$sha" origin/main
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Build the release set once
+        env:
+          CANDIDATE_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$CANDIDATE_SHA")"
+          export SOURCE_DATE_EPOCH
+          mkdir -p "$RUNNER_TEMP/tree"
+          git archive "$CANDIDATE_SHA" | tar -x -C "$RUNNER_TEMP/tree"
+          uv build --directory "$RUNNER_TEMP/tree" --all-packages --out-dir "$RUNNER_TEMP/distributions"
+      - name: Fail if any published extra cannot resolve from PyPI
+        run: >-
+          python3 scripts/check_published_extras.py
+          --manifest "$RUNNER_TEMP/tree/registry/support/v1.json"
+          --distributions "$RUNNER_TEMP/distributions"
+          --python-version 3.12
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: distributions-${{ steps.sha.outputs.sha }}
+          path: ${{ runner.temp }}/distributions
+          if-no-files-found: error
+          retention-days: 30
+
+  images:
+    needs: distributions
+    uses: ./.github/workflows/build-core-services.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      candidate_sha: ${{ needs.distributions.outputs.sha }}
+      distributions_artifact: distributions-${{ needs.distributions.outputs.sha }}
+      rehearsal: ${{ inputs.rehearsal }}
+
+  pin:
+    needs: [distributions, images]
+    name: build / pin BOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: distributions-${{ needs.distributions.outputs.sha }}
+          path: distributions
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: generated-service-images
+          path: images
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Pin the image digests and distribution bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ needs.distributions.outputs.sha }}
+          REHEARSAL: ${{ inputs.rehearsal }}
+        run: |
+          set -euo pipefail
+          mode=()
+          if [ "$REHEARSAL" = true ]; then mode=(--rehearsal); fi
+          python3 scripts/release_stage.py pin "${mode[@]}" --candidate-sha "$CANDIDATE_SHA" \
+            --images images/generated-service-images.json --distributions distributions --output candidate
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: release-set-${{ needs.distributions.outputs.sha }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 30
+
+  smoke:
+    needs: [distributions, pin]
+    name: build / golden path part (${{ matrix.host.label }}, ${{ matrix.part }})
+    runs-on: ${{ matrix.host.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    # arm64 reports but never blocks: its failures so far were runner tooling.
+    continue-on-error: ${{ matrix.host.label == 'arm64' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - label: amd64
+            runner: ubuntu-latest
+          - label: arm64
+            runner: ubuntu-24.04-arm
+        # Each part starts its own stack; together they are the whole golden path.
+        part: [core, observatory-fresh, observatory-upgrade]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-set-${{ needs.distributions.outputs.sha }}
+          path: candidate
+      - name: Download the latest published release as the upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          mkdir -p previous/distributions
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir previous --pattern bom.json
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir previous/distributions \
+            --pattern '*.whl' --pattern '*.tar.gz'
+          rm -f previous/distributions/qualification-evidence-*.tar.gz previous/distributions/release-evidence-*.tar.gz
+          echo "Upgrade baseline: $tag" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install pinned browser driver and Chromium
+        if: matrix.part != 'core'
+        # Disposable acceptance tooling, not a product dependency.
+        run: | # zizmor: ignore[adhoc-packages]
+          sudo apt-get update
+          sudo apt-get install --yes libnss3-tools
+          npm install --global agent-browser@0.38.1
+          if [ "$(uname -m)" = "aarch64" ]; then
+            npx --yes playwright@1.65.1 install --with-deps chromium
+            chrome="$(find "$HOME/.cache/ms-playwright" -path '*/chrome-linux*/chrome' -type f -perm -u+x | head -n 1)"
+            test -n "$chrome"
+            echo "AGENT_BROWSER_EXECUTABLE_PATH=$chrome" >> "$GITHUB_ENV"
+          else
+            agent-browser install --with-deps
+          fi
+      - name: Run this part of the artifact golden path against the built bytes
+        env:
+          PART: ${{ matrix.part }}
+        run: >-
+          python3 scripts/release_golden_path.py
+          --candidate-bom candidate/bom.json
+          --previous-candidate-bom previous/bom.json
+          --part "$PART"
+          --evidence-output "$RUNNER_TEMP/evidence-$PART.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host.label }}-${{ matrix.part }}
+          path: |
+            ${{ runner.temp }}/evidence-${{ matrix.part }}.json
+            ${{ runner.temp }}/evidence-${{ matrix.part }}-observatory/
+          if-no-files-found: warn
+          retention-days: 14
+
+  golden-path:
+    needs: [distributions, smoke]
+    if: ${{ !cancelled() && needs.distributions.result == 'success' }}
+    name: build / artifact golden path (${{ matrix.host }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    continue-on-error: ${{ matrix.host == 'arm64' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-set-${{ needs.distributions.outputs.sha }}
+          path: candidate
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host }}-*
+          path: parts
+          merge-multiple: true
+      - name: Merge and validate the evidence of every part
+        # A missing or failed part fails here: the merged bundle must hold every demonstration.
+        run: >-
+          python3 scripts/validate_release_evidence.py
+          --bundle parts/evidence-core.json
+          --bundle parts/evidence-observatory-fresh.json
+          --bundle parts/evidence-observatory-upgrade.json
+          --candidate-bom candidate/bom.json
+          --output "$RUNNER_TEMP/evidence.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host }}
+          path: ${{ runner.temp }}/evidence.json
+          if-no-files-found: warn
+          retention-days: 14

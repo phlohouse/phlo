@@ -31,7 +31,8 @@ EVIDENCE_SCHEMA = "phlo.release-candidate-evidence/v1"
 REQUIRED_DEMONSTRATIONS: tuple[tuple[str, str], ...] = (
     ("candidate_bom_verification", "Candidate BOM verification"),
     ("operator_installation", "Exact BOM artifact installation"),
-    ("observatory_installed_journeys", "Fresh and retained-volume installed Observatory journeys"),
+    ("observatory_fresh_install", "Fresh installed Observatory journey"),
+    ("observatory_retained_upgrade", "Retained-volume Observatory upgrade journey"),
     ("project_scaffold", "Project scaffold from installed artifacts"),
     ("production_preflight", "Production readiness preflight"),
     ("negative_security", "Negative security enforcement"),
@@ -215,6 +216,57 @@ def finalize_bundle(bundle: dict[str, object]) -> dict[str, object]:
     bundle["finished_utc"] = utc_now()
     bundle["checksum"] = {"algorithm": "sha256", "value": bundle_checksum(bundle)}
     return bundle
+
+
+def merge_bundles(parts: list[dict[str, object]]) -> dict[str, object]:
+    """Combine the bundles of golden-path parts that ran on separate runners.
+
+    Every part must be a valid bundle for the same candidate and qualification.
+    A demonstration may appear in several parts (each part verifies the BOM)
+    only with an identical result; any other repeat is an error. The merged
+    bundle passes only when every part passed.
+    """
+    if not parts:
+        raise EvidenceError("no evidence bundles to merge")
+    for part in parts:
+        if part.get("schema") != EVIDENCE_SCHEMA:
+            raise EvidenceError(f"bundle schema must be {EVIDENCE_SCHEMA!r}")
+        _validate_checksum(part)
+        _validate_demonstrations(part)
+    first = parts[0]
+    for part in parts[1:]:
+        for field in ("candidate", "qualification"):
+            if part.get(field) != first.get(field):
+                raise EvidenceError(f"evidence parts disagree on {field}")
+    demonstrations: list[dict[str, object]] = []
+    by_id: dict[str, dict[str, object]] = {}
+    exercised: set[str] = set()
+    for part in parts:
+        for demonstration in part["demonstrations"]:
+            key = str(demonstration["id"])
+            if key in by_id:
+                if by_id[key]["result"] != demonstration["result"] or (
+                    by_id[key]["status"] != demonstration["status"]
+                ):
+                    raise EvidenceError(f"evidence parts disagree on {key!r}")
+                continue
+            by_id[key] = demonstration
+            demonstrations.append(demonstration)
+        for artifact in part.get("artifacts_exercised") or []:
+            exercised.add(json.dumps(artifact, sort_keys=True))
+    merged: dict[str, object] = {
+        **first,
+        "environment": first["environment"] | {"parts": [part["environment"] for part in parts]},
+        "started_utc": min(str(part["started_utc"]) for part in parts),
+        "demonstrations": demonstrations,
+        "artifacts_exercised": [json.loads(item) for item in sorted(exercised)],
+    }
+    failed = [part["failure"] for part in parts if part.get("conclusion") != CONCLUSION_PASSED]
+    merged["conclusion"] = CONCLUSION_FAILED if failed else CONCLUSION_PASSED
+    merged["failure"] = failed[0] if failed else None
+    merged["finished_utc"] = max(str(part["finished_utc"]) for part in parts)
+    merged["checksum"] = {"algorithm": "sha256", "value": bundle_checksum(merged)}
+    return merged
 
 
 def _validate_candidate(bundle: dict[str, object]) -> dict[str, object]:

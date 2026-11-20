@@ -91,11 +91,11 @@ def test_ci_status_includes_every_installed_provider_artifact_shard():
     )
 
 
-def test_release_staging_requires_a_fresh_all_findings_assessment():
-    jobs = workflow("release-stage.yml")["jobs"]
-    assert jobs["reserve"]["needs"] == "security"
+def test_release_publishing_requires_a_fresh_all_findings_assessment():
+    jobs = workflow("release-promotion.yml")["jobs"]
+    assert "security" in jobs["publish"]["needs"]
     assert jobs["security"]["with"]["mode"] == "release"
-    assert jobs["security"]["with"]["head-sha"] == "${{ inputs.candidate_sha }}"
+    assert jobs["security"]["with"]["head-sha"] == "${{ needs.select.outputs.sha }}"
 
 
 def test_versioned_ruleset_retains_required_merge_identity_without_bypass():

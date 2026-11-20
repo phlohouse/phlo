@@ -126,8 +126,8 @@ def test_missing_release_wheel_fails_closed(tmp_path: Path) -> None:
         check_published_extras.check(dist, {"phlo", "phlo-trino"}, lambda *_: None)
 
 
-def test_release_stage_runs_the_check_on_the_built_distributions() -> None:
-    stage = yaml.safe_load((REPO_ROOT / ".github/workflows/release-stage.yml").read_text())
+def test_release_build_runs_the_check_on_the_built_distributions() -> None:
+    stage = yaml.safe_load((REPO_ROOT / ".github/workflows/release-build.yml").read_text())
     steps = stage["jobs"]["distributions"]["steps"]
     build = next(i for i, step in enumerate(steps) if "uv build" in step.get("run", ""))
     check = next(

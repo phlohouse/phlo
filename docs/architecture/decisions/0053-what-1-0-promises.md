@@ -8,10 +8,12 @@ Amended (2026-11-01): `0.19.0` is the last alpha release and is not a `1.0.0` ca
 
 Amended (2026-11-20): decision 5's Python 3.13 evidence is the scheduled Nightly 3.13 lane, not a required PR lane, under ADR 0064 decision 5. The 3.13 support claim is unchanged.
 
+Amended (2026-11-20): [ADR 0068](0068-release-publishing.md) supersedes ADR 0050. The 1.0 candidate is published under ADR 0068 in production qualification scope, which keeps production preflight and a real supported upgrade and recovery path. Only the release mechanics change: one smoke run on the built bytes replaces three qualifying runs. Decisions 1, 5 and 7 now name ADR 0068.
+
 - Date: 2026-10-30
 - Decision owner: iamgp
 - Scope: the `1.0.0` release of the `blessed_core` profile in `registry/support/v1.json`, and the compatibility rules for the `1.x` release line
-- Builds on: ADR 0047 (production trust and readiness), ADR 0048 (run evidence), ADR 0049 (continuity and upgrade), ADR 0050 (release promotion)
+- Builds on: ADR 0047 (production trust and readiness), ADR 0048 (run evidence), ADR 0049 (continuity and upgrade), ADR 0068 (release publishing, superseding ADR 0050)
 
 ## Context
 
@@ -38,17 +40,17 @@ Without a decision, "1.0" could mean an API freeze while production remains bloc
 `1.0.0` is published only when `registry/support/v1.json` at the release commit reports `current_release.production_ready: true`. That value is permitted only when all of the following hold:
 
 - `gates.status` reports `passed` for each of `security`, `run_evidence`, `maintenance`, `upgrade_restore`, and `golden_path`.
-- Each gate's evidence was produced on a live, production-shaped deployment of the exact candidate, as defined by ADRs 0047–0050. Fixture or disposable-service evidence does not pass a gate. The maintainer's own deployment, the Nightscout CGM lakehouse, is that live deployment; it is the only one that exists.
+- Each gate's evidence was produced on a live, production-shaped deployment of the exact candidate, as defined by ADRs 0047–0049 and ADR 0068. Fixture or disposable-service evidence does not pass a gate. The maintainer's own deployment, the Nightscout CGM lakehouse, is that live deployment; it is the only one that exists.
 - Every `blessed_core` component in `gates.components` reports `passed` or `not_required`, with evidence.
-- The candidate is promoted under ADR 0050 with the full production qualification scope: production preflight and a real supported upgrade and recovery path are included. ADR 0050's artifact-only scope for alpha and beta candidates cannot produce `1.0.0`.
+- The candidate is published under ADR 0068 with the full production qualification scope: production preflight and a real supported upgrade and recovery path are included. The artifact-only scope for alpha and beta releases cannot produce `1.0.0`.
 
 Amended 2026-11-01. The candidate is a build of a commit at or after the `0.20.0` release (decision 3). `0.19.0` is the last alpha: it completes the scheduled removals and ships the compatibility inventory, the readiness guard and the lockstep tooling, but no build of `0.19.0` or of an earlier commit can be the candidate, however long it runs. The gate evidence and the 7-day run in decision 7 are produced by the candidate build on the maintainer's deployment.
 
 A `1.0.0` version string does not by itself mean 1.0. A release that does not meet these conditions keeps a `0.x` version or an explicit pre-release suffix.
 
-The support manifest schema currently forbids `production_ready: true`, and `production.status` allows only `blocked` or `required_before_release`. Changing the `production_ready` and `maturity` constants and `artifact_pinning`, and adding a `production.status` value `passed` (matching the gate vocabulary) that the 1.0 manifest uses, is part of the 1.0 work. It is a reviewed change on `main` under ADR 0050 concern 7. It is not a side effect of publication.
+The support manifest schema currently forbids `production_ready: true`, and `production.status` allows only `blocked` or `required_before_release`. Changing the `production_ready` and `maturity` constants and `artifact_pinning`, and adding a `production.status` value `passed` (matching the gate vocabulary) that the 1.0 manifest uses, is part of the 1.0 work. It is a reviewed change on `main`, never a side effect of publishing (ADR 0068). It is not a side effect of publication.
 
-Release tooling rejects any version at or above `1.0.0` while the manifest at the release commit does not report `production_ready: true`. The check belongs in `scripts/validate_support_manifest.py` or the ADR 0050 promotion gate, so a breaking-change commit cannot propose `1.0.0` through conventional-commit versioning alone.
+Release tooling rejects any version at or above `1.0.0` while the manifest at the release commit does not report `production_ready: true`. The check belongs in `scripts/validate_support_manifest.py` or the ADR 0068 publish step, so a breaking-change commit cannot propose `1.0.0` through conventional-commit versioning alone.
 
 ### 2. The compatibility surface
 
@@ -71,7 +73,7 @@ The 1.0 promise does not cover:
 - `supported_optional` packages, including `phlo-sling` and `phlo.ingest.sling`, until a later amendment admits them with passed gates.
 - Observatory internal component APIs: frontend modules, data-adapter helpers, component names, and the Node-side API adapters.
 - Generated Compose file contents under `.phlo/`, including `docker-compose.yml`, generated service directories, and generated environment-file contents. The file locations in the project layout reference remain covered.
-- Service image tags and digests. The release BOM (ADR 0050) records them per release, and they change between releases.
+- Service image tags and digests. The release BOM (ADR 0068) records them per release, and they change between releases.
 - Human-readable CLI text, log messages, and error wording. Reason codes and JSON fields are covered.
 - Underscore-prefixed modules and names, and modules not listed above.
 - Non-`/api/v1` HTTP families other than `/health`. Decision 3 removes `/api/observatory`. The remaining legacy families are outside the promise.
@@ -115,7 +117,7 @@ The deprecations already scheduled for 0.19.0 complete before `1.0.0`, so `1.0.0
 | Dimension | 1.0 support | Required evidence |
 | --- | --- | --- |
 | Python | 3.12 and 3.13 | Amended 2026-11-20: core and package tests run on 3.12 in required PR CI and on 3.13 in the scheduled Nightly, whose failures open an issue ([ADR 0064](0064-ci-contracts-and-required-lanes.md)). |
-| Linux | Supported for the full stack and the quickstart path | The existing `ubuntu-latest` lanes, plus the clean-host qualifying runs under ADR 0050. |
+| Linux | Supported for the full stack and the quickstart path | The existing `ubuntu-latest` lanes, plus the release smoke on the built bytes under ADR 0068. |
 | macOS | Supported for the quickstart path with Docker Desktop or another Compose v2 provider | Amended 2026-11-01: a recorded manual quickstart run on the maintainer's Apple-silicon Mac, from `phlo init` through a materialised table viewed in Observatory, noting the architecture and Compose provider. A required CI lane is deferred until a second user depends on macOS. |
 | Windows | Supported only through WSL 2, as the install guide documents | The existing Windows Compose portability lane, unchanged. |
 
@@ -143,7 +145,7 @@ Amended 2026-11-01. Phlo has one maintainer who is also its only user, so the ex
 - [ ] The candidate build has run the maintainer's deployment for 7 consecutive days of scheduled Nightscout ingestion and downstream materialisations with no manual intervention and no redeploy. A change to a Phlo container restarts the clock. Days run on `0.19.0` or on an unreleased `main` build do not count.
 - [ ] The generated references, including `generated/compatibility-surface.json`, are current at the release commit, so decision 2 describes the candidate.
 - [ ] `registry/support/v1.json` reports `production_ready: true`, maturity `supported`, `artifact_pinning: published` and `production.status: passed`, which the validator permits only with the five gates `passed` on the evidence that decision 1 requires, and the README, the documentation home page and the `Development Status` classifier no longer say alpha.
-- [ ] The candidate is promoted under ADR 0050 in production scope as `1.0.0`.
+- [ ] The candidate is published under ADR 0068 in production scope as `1.0.0`.
 
 Deferred until a second user exists, and not exit criteria: a required macOS CI lane; `blessed_core`-only lockstep versioning, which needs a ReleaseX version group; and external-consumer usage evidence for the legacy routes. Adding any of them back is an amendment to this ADR.
 
@@ -197,7 +199,7 @@ Rejected. Parallel work would deliver features sooner. However, each new capabil
 - ADR 0033: Hook-based capability plugins
 - ADR 0042: Observatory extension manifests and native UI plugins
 - ADR 0044: CLI command ownership by package
-- ADRs 0047–0050: the v1 production, evidence, continuity, and promotion contracts
+- ADRs 0047–0049: the v1 production, evidence and continuity contracts; ADR 0050, superseded by ADR 0068: release publishing
 - ADR 0054: Workspace monorepo released as one release set. Decision 4 changes its per-package versioning: the whole release set becomes lockstep at 1.0.0.
 - ADR 0059: Python 3.12 and generated Docker Compose as the runtime baseline. Decision 5 widens its interpreter and platform baseline to Python 3.13 and macOS for 1.0.
 - ADR 0065: Deprecations name a removal release, a replacement and a usage measure. Decision 4 keeps this rule and adds major-only removal for covered names.

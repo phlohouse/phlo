@@ -55,7 +55,7 @@ follow once a decision is accepted.
 | [0047](0047-v1-production-trust-and-readiness.md) | ADR 0047: V1 Production Trust and Readiness Contract | Accepted |
 | [0048](0048-blessed-run-evidence-composition.md) | ADR 0048: Blessed Run-Evidence Composition | Accepted |
 | [0049](0049-v1-continuity-and-upgrade-contract.md) | ADR 0049: V1 Continuity and Upgrade Contract | Accepted |
-| [0050](0050-freeze-release-promotion-contract.md) | ADR 0050: Freeze the Release Promotion Contract | Accepted |
+| [0050](0050-freeze-release-promotion-contract.md) | ADR 0050: Freeze the Release Promotion Contract | Superseded |
 | [0051](0051-dataset-authority.md) | ADR 0051: Dataset authority contract | Accepted |
 | [0052](0052-domain-vocabulary.md) | ADR 0052: Domain vocabulary | Accepted |
 | [0053](0053-what-1-0-promises.md) | ADR 0053: What 1.0 Promises | Accepted |
@@ -73,3 +73,4 @@ follow once a decision is accepted.
 | [0065](0065-deprecation-and-removal-schedule.md) | ADR 0065: Deprecations name a removal release, a replacement and a usage measure | Accepted |
 | [0066](0066-observatory-node-runtime-as-api-adapter-tier.md) | ADR 0066: Observatory keeps its Node runtime as an authenticated API-adapter tier | Accepted |
 | [0067](0067-explicit-freshness-grain-and-data-interval-contracts.md) | ADR 0067: Explicit freshness, grain, reconciliation and data-interval contracts | Accepted |
+| [0068](0068-release-publishing.md) | ADR 0068: Release publishing | Accepted |

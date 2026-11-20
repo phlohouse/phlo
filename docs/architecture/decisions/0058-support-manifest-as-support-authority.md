@@ -4,6 +4,8 @@
 
 **Accepted (back-filled 2026-10-30)**
 
+Amended (2026-11-20): the separation of publication from support claims now comes from [ADR 0068](0068-release-publishing.md), which supersedes ADR 0050. Publishing never changes the manifest.
+
 - Original decision: July 2026, extended September 2026
 - Evidence: [#579](https://github.com/phlohouse/phlo/pull/579) (merged 2026-07-13,
   "declare v1 support boundary"); [#895](https://github.com/phlohouse/phlo/pull/895)
@@ -75,8 +77,8 @@ authority.
   not establish support (see [Service topology](../service-topology.md)).
 - At `origin/main` `7feced4d` every blessed-core component is `alpha` with
   blocked gates, and `production.status` is `blocked`. Gate promotion is a
-  separate decision ([ADR 0050](0050-freeze-release-promotion-contract.md),
-  section 7).
+  separate, reviewed decision; publishing a release never changes it
+  ([ADR 0068](0068-release-publishing.md)).
 - The manifest records runtime claims: Python 3.12, Linux on the CI-tested path,
   and Docker Compose v2 ([ADR 0059](0059-runtime-and-deployment-baseline.md)).
 
@@ -92,6 +94,6 @@ authority.
 ## Related
 
 - [ADR 0047](0047-v1-production-trust-and-readiness.md): the production requirements recorded in the manifest.
-- [ADR 0050](0050-freeze-release-promotion-contract.md): release promotion and support-gate separation.
+- [ADR 0068](0068-release-publishing.md): release publishing and support-gate separation, superseding [ADR 0050](0050-freeze-release-promotion-contract.md).
 - [Support matrix](../../reference/support-matrix.md) (generated).
 - [Engineering map](../../contributing/engineering-map.md): manifest ownership and the wheel copy.

@@ -156,3 +156,20 @@ def test_header_baseline_requires_the_promised_blob(
     if not remote_available:
         _git(history.checkout, "remote", "set-url", "origin", (tmp_path / "unavailable").as_uri())
     assert headers.main(["legacy.py"]) == expected
+
+
+def test_every_full_history_checkout_skips_historical_file_contents() -> None:
+    """Full history is about 2 GB of blobs; ancestry and tags need only commits and trees."""
+    unfiltered = []
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        document = yaml.safe_load(path.read_text())
+        for name, job in (document.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                options = step.get("with") or {}
+                if (
+                    step.get("uses", "").startswith("actions/checkout@")
+                    and str(options.get("fetch-depth")) == "0"
+                    and options.get("filter") != "blob:none"
+                ):
+                    unfiltered.append(f"{path.name}:{name}")
+    assert unfiltered == []

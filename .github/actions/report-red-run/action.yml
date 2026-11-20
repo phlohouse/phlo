@@ -1,4 +1,4 @@
-name: Report a red scheduled run
+name: Report a red run
 description: Open, or comment on, one issue per failing scheduled workflow so red runs reach the maintainer
 inputs:
   title:
@@ -23,7 +23,7 @@ runs:
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
-        body="$(printf 'Scheduled run failed on %s: %s\n\nThis issue stays open until the workflow is green again. Close it when it is.\n' "$(date -u +%Y-%m-%d)" "$RUN_URL")"
+        body="$(printf 'Run failed on %s: %s\n\nThis issue stays open until the workflow is green again. Close it when it is.\n' "$(date -u +%Y-%m-%d)" "$RUN_URL")"
         number="$(
           gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title |
             jq -r --arg title "$TITLE" 'map(select(.title == $title)) | .[0].number // empty'
