@@ -1459,6 +1459,16 @@ def run_one(
                 raise golden.CandidateError("Upgrade changed selected environment target binding")
             start(config)
             verify_data(config)
+        if candidate is not None:
+            # An upgrade brings the preview server but does not rewrite the
+            # project's settings; adding it configures it.
+            golden.run(
+                golden.command(
+                    str(config.operator_bin), "services", "add", "trino-preview", "--no-start"
+                ),
+                cwd=config.project_dir,
+            )
+            start(config)
         # The generated stack pairs the API with a read-only preview Trino, so
         # the Query page works with no setup.
         api = golden.service_url(config, "phlo-api", 4000)
