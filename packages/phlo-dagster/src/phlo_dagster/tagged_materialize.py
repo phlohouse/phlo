@@ -112,8 +112,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return create_run_for_job(self, job_def, *args, **kwargs)
 
     # The Dagster CLI calls these by name, so replace them where they are looked up.
-    setattr(asset_cli, "execute_job", tagged_execute_job)  # noqa: B010
-    setattr(DagsterInstance, "create_run_for_job", located_create_run)  # noqa: B010
+    replacements = (
+        (asset_cli, "execute_job", tagged_execute_job),
+        (DagsterInstance, "create_run_for_job", located_create_run),
+    )
+    for owner, name, replacement in replacements:
+        setattr(owner, name, replacement)
     sys.argv = ["dagster", "asset", "materialize", *rest]
     result = dagster_main()
     return int(result or 0)
