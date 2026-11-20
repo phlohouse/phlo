@@ -9,12 +9,16 @@ on:
       distributions_artifact:
         required: true
         type: string
+      rehearsal:
+        description: Build a release rehearsal from a same-repository pull request or schedule. Images keep development repositories.
+        default: false
+        type: boolean
 
 permissions: {}
 
 jobs:
   prepare:
-    if: github.repository == 'phlohouse/phlo' && github.ref == 'refs/heads/main'
+    if: github.repository == 'phlohouse/phlo' && (github.ref == 'refs/heads/main' || inputs.rehearsal)
     name: Prepare generated build contexts
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -32,11 +36,14 @@ jobs:
       - name: Select protected candidate data
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REHEARSAL: ${{ inputs.rehearsal }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$CANDIDATE_SHA" origin/main
+          if [ "$REHEARSAL" != true ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            git merge-base --is-ancestor "$CANDIDATE_SHA" origin/main
+          fi
           # Keep workflow scripts at the trusted workflow commit.
           mkdir -p "$RUNNER_TEMP/trusted-scripts"
           cp scripts/generated_image_matrix.py "$RUNNER_TEMP/trusted-scripts/"
@@ -138,3 +145,4 @@ jobs:
     with:
       candidate_sha: ${{ inputs.candidate_sha }}
       targets: ${{ needs.prepare.outputs.targets }}
+      rehearsal: ${{ inputs.rehearsal }}

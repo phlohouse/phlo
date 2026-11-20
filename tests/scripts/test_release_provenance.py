@@ -420,7 +420,15 @@ def stage_files() -> dict[str, bytes]:
 
 @pytest.mark.parametrize(
     "failure",
-    ["failed_prior_attempt", "wrong_stage", "restaged", "missing_bom", "wrong_bom_sha", "passed"],
+    [
+        "failed_prior_attempt",
+        "wrong_stage",
+        "restaged",
+        "missing_bom",
+        "wrong_bom_sha",
+        "rehearsal_bom",
+        "passed",
+    ],
 )
 def test_collect_does_not_allow_omitting_failed_attempts(
     tmp_path: Path, monkeypatch, failure: str
@@ -442,6 +450,10 @@ def test_collect_does_not_allow_omitting_failed_attempts(
     if failure == "wrong_bom_sha":
         record = json.loads(files["provenance.json"])
         record["candidate_sha"] = "c" * 40
+        files["provenance.json"] = json.dumps(record).encode()
+    if failure == "rehearsal_bom":
+        record = json.loads(files["provenance.json"])
+        record["rehearsal"] = True
         files["provenance.json"] = json.dumps(record).encode()
 
     def fake_api(path: str):
@@ -503,6 +515,55 @@ def test_staging_refuses_rebuild_before_any_write(monkeypatch, mode: str) -> Non
     monkeypatch.setattr(staging.subprocess, "run", lambda *a, **k: pytest.fail("must not write"))
     with pytest.raises(ValueError):
         staging.reserve(SHA)
+
+
+@pytest.mark.parametrize("rehearsal", [False, True])
+def test_pin_tags_rehearsals_apart_from_candidates(
+    tmp_path: Path, monkeypatch, rehearsal: bool
+) -> None:
+    digest = "sha256:" + "e" * 64
+    images = tmp_path / "images.json"
+    images.write_text(
+        json.dumps([{"image": f"ghcr.io/phlohouse/phlo-api-development:{SHA}", "digest": digest}])
+    )
+    validated: list[str] = []
+    monkeypatch.setattr(staging, "validate_candidate", lambda sha: validated.append("candidate"))
+    monkeypatch.setattr(staging, "validate_rehearsal", lambda sha: validated.append("rehearsal"))
+    tags: list[str] = []
+    monkeypatch.setattr(
+        staging.subprocess,
+        "run",
+        lambda command, **k: tags.append(command[command.index("--tag") + 1]),
+    )
+    monkeypatch.setattr(staging.bom, "resolve_image_digest", lambda ref: digest)
+    staged: dict[str, object] = {}
+
+    def fake_stage(root, sha, output, *, built_distributions, image_digests):
+        output.mkdir(parents=True)
+        (output / "bom.json").write_text("{}")
+        staged.update(image_digests)
+        return SimpleNamespace(canonical_candidate_digest="d" * 64)
+
+    monkeypatch.setattr(staging.bom, "stage", fake_stage)
+    for name, value in {
+        "GITHUB_SHA": WORKFLOW_SHA,
+        "GITHUB_RUN_ID": "7",
+        "GITHUB_RUN_ATTEMPT": "1",
+    }.items():
+        monkeypatch.setenv(name, value)
+    output = tmp_path / "candidate"
+    staging.pin(SHA, images, tmp_path / "dist", output, rehearsal=rehearsal)
+    prefix = "rehearsal" if rehearsal else "candidate"
+    assert validated == [prefix]
+    assert tags == [f"ghcr.io/phlohouse/phlo-api:{prefix}-{SHA}"]
+    assert staged == {"ghcr.io/phlohouse/phlo-api": digest}
+    assert json.loads((output / "provenance.json").read_text())["rehearsal"] is rehearsal
+
+
+def test_rehearsal_refuses_foreign_repositories(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "someone/phlo")
+    with pytest.raises(ValueError, match="allowlisted"):
+        staging.validate_rehearsal(SHA)
 
 
 def test_prebuilt_staging_consumes_independent_minio_without_rebuilding(

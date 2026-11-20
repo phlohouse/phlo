@@ -137,6 +137,7 @@ def collect(sha: str, stage_run: int, output: Path, *, evidence: bool) -> None:
         or record.get("run_attempt") != 1
         or record.get("bom_sha256") != release_candidate_bom.file_sha256(candidate / "bom.json")
         or record.get("canonical_candidate_digest") != bom["canonical_candidate_digest"]
+        or record.get("rehearsal", False) is not False
     ):
         raise ValueError("staged BOM/provenance is bound to the wrong SHA or attempt")
     release_candidate_bom.verify_staged_distributions(bom, candidate)

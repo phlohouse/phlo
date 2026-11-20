@@ -1,0 +1,250 @@
+name: Release Rehearsal
+
+# Build the release set exactly as Release Stage does, then run the artifact
+# golden path against those bytes. It runs on the ReleaseX PR, on PRs that
+# change release machinery, and nightly on main, so a broken release path shows
+# up when it breaks rather than on release day. A rehearsal never reserves a
+# candidate, never publishes, and its BOM is refused by promotion.
+
+on:
+  pull_request:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rehearsal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  select:
+    name: rehearsal / select
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Decide whether this change needs a rehearsal
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo "run=$([ "$GITHUB_REF" = refs/heads/main ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fork PRs cannot push rehearsal images; they never rehearse.
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$HEAD_REF" = relx/release/monorepo/main-release-set ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          pattern='^(\.github/workflows/(release-|build-)|\.github/actions/|scripts/(release_|promote_release_candidate|check_published_extras|generated_image_matrix|golden_path_common|run_golden_path)|security/container-waivers\.yml|relx\.toml|registry/support/|.*Dockerfile[^/]*$|.*/service\.yaml$)'
+          if grep -Eq "$pattern" <<< "$changed"; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  distributions:
+    needs: select
+    if: needs.select.outputs.run == 'true'
+    name: rehearsal / distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - name: Record the rehearsed commit
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Build the release set once
+        env:
+          CANDIDATE_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$CANDIDATE_SHA")"
+          export SOURCE_DATE_EPOCH
+          mkdir -p "$RUNNER_TEMP/tree"
+          git archive "$CANDIDATE_SHA" | tar -x -C "$RUNNER_TEMP/tree"
+          uv build --directory "$RUNNER_TEMP/tree" --all-packages --out-dir "$RUNNER_TEMP/distributions"
+      - name: Fail if any published extra cannot resolve from PyPI
+        run: >-
+          python3 scripts/check_published_extras.py
+          --manifest "$RUNNER_TEMP/tree/registry/support/v1.json"
+          --distributions "$RUNNER_TEMP/distributions"
+          --python-version 3.12
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: distributions-${{ steps.sha.outputs.sha }}
+          path: ${{ runner.temp }}/distributions
+          if-no-files-found: error
+          retention-days: 7
+
+  images:
+    needs: distributions
+    uses: ./.github/workflows/build-core-services.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      candidate_sha: ${{ needs.distributions.outputs.sha }}
+      distributions_artifact: distributions-${{ needs.distributions.outputs.sha }}
+      rehearsal: true
+
+  pin:
+    needs: [distributions, images]
+    name: rehearsal / pin BOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: distributions-${{ needs.distributions.outputs.sha }}
+          path: distributions
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: generated-service-images
+          path: images
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Pin the rehearsal image digests and distribution bytes
+        env:
+          CANDIDATE_SHA: ${{ needs.distributions.outputs.sha }}
+        run: >-
+          python3 scripts/release_stage.py pin --rehearsal --candidate-sha "$CANDIDATE_SHA"
+          --images images/generated-service-images.json --distributions distributions --output candidate
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: rehearsal-${{ needs.distributions.outputs.sha }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke:
+    needs: [distributions, pin]
+    name: rehearsal / artifact golden path (${{ matrix.host.label }})
+    runs-on: ${{ matrix.host.runner }}
+    timeout-minutes: 60
+    # arm64 reports but never blocks: its failures so far were runner tooling.
+    continue-on-error: ${{ matrix.host.label == 'arm64' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - label: amd64
+            runner: ubuntu-latest
+          - label: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: rehearsal-${{ needs.distributions.outputs.sha }}
+          path: candidate
+      - name: Download the latest published release as the upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          mkdir -p previous/distributions
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir previous --pattern bom.json
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir previous/distributions \
+            --pattern '*.whl' --pattern '*.tar.gz'
+          rm -f previous/distributions/qualification-evidence-*.tar.gz previous/distributions/release-evidence-*.tar.gz
+          echo "Upgrade baseline: $tag" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install pinned browser driver and Chromium
+        # Disposable acceptance tooling, not a product dependency.
+        run: | # zizmor: ignore[adhoc-packages]
+          sudo apt-get update
+          sudo apt-get install --yes libnss3-tools
+          npm install --global agent-browser@0.38.1
+          if [ "$(uname -m)" = "aarch64" ]; then
+            npx --yes playwright@1.65.1 install --with-deps chromium
+            chrome="$(find "$HOME/.cache/ms-playwright" -path '*/chrome-linux*/chrome' -type f -perm -u+x | head -n 1)"
+            test -n "$chrome"
+            echo "AGENT_BROWSER_EXECUTABLE_PATH=$chrome" >> "$GITHUB_ENV"
+          else
+            agent-browser install --with-deps
+          fi
+      - name: Run the artifact golden path against the rehearsed bytes
+        run: >-
+          python3 scripts/release_golden_path.py
+          --candidate-bom candidate/bom.json
+          --previous-candidate-bom previous/bom.json
+          --evidence-output "$RUNNER_TEMP/evidence.json"
+      - name: Validate evidence
+        run: >-
+          python3 scripts/validate_release_evidence.py
+          --bundle "$RUNNER_TEMP/evidence.json"
+          --candidate-bom candidate/bom.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: rehearsal-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host.label }}
+          path: |
+            ${{ runner.temp }}/evidence.json
+            ${{ runner.temp }}/evidence-observatory/
+          if-no-files-found: warn
+          retention-days: 14
+
+  report:
+    name: rehearsal / report red schedule
+    needs: [select, distributions, images, pin, smoke]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/report-red-run
+        with:
+          title: "ci: nightly release rehearsal is failing"
+          github-token: ${{ github.token }}
