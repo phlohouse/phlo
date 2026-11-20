@@ -1543,7 +1543,7 @@
           "alias": "PHLO_NOTEBOOK_KERNELS",
           "annotation": "<class 'bool'>",
           "default": false,
-          "description": "Process-only opt-in for Observatory notebook kernels, which run Python on the API host. Only '1' enables.",
+          "description": "Process-only opt-in for Observatory notebook kernels, which run Python in the phlo-notebook-kernels service. Only '1' enables.",
           "environment_names": [
             "PHLO_NOTEBOOK_KERNELS"
           ],
@@ -1576,7 +1576,7 @@
           "alias": "PHLO_NOTEBOOK_PACKAGES",
           "annotation": "<class 'bool'>",
           "default": false,
-          "description": "Process-only opt-in letting notebooks list Python packages, installed into per-notebook environments on the API host. Only '1' enables.",
+          "description": "Process-only opt-in letting notebooks list Python packages, installed into per-package-set environments in the kernel host. Only '1' enables.",
           "environment_names": [
             "PHLO_NOTEBOOK_PACKAGES"
           ],

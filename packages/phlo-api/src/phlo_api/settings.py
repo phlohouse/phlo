@@ -145,8 +145,8 @@ class ApiDeploymentSettings(BaseSettings):
         False,
         validation_alias="PHLO_NOTEBOOK_KERNELS",
         description=(
-            "Process-only opt-in for Observatory notebook kernels, which run Python on the API "
-            "host. Only '1' enables."
+            "Process-only opt-in for Observatory notebook kernels, which run Python in the "
+            "phlo-notebook-kernels service. Only '1' enables."
         ),
     )
     notebook_kernel_dir: str | None = Field(
@@ -162,7 +162,7 @@ class ApiDeploymentSettings(BaseSettings):
         validation_alias="PHLO_NOTEBOOK_PACKAGES",
         description=(
             "Process-only opt-in letting notebooks list Python packages, installed into "
-            "per-notebook environments on the API host. Only '1' enables."
+            "per-package-set environments in the kernel host. Only '1' enables."
         ),
     )
     notebook_gateway_url: str | None = Field(
