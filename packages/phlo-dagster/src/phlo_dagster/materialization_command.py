@@ -10,6 +10,16 @@ from phlo.cli.infrastructure.container_backend import ContainerBackend, containe
 from phlo.config.env import load_project_env
 
 
+def _default_run_ref() -> str | None:
+    """Return the default environment's Nessie ref, or None without environments."""
+    from phlo.config.project import get_default_environment, get_environment_targets
+
+    try:
+        return get_environment_targets()[get_default_environment()].nessie_ref or None
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
 def build_materialization_command(
     backend: ContainerBackend,
     container_name: str,
@@ -31,10 +41,15 @@ def build_materialization_command(
     for pretty_var in ("PHLO_OBSERVE_PRETTY", "PHLO_OBSERVE_PRETTY_VERBOSE", "OBSERVE_DRAINS"):
         if project_env.get(pretty_var):
             exec_env[pretty_var] = project_env[pretty_var]
+    ref = _default_run_ref()
+    # Tag the run with the ref it writes so phlo-api shows it in its environment.
+    launcher = (
+        ["python", "-m", "phlo_dagster.tagged_materialize", f"phlo/ref={ref}", "--"]
+        if ref
+        else ["dagster", "asset", "materialize"]
+    )
     command = [
-        "dagster",
-        "asset",
-        "materialize",
+        *launcher,
         "-m",
         "phlo_dagster.framework.definitions",
         "--select",
