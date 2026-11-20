@@ -14,28 +14,28 @@ the OSV registry assessment. Unsupported registry sources fail closed.
 each distinct registry version once, sharing advisory results between revisions.
 Introduced vulnerable versions block at every severity. `--mode queue` performs
 a fresh full assessment and additionally blocks all existing findings without a
-valid reviewed risk record. `--mode release` blocks every finding, ignoring risk
-acceptance. Exit codes are 0 (accepted), 1 (risk blocks), 2 (assessment unavailable).
+valid waiver. `--mode release` reads only the shipped lockfiles (`uv.lock` and
+the Observatory frontend lock) and blocks their fixable critical, high or
+unrated findings without a valid waiver; the result is under `release_blocking`.
+Exit codes are 0 (accepted), 1 (risk blocks), 2 (assessment unavailable).
 Structured artifacts include inventory and introduced/existing findings even
 when risk blocks; scanner errors cannot produce a clean verdict.
 
 `security/dependency-risks.json` is deliberately empty. Baseline cleanup belongs
-to #1063, not automatic grandfathering. Each future record must specify the exact
+to #1063, not automatic grandfathering. Each waiver must specify the exact
 lockfile, ecosystem, name, version, advisory, severity, Boolean exploited status,
-owner, rationale, first_seen, expires, reviewed_by and review_url. Dates must be
-timezone-aware ISO 8601. The maximum window starts at first_seen: critical or
-exploited 24 hours, high 7 days, moderate/low 30 days. Unknown severity, malformed,
-duplicate or expired records fail closed. OSV severity must confirm the record;
-missing severity cannot be waived. Remove expired records rather than resetting
-first_seen. Human maintainers must verify exploitation status and first-seen
-evidence during review; these cannot be reliably inferred from registry queries.
+owner, rationale, first_seen and expires. Dates must be timezone-aware ISO 8601.
+The maximum window starts at first_seen: critical or exploited 7 days, high 30
+days, moderate/low 90 days. Unknown severity, malformed, duplicate or expired
+records fail closed. OSV severity must confirm the record; missing severity
+cannot be waived. Remove expired records rather than resetting first_seen. The
+maintainer must verify exploitation status and first-seen evidence; these
+cannot be reliably inferred from registry queries.
 
-Risk changes require independent human review through protected pull requests.
-An agent must never approve its own exception. The script verifies the merged
-main PR, exact ledger record and final revision, authenticated human approval
-and repository maintainer permission. A later comment does not revoke approval;
-changes requested or dismissal do. Use the ledger from the tested trusted base,
-never the proposed revision's ledger. GitHub review protection remains necessary.
+The maintainer approves a waiver by merging it to `main`, and may approve their
+own (ADR 0063). The assessment always reads the ledger from the trusted `main`
+checkout, never the proposed revision's ledger, so an unmerged waiver has no
+effect. An agent or bot cannot own a waiver.
 
 ## Daily ownership and handoff
 
