@@ -45,8 +45,9 @@ while read -r catalog ref; do
     } >"$config/catalog/$catalog.properties"
 done <"$source_dir/targets"
 
-chown -R trino:trino "$config"
+# chmod first: once Trino owns it, root has no FOWNER to change its mode.
 chmod 0755 "$config"
+chown -R trino:trino "$config"
 TRINO_INTERNAL_SHARED_SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n/+=')"
 export TRINO_INTERNAL_SHARED_SECRET
 exec chroot --skip-chdir --userspec=trino:trino --groups=trino / "$@"

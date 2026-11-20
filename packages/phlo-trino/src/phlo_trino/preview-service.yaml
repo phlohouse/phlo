@@ -21,7 +21,19 @@ compose:
   # A project without environments has nothing to serve: the entrypoint exits 0
   # and stays stopped instead of restarting.
   restart: on-failure
+  # Root only long enough to copy phlo-api's 0700 files into the tmpfs and
+  # hand them to Trino's user; see security/container-waivers.yml.
   user: "0:0"
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - DAC_READ_SEARCH
+    - SETGID
+    - SETUID
+    - SYS_CHROOT
+  security_opt:
+    - no-new-privileges:true
   entrypoint: ["/bin/bash", "/etc/trino-preview/entrypoint.sh"]
   command: ["/usr/lib/trino/bin/run-trino"]
   environment:

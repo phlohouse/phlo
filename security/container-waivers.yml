@@ -25,6 +25,24 @@ runtime_waivers:
     owner: phlohouse
     remediation_issue: https://github.com/phlohouse/phlo/pull/1292
     review_by: 2027-02-20
+  - id: trino-preview-bootstrap
+    service: trino-preview
+    image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
+    exception: root-bootstrap
+    rationale: >-
+      phlo-api writes the preview server's certificate, password file and access
+      rules into a 0700 volume owned by the API user. The bootstrap needs root to
+      read them and copy them into a private tmpfs owned by Trino's user before
+      launching Trino.
+    compensating_control: >-
+      Trino runs as trino:trino with supplementary groups reset and no effective
+      capabilities. The container drops every capability except CHOWN,
+      DAC_READ_SEARCH, SETGID, SETUID and SYS_CHROOT, sets no-new-privileges and
+      mounts the API volume read-only. It has no Docker socket, publishes no
+      ports, and every catalog is READ_ONLY with per-environment identities.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/pull/1292
+    review_by: 2027-02-20
   - id: trino-catalog-bootstrap
     service: trino
     image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
