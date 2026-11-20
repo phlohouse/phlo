@@ -9,6 +9,7 @@ production mode rejects default credentials.
 
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 import click
@@ -61,14 +62,16 @@ def _expand_selected_services(
     services: list[ServiceDefinition],
     *,
     additional_services: list[ServiceDefinition] | None = None,
+    excluded: Iterable[str] = (),
 ) -> list[ServiceDefinition]:
     """Expand selected services with declared dependencies and setup companions."""
     if not additional_services:
-        return expand_service_dependencies(discovery, services)
+        return expand_service_dependencies(discovery, services, excluded=excluded)
     return expand_service_dependencies(
         discovery,
         services,
         additional_services=additional_services,
+        excluded=excluded,
     )
 
 
@@ -589,7 +592,10 @@ def _select_initial_services(
     for service in [*selection_plan.selected_services, *inline_services]:
         deduped_services[service.name] = service
     services_to_install = _expand_selected_services(
-        discovery, list(deduped_services.values()), additional_services=inline_services
+        discovery,
+        list(deduped_services.values()),
+        additional_services=inline_services,
+        excluded=selection_plan.disabled_names,
     )
     return selection_plan, services_to_install
 

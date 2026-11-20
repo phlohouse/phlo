@@ -1459,12 +1459,25 @@ def run_one(
                 raise golden.CandidateError("Upgrade changed selected environment target binding")
             start(config)
             verify_data(config)
-        # Verify the optional disabled state before opting into provider-owned
-        # preview. Missing configuration must not become fake success rows.
+        # The generated stack pairs the API with a read-only preview Trino, so
+        # the Query page works with no setup.
         api = golden.service_url(config, "phlo-api", 4000)
-        disabled = request(
-            f"{api}/api/v1/readiness?" + urllib.parse.urlencode({"env": binding["env"]})
+        readiness = urllib.parse.urlencode({"env": binding["env"]})
+        generated = request(f"{api}/api/v1/readiness?{readiness}")
+        if not all(
+            check["state"] == "configured" and check["reason_code"] == "backend_reachable"
+            for check in generated["capabilities"]["query_preview"]
+        ):
+            raise golden.CandidateError("The generated query preview is not reachable on start")
+        # An operator replaces it with a provider-owned server. Removing it must
+        # leave an honest disabled state, never fake success rows.
+        golden.run(
+            golden.command(str(config.operator_bin), "services", "remove", "trino-preview"),
+            cwd=config.project_dir,
         )
+        start(config)
+        api = golden.service_url(config, "phlo-api", 4000)
+        disabled = request(f"{api}/api/v1/readiness?{readiness}")
         if not any(
             check["state"] == "disabled" for check in disabled["capabilities"]["query_preview"]
         ):

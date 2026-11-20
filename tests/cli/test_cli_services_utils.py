@@ -243,7 +243,7 @@ def test_regenerate_compose_writes_compose_and_env_files(
         lambda **_kwargs: [service],
     )
     monkeypatch.setattr(
-        service_utils, "expand_service_dependencies", lambda _discovery, services: services
+        service_utils, "expand_service_dependencies", lambda _discovery, services, **_: services
     )
     monkeypatch.setattr("phlo.plugins.compose.generator.ComposeGenerator", ComposeGeneratorFake)
 
@@ -291,7 +291,7 @@ def test_regenerate_compose_replaces_permissive_env_local_at_0600(
         lambda **_kwargs: [service],
     )
     monkeypatch.setattr(
-        service_utils, "expand_service_dependencies", lambda _discovery, services: services
+        service_utils, "expand_service_dependencies", lambda _discovery, services, **_: services
     )
     monkeypatch.setattr("phlo.plugins.compose.generator.ComposeGenerator", ComposeGeneratorFake)
 

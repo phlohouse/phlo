@@ -51,7 +51,12 @@ compose:
   volumes:
     - ./trino-preview:/etc/trino-preview:ro
     - ./trino/catalog/iceberg.properties:/etc/trino-source/iceberg.properties:ro
-    - query-preview:/var/lib/phlo-preview:ro
+    - type: bind
+      source: ./query-preview
+      target: /var/lib/phlo-preview
+      read_only: true
+      bind:
+        create_host_path: false
   healthcheck:
     test: ["CMD-SHELL", "[ -f /etc/trino/disabled ] || [ \"$(curl -fsS --cacert /etc/trino/secrets/ca.pem https://localhost:8443/v1/info/state | tr -d '\"')\" = \"ACTIVE\" ]"]
     interval: 10s

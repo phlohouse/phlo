@@ -448,9 +448,10 @@ def wait_observatory_development(
                     click.echo(
                         "Authenticated dashboard access is verified. Configure additional roles with phlo authz before enabling mutations."
                     )
-                    click.echo(
-                        "The Query page and notebook SQL cells read through the read-only trino-preview service."
-                    )
+                    if _has_generated_preview(phlo_dir):
+                        click.echo(
+                            "The Query page and notebook SQL cells read through the read-only trino-preview service."
+                        )
                     return
             except (httpx.HTTPError, ValueError, KeyError, TypeError):
                 pass
@@ -458,6 +459,16 @@ def wait_observatory_development(
     raise click.ClickException(
         "Observatory is not ready. Run services logs and services preflight --observatory-dev. Check actual target mapping and /api/v1/readiness. An installed legacy schema requires the explicit backed-up phlo_api.migrations command; startup never applies migration 004. Services and data have been preserved."
     )
+
+
+def _has_generated_preview(phlo_dir: Path) -> bool:
+    """Return whether the generated stack includes the read-only preview Trino."""
+    try:
+        document = yaml.safe_load((phlo_dir / "docker-compose.yml").read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return False
+    services = document.get("services") if isinstance(document, dict) else None
+    return isinstance(services, dict) and "trino-preview" in services
 
 
 def _observe_local_dashboard(

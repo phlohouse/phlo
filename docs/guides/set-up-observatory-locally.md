@@ -88,8 +88,8 @@ writes through. They use a separate read-only Trino, `trino-preview`, which
 There is nothing to configure:
 
 - On start, the API makes a local CA, a TLS certificate for `trino-preview`,
-  and one random password per `phlo.yaml` environment. They live in the
-  `query-preview` volume, readable only by the API user; the preview server
+  and one random password per `phlo.yaml` environment. They live in
+  `.phlo/query-preview`, readable only by the user the API runs as; the preview server
   gets the certificate and password hashes, never the passwords.
 - Each environment has its own identity, `phlo_api_preview_<env>`, which may
   only read its own catalog, `preview_<env>`. That catalog is the main Iceberg
@@ -105,8 +105,9 @@ again and restart the API and `trino-preview`.
 To run the preview on your own coordinator instead, provision it with
 `phlo trino preview provision --help` and set `PHLO_V1_PREVIEW_TRINO_URL` and
 the other preview settings in the `env:` block of `phlo.yaml`. phlo then leaves
-the preview settings alone. To leave the Query page off, add `trino-preview` to
-`services.disabled` in `phlo.yaml`.
+the preview settings alone. Run `phlo services remove trino-preview` first so the
+generated server does not run beside yours. The same command leaves the Query
+page off.
 
 ## Configure deployed targets
 

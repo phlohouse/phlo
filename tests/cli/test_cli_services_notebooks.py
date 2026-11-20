@@ -154,3 +154,27 @@ def test_dev_identity_may_query_once_the_preview_is_added(tmp_path: Path) -> Non
     policies = yaml.safe_load(path.read_text(encoding="utf-8"))["policies"][1:]
     assert {p["action"] for p in policies} == {"dataset.query", "object.write"}
     assert {p["resource"]["id_pattern"] for p in policies} == {"env=sandbox", "env=sandbox|*"}
+
+
+def test_a_disabled_companion_stays_out() -> None:
+    """Verify `services remove trino-preview` is not undone by the companion rule."""
+    available = [TRINO, API, PREVIEW]
+    names = {
+        s.name
+        for s in ServiceManifestResolver.expand_dependencies(
+            [TRINO, API], available_services=available, excluded={"trino-preview"}
+        )
+    }
+    assert names == {"trino", "phlo-api"}
+    assert apply_preview_defaults([API, TRINO], {}, ENVS) == {}
+
+
+def test_the_preview_credentials_folder_belongs_to_the_project_user(tmp_path: Path) -> None:
+    """Verify the API's preview folder is made before Docker could make it as root."""
+    from phlo.cli.commands.services.utils import prepare_api_runtime_directories
+
+    phlo_dir = tmp_path / ".phlo"
+    prepare_api_runtime_directories(phlo_dir, ["phlo-api"])
+    folder = phlo_dir / "query-preview"
+    assert folder.is_dir()
+    assert folder.stat().st_mode & 0o777 == 0o700

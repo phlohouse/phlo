@@ -137,6 +137,8 @@ def prepare_api_runtime_directories(phlo_dir: Path, service_names: Iterable[str]
         (".phlo/notebook-runs", 0o700),
         ("notebooks", 0o755),
         ("workflows/transforms/dbt/models/notebooks", 0o755),
+        # The generated preview Trino's certificate and passwords.
+        (".phlo/query-preview", 0o700),
     ):
         path = root / relative
         if any(parent.is_symlink() for parent in (path, path.parent)):
@@ -726,10 +728,12 @@ def expand_service_dependencies(
     services: list[ServiceDefinition],
     *,
     additional_services: list[ServiceDefinition] | None = None,
+    excluded: Iterable[str] = (),
 ) -> list[ServiceDefinition]:
     """Expand a list of services with their transitive dependencies and setup companions.
 
     Returns services in topological (dependency) order via manifest resolution.
+    Companions the project disabled (``excluded``) stay out.
     """
     if not services:
         return []
@@ -737,6 +741,7 @@ def expand_service_dependencies(
     return ServiceManifestResolver.expand_dependencies(
         services,
         available_services=[*discovery.discover().values(), *(additional_services or [])],
+        excluded=frozenset(excluded),
     )
 
 
@@ -967,7 +972,9 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
         enabled_names=enabled_names,
         disabled_names=disabled_names,
     )
-    services_to_install = expand_service_dependencies(discovery, services_to_install)
+    services_to_install = expand_service_dependencies(
+        discovery, services_to_install, excluded=disabled_names
+    )
 
     # Get user service overrides from config
     user_overrides = _get_service_overrides(config)

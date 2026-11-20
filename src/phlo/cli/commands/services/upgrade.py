@@ -18,6 +18,7 @@ from phlo.cli.commands.services.utils import (
     _get_service_overrides,
     ensure_compose_project,
     expand_service_dependencies,
+    normalize_services_enabled_disabled_config,
 )
 from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import parse_env_file
@@ -103,7 +104,8 @@ def _candidate(
             selected.append(known[name])
         elif overrides.get(name, {}).get("type") == "inline":
             selected.append(ServiceDefinition.from_inline(name, overrides[name]))
-    services = expand_service_dependencies(discovery, selected)
+    _, disabled = normalize_services_enabled_disabled_config(config)
+    services = expand_service_dependencies(discovery, selected, excluded=disabled)
     env = {**os.environ, **_get_env_overrides(config)}
     for path in project_env_paths(state):
         checked_path(root, path.relative_to(root).as_posix())

@@ -121,7 +121,13 @@ compose:
         - ../.phlo/state:/app/.phlo/state
         - ../.phlo/audit:/app/.phlo/audit
         # Credentials for the generated preview Trino, private to the API user.
-        - query-preview:/var/lib/phlo-preview
+        # The read-only preview Trino's certificate and passwords (see
+        # phlo_api.preview_bootstrap). A bind, so it belongs to the API user.
+        - type: bind
+          source: ../.phlo/query-preview
+          target: /var/lib/phlo-preview
+          bind:
+              create_host_path: false
         # These sources stay in the project tree so Dagster sees the same artifacts.
         - type: bind
           source: ../.phlo/uploads

@@ -9,6 +9,7 @@ Imported by phlo.plugins.discovery.services and the phlo CLI services commands
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -158,10 +159,13 @@ class ServiceManifestResolver:
         services: list[ServiceDefinition],
         *,
         available_services: list[ServiceDefinition] | None = None,
+        excluded: Collection[str] = (),
     ) -> list[ServiceDefinition]:
         """Expand requested definitions, preferring them over available definitions.
 
         Include dependencies and eligible setup companions in dependency order.
+        Companions named in ``excluded`` (services the project disabled) are
+        left out.
         """
         service_by_name = {
             service.name: service for service in [*(available_services or []), *services]
@@ -193,7 +197,9 @@ class ServiceManifestResolver:
         bootstrap_companions = [
             service
             for service in service_by_name.values()
-            if serves(service) and all(name in selected for name in serves(service))
+            if serves(service)
+            and service.name not in excluded
+            and all(name in selected for name in serves(service))
         ]
         for companion in bootstrap_companions:
             selected.setdefault(companion.name, companion)
