@@ -170,7 +170,7 @@ class IsolatedLauncher(Launcher):
         os.chown(connection, kernel.uid, kernel.uid)
         os.chmod(connection, 0o600)
         folder = self.kernel_folder(kernel)
-        log = open(self.root / "kernels" / f"{kernel.id}.log", "ab")  # noqa: SIM115 - handed to the child
+        log = open(self.root / "kernels" / f"{kernel.id}.log", "ab")  # noqa: SIM115  # reason: the child process owns this file
         try:
             return subprocess.Popen(
                 [python, "-I", "-c", _KERNEL_LAUNCH, str(connection)],
@@ -241,7 +241,7 @@ class SameUserLauncher(Launcher):
 
     def spawn(self, kernel: Kernel, python: str, connection: Path) -> subprocess.Popen[bytes]:
         folder = self.kernel_folder(kernel)
-        log = open(folder / "kernel.log", "ab")  # noqa: SIM115 - handed to the child
+        log = open(folder / "kernel.log", "ab")  # noqa: SIM115  # reason: the child process owns this file
         try:
             return subprocess.Popen(
                 [python, "-m", "ipykernel_launcher", "-f", str(connection)],
@@ -685,7 +685,7 @@ def make_app(host: KernelHost, token: str) -> Any:
                 return
             await super().get(*args, **kwargs)
 
-        def open(self, kernel_id: str) -> None:  # type: ignore[override]
+        def open(self, kernel_id: str) -> None:  # type: ignore[override]  # reason: tornado passes path groups
             try:
                 kernel = host.get(kernel_id)
                 if kernel.state != "ready":
