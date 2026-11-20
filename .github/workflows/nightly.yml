@@ -159,6 +159,35 @@ jobs:
           uv run --locked python -m pytest -m "not integration"
           -n 4 --dist worksteal --timeout=300 --tb=short
 
+  package-selection:
+    name: nightly / package test selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      selection: ${{ steps.select.outputs.selection }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Select every isolated package group
+        id: select
+        run: |
+          set -euo pipefail
+          # PRs run these groups only when a dependency manifest changes.
+          selection="$(python3 scripts/select_ci.py --base HEAD --head HEAD | jq -c '
+            {groups, python: false, frontend: false, writer: false, integration: false,
+             docs: false, plugin: false, mutation: false,
+             reasons: {packages: "nightly isolated package dependency check"}}')"
+          test "$(jq '.groups | length' <<< "$selection")" -gt 0
+          echo "selection=$selection" >> "$GITHUB_OUTPUT"
+
+  package-tests:
+    name: nightly / isolated package tests
+    needs: package-selection
+    uses: ./.github/workflows/ci.yml
+    with:
+      selection: ${{ needs.package-selection.outputs.selection }}
+
   windows-portability:
     name: nightly / Windows compose portability
     uses: ./.github/workflows/windows-compose-portability.yml
@@ -173,6 +202,7 @@ jobs:
       - release-golden-path
       - operations-evidence
       - python-313
+      - package-tests
       - windows-portability
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -186,6 +216,7 @@ jobs:
           RELEASE_GOLDEN_PATH: ${{ needs.release-golden-path.result }}
           OPERATIONS_EVIDENCE: ${{ needs.operations-evidence.result }}
           PYTHON_313: ${{ needs.python-313.result }}
+          PACKAGE_TESTS: ${{ needs.package-tests.result }}
           WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
         run: |
           set -euo pipefail
@@ -195,7 +226,7 @@ jobs:
             echo "::error::Scheduled fresh resolution failed: $UPSTREAM_COMPATIBILITY"
             exit 1
           fi
-          for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH" "$OPERATIONS_EVIDENCE" "$PYTHON_313" "$WINDOWS_PORTABILITY"; do
+          for result in "$FULL_INTEGRATION" "$RELEASE_GOLDEN_PATH" "$OPERATIONS_EVIDENCE" "$PYTHON_313" "$PACKAGE_TESTS" "$WINDOWS_PORTABILITY"; do
             if [ "$result" != "success" ]; then
               echo "::error::Required nightly check finished with result: $result"
               exit 1

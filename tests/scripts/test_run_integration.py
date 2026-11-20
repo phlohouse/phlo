@@ -167,10 +167,8 @@ def _reports(workspace) -> dict[str, ET.Element]:
 @pytest.mark.parametrize(
     ("group", "expected"),
     [
-        ("api-contracts", {"api"}),
-        ("api-preview", {"preview"}),
-        ("api-query-journey", {"trino", "dataset"}),
-        ("api-branch-journey", {"branch"}),
+        ("api-contracts", {"api", "preview"}),
+        ("api-query", {"trino"}),
     ],
 )
 def test_api_groups_execute_only_owned_modules_without_shared_docker(workspace, group, expected):
@@ -195,7 +193,7 @@ def test_api_contracts_discover_future_modules_with_duplicate_filenames(workspac
     )
 
     assert run_integration.main(["--group", "api-contracts"]) == 0
-    assert _executed(workspace) == {"api", "first", "second"}
+    assert _executed(workspace) == {"api", "preview", "first", "second"}
 
 
 @pytest.mark.parametrize("group", ["all", "storage"])
@@ -257,3 +255,19 @@ def test_empty_suite_mapping_cannot_report_success(workspace):
         run_integration.run_suites({}, {})
     assert workspace.results == []
     assert not (workspace.root / "test-results").exists()
+
+
+def test_api_contracts_leave_postgres_modules_to_the_coverage_job(workspace):
+    for module in run_integration.POSTGRES_COVERAGE_MODULES:
+        _write_test(workspace.root, module, Path(module).stem)
+    assert run_integration.main(["--group", "api-contracts"]) == 0
+    assert _executed(workspace) == {"api", "preview"}
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    postgres = makefile[makefile.index("test-coverage-postgres:") :]
+    postgres = postgres[: postgres.index("test-coverage-combine:")]
+    for module in (
+        *run_integration.POSTGRES_COVERAGE_MODULES,
+        "tests/integration/test_issue1035_dataset_journey.py",
+        "tests/integration/test_issue1035_signed_branch_journey.py",
+    ):
+        assert module in postgres

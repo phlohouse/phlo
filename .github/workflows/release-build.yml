@@ -16,6 +16,12 @@ on:
         description: Pin under rehearsal-<sha> tags; the BOM can never be published.
         type: boolean
         default: true
+      hosts:
+        description: >-
+          JSON list of golden-path hosts. PR rehearsals run amd64 only; nightly
+          and Release run both. amd64 is always required.
+        type: string
+        default: '["amd64","arm64"]'
     outputs:
       sha:
         description: The commit that was built.
@@ -27,7 +33,7 @@ jobs:
   distributions:
     name: build / distributions
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -46,8 +52,14 @@ jobs:
         env:
           REQUESTED_SHA: ${{ inputs.sha }}
           REHEARSAL: ${{ inputs.rehearsal }}
+          HOSTS: ${{ inputs.hosts }}
         run: |
           set -euo pipefail
+          # Release always proves both hosts; a rehearsal may drop arm64 only.
+          jq -e 'type == "array" and index("amd64") != null and all(.[]; . == "amd64" or . == "arm64") and length == (unique | length)' <<< "$HOSTS"
+          if [ "$REHEARSAL" != true ]; then
+            jq -e 'sort == ["amd64","arm64"]' <<< "$HOSTS"
+          fi
           sha="${REQUESTED_SHA:-$(git rev-parse HEAD)}"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
           git cat-file -e "$sha^{commit}"
@@ -138,21 +150,17 @@ jobs:
 
   smoke:
     needs: [distributions, pin]
-    name: build / golden path part (${{ matrix.host.label }}, ${{ matrix.part }})
-    runs-on: ${{ matrix.host.runner }}
-    timeout-minutes: 45
+    name: build / golden path part (${{ matrix.host }}, ${{ matrix.part }})
+    runs-on: ${{ matrix.host == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 25
     permissions:
       contents: read
     # arm64 reports but never blocks: its failures so far were runner tooling.
-    continue-on-error: ${{ matrix.host.label == 'arm64' }}
+    continue-on-error: ${{ matrix.host == 'arm64' }}
     strategy:
       fail-fast: false
       matrix:
-        host:
-          - label: amd64
-            runner: ubuntu-latest
-          - label: arm64
-            runner: ubuntu-24.04-arm
+        host: ${{ fromJSON(inputs.hosts) }}
         # Each part starts its own stack; together they are the whole golden path.
         part: [core, observatory-fresh, observatory-upgrade]
     steps:
@@ -207,7 +215,7 @@ jobs:
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:
-          name: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host.label }}-${{ matrix.part }}
+          name: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host }}-${{ matrix.part }}
           path: |
             ${{ runner.temp }}/evidence-${{ matrix.part }}.json
             ${{ runner.temp }}/evidence-${{ matrix.part }}-observatory/
@@ -226,7 +234,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        host: [amd64, arm64]
+        host: ${{ fromJSON(inputs.hosts) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:

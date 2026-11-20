@@ -20,17 +20,14 @@ INTEGRATION_JOBS = {
     "integration / integration / MinIO source image",
     "integration / integration / storage contracts",
     "integration / integration / api-contracts",
-    "integration / integration / api-preview",
-    "integration / integration / api-query-journey",
-    "integration / integration / api-branch-journey",
+    "integration / integration / api-query",
     "integration / integration / operations",
     "integration / integration / required suites",
 }
 PROVIDER_JOBS = {f"ci / python / installed provider artifacts ({index})" for index in range(2)}
 NODE_JOBS = {
     "ci / behaviour / JavaScript",
-    "ci / behaviour / GitHub writer",
-    "ci / behaviour / GitHub plugin",
+    "ci / behaviour / GitHub writer and plugin",
 }
 
 

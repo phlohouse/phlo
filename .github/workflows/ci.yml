@@ -83,7 +83,7 @@ jobs:
     needs: ci-config
     if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -135,7 +135,7 @@ jobs:
     name: quality / source and file contracts
     needs: ci-config
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -212,7 +212,7 @@ jobs:
     name: python / package tests (${{ matrix.group }}, ${{ matrix.python-version }})
     needs: ci-config
     if: needs.ci-config.outputs.groups != '[]'
-    timeout-minutes: 20
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -284,7 +284,7 @@ jobs:
     needs: ci-config
     if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -302,7 +302,7 @@ jobs:
           make test-coverage-workspace
           COVERAGE_SHARD_INDEX=${{ matrix.shard }}
           COVERAGE_SHARD_COUNT=${{ strategy.job-total }}
-          PYTEST_WORKERS=2
+          PYTEST_WORKERS=4
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:
@@ -315,7 +315,7 @@ jobs:
     needs: ci-config
     if: needs.ci-config.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -385,7 +385,7 @@ jobs:
     needs: ci-config
     if: needs.ci-config.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: packages/phlo-observatory/src/phlo_observatory
@@ -463,15 +463,13 @@ jobs:
           path: test-results/browser/
           if-no-files-found: error
 
-  writer:
-    name: behaviour / GitHub writer
+  node-apps:
+    # Each suite needs under 20 seconds; one job saves a runner and its setup.
+    name: behaviour / GitHub writer and plugin
     needs: ci-config
-    if: needs.ci-config.outputs.writer == 'true'
+    if: needs.ci-config.outputs.writer == 'true' || needs.ci-config.outputs.plugin == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: apps/phlo-github-writer
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -484,35 +482,28 @@ jobs:
           cache-dependency-path: apps/phlo-github-writer/package-lock.json
       - name: Install writer dependencies
         id: writer_install
+        if: needs.ci-config.outputs.writer == 'true'
+        working-directory: apps/phlo-github-writer
         run: npm ci
 
       - name: Type check writer
         if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
+        working-directory: apps/phlo-github-writer
         run: npm run typecheck
 
       - name: Run writer tests
         if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
+        working-directory: apps/phlo-github-writer
         run: npm test
 
       - name: Build writer
         if: ${{ !cancelled() && steps.writer_install.outcome == 'success' }}
+        working-directory: apps/phlo-github-writer
         run: npm run build
 
-  plugin:
-    name: behaviour / GitHub plugin
-    needs: ci-config
-    if: needs.ci-config.outputs.plugin == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
-        with:
-          node-version: "24"
       - name: Run plugin behavior tests
+        id: plugin
+        if: ${{ !cancelled() && needs.ci-config.outputs.plugin == 'true' }}
         run: |
           mkdir -p test-results
           node --experimental-strip-types --test --test-reporter=spec --test-reporter-destination=stdout \
@@ -526,7 +517,7 @@ jobs:
           assert not report.findall(".//skipped"), "Required plugin tests must not skip"
           PY
       - name: Upload plugin results
-        if: always()
+        if: ${{ always() && needs.ci-config.outputs.plugin == 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: plugin-results
@@ -545,8 +536,7 @@ jobs:
       - python-package-tests
       - python-coverage
       - frontend
-      - writer
-      - plugin
+      - node-apps
     steps:
       - name: Summarize CI lane results
         shell: bash
@@ -557,8 +547,7 @@ jobs:
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
           PYTHON_COVERAGE: ${{ needs.python-coverage.result }}
           FRONTEND: ${{ needs.frontend.result }}
-          WRITER: ${{ needs.writer.result }}
-          PLUGIN: ${{ needs.plugin.result }}
+          NODE_APPS: ${{ needs.node-apps.result }}
           SELECT_PYTHON: ${{ needs.ci-config.outputs.python }}
           SELECT_GROUPS: ${{ needs.ci-config.outputs.groups }}
           SELECT_FRONTEND: ${{ needs.ci-config.outputs.frontend }}
@@ -578,8 +567,7 @@ jobs:
             echo "| python / package tests | ${PYTHON_PACKAGE_TESTS} |"
             echo "| python / line and branch floors | ${PYTHON_COVERAGE} |"
             echo "| behaviour / JavaScript | ${FRONTEND} |"
-            echo "| behaviour / GitHub writer | ${WRITER} |"
-            echo "| behaviour / GitHub plugin | ${PLUGIN} |"
+            echo "| behaviour / GitHub writer and plugin | ${NODE_APPS} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           test "$CI_CONFIG" = success
@@ -587,17 +575,14 @@ jobs:
           expected_python=skipped
           expected_groups=skipped
           expected_frontend=skipped
-          expected_writer=skipped
-          expected_plugin=skipped
+          expected_node_apps=skipped
           if [ "$SELECT_PYTHON" = true ]; then expected_python=success; fi
           if [ "$SELECT_GROUPS" != '[]' ]; then expected_groups=success; fi
           if [ "$SELECT_FRONTEND" = true ]; then expected_frontend=success; fi
-          if [ "$SELECT_WRITER" = true ]; then expected_writer=success; fi
-          if [ "$SELECT_PLUGIN" = true ]; then expected_plugin=success; fi
+          if [ "$SELECT_WRITER" = true ] || [ "$SELECT_PLUGIN" = true ]; then expected_node_apps=success; fi
           for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_COVERAGE"; do
             test "$result" = "$expected_python"
           done
           test "$PYTHON_PACKAGE_TESTS" = "$expected_groups"
           test "$FRONTEND" = "$expected_frontend"
-          test "$WRITER" = "$expected_writer"
-          test "$PLUGIN" = "$expected_plugin"
+          test "$NODE_APPS" = "$expected_node_apps"

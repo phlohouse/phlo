@@ -106,14 +106,48 @@ def test_rehearsal_builds_and_smokes_without_any_publication_authority() -> None
         assert "environment" not in job
     assert rehearsal["permissions"] == {"contents": "read"}
     assert jobs["build"]["uses"] == "./.github/workflows/release-build.yml"
-    assert jobs["build"]["with"] == {"rehearsal": True}
+    assert jobs["build"]["with"] == {
+        "rehearsal": True,
+        "hosts": "${{ github.event_name == 'pull_request' && '[\"amd64\"]' || '[\"amd64\",\"arm64\"]' }}",
+    }
     assert jobs["report"]["if"] == "failure() && github.event_name == 'schedule'"
     build = workflow("release-build.yml")["jobs"]
     pin = next(step for step in build["pin"]["steps"] if "release_stage.py" in step.get("run", ""))
     assert "mode=(--rehearsal)" in pin["run"]
     smoke = build["smoke"]
-    assert smoke["continue-on-error"] == "${{ matrix.host.label == 'arm64' }}"
+    assert smoke["continue-on-error"] == "${{ matrix.host == 'arm64' }}"
     assert any("--candidate-bom" in step.get("run", "") for step in smoke["steps"])
+    for job in (smoke, build["golden-path"]):
+        assert job["strategy"]["matrix"]["host"] == "${{ fromJSON(inputs.hosts) }}"
+
+
+@pytest.mark.parametrize(
+    ("hosts", "rehearsal", "accepted"),
+    [
+        ('["amd64","arm64"]', "false", True),
+        ('["arm64","amd64"]', "false", True),
+        ('["amd64"]', "false", False),
+        ('["amd64"]', "true", True),
+        ('["arm64"]', "true", False),
+        ('["amd64","amd64"]', "true", False),
+        ('["amd64","riscv64"]', "true", False),
+        ("[]", "true", False),
+        ('"amd64"', "true", False),
+    ],
+)
+def test_release_build_hosts_require_amd64_and_both_hosts_for_release(
+    tmp_path: Path, hosts: str, rehearsal: str, accepted: bool
+) -> None:
+    build = workflow("release-build.yml")
+    assert build[True]["workflow_call"]["inputs"]["hosts"]["default"] == '["amd64","arm64"]'
+    step = next(step for step in build["jobs"]["distributions"]["steps"] if step.get("id") == "sha")
+    guard = step["run"].split('sha="${REQUESTED_SHA', 1)[0]
+    result = subprocess.run(
+        ["bash", "-c", guard],
+        env=dict(os.environ, HOSTS=hosts, REHEARSAL=rehearsal),
+        capture_output=True,
+    )
+    assert (result.returncode == 0) == accepted
 
 
 def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path) -> None:

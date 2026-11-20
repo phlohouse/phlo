@@ -6,9 +6,17 @@ Phlo separates **safe to merge**, **source health**, **artifact readiness** and
 ## Merge safety
 
 `pr / required` remains the single required merge result. Pull requests select
-affected package groups and reverse dependencies. Unknown inputs select full
-validation; only explicitly inert documentation omits executable lanes. Every
-merge group runs the full contract on its prospective merge SHA.
+lanes from the changed packages and their reverse dependencies. Unknown inputs
+select full validation; only explicitly inert documentation omits executable
+lanes. Every merge group runs every lane on its prospective merge SHA.
+
+Isolated package tests run each package in its own dependency environment. The
+workspace coverage shards already run those tests, so the isolated groups only
+check declared dependencies. PRs run them only when a dependency manifest
+changes: a package's `pyproject.toml` selects that package and its reverse
+dependencies, and the root `pyproject.toml` or `uv.lock` selects every group.
+Merge groups and nightly run every group, because merge-queue evidence must
+cover every configured job.
 
 Required lanes cover Python quality and behaviour, installed provider artifacts,
 PostgreSQL concurrency, quickstart and recovery, Observatory, GitHub writer and
@@ -32,8 +40,8 @@ environments.
 | Bucket | Execution layout |
 | --- | --- |
 | Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job and retry the npm install twice. |
-| Behaviour | The measured workspace shards run every non-integration test once. Package tests run each package in its own dependency environment. Observatory, GitHub writer and webhook plugin checks run in independent Node jobs, each required only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
-| Integration and portability | Storage/catalog contracts and four API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks run nightly in one native Windows job. |
+| Behaviour | The measured workspace shards run every non-integration test once. Isolated package tests run on PRs only for dependency manifest changes, and in every merge group and nightly run. Observatory runs in its own Node job; the GitHub writer and webhook plugin share one Node job, each step running only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
+| Integration and portability | Storage/catalog contracts and two API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks run nightly in one native Windows job. |
 | Artifact and dependency safety | Preparation builds wheels once for provider shards. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 
 | Stage | Scope |
@@ -104,7 +112,7 @@ See [parallel integration contracts](testing-gates.md#parallel-integration-contr
 for individual group commands and timing diagnostics.
 
 Package-specific test environments and their coverage reports remain separate
-from the full-workspace measurement. The five package groups place the API and
+from the full-workspace measurement. When they run, the five package groups place the API and
 Dagster tests in different jobs while retaining each package's own dependency
 environment; the API group uses four work-stealing workers because it contains a
 single large package. The workspace shards also include
@@ -206,7 +214,9 @@ release machinery (release workflows and scripts, Dockerfiles, `service.yaml`
 files, `relx.toml` and the support manifest), and nightly on main.
 
 A rehearsal BOM records `"rehearsal": true`, and publishing refuses it. The
-amd64 golden path must pass; arm64 reports without blocking. It is not part of
+amd64 golden path must pass. PR rehearsals run the golden path on amd64 only;
+the nightly rehearsal and Release also run arm64, which reports without
+blocking. Images are still built for both architectures on every rehearsal. It is not part of
 `pr / required`, but a red rehearsal on the ReleaseX PR means the release will
 fail.
 

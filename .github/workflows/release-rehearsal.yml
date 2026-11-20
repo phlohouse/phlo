@@ -72,6 +72,8 @@ jobs:
       packages: write
     with:
       rehearsal: true
+      # PRs prove amd64; the nightly schedule and Release also prove arm64.
+      hosts: ${{ github.event_name == 'pull_request' && '["amd64"]' || '["amd64","arm64"]' }}
 
   report:
     name: rehearsal / report red schedule
