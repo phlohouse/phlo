@@ -1,0 +1,35 @@
+name: Report a red scheduled run
+description: Open, or comment on, one issue per failing scheduled workflow so red runs reach the maintainer
+inputs:
+  title:
+    description: Exact issue title. One open issue per title is kept.
+    required: true
+  assignee:
+    description: GitHub login to assign a newly opened issue to
+    required: false
+    default: iamgp
+  github-token:
+    description: Token with issues:write
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Open or update the tracking issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TITLE: ${{ inputs.title }}
+        ASSIGNEE: ${{ inputs.assignee }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        body="$(printf 'Scheduled run failed on %s: %s\n\nThis issue stays open until the workflow is green again. Close it when it is.\n' "$(date -u +%Y-%m-%d)" "$RUN_URL")"
+        number="$(
+          gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title |
+            jq -r --arg title "$TITLE" 'map(select(.title == $title)) | .[0].number // empty'
+        )"
+        if [ -n "$number" ]; then
+          gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+        else
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --assignee "$ASSIGNEE" --body "$body"
+        fi

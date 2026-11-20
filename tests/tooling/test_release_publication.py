@@ -61,7 +61,9 @@ def test_development_images_cannot_rebuild_release_images() -> None:
             for job in workflow(path.name)["jobs"].values()
         )
     }
-    assert callers == {"release-stage.yml"}
+    assert callers == {"release-stage.yml", "release-rehearsal.yml"}
+    assert "rehearsal" not in workflow("release-stage.yml")["jobs"]["images"]["with"]
+    assert workflow("release-rehearsal.yml")["jobs"]["images"]["with"]["rehearsal"] is True
     assert "-development:" in str(images["jobs"]["prepare"])
     shared = workflow("build-service-images.yml")
     assert "needs.build.result == 'success'" in shared["jobs"]["merge"]["if"]
@@ -70,6 +72,24 @@ def test_development_images_cannot_rebuild_release_images() -> None:
         step.get("name") == "Scan immutable architecture digest"
         for step in shared["jobs"]["build"]["steps"]
     )
+
+
+def test_rehearsal_builds_and_smokes_without_any_publication_authority() -> None:
+    rehearsal = workflow("release-rehearsal.yml")
+    jobs = rehearsal["jobs"]
+    for job in jobs.values():
+        permissions = job.get("permissions", {})
+        assert "id-token" not in permissions
+        assert permissions.get("contents", "read") == "read"
+        assert "environment" not in job
+    assert rehearsal["permissions"] == {"contents": "read"}
+    pin = next(step for step in jobs["pin"]["steps"] if "release_stage.py" in step.get("run", ""))
+    assert "pin --rehearsal" in pin["run"]
+    assert "reserve" not in str(jobs)
+    smoke = jobs["smoke"]
+    assert smoke["continue-on-error"] == "${{ matrix.host.label == 'arm64' }}"
+    assert any("--candidate-bom" in step.get("run", "") for step in smoke["steps"])
+    assert jobs["report"]["if"] == "failure() && github.event_name == 'schedule'"
 
 
 def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path) -> None:

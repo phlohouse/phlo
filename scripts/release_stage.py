@@ -111,9 +111,28 @@ def reserve(sha: str) -> None:
     )
 
 
-def pin(sha: str, images: Path, distributions: Path, output: Path) -> None:
-    """Copy scanned development digests to staging and record every byte in a BOM."""
-    validate_candidate(sha)
+def validate_rehearsal(sha: str) -> None:
+    """Allow a rehearsal BOM for any commit of this repository, but never a release tag."""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("candidate must be a full lowercase SHA")
+    if os.environ.get("GITHUB_REPOSITORY") != provenance.REPOSITORY:
+        raise ValueError("repository is not allowlisted")
+    subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], check=True)
+
+
+def pin(
+    sha: str, images: Path, distributions: Path, output: Path, *, rehearsal: bool = False
+) -> None:
+    """Copy scanned development digests to staging and record every byte in a BOM.
+
+    A rehearsal copies the same digests to ``rehearsal-<sha>`` tags instead of
+    ``candidate-<sha>``. Promotion only accepts BOMs produced by Release Stage, so a
+    rehearsal BOM can never be published.
+    """
+    if rehearsal:
+        validate_rehearsal(sha)
+    else:
+        validate_candidate(sha)
     if output.exists():
         raise ValueError("staging destination already exists")
     records = json.loads(images.read_text(encoding="utf-8"))
@@ -130,7 +149,8 @@ def pin(sha: str, images: Path, distributions: Path, output: Path) -> None:
         ):
             raise ValueError("image manifest does not name this candidate's development digest")
         target = repository.removesuffix("-development")
-        staging_ref = f"{target}:candidate-{sha}"
+        tag_prefix = "rehearsal" if rehearsal else "candidate"
+        staging_ref = f"{target}:{tag_prefix}-{sha}"
         subprocess.run(
             [
                 "docker",
@@ -159,6 +179,7 @@ def pin(sha: str, images: Path, distributions: Path, output: Path) -> None:
         "bom_sha256": bom.file_sha256(output / "bom.json"),
         "staged_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "canonical_candidate_digest": staged.canonical_candidate_digest,
+        "rehearsal": rehearsal,
     }
     (output / "provenance.json").write_text(
         json.dumps(provenance_record, indent=2) + "\n", encoding="utf-8"
@@ -173,11 +194,24 @@ def main() -> None:
     parser.add_argument("--images", type=Path)
     parser.add_argument("--distributions", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--rehearsal",
+        action="store_true",
+        help="Pin a rehearsal BOM under rehearsal-<sha> tags; never valid for promotion.",
+    )
     args = parser.parse_args()
     if args.command == "reserve":
+        if args.rehearsal:
+            parser.error("reserve has no rehearsal mode")
         reserve(args.candidate_sha)
     else:
-        pin(args.candidate_sha, args.images, args.distributions, args.output)
+        pin(
+            args.candidate_sha,
+            args.images,
+            args.distributions,
+            args.output,
+            rehearsal=args.rehearsal,
+        )
 
 
 if __name__ == "__main__":

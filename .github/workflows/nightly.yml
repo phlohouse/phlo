@@ -193,3 +193,21 @@ jobs:
             echo "::error::Staging outcome report failed: $RELEASE_ARTIFACT_ACCEPTANCE"
             exit 1
           fi
+
+  report:
+    name: nightly / report red schedule
+    needs: nightly-status
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/report-red-run
+        with:
+          title: "ci: nightly is failing"
+          github-token: ${{ github.token }}

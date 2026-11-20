@@ -186,6 +186,28 @@ schedule must be active; the workflow does not provision one.
 
 ## Artifact readiness and publication
 
+### Release rehearsal
+
+**Release Rehearsal** runs the release path without publishing anything. It
+builds the distributions and images exactly as Release Stage does, pins them in
+a BOM under `rehearsal-<sha>` image tags, and runs the artifact golden path
+against those bytes. The upgrade baseline is the latest published release. It
+runs on the ReleaseX PR, on PRs that change release machinery (release
+workflows and scripts, Dockerfiles, `service.yaml` files, `relx.toml` and the
+support manifest), and nightly on main.
+
+A rehearsal never reserves a candidate. Its provenance records
+`"rehearsal": true`, and promotion refuses any such BOM. The amd64 golden path
+must pass; arm64 reports without blocking. It is not part of `pr / required`,
+but a red rehearsal on the ReleaseX PR means the release will fail.
+
+Scheduled Nightly and Release Rehearsal failures open, or comment on, one
+issue per workflow (`ci: nightly is failing`,
+`ci: nightly release rehearsal is failing`), assigned to the maintainer. Close
+the issue once the workflow is green again.
+
+### Release on merge
+
 Ordinary main pushes are not release candidates. ReleaseX still proposes the
 version PR. After an in-repository `relx/release/` PR merges, **Release on merge**
 authenticates its exact merge SHA, waits for source health, and dispatches
