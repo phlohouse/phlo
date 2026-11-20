@@ -162,7 +162,9 @@ def test_migration_preserves_config_and_secrets(tmp_path, monkeypatch, outcome):
         assert backup.stat().st_mode & 0o777 == 0o600
 
 
-@pytest.mark.parametrize("outcome", ["apply", "pull-failure", "record-failure", "edited"])
+@pytest.mark.parametrize(
+    "outcome", ["apply", "pull-failure", "pull-failure-after-record", "record-failure", "edited"]
+)
 def test_migration_keeps_compose_recognised_as_generated(tmp_path, monkeypatch, outcome):
     """A replan after migrating must not report the migrated Compose file as a conflict (#1293).
 
@@ -180,13 +182,20 @@ def test_migration_keeps_compose_recognised_as_generated(tmp_path, monkeypatch, 
     baseline = {".phlo/docker-compose.yml": digest(generated), "phlo.yaml": "unrelated"}
     effective = copy.deepcopy(yaml.safe_load(path.read_text()))
     effective["volumes"]["minio-data"]["name"] = "existing-lakehouse_minio-data"
+    rewrites = path.with_name(REWRITES)
+    earlier = b'{"rewrites": []}\n'
+    if outcome == "pull-failure-after-record":
+        # A failed pull puts back the record an earlier attempt left, and the
+        # first attempt's backup is kept.
+        rewrites.write_bytes(earlier)
+        path.with_name("docker-compose.pre-minio-image.yml").write_bytes(b"first original\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("phlo_minio.migrate.require_container_backend", lambda: None)
 
     def execute(command, **kwargs):
         if "config" in command:
             return subprocess.CompletedProcess(command, 0, json.dumps(effective), "")
-        if outcome == "pull-failure" and "pull" in command:
+        if outcome.startswith("pull-failure") and "pull" in command:
             raise CommandError(tuple(command), 1, "", "unavailable")
         return subprocess.CompletedProcess(command, 0, "", "")
 
@@ -198,9 +207,15 @@ def test_migration_keeps_compose_recognised_as_generated(tmp_path, monkeypatch, 
 
         monkeypatch.setattr("phlo_minio.migrate.write_sensitive_file", refuse)
     result = CliRunner().invoke(minio_group, ["migrate-image", "--apply"])
-    failed = outcome in {"pull-failure", "record-failure"}
+    failed = outcome != "apply" and outcome != "edited"
     assert (result.exit_code == 0) == (not failed), result.output
-    rewrites = path.with_name(REWRITES)
+    if outcome == "pull-failure-after-record":
+        assert rewrites.read_bytes() == earlier
+        assert path.read_bytes() == generated
+        assert path.with_name("docker-compose.pre-minio-image.yml").read_bytes() == (
+            b"first original\n"
+        )
+        return
     if failed:
         assert not rewrites.exists()
         assert path.read_bytes() == generated
