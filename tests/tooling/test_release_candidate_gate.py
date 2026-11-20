@@ -84,7 +84,7 @@ def test_ci_status_includes_every_installed_provider_artifact_shard():
     assert "--docker-shard-count 2" in verify["run"]
     assert providers["needs"] == "ci-config"
     assert not providers.get("continue-on-error")
-    assert {"installed-provider-artifacts", "windows-portability"} <= set(ci["ci-status"]["needs"])
+    assert "installed-provider-artifacts" in ci["ci-status"]["needs"]
     assert (
         ci["ci-status"]["steps"][0]["env"]["INSTALLED_PROVIDER_ARTIFACTS"]
         == "${{ needs.installed-provider-artifacts.result }}"

@@ -44,7 +44,18 @@ jobs:
           path: docs-site/node_modules
           key: docs-node-modules-${{ env.PYMDX_VERSION }}-${{ hashFiles('pymdx.toml') }}
       - name: Build static site
-        run: pymdx build docs-site
+        # The npm registry intermittently returns 404 for existing packages.
+        # Retry the install-and-build twice before failing.
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if pymdx build docs-site; then
+              exit 0
+            fi
+            echo "::warning::docs build attempt $attempt failed"
+            sleep $((attempt * 20))
+          done
+          exit 1
       - name: Upload docs site artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:

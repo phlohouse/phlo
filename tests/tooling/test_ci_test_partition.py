@@ -43,14 +43,14 @@ def _collect_node_ids(marker: str) -> set[str]:
 
 def test_ci_keeps_core_regression_attributable_and_disjoint() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    makefile = (CI_WORKFLOW.parents[2] / "Makefile").read_text(encoding="utf-8")
 
-    assert "id: core_regression" in workflow
-    assert "make test-core-regression" in workflow
-    assert "id: core_tests" in workflow
-    assert (
-        'uv run --locked python -m pytest tests -m "not integration and not core_regression"'
-        in workflow
-    )
+    # PR CI runs the whole non-integration workspace once, core regression
+    # included; the marker stays a disjoint local entry point.
+    assert "make test-coverage-workspace" in workflow
+    workspace_recipe = makefile.split("test-coverage-workspace:", 1)[1].split("\n\n", 1)[0]
+    assert "-m 'not integration'" in workspace_recipe
+    assert "-m core_regression" in makefile
 
     core_regression = _collect_node_ids("core_regression")
     remaining = _collect_node_ids("not integration and not core_regression")

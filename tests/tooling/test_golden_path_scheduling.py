@@ -38,8 +38,13 @@ def test_windows_portability_runs_release_contracts_in_an_isolated_environment()
     )
     assert "concurrency" not in workflow
     ci = yaml.safe_load((WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8"))["jobs"]
-    assert ci["windows-portability"]["needs"] == "ci-config"
-    assert ci["windows-portability"]["with"]["reuse-wheelhouse"] is True
+    assert "windows-portability" not in ci
+    nightly = yaml.safe_load((WORKFLOW_ROOT / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+    assert (
+        nightly["windows-portability"]["uses"]
+        == "./.github/workflows/windows-compose-portability.yml"
+    )
+    assert "windows-portability" in nightly["nightly-status"]["needs"]
     preparation = workflow["jobs"]["generate-linux-fixture"]["steps"]
     download = next(
         step for step in preparation if step.get("name") == "Download the validation wheelhouse"

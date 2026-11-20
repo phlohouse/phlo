@@ -39,11 +39,9 @@ def test_trino_selects_reverse_dependency_groups() -> None:
     }
     assert selection["python"] is True
     assert selection["integration"] is True
-    # Every selected group runs once per supported Python version.
+    # PRs run each selected group once on the 3.12 baseline; 3.13 runs nightly.
     assert sorted((entry["group"], entry["python-version"]) for entry in selection["groups"]) == [
-        (group, version)
-        for group in ("api", "data", "interfaces", "platform", "runtime")
-        for version in ("3.12", "3.13")
+        (group, "3.12") for group in ("api", "data", "interfaces", "platform", "runtime")
     ]
 
 
@@ -72,7 +70,6 @@ def test_leaf_package_does_not_run_unrelated_groups() -> None:
     selection = select({"packages/phlo-traefik/src/phlo_traefik/plugin.py"})
     assert [(entry["group"], entry["python-version"]) for entry in selection["groups"]] == [
         ("platform", "3.12"),
-        ("platform", "3.13"),
     ]
 
 
