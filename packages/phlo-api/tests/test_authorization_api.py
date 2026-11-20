@@ -372,3 +372,25 @@ def test_resolve_request_principal_survives_unresolvable_backend(monkeypatch) ->
     assert principal is not None
     assert principal.subject == "oidc-subject-1"
     assert principal.roles == ()
+
+
+def test_resolve_request_principal_resolves_once_per_request(monkeypatch) -> None:
+    """Verify many checks in one request do not re-read identity settings each time."""
+    import phlo_api.api.authorization as authorization
+
+    who = AuthPrincipal(subject="alice", principal_type="user", groups=("analysts",))
+    monkeypatch.setattr(authorization, "get_request_principal", lambda request: who)
+    calls: list[AuthPrincipal] = []
+
+    def canonical(principal: AuthPrincipal) -> Principal:
+        calls.append(principal)
+        return Principal(subject=principal.subject, principal_type="user", roles=("analyst",))
+
+    monkeypatch.setattr(authorization, "_canonical_principal", canonical)
+    request = _make_request()
+    first = resolve_request_principal(request, require_auth=True)
+    assert resolve_request_principal(request, require_auth=True) == first
+    assert first is not None and first.roles == ("analyst",)
+    assert len(calls) == 1
+    resolve_request_principal(_make_request(), require_auth=True)
+    assert len(calls) == 2
