@@ -13,7 +13,7 @@ build:
         PHLO_VERSION: ${PHLO_VERSION:-}
         PHLO_API_VERSION: ${PHLO_API_VERSION:-}
         PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}
-        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS:-}
+        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS-dagster,dlt,iceberg,trino}
         PHLO_TRANSFORM_BINARY: ${PHLO_TRANSFORM_BINARY:-}
         PHLO_TRANSFORM_SHA256: ${PHLO_TRANSFORM_SHA256:-}
 
@@ -44,7 +44,7 @@ compose:
         HOST: 0.0.0.0
         PORT: 4000
         PYTHONUNBUFFERED: "1"
-        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS:-}
+        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS-dagster,dlt,iceberg,trino}
         PHLO_AUTHORIZATION_MODE: ${PHLO_AUTHORIZATION_MODE:-required}
         PHLO_AUTHENTICATION_PROVIDER: ${PHLO_AUTHENTICATION_PROVIDER:-}
         PHLO_SERVICE_CREDENTIALS_FILE: ${PHLO_SERVICE_CREDENTIALS_FILE:-}
@@ -185,8 +185,8 @@ compose:
 
 env_vars:
     PHLO_API_EXTRAS:
-        default: ""
-        description: Comma-separated API provider extras to install when building, such as iceberg,dlt,trino,transform; empty keeps the base image minimal
+        default: "dagster,dlt,iceberg,trino"
+        description: Comma-separated API provider extras to install when building; the default gives Observatory the core stack's providers (Dagster, dlt, Iceberg, Trino). Set it to an empty value for a minimal image
     PHLO_TRANSFORM_BINARY:
         default: ""
         description: Optional approved native engine path relative to the API image build context; must run on the image platform and libc
@@ -305,6 +305,7 @@ env_vars:
         default: ""
         description: Repository-scoped credential with contents write and pull request write permissions for draft check proposals
         secret: true
+        generate: false
     PHLO_V1_ACTIONS_SINGLE_REPLICA:
         default: ""
         description: Operator assertion that the API is deployed as one replica

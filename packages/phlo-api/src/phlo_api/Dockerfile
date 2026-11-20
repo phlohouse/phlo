@@ -10,7 +10,7 @@ COPY . .
 RUN set -eux; \
     if [ -f entrypoint.sh ]; then entrypoint=entrypoint.sh; else entrypoint=phlo-api/entrypoint.sh; fi; \
     install -m 0755 "$entrypoint" /opt/phlo-build-context/phlo-api-entrypoint.sh; \
-    mkdir -p /opt/phlo-build-context/wheelhouse /opt/phlo-native; \
+    mkdir -p /opt/phlo-build-context/wheelhouse /opt/phlo-build-context/certs /opt/phlo-native; \
     if [ -n "$PHLO_TRANSFORM_BINARY" ]; then \
         test -n "$PHLO_TRANSFORM_SHA256"; \
         printf '%s  %s\n' "$PHLO_TRANSFORM_SHA256" "$PHLO_TRANSFORM_BINARY" > /tmp/phlo-transform.sha256; \
@@ -25,11 +25,18 @@ WORKDIR /app
 ARG PHLO_VERSION=
 ARG PHLO_API_VERSION=
 ARG PHLO_WHEELHOUSE=
-ARG PHLO_API_EXTRAS=
+ARG PHLO_API_EXTRAS=dagster,dlt,iceberg,trino
 
 ENV PHLO_API_EXTRAS=${PHLO_API_EXTRAS}
 
 RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"].split(","))); unknown = extras - {"dagster", "dlt", "iceberg", "lineage", "notebooks", "transform", "trino"}; assert not unknown, f"Unsupported API provider extras: {sorted(unknown)}"'
+
+# Extra certificate authorities (for example a corporate TLS-inspecting proxy)
+# come from the project's .phlo/certs/*.crt; the directory is usually empty.
+COPY --from=phlo-build-context /opt/phlo-build-context/certs/ /usr/local/share/ca-certificates/phlo/
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    PIP_CERT=/etc/ssl/certs/ca-certificates.crt
 
 # Match the existing GNU-native provider runtime rather than relying on musl shims.
 # Apply Debian fixes even when the digest-pinned base predates them.
@@ -38,6 +45,7 @@ RUN apt-get update \
     && apt-get upgrade --no-install-recommends --yes \
     && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates \
     && pip install --no-cache-dir \
         "setuptools==83.0.0" \
         "wheel==0.47.0" \
