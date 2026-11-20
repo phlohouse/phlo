@@ -7,12 +7,15 @@ module = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts/cover
 check, totals = module["check"], module["totals"]
 
 
-def test_each_metric_and_new_source_requires_a_floor(tmp_path):
+def test_each_metric_is_checked_and_new_sources_meet_the_default_floor(tmp_path):
     floors = {"core": {"line": 81.3, "branch": 67.2}}
     assert not check(floors, floors)
     assert check({"core": {"line": 81.29, "branch": 67.2}}, floors)
     assert check({"core": {"line": 81.3, "branch": 67.19}}, floors)
-    assert check({**floors, "new-package": {"line": 100, "branch": 100}}, floors)
+    assert not check({**floors, "new-package": {"line": 70.0, "branch": 50.0}}, floors)
+    assert check({**floors, "new-package": {"line": 69.9, "branch": 100}}, floors)
+    assert check({**floors, "new-package": {"line": 100, "branch": 49.9}}, floors)
+    assert check({}, floors) == ["core: floor has no measurement; remove it with its source tree"]
 
     (tmp_path / "packages/example/src").mkdir(parents=True)
     summary = {"num_statements": 10, "covered_lines": 7, "num_branches": 4, "covered_branches": 1}

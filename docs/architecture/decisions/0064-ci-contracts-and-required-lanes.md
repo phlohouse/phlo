@@ -4,6 +4,13 @@
 
 **Accepted (back-filled 2026-10-30)**
 
+Amended (2026-11-20): pull requests run each test once on the 3.12 baseline.
+Python 3.13, Windows portability and the Trivy scan of built images move to
+the scheduled Nightly and Release Rehearsal, and mutation becomes a weekly
+report. A new source tree meets a default coverage floor instead of failing.
+The merge queue, the single required check and the no-silent-skips rule are
+unchanged. See decisions 5 and 8.
+
 - Original decision: September–October 2026
 - Evidence: issue [#999](https://github.com/phlohouse/phlo/issues/999) (closed
   2026-09-25, select PR CI by change); [#1068](https://github.com/phlohouse/phlo/pull/1068)
@@ -41,7 +48,8 @@ have exercised nothing. CI ran every lane for every change.
    the integration marker.
 5. **Measured coverage floors.** Line and branch coverage are measured for core,
    scripts and every package source tree, and each has a floor in
-   `tests/coverage-floors.json`. A new source tree without a floor fails.
+   `tests/coverage-floors.json`. A new source tree without a floor must meet
+   the default floor (70% line, 50% branch). A floor without a measurement fails.
 6. **Main reuses authenticated queue evidence.** A successful full queue run emits
    `phlo.merge-validation/v1` evidence bound to the exact SHA, attempt, policy
    digest and dependency assessment. A push to `main` reuses it only when it is
@@ -49,9 +57,12 @@ have exercised nothing. CI ran every lane for every change.
 7. **Release acceptance is separate.** Release staging requires source health and
    fresh release-mode dependency evidence, then builds and accepts immutable
    artifacts as defined in [ADR 0050](0050-freeze-release-promotion-contract.md).
-8. **Mutation results are verdicts.** `scripts/check_mutation.py` fails on missing
-   results, timeouts and unreviewed surviving mutants. Reviewed exceptions in
-   `security/mutation-exceptions.json` are bound to exact diff hashes.
+8. **Mutation results are a weekly report.** The scheduled mutation run keeps
+   `scripts/check_mutation.py` and its reviewed exceptions, but it no longer
+   gates pull requests.
+9. **One pass per test on PRs.** PRs run the 3.12 baseline. Python 3.13,
+   Windows portability and built-image scans run nightly, and a supported
+   Python version must appear in `ci.yml` or `nightly.yml`.
 
 ## Consequences
 

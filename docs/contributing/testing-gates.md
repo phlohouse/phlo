@@ -11,7 +11,8 @@ and bounded rate storage. It measures `src/phlo`, `scripts`, and every
 `packages/*/src` tree.
 `scripts/coverage_report.py` publishes separate line and branch percentages and
 checks each against `tests/coverage-floors.json`. A new source tree without a
-measurement or floor fails. The existing package-specific coverage collection
+committed floor must meet the default floor (70% line, 50% branch), and a floor
+without a measurement fails. The existing package-specific coverage collection
 remains in CI.
 
 CI measures the same workspace with four module-preserving shards and runs the

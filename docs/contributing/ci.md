@@ -11,10 +11,16 @@ validation; only explicitly inert documentation omits executable lanes. Every
 merge group runs the full contract on its prospective merge SHA.
 
 Required lanes cover Python quality and behaviour, installed provider artifacts,
-PostgreSQL concurrency, quickstart and recovery, Windows portability,
-Observatory, GitHub writer and webhook plugin behaviour, documentation,
-dependency risk, container policy and focused mutation checks. A selected lane
-that is skipped, cancelled or failed cannot satisfy the aggregate.
+PostgreSQL concurrency, quickstart and recovery, Observatory, GitHub writer and
+webhook plugin behaviour, documentation, dependency risk and container policy.
+A selected lane that is skipped, cancelled or failed cannot satisfy the
+aggregate.
+
+PRs run each test once, on the Python 3.12 runtime baseline. Python 3.13,
+Windows compose portability and the Trivy scan of built images run in the
+scheduled Nightly and Release Rehearsal instead, and mutation tests run weekly
+as a report. A new upstream CVE is not a defect in a PR, and none of these lanes
+caught a PR-specific regression that the remaining lanes missed.
 
 ### Check buckets and stages
 
@@ -25,31 +31,31 @@ environments.
 
 | Bucket | Execution layout |
 | --- | --- |
-| Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job. Focused mutation checks remain required when selected. |
-| Behaviour | Core and package tests retain parallel shards. Observatory, GitHub writer and webhook plugin checks run in independent Node jobs, each required only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
-| Integration and portability | Storage/catalog contracts and four API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks share one native Windows job. |
-| Artifact and dependency safety | Preparation builds wheels once for provider shards and Windows acceptance. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
+| Quality and contracts | File hooks, workflow hardening and Python lint, format, types and reference checks share one job. Documentation builds retain their Node-based job and retry the npm install twice. |
+| Behaviour | The measured workspace shards run every non-integration test once. Package tests run each package in its own dependency environment. Observatory, GitHub writer and webhook plugin checks run in independent Node jobs, each required only when selected. Observatory uses pinned agent-browser with the runner's preinstalled Google Chrome, without browser or OS package installation. Missing Chrome fails the job. |
+| Integration and portability | Storage/catalog contracts and four API groups run on separate Linux runners with the same checkout-built MinIO image. PostgreSQL concurrency, quickstart and recovery share an independent workspace. Windows launcher and shared-layout checks run nightly in one native Windows job. |
+| Artifact and dependency safety | Preparation builds wheels once for provider shards. Container waiver, Dockerfile lint and generated Compose checks share one job. Dependency assessments remain independent. |
 
 | Stage | Scope |
 | --- | --- |
 | Pull request | Affected checks and reverse dependencies, introduced dependency risk, conservative full coverage for unknown changes. |
 | Merge queue | All buckets on the exact prospective merge SHA, including the full dependency policy. |
 | Main and beta | Authenticate and reuse full queue evidence. Run the full fallback only when evidence cannot be reused. |
-| Scheduled maintenance | Fresh dependency and upstream-image scans, mutation and extended reliability checks. Findings enter the normal remediation PR flow. |
+| Scheduled maintenance | Nightly: full integration, the source golden path, Python 3.13, Windows portability and the release rehearsal with image scans. Weekly: mutation report. Red scheduled runs open a tracking issue. |
 | Release staging | Require source health and fresh release dependency evidence, then build and scan immutable release artifacts. |
 | Release acceptance and promotion | Exercise staged bytes on required platforms and repeated runs, then publish through the authenticated promotion dispatch. Release merges coordinate these dispatches automatically. |
 
-`pr / required` collects combined core, package and quickstart coverage after
-both Python and service contracts finish, then records queue evidence. The
-authoritative line and branch coverage gate runs the complete workspace in four
+`pr / required` records queue evidence after every selected lane finishes. The
+line and branch coverage gate runs the complete workspace in four
 module-preserving shards, alongside a required PostgreSQL coverage job. A final
 job verifies every producer and combines their data before enforcing the existing
-per-source floors. Both reporting jobs install only the locked `coverage-report`
+per-source floors. A source tree without a committed floor must meet the
+default floor in `scripts/coverage_report.py` (70% line, 50% branch). The
+reporting job installs only the locked `coverage-report`
 dependency group. Their commands retain that group when running, so report
 generation does not trigger a full workspace installation. See
 [test and contract gates](testing-gates.md) for the source scope and local
-commands. Standalone Windows dispatch builds its own wheels; ordinary validation
-reuses the preparation artifact.
+commands. Nightly Windows portability builds its own wheels.
 
 Python dependency caches use separate keys for each environment purpose. Full
 workspace jobs share a cache; wheel preparation, provider installation and
@@ -103,9 +109,10 @@ Dagster tests in different jobs while retaining each package's own dependency
 environment; the API group uses four work-stealing workers because it contains a
 single large package. The workspace shards also include
 quickstart; its integration-lane execution retains the smoke-test artifacts.
-Each measured source tree has independent line and branch coverage floors.
+Each measured source tree has independent line and branch coverage floors, or the
+default floor until one is committed.
 
-Mutation checks use `scripts/check_mutation.py`, because `mutmut run` exits zero
+The weekly mutation run uses `scripts/check_mutation.py`, because `mutmut run` exits zero
 even with surviving mutants. Missing results, uncovered mutations, timeouts,
 skips and unreviewed survivors fail. `security/mutation-exceptions.json` names
 specific equivalent or diagnostic-only changes, with rationale and exact diff

@@ -123,40 +123,6 @@ jobs:
             --docker-shard-count 2 \
             --output provider-artifacts/installed-provider-artifacts.json
 
-      - name: Scan locally built first-party images without publishing
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          printf '%s\n' '{"include":[]}' > provider-artifacts/affected-images.json
-          if [[ "$EVENT_NAME" == pull_request ]]; then
-            git cat-file -e "$BASE_SHA^{commit}"
-            git cat-file -e "$HEAD_SHA^{commit}"
-            uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \
-              affected-images --base "$BASE_SHA" --head "$HEAD_SHA" --build-inputs-only \
-              > provider-artifacts/affected-images.json
-          fi
-          jq -r --arg event "$EVENT_NAME" --slurpfile affected provider-artifacts/affected-images.json '
-            . as $report | [.images[] |
-            select(.build and (.image | startswith("ghcr.io/phlohouse/phlo-"))) |
-            select(.service as $service | any($report.builds[]; .service == $service and .status == "passed")) |
-            select(.image as $image | $event != "pull_request" or any($affected[0].include[]; .image == $image)) |
-            .image] | unique[]' provider-artifacts/installed-provider-artifacts.json > provider-artifacts/local-images.txt
-          while IFS= read -r image; do
-            digest="$(docker image inspect --format '{{.Id}}' "$image")"
-            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-            report="provider-artifacts/security-${digest#sha256:}.json"
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$PWD/provider-artifacts:/work" mirror.gcr.io/aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
-              image --image-src docker --format json --output "/work/${report##*/}" --scanners vuln "$digest"
-            jq -e --arg digest "$digest" '.SchemaVersion == 2 and .ArtifactType == "container_image" and .Metadata.ImageID == $digest' "$report" > /dev/null
-            uv run --no-project --with pyyaml==6.0.3 python scripts/container_security.py \
-              apply-policy --image "$image" --report "$report"
-          done < provider-artifacts/local-images.txt
-
       - name: Upload installed provider artifact evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -241,54 +207,6 @@ jobs:
           else
             echo "Skipping sqlfluff: no workflows/transforms/dbt directory."
           fi
-
-  python-core-tests:
-    name: python / core tests (${{ matrix.python-version }}, shard ${{ matrix.shard }})
-    needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
-    timeout-minutes: 20
-    runs-on: ubuntu-latest
-    env:
-      UV_PYTHON: ${{ matrix.python-version }}
-      COVERAGE_FILE: test-results/.coverage.core-${{ matrix.shard }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
-        shard: [0, 1, 2]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/python-workspace
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Run core regression suite
-        if: matrix.shard == 0
-        id: core_regression
-        env:
-          CORE_REGRESSION_PYTEST_ARGS: --tb=short --ignore=tests/cli/test_quickstart_smoke.py --junitxml=test-results/core-regression.xml --cov=phlo --cov-report= -n 2 --dist worksteal --timeout=300
-        run: make test-core-regression
-
-      - name: Run core tests
-        id: core_tests
-        run: >-
-          uv run --locked python -m pytest tests -m "not integration and not core_regression"
-          -p scripts.ci_shard --ci-shard-index=${{ matrix.shard }} --ci-shard-count=3
-          -n 2 --dist worksteal --timeout=300
-          -o faulthandler_timeout=60 -o faulthandler_exit_on_timeout=true
-          --tb=short --durations=25 --junitxml=test-results/core.xml
-          --cov=phlo --cov=scripts --cov-append --cov-report=xml:test-results/coverage.xml
-
-      - name: Upload core test timings and coverage
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: core-tests-${{ matrix.python-version }}-${{ matrix.shard }}
-          path: test-results/
-          if-no-files-found: error
-          include-hidden-files: true
 
   python-package-tests:
     name: python / package tests (${{ matrix.group }}, ${{ matrix.python-version }})
@@ -377,6 +295,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/docker-mirror
       - uses: ./.github/actions/python-workspace
+        with:
+          python-version: "3.12"
       - name: Measure the complete workspace with module-preserving shards
         run: >-
           make test-coverage-workspace
@@ -459,14 +379,6 @@ jobs:
           path: test-results/coverage/
           if-no-files-found: error
           include-hidden-files: true
-
-  windows-portability:
-    name: windows / compose portability
-    needs: ci-config
-    if: needs.ci-config.outputs.python == 'true'
-    uses: ./.github/workflows/windows-compose-portability.yml
-    with:
-      reuse-wheelhouse: true
 
   frontend:
     name: behaviour / JavaScript
@@ -630,10 +542,8 @@ jobs:
       - ci-config
       - installed-provider-artifacts
       - python-quality
-      - python-core-tests
       - python-package-tests
       - python-coverage
-      - windows-portability
       - frontend
       - writer
       - plugin
@@ -644,10 +554,8 @@ jobs:
           CI_CONFIG: ${{ needs.ci-config.result }}
           INSTALLED_PROVIDER_ARTIFACTS: ${{ needs.installed-provider-artifacts.result }}
           PYTHON_QUALITY: ${{ needs.python-quality.result }}
-          PYTHON_CORE_TESTS: ${{ needs.python-core-tests.result }}
           PYTHON_PACKAGE_TESTS: ${{ needs.python-package-tests.result }}
           PYTHON_COVERAGE: ${{ needs.python-coverage.result }}
-          WINDOWS_PORTABILITY: ${{ needs.windows-portability.result }}
           FRONTEND: ${{ needs.frontend.result }}
           WRITER: ${{ needs.writer.result }}
           PLUGIN: ${{ needs.plugin.result }}
@@ -667,8 +575,6 @@ jobs:
             echo "| ci / config | ${CI_CONFIG} |"
             echo "| python / installed provider artifacts | ${INSTALLED_PROVIDER_ARTIFACTS} |"
             echo "| quality / source and file contracts | ${PYTHON_QUALITY} |"
-            echo "| python / core tests | ${PYTHON_CORE_TESTS} |"
-            echo "| integration / Windows contracts | ${WINDOWS_PORTABILITY} |"
             echo "| python / package tests | ${PYTHON_PACKAGE_TESTS} |"
             echo "| python / line and branch floors | ${PYTHON_COVERAGE} |"
             echo "| behaviour / JavaScript | ${FRONTEND} |"
@@ -688,7 +594,7 @@ jobs:
           if [ "$SELECT_FRONTEND" = true ]; then expected_frontend=success; fi
           if [ "$SELECT_WRITER" = true ]; then expected_writer=success; fi
           if [ "$SELECT_PLUGIN" = true ]; then expected_plugin=success; fi
-          for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_CORE_TESTS" "$PYTHON_COVERAGE" "$WINDOWS_PORTABILITY"; do
+          for result in "$INSTALLED_PROVIDER_ARTIFACTS" "$PYTHON_COVERAGE"; do
             test "$result" = "$expected_python"
           done
           test "$PYTHON_PACKAGE_TESTS" = "$expected_groups"
