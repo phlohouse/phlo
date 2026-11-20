@@ -528,3 +528,18 @@ def test_upgrade_leaves_an_operators_own_sign_in_alone(tmp_path, monkeypatch):
     config_file.write_text(yaml.safe_dump(config))
     plan = _review(tmp_path)
     assert all(change.path != "phlo.yaml" for change in plan.files)
+
+
+def test_upgrade_leaves_hand_written_authorization_alone(tmp_path, monkeypatch):
+    """Verify existing roles stop the automatic sign-in instead of failing the upgrade."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
+    assert CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"]).exit_code == 0
+    roles = tmp_path / ".phlo/authorization/roles.yaml"
+    roles.parent.mkdir(parents=True, exist_ok=True)
+    roles.write_text("roles:\n  analyst: {}\n")
+    plan = _review(tmp_path)
+    assert all(change.path != "phlo.yaml" for change in plan.files)
+    assert roles.read_text() == "roles:\n  analyst: {}\n"

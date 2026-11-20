@@ -106,7 +106,7 @@ def _automatic_activation(
         return {}
     try:
         return _development_activation(root, config, production)
-    except ValueError:
+    except (ValueError, click.ClickException):
         return {}
 
 
