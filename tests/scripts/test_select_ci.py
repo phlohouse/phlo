@@ -27,8 +27,19 @@ def test_docs_only_skips_package_groups() -> None:
     }
 
 
-def test_trino_selects_reverse_dependency_groups() -> None:
+def test_source_changes_leave_isolated_package_groups_to_dependency_changes() -> None:
     selection = select({"packages/phlo-trino/src/phlo_trino/plugin.py"})
+    # Workspace coverage runs these package tests; isolation only checks manifests.
+    assert selection["groups"] == []
+    assert selection["python"] is True
+    assert selection["integration"] is True
+    assert "phlo-nessie" in selection["reasons"]["python"]
+    assert select({"scripts/select_ci.py"})["groups"] == []
+    assert select({"scripts/select_ci.py"}, full=True)["groups"] == []
+
+
+def test_trino_manifest_selects_reverse_dependency_groups() -> None:
+    selection = select({"packages/phlo-trino/pyproject.toml"})
     # Nessie depends on Trino; Iceberg and Dagster depend on Nessie.
     assert {entry["group"] for entry in selection["groups"]} == {
         "api",
@@ -45,8 +56,8 @@ def test_trino_selects_reverse_dependency_groups() -> None:
     ]
 
 
-def test_unknown_config_and_empty_diff_run_everything() -> None:
-    for paths in ({"scripts/select_ci.py"}, set()):
+def test_workspace_manifests_and_empty_diff_run_everything() -> None:
+    for paths in ({"uv.lock"}, {"pyproject.toml", "scripts/select_ci.py"}, set()):
         selection = select(paths)
         assert {entry["group"] for entry in selection["groups"]} == {
             "platform",
@@ -67,7 +78,7 @@ def test_writer_only_skips_python_and_package_groups() -> None:
 
 
 def test_leaf_package_does_not_run_unrelated_groups() -> None:
-    selection = select({"packages/phlo-traefik/src/phlo_traefik/plugin.py"})
+    selection = select({"packages/phlo-traefik/pyproject.toml"})
     assert [(entry["group"], entry["python-version"]) for entry in selection["groups"]] == [
         ("platform", "3.12"),
     ]

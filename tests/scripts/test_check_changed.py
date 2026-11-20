@@ -113,7 +113,7 @@ def test_main_executes_only_selected_commands(
 
 
 def test_package_commands_follow_selected_groups_and_full_diff() -> None:
-    selection = select_ci.select({"packages/phlo-traefik/src/phlo_traefik/plugin.py"})
+    selection = select_ci.select({"packages/phlo-traefik/pyproject.toml"})
     commands = check_changed.commands(selection)
     expected_packages = selection["groups"][0]["packages"].split()
     tests = [command for command in commands if "--package" in command]

@@ -157,26 +157,60 @@ def test_required_suite_executes_and_rejects_skips(tmp_path, body) -> None:
     assert (tmp_path / "result.xml").exists()
 
 
-def test_merge_queue_executes_full_selection(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("changed", "groups"),
+    [
+        ("scripts/tool.py", set()),
+        ("uv.lock", {"platform", "data"}),
+        ("packages/phlo-traefik/pyproject.toml", {"platform"}),
+    ],
+)
+def test_merge_queue_runs_every_lane_and_package_groups_only_for_dependencies(
+    tmp_path, changed, groups
+) -> None:
+    source = tmp_path / "source"
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=source, text=True).strip()
+
+    files = {
+        "scripts/select_ci.py": (ROOT / "scripts/select_ci.py").read_text(),
+        ".github/ci-package-groups.json": json.dumps(
+            {"platform": "phlo-traefik", "data": "phlo-trino"}
+        ),
+        "packages/phlo-traefik/pyproject.toml": '[project]\nname="phlo-traefik"\n',
+        "packages/phlo-trino/pyproject.toml": '[project]\nname="phlo-trino"\n',
+        "scripts/tool.py": "VALUE = 1\n",
+        "uv.lock": "version = 1\n",
+    }
+    for name, contents in files.items():
+        (source / name).parent.mkdir(parents=True, exist_ok=True)
+        (source / name).write_text(contents)
+    git("init", "-qb", "main")
+    git("remote", "add", "origin", source.as_uri())
+    git("add", ".")
+    git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    with (source / changed).open("a") as handle:
+        handle.write("# queued change\n")
+    git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qam", "head")
+    head = git("rev-parse", "HEAD")
+
     step = workflow("pr.yml")["jobs"]["changes"]["steps"][-1]
     output = tmp_path / "output"
     summary = tmp_path / "summary"
     env = dict(
         os.environ,
         EVENT_NAME="merge_group",
+        BASE_SHA=base,
+        HEAD_SHA=head,
         GITHUB_OUTPUT=str(output),
         GITHUB_STEP_SUMMARY=str(summary),
     )
-    subprocess.run(["bash", "-c", step["run"]], cwd=ROOT, env=env, check=True)
+    subprocess.run(["bash", "-c", step["run"]], cwd=source, env=env, check=True)
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
     selection = json.loads(values["selection"])
-    assert {entry["group"] for entry in selection["groups"]} == {
-        "platform",
-        "data",
-        "api",
-        "runtime",
-        "interfaces",
-    }
+    assert {entry["group"] for entry in selection["groups"]} == groups
     assert all(
         selection[lane]
         for lane in ("python", "frontend", "writer", "integration", "docs", "plugin", "mutation")
@@ -300,7 +334,7 @@ def test_docs_reusable_without_duplicate_pr_trigger_or_queue_deployment() -> Non
 
 
 @pytest.mark.parametrize("selected", list(itertools.product([False, True], repeat=3)))
-@pytest.mark.parametrize("lane", ["frontend", "writer", "plugin"])
+@pytest.mark.parametrize("lane", ["frontend", "node-apps"])
 @pytest.mark.parametrize("result", ["success", "failure", "skipped", "cancelled", ""])
 def test_node_gate_requires_exactly_selected_consumers(tmp_path, selected, lane, result):
     jobs = workflow("ci.yml")["jobs"]
@@ -315,22 +349,31 @@ def test_node_gate_requires_exactly_selected_consumers(tmp_path, selected, lane,
         SELECT_GROUPS="[]",
         GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
     )
-    selection = dict(zip(("frontend", "writer", "plugin"), selected, strict=True))
-    for name, enabled in selection.items():
-        assert jobs[name]["if"] == f"needs.ci-config.outputs.{name} == 'true'"
-        assert name in aggregate["needs"]
-        assert step["env"][name.upper()] == f"${{{{ needs.{name}.result }}}}"
-        env[f"SELECT_{name.upper()}"] = str(enabled).lower()
-        env[name.upper()] = "success" if enabled else "skipped"
-    env[lane.upper()] = result
+    frontend, writer, plugin = selected
+    assert jobs["frontend"]["if"] == "needs.ci-config.outputs.frontend == 'true'"
+    assert jobs["node-apps"]["if"] == (
+        "needs.ci-config.outputs.writer == 'true' || needs.ci-config.outputs.plugin == 'true'"
+    )
+    assert {"frontend", "node-apps"} <= set(aggregate["needs"])
+    assert step["env"]["FRONTEND"] == "${{ needs.frontend.result }}"
+    assert step["env"]["NODE_APPS"] == "${{ needs.node-apps.result }}"
+    expected = {"frontend": frontend, "node-apps": writer or plugin}
+    env.update(
+        SELECT_FRONTEND=str(frontend).lower(),
+        SELECT_WRITER=str(writer).lower(),
+        SELECT_PLUGIN=str(plugin).lower(),
+        FRONTEND="success" if frontend else "skipped",
+        NODE_APPS="success" if expected["node-apps"] else "skipped",
+    )
+    env[lane.upper().replace("-", "_")] = result
     actual = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True)
-    assert (actual.returncode == 0) == (result == ("success" if selection[lane] else "skipped"))
+    assert (actual.returncode == 0) == (result == ("success" if expected[lane] else "skipped"))
 
 
 def test_independent_jobs_preserve_named_checks_and_single_setup():
     jobs = workflow("ci.yml")["jobs"]
     quality = jobs["python-quality"]
-    for job in (quality, jobs["frontend"], jobs["writer"], jobs["plugin"]):
+    for job in (quality, jobs["frontend"], jobs["node-apps"]):
         assert sum("actions/checkout@" in step.get("uses", "") for step in job["steps"]) == 1
         assert not any(step.get("continue-on-error") for step in job["steps"])
     for name, checks in {
@@ -338,12 +381,17 @@ def test_independent_jobs_preserve_named_checks_and_single_setup():
             "Run tests",
             "Smoke the built Node app against the controlled authenticated API",
         },
-        "writer": {"Type check writer", "Run writer tests", "Build writer"},
-        "plugin": {"Run plugin behavior tests", "Upload plugin results"},
+        "node-apps": {
+            "Type check writer",
+            "Run writer tests",
+            "Build writer",
+            "Run plugin behavior tests",
+            "Upload plugin results",
+        },
     }.items():
         assert checks <= {step.get("name") for step in jobs[name]["steps"]}
         assert jobs[name]["needs"] == "ci-config"
-        assert jobs[name]["timeout-minutes"] == 25
+        assert jobs[name]["timeout-minutes"] == 15
     assert jobs["frontend"]["name"] == "behaviour / JavaScript"
     quality_names = {step.get("name") for step in quality["steps"]}
     assert {
@@ -429,8 +477,7 @@ def test_ci_status_rejects_missing_required_python_lanes(tmp_path, lane, result)
         SELECT_PLUGIN="false",
         PYTHON_PACKAGE_TESTS="skipped",
         FRONTEND="skipped",
-        WRITER="skipped",
-        PLUGIN="skipped",
+        NODE_APPS="skipped",
         GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
     )
     env[lane] = result
@@ -508,6 +555,38 @@ def test_supported_python_versions_run_on_prs_or_nightly() -> None:
     )
     assert setup["with"]["python-version"] == "3.13"
     assert "python-313" in nightly["nightly-status"]["needs"]
+
+
+def test_nightly_runs_every_isolated_package_group_through_ci(tmp_path) -> None:
+    nightly = workflow("nightly.yml")["jobs"]
+    step = nightly["package-selection"]["steps"][-1]
+    output = tmp_path / "output"
+    subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=ROOT,
+        env=dict(os.environ, GITHUB_OUTPUT=str(output)),
+        check=True,
+    )
+    selection = json.loads(output.read_text().split("=", 1)[1])
+    assert {entry["group"] for entry in selection["groups"]} == {
+        "platform",
+        "data",
+        "api",
+        "runtime",
+        "interfaces",
+    }
+    assert not any(
+        selection[lane]
+        for lane in ("python", "frontend", "writer", "integration", "docs", "plugin", "mutation")
+    )
+    package_tests = nightly["package-tests"]
+    assert package_tests["uses"] == "./.github/workflows/ci.yml"
+    assert package_tests["with"]["selection"] == (
+        "${{ needs.package-selection.outputs.selection }}"
+    )
+    status = nightly["nightly-status"]
+    assert "package-tests" in status["needs"]
+    assert "$PACKAGE_TESTS" in status["steps"][0]["run"]
 
 
 def test_ruleset_requires_exact_pr_gate_and_all_green_squash_queue() -> None:
