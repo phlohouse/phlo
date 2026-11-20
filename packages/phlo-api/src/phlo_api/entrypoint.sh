@@ -33,9 +33,12 @@ if [ "$PHLO_DEV_MODE" = "true" ] && [ -f "$PHLO_DEV_ROOT/pyproject.toml" ]; then
     mkdir -p "$DEV_INSTALL_ROOT/packages"
     mkdir -p "$DEV_INSTALL_ROOT/site-packages"
     packages="phlo-postgres phlo-api"
+    # Extras of phlo-api itself, as opposed to provider packages.
+    api_extras=""
     for extra in $(printf '%s' "${PHLO_API_EXTRAS:-}" | tr ',' ' '); do
         case "$extra" in
             dagster|dlt|iceberg|lineage|transform|trino) packages="$packages phlo-$extra" ;;
+            notebooks) api_extras="${api_extras:+$api_extras,}$extra" ;;
             *) echo "Unsupported API provider extra: $extra" >&2; exit 1 ;;
         esac
     done
@@ -44,7 +47,11 @@ if [ "$PHLO_DEV_MODE" = "true" ] && [ -f "$PHLO_DEV_ROOT/pyproject.toml" ]; then
         if [ -f "$PHLO_DEV_ROOT/packages/$package/pyproject.toml" ]; then
             cp -R "$PHLO_DEV_ROOT/packages/$package" "$DEV_INSTALL_ROOT/packages/"
             chmod -R u+w "$DEV_INSTALL_ROOT/packages/$package"
-            install_editable "$DEV_INSTALL_ROOT/packages/$package" "/tmp/$package-package-install.log"
+            requirement="$DEV_INSTALL_ROOT/packages/$package"
+            if [ "$package" = "phlo-api" ] && [ -n "$api_extras" ]; then
+                requirement="$requirement[$api_extras]"
+            fi
+            install_editable "$requirement" "/tmp/$package-package-install.log"
             # Live sources shadow the copied build tree and installed distributions.
             export PYTHONPATH="$PHLO_DEV_ROOT/packages/$package/src:$PYTHONPATH"
         fi

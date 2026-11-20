@@ -426,7 +426,7 @@ HTTP_ROUTE_DECLARATIONS: tuple[OperationSpec, ...] = (
         resource_keys=("env",),
         resource_sources=(("env", "query"),),
     ),
-    # Kernels run Python on the API host: the same permission as running a job.
+    # Kernels run Python in the kernel host: the same permission as running a job.
     *_specs(
         (
             "v1_notebook_kernels",
