@@ -10,14 +10,17 @@ from phlo.cli.infrastructure.container_backend import ContainerBackend, containe
 from phlo.config.env import load_project_env
 
 
-def _default_run_ref() -> str | None:
-    """Return the default environment's Nessie ref, or None without environments."""
+def _default_run_target() -> tuple[str, str | None] | None:
+    """Return the default environment's Nessie ref and code location, if configured."""
     from phlo.config.project import get_default_environment, get_environment_targets
 
     try:
-        return get_environment_targets()[get_default_environment()].nessie_ref or None
+        target = get_environment_targets()[get_default_environment()]
     except (OSError, ValueError, TypeError, KeyError):
         return None
+    if not target.nessie_ref:
+        return None
+    return target.nessie_ref, target.dagster_location or None
 
 
 def build_materialization_command(
@@ -41,13 +44,17 @@ def build_materialization_command(
     for pretty_var in ("PHLO_OBSERVE_PRETTY", "PHLO_OBSERVE_PRETTY_VERBOSE", "OBSERVE_DRAINS"):
         if project_env.get(pretty_var):
             exec_env[pretty_var] = project_env[pretty_var]
-    ref = _default_run_ref()
-    # Tag the run with the ref it writes so phlo-api shows it in its environment.
-    launcher = (
-        ["python", "-m", "phlo_dagster.tagged_materialize", f"phlo/ref={ref}", "--"]
-        if ref
-        else ["dagster", "asset", "materialize"]
-    )
+    # Record the ref the run writes and its code location, so phlo-api shows
+    # the run in its environment like runs launched from Observatory.
+    target = _default_run_target()
+    if target is None:
+        launcher = ["dagster", "asset", "materialize"]
+    else:
+        ref, location = target
+        launcher = ["python", "-m", "phlo_dagster.tagged_materialize"]
+        if location:
+            launcher.extend(["--location", location])
+        launcher.extend([f"phlo/ref={ref}", "--"])
     command = [
         *launcher,
         "-m",

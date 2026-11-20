@@ -67,7 +67,8 @@ fi
 project_install_marker=/var/lib/phlo-project-installed
 project_install_digest=""
 if [ -f /app/pyproject.toml ]; then
-    project_install_digest="$(cat /app/pyproject.toml /app/uv.lock 2>/dev/null | sha256sum | cut -d' ' -f1)"
+    # uv.lock is optional; pipefail must not abort when it is absent.
+    project_install_digest="$( { cat /app/pyproject.toml; cat /app/uv.lock 2>/dev/null || true; } | sha256sum | cut -d' ' -f1)"
 fi
 if [ -n "$project_install_digest" ] && [ "$PHLO_DEV_MODE" != "true" ] \
     && [ "$(cat "$project_install_marker" 2>/dev/null)" = "$project_install_digest" ]; then
