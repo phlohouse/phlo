@@ -124,7 +124,7 @@ def test_documented_quickstart_bootstrap_path_reaches_services_start(
     runner = CliRunner()
     init_result = runner.invoke(main_module.init, ["demo", "--template", "minimal"])
     assert init_result.exit_code == 0, init_result.output
-    assert "uv pip install -e ." in init_result.output
+    assert "uv sync" in init_result.output
     assert "phlo services init" in init_result.output
     assert "phlo services start" in init_result.output
     assert "phlo doctor" in init_result.output

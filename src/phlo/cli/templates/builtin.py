@@ -114,7 +114,7 @@ def _write_project_readme(
     rendered_commands = "\n".join(command_lines)
     template_section = ""
     if template_commands:
-        rendered_template_commands = "\n".join(f"   {command}" for command in template_commands)
+        rendered_template_commands = "\n".join(f"   uv run {command}" for command in template_commands)
         template_section = f"""
 5. **Run the starter workflow:**
    ```bash
@@ -132,14 +132,14 @@ Phlo data workflows for {project_name}.
 
 ## Getting Started
 
-1. **Install project dependencies:**
+1. **Install project dependencies** (Phlo and the default stack's plugins):
    ```bash
-   uv pip install -e .
+   uv sync
    ```
 
 2. **Generate local runtime state:**
    ```bash
-   phlo services init
+   uv run phlo services init
    ```
 
    Commit shared Compose and service configuration files under `.phlo/`.
@@ -153,13 +153,13 @@ Phlo data workflows for {project_name}.
 
 3. **Start and inspect the local stack:**
    ```bash
-   phlo services start
-   phlo services status
+   uv run phlo services start
+   uv run phlo services status
    ```
 
 4. **Verify setup health:**
    ```bash
-   phlo doctor
+   uv run phlo doctor
    ```
 
    Dagster is available at http://localhost:10006 when the default stack is running.
@@ -184,8 +184,8 @@ Phlo data workflows for {project_name}.
 
 ## Documentation
 
-- [Phlo Documentation](https://github.com/iamgp/phlo)
-- [Ingest data guide](https://github.com/iamgp/phlo/blob/main/docs/guides/ingest-data.md)
+- [Phlo Documentation](https://github.com/phlohouse/phlo)
+- [Ingest data guide](https://github.com/phlohouse/phlo/blob/main/docs/guides/ingest-data.md)
 """,
     )
 
