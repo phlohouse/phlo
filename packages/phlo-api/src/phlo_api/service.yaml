@@ -305,9 +305,11 @@ env_vars:
         default: "http://phlo-notebook-kernels:8890"
         description: Notebook kernel host URL as the API container reaches it
     PHLO_NOTEBOOK_GATEWAY_TOKEN:
+        default: ""
         description: Bearer token shared by the API and the notebook kernel host
         secret: true
     PHLO_NOTEBOOK_SCHEDULE_KEY:
+        default: ""
         description: Key the API signs notebook schedules with, so a notebook file cannot name its own runner
         secret: true
     PHLO_V1_QUERY_SINGLE_PROCESS:
