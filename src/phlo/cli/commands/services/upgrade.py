@@ -88,15 +88,40 @@ def _development_activation(
     }
 
 
+_DEV_AUTHENTICATION = {"provider": "static", "static": {"enabled": True, "dev_mode": True}}
+
+
+def _automatic_activation(
+    root: Path, config: dict, old: dict, production: bool
+) -> dict[str, tuple[bytes, int]]:
+    """Set up the local Observatory sign-in a development stack lacks, as init does.
+
+    Only a stack with the API and UI, and no sign-in other than this one, takes
+    part; anything the activation refuses is left for an explicit review.
+    """
+    services = old["services"]
+    if "phlo-api" not in services or "observatory" not in services:
+        return {}
+    if config.get("authentication") not in (None, {}, _DEV_AUTHENTICATION):
+        return {}
+    try:
+        return _development_activation(root, config, production)
+    except ValueError:
+        return {}
+
+
 def _candidate(
-    root: Path, production: bool, observatory_dev: bool = False
+    root: Path, production: bool, observatory_dev: bool | None = False
 ) -> tuple[dict[str, tuple[bytes, int]], tuple, tuple, tuple, dict, frozenset[str]]:
     state = root / ".phlo"
     config = yaml.safe_load(checked_path(root, "phlo.yaml").read_text(encoding="utf-8")) or {}
-    activation = _development_activation(root, config, production) if observatory_dev else {}
     old = yaml.safe_load(checked_path(root, ".phlo/docker-compose.yml").read_text(encoding="utf-8"))
     if not isinstance(old, dict) or not isinstance(old.get("services"), dict):
         raise ValueError("Existing Compose must contain services")
+    if observatory_dev is None:
+        activation = _automatic_activation(root, config, old, production)
+    else:
+        activation = _development_activation(root, config, production) if observatory_dev else {}
     if "/opt/phlo-dev" in json.dumps(old):
         raise ValueError(
             "Source-mounted development stacks require an explicit non-dev regeneration"
@@ -302,12 +327,14 @@ def build_plan(
     root: Path,
     previous_generated: Path | None,
     production: bool,
-    observatory_dev: bool = False,
+    observatory_dev: bool | None = False,
     repair_empty_api_binds: bool = False,
 ) -> tuple[GeneratedStackPlan, dict[str, tuple[bytes, int]]]:
     files, companions, order, migrations, images, additive = _candidate(
         root, production, observatory_dev
     )
+    # Only the sign-in activation adds phlo.yaml to the generated files.
+    activated = bool(observatory_dev) or (observatory_dev is None and "phlo.yaml" in files)
     runtime_ownership = ()
     if repair_empty_api_binds:
         if select_project_container_backend().name != "docker":
@@ -340,7 +367,7 @@ def build_plan(
             if previous_baseline.exists()
             else {}
         )
-    if observatory_dev:
+    if activated:
         baseline.update(
             {
                 name: file_digest(root, name)
@@ -352,7 +379,7 @@ def build_plan(
     # Additive merges keep every operator value, so the current file is their base.
     baseline.update({name: file_digest(root, name) for name in additive})
     inputs = ["phlo.yaml", f".phlo/{BASELINE}", f".phlo/{REWRITES}"]
-    if observatory_dev:
+    if activated:
         inputs.extend((".phlo/authorization/roles.yaml", ".phlo/authorization/policies.yaml"))
     inputs.extend(path.relative_to(root).as_posix() for path in project_env_paths(root / ".phlo"))
     inputs.append(".phlo/.gitignore")
@@ -620,7 +647,12 @@ def upgrade_cmd(
         if dry_run and plan_path:
             raise ValueError("--dry-run and --apply are mutually exclusive")
         current, files = build_plan(
-            root, previous_generated, production, observatory_dev, repair_empty_api_binds
+            root,
+            previous_generated,
+            production,
+            # Without the flag, a development stack gets the local sign-in as init gives it.
+            observatory_dev or None,
+            repair_empty_api_binds,
         )
         if plan_path:
             reviewed = GeneratedStackPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))

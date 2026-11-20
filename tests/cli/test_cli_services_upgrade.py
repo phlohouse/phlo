@@ -494,3 +494,37 @@ def test_reviewed_empty_api_bind_repair_and_failure_recovery(tmp_path, monkeypat
     result = runner.invoke(upgrade_cmd, command)
     assert result.exit_code != 0 and "symlink" in result.output
     assert (saved / "retained.jsonl").read_text() == "preserve after restart\n"
+
+
+def test_upgrade_sets_up_the_local_sign_in_a_development_stack_lacks(tmp_path, monkeypatch):
+    """Verify a stack from before automatic sign-in gets it, once, without a flag."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
+    result = CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"])
+    assert result.exit_code == 0, result.output
+    assert "authentication" not in yaml.safe_load((tmp_path / "phlo.yaml").read_text())
+    plan = _review(tmp_path)
+    assert next(change for change in plan.files if change.path == "phlo.yaml").state == "replace"
+    for _ in range(2):
+        result = _apply(tmp_path, plan)
+        assert result.exit_code == 0, result.output
+    config = yaml.safe_load((tmp_path / "phlo.yaml").read_text())
+    assert config["authentication"]["static"] == {"enabled": True, "dev_mode": True}
+    assert all(change.state == "unchanged" for change in _review(tmp_path).files)
+
+
+def test_upgrade_leaves_an_operators_own_sign_in_alone(tmp_path, monkeypatch):
+    """Verify configured authentication is never replaced by the local sign-in."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
+    assert CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"]).exit_code == 0
+    config_file = tmp_path / "phlo.yaml"
+    config = yaml.safe_load(config_file.read_text())
+    config["authentication"] = {"provider": "jwt"}
+    config_file.write_text(yaml.safe_dump(config))
+    plan = _review(tmp_path)
+    assert all(change.path != "phlo.yaml" for change in plan.files)
