@@ -212,15 +212,27 @@ jobs:
           --previous-candidate-bom previous/bom.json
           --part "$PART"
           --evidence-output "$RUNNER_TEMP/evidence-$PART.json"
+      - name: Mark a part that produced no evidence as failed
+        # Part artifacts are named per run, not per attempt, so re-running only
+        # the failed jobs still merges every part. A part that dies before
+        # writing evidence uploads a bundle that cannot validate, replacing any
+        # earlier attempt's evidence instead of letting it stand in.
+        if: always()
+        env:
+          PART: ${{ matrix.part }}
+        run: |
+          evidence="$RUNNER_TEMP/evidence-$PART.json"
+          test -s "$evidence" || printf '{"schema": "missing"}\n' > "$evidence"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:
-          name: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host }}-${{ matrix.part }}
+          name: smoke-part-${{ github.run_id }}-${{ matrix.host }}-${{ matrix.part }}
           path: |
             ${{ runner.temp }}/evidence-${{ matrix.part }}.json
             ${{ runner.temp }}/evidence-${{ matrix.part }}-observatory/
           if-no-files-found: warn
           retention-days: 14
+          overwrite: true
 
   golden-path:
     needs: [distributions, smoke]
@@ -245,7 +257,7 @@ jobs:
           path: candidate
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
-          pattern: smoke-part-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.host }}-*
+          pattern: smoke-part-${{ github.run_id }}-${{ matrix.host }}-*
           path: parts
           merge-multiple: true
       - name: Merge and validate the evidence of every part
