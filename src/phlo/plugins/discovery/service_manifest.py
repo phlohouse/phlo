@@ -9,6 +9,7 @@ Imported by phlo.plugins.discovery.services and the phlo CLI services commands
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -158,10 +159,13 @@ class ServiceManifestResolver:
         services: list[ServiceDefinition],
         *,
         available_services: list[ServiceDefinition] | None = None,
+        excluded: Collection[str] = (),
     ) -> list[ServiceDefinition]:
         """Expand requested definitions, preferring them over available definitions.
 
         Include dependencies and eligible setup companions in dependency order.
+        Companions named in ``excluded`` (services the project disabled) are
+        left out.
         """
         service_by_name = {
             service.name: service for service in [*(available_services or []), *services]
@@ -181,16 +185,21 @@ class ServiceManifestResolver:
 
         for service in services:
             include(service_by_name[service.name])
-        # A "-setup" service is pulled in automatically, but only when every
-        # dependency it declares is already part of the selection; a setup job
-        # whose dependencies were not requested must not drag in new services.
+        # A "-setup" or companion service is pulled in automatically, but only
+        # when every service it serves is already part of the selection; it
+        # must never drag in services that were not requested.
+
+        def serves(service: ServiceDefinition) -> list[str]:
+            if service.companion_of:
+                return service.companion_of
+            return service.depends_on if service.name.endswith("-setup") else []
 
         bootstrap_companions = [
             service
             for service in service_by_name.values()
-            if service.name.endswith("-setup")
-            and service.depends_on
-            and all(dependency in selected for dependency in service.depends_on)
+            if serves(service)
+            and service.name not in excluded
+            and all(name in selected for name in serves(service))
         ]
         for companion in bootstrap_companions:
             selected.setdefault(companion.name, companion)

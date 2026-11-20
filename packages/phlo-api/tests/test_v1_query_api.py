@@ -469,3 +469,205 @@ def test_explain_and_saved_query_crud_rejects_stale_versions(query_api):
     )
     assert deleted.status_code == 204
     assert client.get("/api/v1/queries/saved?env=prod").json()["items"] == []
+
+
+def test_catalog_objects_browse_schemas_tables_views_and_columns(query_api, monkeypatch):
+    client, calls = query_api
+
+    async def execute(sql, *, catalog, disconnected, limit):
+        calls.append(sql)
+        if ".schemata" in sql:
+            return {"rows": [{"schema_name": "gold"}, {"schema_name": "silver"}], "has_more": True}
+        if ".tables" in sql:
+            return {
+                "rows": [
+                    {"table_name": "trial_starts", "table_type": "BASE TABLE"},
+                    {"table_name": "trial_summary", "table_type": "VIEW"},
+                ],
+                "has_more": False,
+            }
+        return {
+            "rows": [
+                {"column_name": "modality", "data_type": "varchar", "is_nullable": "YES"},
+                {"column_name": "starts", "data_type": "bigint", "is_nullable": "NO"},
+            ],
+            "has_more": False,
+        }
+
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    url = "/api/v1/query/catalog/objects"
+    schemas = client.get(url, params={"env": "prod"}).json()
+    assert [(i["name"], i["kind"]) for i in schemas["items"]] == [
+        ("gold", "schema"),
+        ("silver", "schema"),
+    ]
+    assert schemas["next_offset"] == 100
+    assert schemas["catalog"] == "warehouse_prod"
+
+    tables = client.get(url, params={"env": "prod", "schema": "o'brien"}).json()
+    assert [(i["name"], i["kind"]) for i in tables["items"]] == [
+        ("trial_starts", "table"),
+        ("trial_summary", "view"),
+    ]
+    assert tables["next_offset"] is None
+    assert "table_schema = 'o''brien'" in calls[-1]
+
+    columns = client.get(
+        url, params={"env": "prod", "schema": "gold", "table": "trial_starts", "offset": 100}
+    ).json()
+    assert [(c["name"], c["data_type"], c["nullable"]) for c in columns["items"]] == [
+        ("modality", "varchar", True),
+        ("starts", "bigint", False),
+    ]
+    assert calls[-1].endswith("OFFSET 100 LIMIT 101")
+
+    assert client.get(url, params={"env": "prod", "table": "x"}).status_code == 400
+    assert client.get(url, params={"env": "prod", "schema": "a\nb"}).status_code == 400
+    assert client.get(url, params={"env": "prod", "offset": -1}).status_code == 422
+
+
+def test_catalog_details_rebuild_a_definition_the_engine_will_not_show(query_api, monkeypatch):
+    # Read-only preview users are not owners, so Trino refuses SHOW CREATE.
+    client, _ = query_api
+
+    async def execute(sql, *, catalog, disconnected, limit, **_kwargs):
+        calls.append(sql)
+        if sql.startswith("SHOW CREATE"):
+            raise v1_query.PreviewQueryRejected("denied", error_name="PERMISSION_DENIED")
+        if "table_type" in sql:
+            kind = "VIEW" if "'trial_summary'" in sql else "BASE TABLE"
+            return {"rows": [{"table_type": kind}], "has_more": False}
+        if sql.startswith("SHOW COLUMNS"):
+            return {
+                "rows": [
+                    {"Column": "modality", "Type": "varchar", "Comment": "Therapy's class"},
+                    {"Column": "starts", "Type": "bigint", "Comment": ""},
+                ],
+                "has_more": False,
+            }
+        if "$properties" in sql:
+            return {
+                "rows": [
+                    {"key": "format", "value": "iceberg/PARQUET"},
+                    {"key": "format-version", "value": "2"},
+                    {"key": "location", "value": "s3://lake/warehouse/gold/trials"},
+                ],
+                "has_more": False,
+            }
+        if ".views" in sql:
+            return {"rows": [{"view_definition": "SELECT 1 AS one\n"}], "has_more": False}
+        return {"rows": [], "has_more": False}
+
+    calls: list[str] = []
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    params = {"env": "prod", "schema": "gold", "table": "trials"}
+    table = client.get("/api/v1/query/catalog/details", params=params).json()
+    assert table["ddl"] == (
+        "-- Rebuilt from the catalog; partitioning and sort order are not shown\n"
+        'CREATE TABLE "warehouse_prod"."gold"."trials" (\n'
+        "   \"modality\" varchar COMMENT 'Therapy''s class',\n"
+        '   "starts" bigint\n'
+        ")\nWITH (\n   format = 'PARQUET',\n   format_version = 2,\n"
+        "   location = 's3://lake/warehouse/gold/trials'\n)"
+    )
+    view = client.get(
+        "/api/v1/query/catalog/details", params={**params, "table": "trial_summary"}
+    ).json()
+    assert view["ddl"] == (
+        "-- Rebuilt from information_schema\n"
+        'CREATE VIEW "warehouse_prod"."gold"."trial_summary" AS\nSELECT 1 AS one'
+    )
+
+
+def test_catalog_details_sample_and_search(query_api, monkeypatch):
+    client, calls = query_api
+
+    async def execute(sql, *, catalog, disconnected, limit, **_kwargs):
+        calls.append(sql)
+        if "information_schema.tables WHERE table_schema" in sql and "table_name =" in sql:
+            return {"rows": [{"table_type": "BASE TABLE"}], "has_more": False}
+        if sql.startswith("SHOW COLUMNS"):
+            return {
+                "rows": [
+                    {
+                        "Column": "modality",
+                        "Type": "varchar",
+                        "Extra": "",
+                        "Comment": "Therapy class",
+                    },
+                    {"Column": "starts", "Type": "bigint", "Extra": "", "Comment": ""},
+                ],
+                "has_more": False,
+            }
+        if sql.startswith("SHOW CREATE TABLE"):
+            return {"rows": [{"Create Table": "CREATE TABLE gold.trials (...)"}], "has_more": False}
+        if "$snapshots" in sql:
+            return {
+                "rows": [
+                    {
+                        "snapshot_id": "42",
+                        "committed_at": "2026-11-19 09:00",
+                        "total_records": "1200",
+                    }
+                ],
+                "has_more": False,
+            }
+        if "table_comments" in sql:
+            return {"rows": [{"comment": "Registry trials"}], "has_more": False}
+        if sql.startswith("SELECT * FROM"):
+            return {
+                "columns": [{"name": "modality", "type": "varchar"}],
+                "rows": [{"modality": "CAR-T"}],
+                "has_more": True,
+            }
+        if ".columns" in sql:
+            return {
+                "rows": [
+                    {
+                        "table_schema": "gold",
+                        "table_name": "trials",
+                        "column_name": "modality",
+                        "data_type": "varchar",
+                    }
+                ],
+                "has_more": False,
+            }
+        return {
+            "rows": [{"table_schema": "gold", "table_name": "trial_summary", "table_type": "VIEW"}],
+            "has_more": False,
+        }
+
+    monkeypatch.setattr(v1_query, "execute_preview", execute)
+    params = {"env": "prod", "schema": "gold", "table": "trials"}
+    details = client.get("/api/v1/query/catalog/details", params=params).json()
+    assert details["kind"] == "table"
+    assert details["row_count"] == 1200
+    assert details["snapshot_id"] == "42"
+    assert details["comment"] == "Registry trials"
+    assert details["ddl"].startswith("CREATE TABLE")
+    assert [(c["name"], c["comment"]) for c in details["columns"]] == [
+        ("modality", "Therapy class"),
+        ("starts", None),
+    ]
+    assert any('"warehouse_prod"."gold"."trials$snapshots"' in sql for sql in calls)
+
+    sample = client.get("/api/v1/query/catalog/sample", params=params).json()
+    assert sample["rows"] == [{"modality": "CAR-T"}] and sample["has_more"] is True
+    assert calls[-1] == 'SELECT * FROM "warehouse_prod"."gold"."trials" LIMIT 51'
+
+    found = client.get(
+        "/api/v1/query/catalog/search", params={"env": "prod", "q": "50%_tri"}
+    ).json()
+    assert [(i["schema_name"], i["table"], i["kind"], i["column"]) for i in found["items"]] == [
+        ("gold", "trial_summary", "view", None),
+        ("gold", "trials", "column", "modality"),
+    ]
+    assert "LIKE '%50!%!_tri%' ESCAPE '!'" in calls[-2]
+    assert (
+        client.get("/api/v1/query/catalog/search", params={"env": "prod", "q": "x"}).status_code
+        == 422
+    )
+    assert (
+        client.get("/api/v1/query/catalog/details", params={**params, "table": "a\nb"}).status_code
+        == 400
+    )

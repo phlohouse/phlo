@@ -488,6 +488,23 @@
     },
     {
       "default": false,
+      "depends_on": [],
+      "name": "phlo-notebook-kernels",
+      "package": "phlo-api",
+      "ports": [
+        {
+          "container_port": 8890,
+          "env_var": "PHLO_NOTEBOOK_GATEWAY_PORT",
+          "host_ip": null,
+          "host_port": 10090,
+          "protocol": "tcp"
+        }
+      ],
+      "profile": "notebooks",
+      "source": "packages/phlo-api/src/phlo_api/notebook-kernels.yaml"
+    },
+    {
+      "default": false,
       "depends_on": [
         "phlo-observer-db-setup",
         "postgres"
@@ -755,6 +772,17 @@
       ],
       "profile": null,
       "source": "packages/phlo-trino/src/phlo_trino/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [
+        "trino"
+      ],
+      "name": "trino-preview",
+      "package": "phlo-trino",
+      "ports": [],
+      "profile": "api",
+      "source": "packages/phlo-trino/src/phlo_trino/preview-service.yaml"
     }
   ]
 }

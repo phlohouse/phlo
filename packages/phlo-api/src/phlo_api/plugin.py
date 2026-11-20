@@ -19,3 +19,14 @@ PhloApiServicePlugin = service_plugin_class(
     author="Phlo Team",
     tags=["api", "observability"],
 )
+
+
+PhloNotebookKernelsServicePlugin = service_plugin_class(
+    "PhloNotebookKernelsServicePlugin",
+    name="phlo-notebook-kernels",
+    version="0.1.0",
+    description="Observatory notebook kernels, isolated from the API and from each other",
+    author="Phlo Team",
+    tags=["api", "notebooks"],
+    service_definition_file="notebook-kernels.yaml",
+)

@@ -1,0 +1,11 @@
+# The notebook kernel host image: Jupyter and the data libraries notebooks use.
+# Exact pins keep the image reproducible; bump them together with uv.lock.
+duckdb==1.5.1
+ipykernel==7.4.0
+jupyter-client==8.10.0
+matplotlib==3.11.2
+matplotlib-inline==0.2.2
+pandas==3.0.6
+pyzmq==27.3.0
+tornado==6.6.1
+uv==0.13.7

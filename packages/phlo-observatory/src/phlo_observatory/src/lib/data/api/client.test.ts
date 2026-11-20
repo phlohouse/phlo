@@ -190,6 +190,39 @@ describe('Phlo API response boundary', () => {
     ).rejects.toThrow('Phlo API request failed (503).')
   })
 
+  it('passes notebook explanations through the same safety filter', async () => {
+    const refused = (code: string, message: string, status = 422) =>
+      parseApiResponse({
+        response: Response.json({ error: { code, message } }, { status }),
+        schema: snapshot,
+      }).catch((error: unknown) => error)
+    const invalid = await refused(
+      'notebook_invalid',
+      'Model names use lowercase letters, digits and _.',
+    )
+    expect(invalid).toMatchObject({
+      status: 422,
+      reasonCode: 'notebook_invalid',
+      detail: 'Model names use lowercase letters, digits and _.',
+    })
+    const sql = await refused(
+      'notebook_invalid_query',
+      'SELECT * FROM secret_table failed',
+    )
+    expect(sql).toMatchObject({ status: 422, detail: undefined })
+    const other = await refused('unprocessable_input', 'Internal detail.')
+    expect(other).toMatchObject({ status: 422, detail: undefined })
+    const busy = await refused(
+      'notebook_kernel_busy',
+      'The kernel is still running a cell.',
+      409,
+    )
+    expect(busy).toMatchObject({
+      status: 409,
+      detail: 'The kernel is still running a cell.',
+    })
+  })
+
   it('preserves unsafe integer digits while keeping safe integers numeric', async () => {
     const result = await parseApiResponse({
       response: new Response(

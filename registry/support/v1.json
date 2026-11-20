@@ -137,6 +137,8 @@
         "service:airbyte",
         "service:kafka",
         "service:postgres-exporter",
+        "service:phlo-notebook-kernels",
+        "service:trino-preview",
         "service:alloy",
         "service:alloy-docker",
         "service:airbyte-temporal",
@@ -758,6 +760,33 @@
       "reason": "Current service definition and focused package tests substantiate the v1-target service capability; identity and production gates still apply.",
       "evidence": [
         "packages/phlo-api/src/phlo_api/service.yaml"
+      ]
+    },
+    {
+      "name": "phlo-notebook-kernels",
+      "package": "phlo-api",
+      "source": "packages/phlo-api/src/phlo_api/notebook-kernels.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Kernel host for Observatory notebooks, off by default behind the notebooks profile; notebooks remain a preview feature.",
+      "evidence": [
+        "packages/phlo-api/src/phlo_api/notebook-kernels.yaml",
+        "packages/phlo-api/tests/test_v1_notebooks_api.py"
+      ]
+    },
+    {
+      "name": "trino-preview",
+      "package": "phlo-trino",
+      "source": "packages/phlo-trino/src/phlo_trino/preview-service.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Read-only Trino added with phlo-api for the Query page and notebook SQL cells; its credentials are generated locally on start.",
+      "evidence": [
+        "packages/phlo-trino/src/phlo_trino/preview-service.yaml",
+        "packages/phlo-api/tests/test_preview_bootstrap.py",
+        "tests/cli/test_cli_services_notebooks.py"
       ]
     },
     {

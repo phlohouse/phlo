@@ -29,7 +29,7 @@ ARG PHLO_API_EXTRAS=
 
 ENV PHLO_API_EXTRAS=${PHLO_API_EXTRAS}
 
-RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"].split(","))); unknown = extras - {"dagster", "dlt", "iceberg", "lineage", "transform", "trino"}; assert not unknown, f"Unsupported API provider extras: {sorted(unknown)}"'
+RUN python -c 'import os; extras = set(filter(None, os.environ["PHLO_API_EXTRAS"].split(","))); unknown = extras - {"dagster", "dlt", "iceberg", "lineage", "notebooks", "transform", "trino"}; assert not unknown, f"Unsupported API provider extras: {sorted(unknown)}"'
 
 # Match the existing GNU-native provider runtime rather than relying on musl shims.
 # Apply Debian fixes even when the digest-pinned base predates them.
@@ -82,7 +82,8 @@ RUN if [ -f /usr/local/bin/phlo-transform ]; then phlo-transform --version; fi
 
 RUN groupadd --system phlo \
     && useradd --system --gid phlo --home-dir /app --no-create-home phlo \
-    && chown -R phlo:phlo /app
+    && chown -R phlo:phlo /app \
+    && install -d -m 0700 -o phlo -g phlo /var/lib/phlo-preview
 
 USER phlo
 

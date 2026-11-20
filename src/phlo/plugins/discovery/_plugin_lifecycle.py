@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from phlo.logging_context import get_logger, log_event
+from phlo.logging_context import get_logger, log_event, suppress_log_routing
 from phlo.plugins.base.plugin import Plugin
 from phlo.plugins.discovery.registry import get_global_registry
 
@@ -54,6 +54,14 @@ def register_plugin_with_lifecycle(plugin_type: str, plugin: Plugin, replace: bo
     Readers and replacements share the registry lock. References already handed
     to callers are not leases and cannot be revoked by this registry.
     """
+    # Routed logs reach the hook bus, whose first use discovers and registers
+    # every plugin. Doing that inside this transition would publish the
+    # incoming plugin underneath it, so routing stays off as in discovery.
+    with suppress_log_routing():
+        _register_plugin_with_lifecycle(plugin_type, plugin, replace)
+
+
+def _register_plugin_with_lifecycle(plugin_type: str, plugin: Plugin, replace: bool) -> None:
     registry = get_global_registry()
     with registry._lock:
         name = plugin.metadata.name

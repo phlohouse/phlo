@@ -65,6 +65,11 @@ compose:
         PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_PROD:-}
         PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_STAGING:-}
         PHLO_V1_PREVIEW_CATALOGS: ${PHLO_V1_PREVIEW_CATALOGS:-}
+        # Set by phlo services init when it adds the trino-preview service.
+        PHLO_V1_PREVIEW_TRINO_URL: ${PHLO_V1_PREVIEW_TRINO_URL:-}
+        PHLO_V1_PREVIEW_TRINO_CA_FILE: ${PHLO_V1_PREVIEW_TRINO_CA_FILE:-}
+        PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES: ${PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES:-}
+        PHLO_V1_PREVIEW_STATE_DIR: ${PHLO_V1_PREVIEW_STATE_DIR:-}
         PHLO_V1_QUERY_SINGLE_REPLICA: ${PHLO_V1_QUERY_SINGLE_REPLICA:-}
         PHLO_V1_USAGE_TRINO_SOURCES: ${PHLO_V1_USAGE_TRINO_SOURCES:-}
         PHLO_V1_GIT_REVIEW_REPOSITORY: ${PHLO_V1_GIT_REVIEW_REPOSITORY:-}
@@ -93,6 +98,18 @@ compose:
         CLICKSTACK_QUERY_PASSWORD: ${CLICKSTACK_QUERY_PASSWORD:-}
         PHLO_PROJECT_PATH: /app
         PHLO_RUN_EVIDENCE_DB_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-phlo}
+        # Observatory notebooks. Kernels run on the phlo-notebook-kernels service
+        # (profile notebooks), never in this container; everything is off unless set.
+        PHLO_NOTEBOOK_KERNELS: ${PHLO_NOTEBOOK_KERNELS:-}
+        PHLO_NOTEBOOK_PACKAGES: ${PHLO_NOTEBOOK_PACKAGES:-}
+        PHLO_NOTEBOOK_SCHEDULES: ${PHLO_NOTEBOOK_SCHEDULES:-}
+        PHLO_NOTEBOOK_MAX_ROWS: ${PHLO_NOTEBOOK_MAX_ROWS:-10000}
+        PHLO_NOTEBOOK_CELL_TIMEOUT: ${PHLO_NOTEBOOK_CELL_TIMEOUT:-1800}
+        PHLO_NOTEBOOK_OUTPUT_DAYS: ${PHLO_NOTEBOOK_OUTPUT_DAYS:-14}
+        PHLO_NOTEBOOK_GATEWAY_URL: ${PHLO_NOTEBOOK_GATEWAY_URL:-http://phlo-notebook-kernels:8890}
+        PHLO_NOTEBOOK_GATEWAY_TOKEN: ${PHLO_NOTEBOOK_GATEWAY_TOKEN:-}
+        PHLO_NOTEBOOK_SCHEDULE_KEY: ${PHLO_NOTEBOOK_SCHEDULE_KEY:-}
+        PHLO_V1_QUERY_SINGLE_PROCESS: ${PHLO_V1_QUERY_SINGLE_PROCESS:-}
     ports:
         - "${PHLO_API_PORT:-4000}:4000"
     volumes:
@@ -103,6 +120,14 @@ compose:
         - ../.phlo/observatory:/app/.phlo/observatory
         - ../.phlo/state:/app/.phlo/state
         - ../.phlo/audit:/app/.phlo/audit
+        # Credentials for the generated preview Trino, private to the API user.
+        # The read-only preview Trino's certificate and passwords (see
+        # phlo_api.preview_bootstrap). A bind, so it belongs to the API user.
+        - type: bind
+          source: ../.phlo/query-preview
+          target: /var/lib/phlo-preview
+          bind:
+              create_host_path: false
         # These sources stay in the project tree so Dagster sees the same artifacts.
         - type: bind
           source: ../.phlo/uploads
@@ -122,6 +147,27 @@ compose:
         - type: bind
           source: ../workflows/uploads
           target: /app/workflows/uploads
+          bind:
+              create_host_path: false
+        # Observatory notebooks write only here; the rest of the project stays read-only.
+        - type: bind
+          source: ../notebooks
+          target: /app/notebooks
+          bind:
+              create_host_path: false
+        - type: bind
+          source: ../.phlo/notebook-outputs
+          target: /app/.phlo/notebook-outputs
+          bind:
+              create_host_path: false
+        - type: bind
+          source: ../.phlo/notebook-runs
+          target: /app/.phlo/notebook-runs
+          bind:
+              create_host_path: false
+        - type: bind
+          source: ../workflows/transforms/dbt/models/notebooks
+          target: /app/workflows/transforms/dbt/models/notebooks
           bind:
               create_host_path: false
     healthcheck:
@@ -234,6 +280,18 @@ env_vars:
     PHLO_V1_PREVIEW_CATALOGS:
         default: ""
         description: JSON allowlist mapping prod and staging to distinct pre-provisioned Nessie-ref-pinned Trino catalogs
+    PHLO_V1_PREVIEW_TRINO_URL:
+        default: ""
+        description: HTTPS URL of the read-only preview Trino; phlo services init sets it to the generated trino-preview service
+    PHLO_V1_PREVIEW_TRINO_CA_FILE:
+        default: ""
+        description: CA bundle the API trusts for the preview Trino
+    PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES:
+        default: ""
+        description: JSON map of environment to the private file holding its preview Trino password
+    PHLO_V1_PREVIEW_STATE_DIR:
+        default: ""
+        description: Folder where the API makes the generated preview Trino's certificate and passwords on start
     PHLO_V1_QUERY_SINGLE_REPLICA:
         default: ""
         description: Explicit operator assertion that this API deployment has exactly one replica for query sessions and saved-query writes
@@ -259,6 +317,29 @@ env_vars:
     PHLO_V1_BRANCH_CHECK_JOBS:
         default: ""
         description: JSON map of prod and staging to Dagster test, contract and audit check job names
+    PHLO_NOTEBOOK_KERNELS:
+        default: ""
+        description: Set to 1 to run Observatory notebook kernels on the phlo-notebook-kernels service (profile notebooks)
+    PHLO_NOTEBOOK_PACKAGES:
+        default: ""
+        description: Set to 1 to let notebooks list Python packages, installed as wheels on the kernel host
+    PHLO_NOTEBOOK_SCHEDULES:
+        default: ""
+        description: Set to 1 to run notebooks on their saved cron schedules
+    PHLO_NOTEBOOK_GATEWAY_URL:
+        default: "http://phlo-notebook-kernels:8890"
+        description: Notebook kernel host URL as the API container reaches it
+    PHLO_NOTEBOOK_GATEWAY_TOKEN:
+        default: ""
+        description: Bearer token shared by the API and the notebook kernel host
+        secret: true
+    PHLO_NOTEBOOK_SCHEDULE_KEY:
+        default: ""
+        description: Key the API signs notebook schedules with, so a notebook file cannot name its own runner
+        secret: true
+    PHLO_V1_QUERY_SINGLE_PROCESS:
+        default: ""
+        description: Operator assertion that the API runs as one process; query sessions and notebook kernels need it
 
 files:
     - source: Dockerfile
@@ -282,6 +363,13 @@ dev:
     environment:
         PYTHONUNBUFFERED: "1"
         PHLO_DEV_MODE: "true"
+        PHLO_NOTEBOOK_KERNELS: ${PHLO_NOTEBOOK_KERNELS:-}
+        PHLO_NOTEBOOK_PACKAGES: ${PHLO_NOTEBOOK_PACKAGES:-}
+        PHLO_NOTEBOOK_SCHEDULES: ${PHLO_NOTEBOOK_SCHEDULES:-}
+        PHLO_NOTEBOOK_GATEWAY_URL: "http://127.0.0.1:${PHLO_NOTEBOOK_GATEWAY_PORT:-10090}"
+        PHLO_NOTEBOOK_GATEWAY_TOKEN: ${PHLO_NOTEBOOK_GATEWAY_TOKEN:-}
+        PHLO_NOTEBOOK_SCHEDULE_KEY: ${PHLO_NOTEBOOK_SCHEDULE_KEY:-}
+        PHLO_V1_QUERY_SINGLE_PROCESS: ${PHLO_V1_QUERY_SINGLE_PROCESS:-}
         PHLO_IDENTITY_AUTHORITY_ENABLED: ${PHLO_IDENTITY_AUTHORITY_ENABLED:-1}
         PHLO_AUTHENTICATION_PROVIDER: ${PHLO_AUTHENTICATION_PROVIDER:-}
         PHLO_AUTH_JWT_SECRET: ${PHLO_AUTH_JWT_SECRET:-}

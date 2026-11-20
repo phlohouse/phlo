@@ -90,10 +90,16 @@ NAMED_CLAIM_BINDINGS: dict[str, dict[str, object]] = {
     },
 }
 SERVICE_PRIMARY_OVERRIDES = {
+    "phlo-api": {
+        "phlo-notebook-kernels": "src/phlo_api/notebook-kernels.yaml",
+    },
+    "phlo-trino": {
+        "trino-preview": "src/phlo_trino/preview-service.yaml",
+    },
     "phlo-postgres": {
         "postgres-exporter": "src/phlo_postgres/exporter_service.yaml",
         "postgres-volume-setup": "src/phlo_postgres/volume_setup.yaml",
-    }
+    },
 }
 
 

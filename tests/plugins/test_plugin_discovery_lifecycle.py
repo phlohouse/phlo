@@ -489,3 +489,34 @@ def test_registry_clear_deduplicates_cleanup_for_shared_plugin_instance(clean_re
     clean_registry.clear()
 
     assert events == ["cleanup:multi"]
+
+
+def test_direct_registration_does_not_route_its_logs_to_the_hook_bus(
+    clean_registry, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A routed log would make the hook bus discover and publish this plugin mid-transition."""
+    import logging
+
+    from phlo.logging import LogRouterHandler
+    from phlo.plugins.discovery._plugin_lifecycle import register_plugin_with_lifecycle
+
+    routed: list[object] = []
+
+    class _Bus:
+        def emit(self, event: object) -> None:
+            routed.append(event)
+            clean_registry.register("source_connector", plugin, replace=True)
+
+    monkeypatch.setattr("phlo.hooks.bus.get_hook_bus", lambda: _Bus())
+    monkeypatch.setattr("phlo.telemetry.emit", lambda *_, **__: None)
+    caplog.set_level(logging.DEBUG)
+    handler = LogRouterHandler(service_name="test")
+    logging.root.addHandler(handler)
+    try:
+        plugin = _LifecycleSourcePlugin(marker="direct", events=[])
+        register_plugin_with_lifecycle("source_connector", plugin, replace=False)
+    finally:
+        logging.root.removeHandler(handler)
+
+    assert routed == []
+    assert clean_registry.get("source_connector", "lifecycle_source") is plugin

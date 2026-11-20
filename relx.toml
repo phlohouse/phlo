@@ -79,6 +79,17 @@ search = "image: ghcr.io/phlohouse/{name}:{current_version}"
 replace = "image: ghcr.io/phlohouse/{name}:{next_version}"
 expected_matches = 1
 
+# The notebook kernel host image is versioned with phlo-api.
+[[release.replacements]]
+files = [
+    "packages/phlo-api/src/phlo_api/notebook-kernels.yaml",
+    "security/container-waivers.yml",
+]
+packages = ["phlo-api"]
+search = "image: ghcr.io/phlohouse/phlo-notebook-kernels:{current_version}"
+replace = "image: ghcr.io/phlohouse/phlo-notebook-kernels:{next_version}"
+expected_matches = 1
+
 [[release.replacements]]
 files = ["packages/phlo-observatory/src/phlo_observatory/service.yaml"]
 packages = ["phlo-observatory"]

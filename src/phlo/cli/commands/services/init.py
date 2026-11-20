@@ -9,6 +9,7 @@ production mode rejects default credentials.
 
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 import click
@@ -23,11 +24,14 @@ from phlo.cli.commands.services.utils import (
     _get_env_overrides,
     _get_service_overrides,
     _warn_secret_env_overrides,
+    apply_notebook_defaults,
+    apply_preview_defaults,
     apply_uv_lock_env_override,
     detect_phlo_source_path,
     expand_service_dependencies,
     generate_compose_or_fail,
     get_phlo_dir,
+    grant_dev_access,
     prepare_api_runtime_directories,
     resolve_phlo_package_dir,
 )
@@ -58,14 +62,16 @@ def _expand_selected_services(
     services: list[ServiceDefinition],
     *,
     additional_services: list[ServiceDefinition] | None = None,
+    excluded: Iterable[str] = (),
 ) -> list[ServiceDefinition]:
     """Expand selected services with declared dependencies and setup companions."""
     if not additional_services:
-        return expand_service_dependencies(discovery, services)
+        return expand_service_dependencies(discovery, services, excluded=excluded)
     return expand_service_dependencies(
         discovery,
         services,
         additional_services=additional_services,
+        excluded=excluded,
     )
 
 
@@ -308,6 +314,10 @@ def init_cmd(
     selection_plan, services_to_install = _select_initial_services(
         discovery, all_services, existing_config, user_overrides, env_overrides, profiles
     )
+    env_overrides = apply_notebook_defaults(services_to_install, env_overrides)
+    env_overrides = apply_preview_defaults(
+        services_to_install, env_overrides, existing_config.get("environments")
+    )
     _warn_secret_env_overrides(env_overrides, services_to_install)
 
     # Generate docker-compose.yml
@@ -373,6 +383,7 @@ def init_cmd(
     volumes_dir = phlo_dir / "volumes"
     volumes_dir.mkdir(exist_ok=True)
     prepare_api_runtime_directories(phlo_dir, (service.name for service in services_to_install))
+    grant_dev_access(phlo_dir, services_to_install, existing_config.get("environments") or {})
 
     # Copy service files (Dockerfiles, configs, etc.)
     copied_files = service_files.write(overwrite=not preserve_shared)
@@ -581,7 +592,10 @@ def _select_initial_services(
     for service in [*selection_plan.selected_services, *inline_services]:
         deduped_services[service.name] = service
     services_to_install = _expand_selected_services(
-        discovery, list(deduped_services.values()), additional_services=inline_services
+        discovery,
+        list(deduped_services.values()),
+        additional_services=inline_services,
+        excluded=selection_plan.disabled_names,
     )
     return selection_plan, services_to_install
 

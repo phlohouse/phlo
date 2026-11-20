@@ -121,6 +121,10 @@ class ServiceDefinition:
     source_path: Path | None = None
     phlo_dev: bool = False
     core: bool = False
+    # Pulled in automatically once every service named here is selected, like
+    # a "-setup" job, but kept running as an ordinary service. Independent of
+    # depends_on, so a companion can start alongside the services it serves.
+    companion_of: list[str] = field(default_factory=list)
     file_validator: Callable[[str, str], None] | None = field(
         default=None, repr=False, compare=False
     )
@@ -137,6 +141,11 @@ class ServiceDefinition:
             for name in self.depends_on
         ):
             raise ValueError(f"{self.name}: depends_on must be a list of service identities")
+        if not isinstance(self.companion_of, list) or any(
+            not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", name)
+            for name in self.companion_of
+        ):
+            raise ValueError(f"{self.name}: companion_of must be a list of service identities")
         if "depends_on" in self.compose:
             raise ValueError(f"{self.name}: declare dependencies only in top-level depends_on")
 
@@ -190,6 +199,7 @@ class ServiceDefinition:
             source_path=source_path,
             phlo_dev=data.get("phlo_dev", False),
             core=data.get("core", False),
+            companion_of=data.get("companion_of", []),
         )
 
     @classmethod
@@ -217,6 +227,7 @@ class ServiceDefinition:
             source_path=source_path,
             phlo_dev=data.get("phlo_dev", False),
             core=data.get("core", False),
+            companion_of=data.get("companion_of", []),
         )
 
     @classmethod

@@ -207,3 +207,22 @@ def test_non_dev_api_profile_compose_is_reachable_without_dev_mounts(tmp_path) -
     assert not any(volume.endswith(":rw") for volume in string_mounts)
     authoring_mounts = [volume for volume in volumes if isinstance(volume, dict)]
     assert all(not volume["bind"]["create_host_path"] for volume in authoring_mounts)
+
+
+def test_api_notebook_settings_are_optional_for_projects_without_notebooks() -> None:
+    # `phlo services start` refuses to start a service with a required value
+    # unset. Projects upgraded from releases without notebooks have none of the
+    # notebook secrets, and need none until the kernel host is added.
+    service = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "src" / "phlo_api" / "service.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    notebook = {
+        name: spec
+        for name, spec in service["env_vars"].items()
+        if name.startswith("PHLO_NOTEBOOK_")
+    }
+    assert {"PHLO_NOTEBOOK_GATEWAY_TOKEN", "PHLO_NOTEBOOK_SCHEDULE_KEY"} <= set(notebook)
+    assert [name for name, spec in notebook.items() if "default" not in spec] == []

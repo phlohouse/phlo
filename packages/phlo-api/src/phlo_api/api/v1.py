@@ -402,51 +402,59 @@ def _canonical(request: Request, principal: AuthPrincipal) -> Principal:
     return canonical
 
 
-def _permissions(request: Request) -> dict[Environment, list[ReadPermission]]:
+def is_allowed(request: Request, env: Environment, action: str, resource_type: str) -> bool:
+    """Whether the caller may take ``action`` on ``resource_type`` in ``env``.
+
+    Raises ``BackendUnavailableError`` when authorization cannot answer, so a
+    caller never mistakes an outage for a denial or an allowance.
+    """
     principal = get_request_principal(request)
     assert principal is not None  # Enforced by the v1 manifest boundary.
-    canonical = _canonical(request, principal)
-    permissions: dict[Environment, list[ReadPermission]] = {}
-    backend = None if is_regulated() else get_authorization_backend()
-    environments = _targets()
+    resource = ResourceRef(resource_type=resource_type, resource_id=f"env={env}")
+    context = create_decision_context(request, env)
+    if is_regulated():
+        try:
+            decision = enforce(
+                principal=principal,
+                action=action,
+                resource=resource,
+                context=context,
+                request_id=request.state.request_id,
+                surface="phlo-api",
+                correlation_id=request.state.request_id,
+            )
+        except Exception as exc:
+            raise BackendUnavailableError("Authorization is unavailable.") from exc
+        if decision.variant == "error":
+            raise BackendUnavailableError("Authorization is unavailable.")
+        return decision.allowed
+    backend = get_authorization_backend()
+    if backend is None:
+        raise BackendUnavailableError("Authorization is unavailable.")
+    try:
+        explained = backend.explain_decision(
+            _canonical(request, principal), action, resource, context
+        )
+    except Exception as exc:
+        raise BackendUnavailableError("Authorization is unavailable.") from exc
+    if explained.reason_code == "backend_unavailable":
+        raise BackendUnavailableError("Authorization is unavailable.")
+    return explained.allowed
+
+
+def _permissions(request: Request) -> dict[Environment, list[ReadPermission]]:
     actions: tuple[tuple[ReadPermission, str], ...] = (
         ("service.read", "service"),
         ("run.read", "run"),
     )
-    for env in environments:
-        permissions[env] = []
-        for action, resource_type in actions:
-            resource = ResourceRef(resource_type=resource_type, resource_id=f"env={env}")
-            context = create_decision_context(request, env)
-            if is_regulated():
-                try:
-                    decision = enforce(
-                        principal=principal,
-                        action=action,
-                        resource=resource,
-                        context=context,
-                        request_id=request.state.request_id,
-                        surface="phlo-api",
-                        correlation_id=request.state.request_id,
-                    )
-                except Exception as exc:
-                    raise BackendUnavailableError("Authorization is unavailable.") from exc
-                if decision.variant == "error":
-                    raise BackendUnavailableError("Authorization is unavailable.")
-                allowed = decision.allowed
-            else:
-                if backend is None:
-                    raise BackendUnavailableError("Authorization is unavailable.")
-                try:
-                    decision = backend.explain_decision(canonical, action, resource, context)
-                except Exception as exc:
-                    raise BackendUnavailableError("Authorization is unavailable.") from exc
-                if decision.reason_code == "backend_unavailable":
-                    raise BackendUnavailableError("Authorization is unavailable.")
-                allowed = decision.allowed
-            if allowed:
-                permissions[env].append(action)
-    return permissions
+    return {
+        env: [
+            action
+            for action, resource_type in actions
+            if is_allowed(request, env, action, resource_type)
+        ]
+        for env in _targets()
+    }
 
 
 @router.get("/me", response_model=MeResponse)

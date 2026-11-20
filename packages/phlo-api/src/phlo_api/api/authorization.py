@@ -246,7 +246,21 @@ def resolve_request_principal(request: Request, require_auth: bool = False) -> P
             principal_type="user",
             roles=(),
         )
+    # Resolving reads identity settings and the role store synchronously. One
+    # request can check many operations (action availability checks dozens), so
+    # resolve once per request and caller rather than blocking the event loop
+    # for each check.
+    cache = getattr(request.state, "phlo_resolved_principals", None)
+    if not isinstance(cache, dict):
+        cache = {}
+        request.state.phlo_resolved_principals = cache
+    key = id(auth_principal)
+    if key not in cache:
+        cache[key] = (auth_principal, _canonical_principal(auth_principal))
+    return cache[key][1]
 
+
+def _canonical_principal(auth_principal: Any) -> Principal:
     from phlo.identity.bridge import IdentityBridge, IdentityBridgeConfig
 
     # Subject assignments in .phlo/authorization/roles.yaml live on the backend's

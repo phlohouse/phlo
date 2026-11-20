@@ -122,20 +122,28 @@ def prepare_api_runtime_directories(phlo_dir: Path, service_names: Iterable[str]
     if "phlo-api" not in service_names:
         return
     root = phlo_dir.parent
-    for relative in (
-        ".phlo/logs",
-        ".phlo/audit",
-        ".phlo/state",
-        ".phlo/observatory",
-        ".phlo/uploads",
-        ".phlo/transform-editor",
-        "contracts/uploads",
-        "workflows/uploads",
+    for relative, mode in (
+        (".phlo/logs", 0o700),
+        (".phlo/audit", 0o700),
+        (".phlo/state", 0o700),
+        (".phlo/observatory", 0o700),
+        (".phlo/uploads", 0o700),
+        (".phlo/transform-editor", 0o700),
+        ("contracts/uploads", 0o700),
+        ("workflows/uploads", 0o700),
+        # Observatory notebooks: the files, their saved outputs and run history,
+        # and the dbt models promoted from them. Project source, so readable.
+        (".phlo/notebook-outputs", 0o700),
+        (".phlo/notebook-runs", 0o700),
+        ("notebooks", 0o755),
+        ("workflows/transforms/dbt/models/notebooks", 0o755),
+        # The generated preview Trino's certificate and passwords.
+        (".phlo/query-preview", 0o700),
     ):
         path = root / relative
         if any(parent.is_symlink() for parent in (path, path.parent)):
             raise click.ClickException(f"API writable bind must not follow a symlink: {relative}")
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.mkdir(mode=mode, parents=True, exist_ok=True)
 
 
 def stage_uv_lock_metadata(project_root: Path, phlo_dir: Path) -> bool:
@@ -720,10 +728,12 @@ def expand_service_dependencies(
     services: list[ServiceDefinition],
     *,
     additional_services: list[ServiceDefinition] | None = None,
+    excluded: Iterable[str] = (),
 ) -> list[ServiceDefinition]:
     """Expand a list of services with their transitive dependencies and setup companions.
 
     Returns services in topological (dependency) order via manifest resolution.
+    Companions the project disabled (``excluded``) stay out.
     """
     if not services:
         return []
@@ -731,6 +741,7 @@ def expand_service_dependencies(
     return ServiceManifestResolver.expand_dependencies(
         services,
         available_services=[*discovery.discover().values(), *(additional_services or [])],
+        excluded=frozenset(excluded),
     )
 
 
@@ -772,6 +783,174 @@ def generate_compose_or_fail(composer, *args: Any, **kwargs: Any) -> str:
         raise user_error("could not generate services", details={"Error": str(exc)}) from exc
 
 
+# Adding the notebook kernel host is the whole opt-in for notebooks: the host
+# isolates kernel code, so the API's notebook switches start on and its image
+# gets the notebooks extra. The generated API runs one uvicorn process, which
+# kernels require. Values set in phlo.yaml `env:` still win.
+_NOTEBOOK_SWITCHES = (
+    "PHLO_NOTEBOOK_KERNELS",
+    "PHLO_NOTEBOOK_PACKAGES",
+    "PHLO_NOTEBOOK_SCHEDULES",
+    "PHLO_V1_QUERY_SINGLE_PROCESS",
+)
+
+
+def apply_notebook_defaults(services: list, env_overrides: dict) -> dict:
+    """Return env overrides with notebooks on when the kernel host is installed."""
+    if not any(service.name == "phlo-notebook-kernels" for service in services):
+        return env_overrides
+    result = dict(env_overrides)
+    for name in _NOTEBOOK_SWITCHES:
+        result.setdefault(name, "1")
+    extras = [e.strip() for e in str(result.get("PHLO_API_EXTRAS") or "").split(",") if e.strip()]
+    if "notebooks" not in extras:
+        result["PHLO_API_EXTRAS"] = ",".join([*extras, "notebooks"])
+    return result
+
+
+# Where phlo-api makes the generated preview Trino's certificate and passwords.
+_PREVIEW_STATE_DIR = "/var/lib/phlo-preview"
+# Any of these means an operator configured the preview themselves.
+_PREVIEW_SETTINGS = (
+    "PHLO_V1_PREVIEW_TRINO_URL",
+    "PHLO_V1_PREVIEW_CATALOGS",
+    "PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES",
+    "PHLO_V1_PREVIEW_STATE_DIR",
+)
+
+
+def apply_preview_defaults(services: list, env_overrides: dict, environments: Any) -> dict:
+    """Return env overrides that point the API at the generated read-only preview Trino.
+
+    The Query page and notebook SQL cells read through that server. It is added
+    with phlo-api and trino, and needs one catalog per phlo.yaml environment.
+    Nothing changes when the project configures its own preview.
+    """
+    names = {service.name for service in services}
+    if not {"trino-preview", "phlo-api"} <= names or not isinstance(environments, dict):
+        return env_overrides
+    if any(name in env_overrides for name in _PREVIEW_SETTINGS):
+        return env_overrides
+    catalogs: dict[str, dict[str, str]] = {}
+    for env, target in environments.items():
+        if not isinstance(env, str) or not isinstance(target, dict):
+            return env_overrides
+        ref = target.get("nessie_ref")
+        if target.get("preview") is not None or not isinstance(ref, str) or not ref:
+            return env_overrides
+        catalogs[env] = {"catalog": f"preview_{env.replace('-', '_')}", "nessie_ref": ref}
+    if not catalogs or len({item["catalog"] for item in catalogs.values()}) != len(catalogs):
+        return env_overrides
+    compact = (",", ":")
+    result = dict(env_overrides)
+    result.update(
+        {
+            "PHLO_V1_PREVIEW_TRINO_URL": "https://trino-preview:8443",
+            "PHLO_V1_PREVIEW_TRINO_CA_FILE": f"{_PREVIEW_STATE_DIR}/api/ca.pem",
+            "PHLO_V1_PREVIEW_CATALOGS": json.dumps(catalogs, separators=compact),
+            "PHLO_V1_PREVIEW_TRINO_PASSWORD_FILES": json.dumps(
+                {env: f"{_PREVIEW_STATE_DIR}/api/password-{env}" for env in catalogs},
+                separators=compact,
+            ),
+            "PHLO_V1_PREVIEW_STATE_DIR": _PREVIEW_STATE_DIR,
+            # trino-preview waits until phlo-api has published exactly these.
+            "PHLO_V1_PREVIEW_TARGETS": ",".join(
+                f"{item['catalog']} {item['nessie_ref']}" for item in catalogs.values()
+            ),
+        }
+    )
+    # True of the generated stack: one API container running one process, and
+    # the preview server above carries the query budgets.
+    for name in (
+        "PHLO_V1_PREVIEW_SERVER_LIMITS_CONFIGURED",
+        "PHLO_V1_QUERY_SINGLE_REPLICA",
+        "PHLO_V1_QUERY_SINGLE_PROCESS",
+    ):
+        result.setdefault(name, "1")
+    return result
+
+
+# The loopback-only development identity written by `--observatory-dev`.
+_DEV_IDENTITY_POLICY = "observatory-dev-discovery"
+_NOTEBOOK_ACTIONS = ("dataset.query", "object.write", "run.execute", "run.manage", "asset.manage")
+
+
+# What the development identity gains when each service is part of the stack.
+_DEV_GRANTS = (
+    (
+        "trino-preview",
+        "query",
+        ("dataset.query", "object.write"),
+        "Query page queries and saved queries",
+    ),
+    ("phlo-notebook-kernels", "notebooks", _NOTEBOOK_ACTIONS, "notebook editing and runs"),
+)
+
+
+def grant_dev_access(phlo_dir: Path, services: Iterable, environments: Iterable[str]) -> bool:
+    """Let the local development identity use the Query page and notebooks once added.
+
+    Only a policy file generated by ``--observatory-dev`` is changed, and only by
+    adding policies; any other authorization setup is left for its owner to grant.
+    """
+    import yaml
+
+    names = {service.name for service in services}
+    grants = [grant for grant in _DEV_GRANTS if grant[0] in names]
+    path = phlo_dir / "authorization" / "policies.yaml"
+    if not grants or not path.is_file() or path.is_symlink():
+        return False
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    policies = data.get("policies") if isinstance(data, dict) else None
+    if not isinstance(policies, list):
+        return False
+    ids = {policy.get("policy_id") for policy in policies if isinstance(policy, dict)}
+    if _DEV_IDENTITY_POLICY not in ids:
+        return False
+    environments = list(environments)
+    added: list[dict] = []
+    for _service, group, actions, label in grants:
+        new = [
+            {
+                "policy_id": f"observatory-dev-{group}-{environment}-{action.replace('.', '-')}-{index}",
+                "effect": "allow",
+                "principal": {"roles": ["admin"]},
+                "action": action,
+                "resource": {"type": "*", "id_pattern": pattern},
+            }
+            for environment in environments
+            for action in actions
+            for index, pattern in enumerate((f"env={environment}", f"env={environment}|*"))
+        ]
+        new = [policy for policy in new if policy["policy_id"] not in ids]
+        if new:
+            added.extend(new)
+            click.echo(f"Granted dev_user {label} in the configured environments.")
+    if not added:
+        return False
+    data["policies"] = [*policies, *added]
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return True
+
+
+_DEV_MOUNT_SUFFIX = "/../..:/opt/phlo-dev:rw"
+
+
+def _existing_dev_source(phlo_dir: Path) -> str | None:
+    """Return the phlo source a dev-mode stack mounts, so regenerating keeps it."""
+    import yaml
+
+    host = phlo_dir / "overrides" / "compose.host.yaml"
+    if not host.is_file():
+        return None
+    data = yaml.safe_load(host.read_text(encoding="utf-8")) or {}
+    for service in (data.get("services") or {}).values():
+        for volume in (service or {}).get("volumes") or []:
+            if isinstance(volume, str) and volume.endswith(_DEV_MOUNT_SUFFIX):
+                return volume.removesuffix(_DEV_MOUNT_SUFFIX)
+    return None
+
+
 def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     """Regenerate docker-compose.yml based on current config."""
     from phlo.cli.infrastructure.selection import select_services_to_install
@@ -793,11 +972,17 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
         enabled_names=enabled_names,
         disabled_names=disabled_names,
     )
-    services_to_install = expand_service_dependencies(discovery, services_to_install)
+    services_to_install = expand_service_dependencies(
+        discovery, services_to_install, excluded=disabled_names
+    )
 
     # Get user service overrides from config
     user_overrides = _get_service_overrides(config)
-    env_overrides = _get_env_overrides(config)
+    env_overrides = apply_preview_defaults(
+        services_to_install,
+        apply_notebook_defaults(services_to_install, _get_env_overrides(config)),
+        config.get("environments"),
+    )
     env_local_file = env_secrets_path(phlo_dir)
     existing_env_local = parse_env_file(env_local_file)
 
@@ -810,12 +995,16 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     except (ValueError, OSError) as exc:
         raise user_error("invalid service file override", details={"Error": str(exc)}) from exc
     env_overrides = apply_uv_lock_env_override(phlo_dir, env_overrides)
+    # A dev-mode stack keeps mounting the same phlo source after regeneration.
+    phlo_src_path = _existing_dev_source(phlo_dir)
+    dev = {"dev_mode": True, "phlo_src_path": phlo_src_path} if phlo_src_path else {}
     compose_content = generate_compose_or_fail(
         composer,
         services_to_install,
         phlo_dir,
         user_overrides=user_overrides,
         env_values={**os.environ, **env_overrides, **existing_env_local},
+        **dev,
     )
 
     from phlo.plugins.compose.artifacts import write_compose_layers
@@ -838,6 +1027,8 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
     click.echo(f"Updated: {env_file}")
     write_sensitive_file(env_local_file, env_local_content)
     click.echo(f"Updated: {env_local_file}")
+
+    grant_dev_access(phlo_dir, services_to_install, config.get("environments") or {})
 
     # Copy any new service files
     copied_files = service_files.write()

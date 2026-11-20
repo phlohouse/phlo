@@ -1,5 +1,5 @@
 {
-  "component_count": 97,
+  "component_count": 99,
   "components": [
     {
       "applicable_gates": [
@@ -1070,6 +1070,15 @@
     {
       "applicable_gates": [],
       "blockers": [],
+      "component": "service:phlo-notebook-kernels",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
       "component": "service:phlo-observer",
       "current_maturity": "preview",
       "readiness": "not gated",
@@ -1253,6 +1262,15 @@
       "readiness": "blocked",
       "target_profile": "blessed_core",
       "target_status": "supported"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:trino-preview",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
     }
   ],
   "gate_status": {
