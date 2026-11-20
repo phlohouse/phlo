@@ -1106,8 +1106,11 @@ def migrate_minio_image(
     """Run the installed MinIO image migration on the retained project.
 
     The migration refuses Compose layers that override MinIO, so the owned
-    acceptance pin layers are removed first; candidate pinning is re-applied
-    after the reviewed upgrade, and retained objects are verified on restart.
+    acceptance pin layers are removed for it and then restored without their
+    MinIO entries: the reviewed upgrade still resolves every other service to
+    its pinned digest, while MinIO keeps the migrated image. Candidate pinning
+    is re-applied after the reviewed upgrade, and retained objects are verified
+    on restart.
     Its provider-owned rewrite of the generated Compose file is carried into the
     previous-generated baseline only when that file was unmodified generated
     output, so any other customization still surfaces as a plan conflict.
@@ -1119,8 +1122,11 @@ def migrate_minio_image(
         raise golden.CandidateError(
             "MinIO migration requires the unmodified generated Compose file"
         )
+    pins_file = candidate.project_dir / ".phlo/compose.candidate.json"
+    pins = json.loads(pins_file.read_text())
+    had_start_pins = (candidate.project_dir / ".phlo/compose.local.yaml").exists()
     installed_start_pins(previous, remove=True)
-    (candidate.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
+    pins_file.unlink()
     for options in ((), ("--apply",)):
         golden.run(
             golden.command(str(candidate.operator_bin), "minio", "migrate-image", *options),
@@ -1128,6 +1134,11 @@ def migrate_minio_image(
             capture_output=True,
         )
     baseline_file.write_bytes(compose_file.read_bytes())
+    for name in ("minio", "minio-setup"):
+        pins["services"].pop(name, None)
+    pins_file.write_text(json.dumps(pins, indent=2) + "\n", encoding="utf-8")
+    if had_start_pins:
+        installed_start_pins(previous)
 
 
 def transition(
@@ -1254,6 +1265,17 @@ print('{}')
     installed_start_pins(previous, remove=True)
     (candidate.project_dir / ".phlo/compose.candidate.json").unlink(missing_ok=True)
     golden.pin_candidate_images(candidate)
+    # The upgraded API binds directories that older releases never created;
+    # `phlo services start` prepares them, so do the same before running it.
+    installed(
+        candidate,
+        """
+from pathlib import Path
+from phlo.cli.commands.services.utils import prepare_api_runtime_directories
+prepare_api_runtime_directories(Path.cwd()/'.phlo', ['phlo-api'])
+print('{}')
+""",
+    )
     # Previous installations may never have used the incident/usage stores.
     # Delegate their additive bootstrap to the same installed owners as API
     # startup, with writers still stopped, before checking old constraints.
@@ -1527,7 +1549,7 @@ def run_journey(
         raise golden.CandidateError(
             f"Observatory acceptance failed ({type(exc).__name__}); private regression state retained at {temporary}"
         ) from exc
-    shutil.rmtree(temporary)
+    golden.remove_tree(temporary)
     return {
         "fresh": fresh_result,
         "upgrade": upgrade_result,

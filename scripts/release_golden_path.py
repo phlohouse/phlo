@@ -1083,33 +1083,36 @@ def cleanup(
         paths.add(temporary_root)
     for path in sorted(paths, key=lambda candidate: len(candidate.parts), reverse=True):
         try:
-            shutil.rmtree(path)
-        except FileNotFoundError:
-            pass
-        except PermissionError:
-            # Containers write root-owned files the host user cannot delete;
-            # remove them through a throwaway container and retry as the host.
-            try:
-                run(
-                    command(
-                        "docker",
-                        "run",
-                        "--rm",
-                        "--volume",
-                        f"{path}:/cleanup",
-                        "alpine:3.24.1",
-                        "sh",
-                        "-c",
-                        "rm -rf /cleanup/* /cleanup/.[!.]* /cleanup/..?*",
-                    ),
-                    cwd=config.project_dir,
-                )
-                shutil.rmtree(path)
-            except Exception as exc:
-                errors.append(exc)
+            remove_tree(path)
         except Exception as exc:
             errors.append(exc)
     return errors
+
+
+def remove_tree(path: Path) -> None:
+    """Delete a run-owned directory, including files containers wrote as root."""
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+    except PermissionError:
+        # Containers write root-owned files the host user cannot delete;
+        # remove them through a throwaway container and retry as the host.
+        run(
+            command(
+                "docker",
+                "run",
+                "--rm",
+                "--volume",
+                f"{path}:/cleanup",
+                "alpine:3.24.1",
+                "sh",
+                "-c",
+                "rm -rf /cleanup/* /cleanup/.[!.]* /cleanup/..?*",
+            ),
+            cwd=path.parent,
+        )
+        shutil.rmtree(path)
 
 
 # ---------------------------------------------------------------------------
