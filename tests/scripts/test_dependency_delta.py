@@ -383,7 +383,10 @@ def test_release_honours_an_active_waiver(tmp_path) -> None:
             ]
         )
     )
-    detail = lambda _: osv("CRITICAL", True)  # noqa: E731
+
+    def detail(_):
+        return osv("CRITICAL", True)
+
     shipped = delta.release_blocking([finding], detail)
     assert shipped
     now = datetime(2026, 11, 20, tzinfo=UTC)
