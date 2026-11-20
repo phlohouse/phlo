@@ -138,24 +138,59 @@ def _make_certificate(server: Path, api: Path) -> None:
             encoding="utf-8",
         )
         _openssl(
-            "req", "-x509", "-newkey", "rsa:3072", "-nodes", "-sha256", "-days", "3650",
-            "-subj", "/CN=phlo local query preview CA",
-            "-addext", "basicConstraints=critical,CA:TRUE",
-            "-addext", "keyUsage=critical,keyCertSign,cRLSign",
-            "-keyout", "ca.key", "-out", "ca.pem",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:3072",
+            "-nodes",
+            "-sha256",
+            "-days",
+            "3650",
+            "-subj",
+            "/CN=phlo local query preview CA",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
+            "-keyout",
+            "ca.key",
+            "-out",
+            "ca.pem",
             cwd=work,
-        )  # fmt: skip
+        )
         _openssl(
-            "req", "-newkey", "rsa:3072", "-nodes", "-sha256", "-subj", f"/CN={_HOST}",
-            "-keyout", "server.key", "-out", "server.csr",
+            "req",
+            "-newkey",
+            "rsa:3072",
+            "-nodes",
+            "-sha256",
+            "-subj",
+            f"/CN={_HOST}",
+            "-keyout",
+            "server.key",
+            "-out",
+            "server.csr",
             cwd=work,
-        )  # fmt: skip
+        )
         _openssl(
-            "x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key",
-            "-CAcreateserial", "-sha256", "-days", "397", "-extfile", "server.ext",
-            "-out", "server.crt",
+            "x509",
+            "-req",
+            "-in",
+            "server.csr",
+            "-CA",
+            "ca.pem",
+            "-CAkey",
+            "ca.key",
+            "-CAcreateserial",
+            "-sha256",
+            "-days",
+            "397",
+            "-extfile",
+            "server.ext",
+            "-out",
+            "server.crt",
             cwd=work,
-        )  # fmt: skip
+        )
         ca = (work / "ca.pem").read_bytes()
         key = (work / "server.key").read_bytes()
         chain = (work / "server.crt").read_bytes() + ca
