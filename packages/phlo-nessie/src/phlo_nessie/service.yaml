@@ -83,6 +83,7 @@ env_vars:
     default: ""
     description: "OIDC client secret"
     secret: true
+    generate: false
   NESSIE_OIDC_ISSUER:
     default: ""
     description: "OIDC token issuer URL (if different from server URL)"

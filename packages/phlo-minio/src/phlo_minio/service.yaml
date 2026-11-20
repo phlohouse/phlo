@@ -94,6 +94,7 @@ env_vars:
     default: ""
     description: "OIDC client secret"
     secret: true
+    generate: false
   MINIO_OIDC_CLAIM_NAME:
     default: "policy"
     description: "JWT claim name containing MinIO policy"
@@ -111,6 +112,7 @@ env_vars:
     default: ""
     description: "LDAP bind password"
     secret: true
+    generate: false
   MINIO_LDAP_USER_BASE_DN:
     default: ""
     description: "LDAP user search base DN"
