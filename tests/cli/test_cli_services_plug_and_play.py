@@ -186,3 +186,17 @@ def test_sign_in_setup_keeps_phlo_yaml_comments(tmp_path: Path) -> None:
     text = init_module._render_project_config(config_file, original, config)
     assert text.startswith("# my notes\nname: demo\n")
     assert yaml.safe_load(text) == config
+
+
+@pytest.mark.parametrize("flag", [[], ["--no-observatory-dev"]])
+def test_init_sign_in_is_on_by_default_and_can_be_left_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: list[str]
+) -> None:
+    """Verify a development API stack gets the local sign-in unless told not to."""
+    from click.testing import CliRunner
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(init_module.init_cmd, ["--no-dev", "--profile", "api", *flag])
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load((tmp_path / "phlo.yaml").read_text(encoding="utf-8")) or {}
+    assert ("authentication" in config) is (not flag)

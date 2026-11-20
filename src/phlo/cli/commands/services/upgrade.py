@@ -608,9 +608,13 @@ def _write_upgrade(
 )
 @click.option("--production", is_flag=True, help="Keep the production rendering profile.")
 @click.option(
-    "--observatory-dev",
-    is_flag=True,
-    help="Include explicit local-development activation in the reviewed plan; requires actual configured environments.",
+    "--observatory-dev/--no-observatory-dev",
+    default=None,
+    help=(
+        "Include the local-development sign-in in the reviewed plan. Development stacks "
+        "with the API and UI and no sign-in of their own get it by default; "
+        "--no-observatory-dev leaves it out."
+    ),
 )
 @click.option(
     "--repair-empty-api-binds",
@@ -632,7 +636,7 @@ def upgrade_cmd(
     confirm: str | None,
     previous_generated: Path | None,
     production: bool,
-    observatory_dev: bool,
+    observatory_dev: bool | None,
     repair_empty_api_binds: bool,
     allow_insecure: bool,
 ) -> None:
@@ -650,8 +654,8 @@ def upgrade_cmd(
             root,
             previous_generated,
             production,
-            # Without the flag, a development stack gets the local sign-in as init gives it.
-            observatory_dev or None,
+            # Without either flag, a development stack gets the sign-in as init gives it.
+            observatory_dev,
             repair_empty_api_binds,
         )
         if plan_path:

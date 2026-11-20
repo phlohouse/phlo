@@ -21,7 +21,9 @@ shared network. It is not a production login mechanism.
    `phlo[defaults]`) and no authentication configured in `phlo.yaml`, this sets
    up the local sign-in by itself. `phlo services init --observatory-dev` does
    the same explicitly, including on a project whose stack was generated
-   without the API and UI. The command enables `phlo-api` and `observatory`, binds host ports to loopback,
+   without the API and UI, and `--no-observatory-dev` leaves authentication to
+   you. `phlo services upgrade` gives an older development stack the same
+   sign-in in its reviewed plan. The command enables `phlo-api` and `observatory`, binds host ports to loopback,
    and writes the normal Compose and environment files without development source
    mounts. Use `--dev` separately only when developing Phlo itself. It also writes:
 

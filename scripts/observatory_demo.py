@@ -241,7 +241,17 @@ def prepare(config: golden.RunConfig, binary: Path, digest: str) -> tuple[str, s
         root / ".phlo/demo-credentials.json", json.dumps({"operator": operator, "viewer": viewer})
     )
     golden.run(
-        [str(config.operator_bin), "services", "init", "--no-dev", "--profile", "api", "--force"],
+        [
+            str(config.operator_bin),
+            "services",
+            "init",
+            "--no-dev",
+            "--profile",
+            "api",
+            "--force",
+            # The demo signs in with service tokens, not the local dev identity.
+            "--no-observatory-dev",
+        ],
         cwd=root,
     )
     loopback_ports(config)

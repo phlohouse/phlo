@@ -170,9 +170,13 @@ def _validate_production_credentials(
     help="Also apply service-specific `dev:` runtime overrides (opt-in)",
 )
 @click.option(
-    "--observatory-dev",
-    is_flag=True,
-    help="Provision loopback-only Observatory with the canonical development identity and read-only policy.",
+    "--observatory-dev/--no-observatory-dev",
+    default=None,
+    help=(
+        "Set up the loopback-only Observatory sign-in for the local dev identity. "
+        "Development stacks with the API and UI get it by default; "
+        "--no-observatory-dev leaves authentication to you."
+    ),
 )
 @click.option(
     "--production",
@@ -203,7 +207,7 @@ def init_cmd(
     no_dev: bool,
     phlo_source: str | None,
     service_dev: bool,
-    observatory_dev: bool,
+    observatory_dev: bool | None,
     production: bool,
     publish_all_interfaces: bool,
     allow_insecure: bool,
@@ -256,7 +260,12 @@ def init_cmd(
         sys.exit(1)
 
     dev, phlo_src_path = _resolve_dev_mode(
-        dev, no_dev or (observatory_dev and not dev), service_dev, production, phlo_source, phlo_dir
+        dev,
+        no_dev or (bool(observatory_dev) and not dev),
+        service_dev,
+        production,
+        phlo_source,
+        phlo_dir,
     )
     # Derive project name from directory if not specified
     if not project_name:
@@ -303,8 +312,9 @@ def init_cmd(
         project_name,
         phlo_dir,
         config_file,
-        explicit=observatory_dev,
-        automatic=_wants_local_observatory(
+        explicit=bool(observatory_dev),
+        automatic=observatory_dev is None
+        and _wants_local_observatory(
             existing_config, all_services, production, publish_all_interfaces
         ),
     )
