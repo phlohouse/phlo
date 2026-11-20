@@ -5,6 +5,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -301,3 +302,67 @@ def test_select_requires_a_release_merge_on_manual_dispatch(monkeypatch, capsys)
     assert publish.main(["select", "--sha", SHA, "--require"]) == 0
     assert capsys.readouterr().out == "release=true\n"
     assert publish.main(["select", "--sha", "main"]) == 1
+
+
+def test_run_returns_output_and_reports_the_failing_command(monkeypatch) -> None:
+    results = iter(
+        [
+            SimpleNamespace(returncode=0, stdout="ok\n", stderr=""),
+            SimpleNamespace(returncode=3, stdout="", stderr="denied\n"),
+        ]
+    )
+    monkeypatch.setattr(publish.subprocess, "run", lambda *a, **k: next(results))
+    assert publish.run(["gh", "api", "x"]) == "ok\n"
+    with pytest.raises(publish.PublishError, match=r"gh failed \(3\): denied"):
+        publish.run(["gh", "api", "x"])
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [("MANIFEST_UNKNOWN: manifest unknown", None), ("404 Not Found", None)],
+)
+def test_a_missing_image_tag_reads_as_absent(monkeypatch, error, expected) -> None:
+    def resolve(_):
+        raise bom_module.BomError(error)
+
+    monkeypatch.setattr(bom_module, "resolve_image_digest", resolve)
+    assert publish._remote_digest(f"{IMAGE}:0.19.1") is expected
+
+
+def test_other_registry_errors_stop_the_release(monkeypatch) -> None:
+    def resolve(_):
+        raise bom_module.BomError("unauthorized")
+
+    monkeypatch.setattr(bom_module, "resolve_image_digest", resolve)
+    with pytest.raises(bom_module.BomError, match="unauthorized"):
+        publish._remote_digest(f"{IMAGE}:0.19.1")
+
+
+def test_publish_runs_every_step_in_order_and_summarises(tmp_path: Path, monkeypatch) -> None:
+    root = candidate(tmp_path)
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("## [phlo 0.19.1](x) (2026-11-20)\n\n- fix\n")
+    steps = []
+    for name in ("publish_tag", "publish_images"):
+        monkeypatch.setattr(publish, name, lambda release, runner, n=name: steps.append(n))
+    monkeypatch.setattr(
+        publish, "publish_pypi", lambda release, runner, files: steps.append("publish_pypi")
+    )
+    monkeypatch.setattr(
+        publish,
+        "publish_github_release",
+        lambda release, runner, notes: steps.append(notes.read_text()),
+    )
+    summary = tmp_path / "summary"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert publish.main(["publish", "--candidate", str(root), "--changelog", str(changelog)]) == 0
+    assert steps == ["publish_tag", "publish_pypi", "publish_images", "- fix\n"]
+    assert summary.read_text() == "Published v0.19.1: 2 distributions, 1 signed images.\n"
+
+
+def test_publish_reports_a_missing_changelog_section(tmp_path: Path, capsys) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("## [phlo 0.19.0](x)\n")
+    root = candidate(tmp_path)
+    assert publish.main(["publish", "--candidate", str(root), "--changelog", str(changelog)]) == 1
+    assert "no section for 0.19.1" in capsys.readouterr().err

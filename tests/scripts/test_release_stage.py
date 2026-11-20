@@ -444,3 +444,72 @@ def test_release_build_stages_unchanged_packages_from_pypi(tmp_path: Path, monke
         b"pypi phlo_core_plugins-0.14.1-py3-none-any.whl"
     )
     bom_module.verify_staged_distributions(candidate.bom, output)
+
+
+def test_github_pages_reads_every_page_and_refuses_truncated_listings(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(command, **_):
+        calls.append(command[-1])
+        page = int(command[-1].rsplit("page=", 1)[1])
+        rows = [{"id": n} for n in range(100 if page == 1 else 3)]
+        return SimpleNamespace(stdout=json.dumps({"artifacts": rows, "total_count": 103}))
+
+    monkeypatch.setattr(github.subprocess, "run", fake_run)
+    assert len(github.pages("repos/x/runs/1/artifacts", "artifacts")) == 103
+    assert calls == [
+        "repos/x/runs/1/artifacts?per_page=100&page=1",
+        "repos/x/runs/1/artifacts?per_page=100&page=2",
+    ]
+
+    def truncated(command, **_):
+        return SimpleNamespace(stdout=json.dumps({"artifacts": [{}], "total_count": 5}))
+
+    monkeypatch.setattr(github.subprocess, "run", truncated)
+    with pytest.raises(ValueError, match="truncated"):
+        github.pages("repos/x/runs/1/artifacts?status=completed", "artifacts")
+
+
+@pytest.mark.parametrize(
+    ("sha", "env", "protected", "message"),
+    [
+        ("A" * 40, {}, True, "full lowercase SHA"),
+        (SHA, {"GITHUB_REPOSITORY": "someone/phlo"}, True, "allowlisted"),
+        (SHA, {"GITHUB_REF": "refs/heads/feature"}, True, "from main"),
+        (SHA, {}, False, "not protected"),
+    ],
+)
+def test_release_pin_requires_a_protected_main_commit(
+    monkeypatch, sha, env, protected, message
+) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", github.REPOSITORY)
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(github, "api", lambda _: {"protected": protected})
+    monkeypatch.setattr(staging.subprocess, "run", lambda *a, **k: pytest.fail("no git call"))
+    with pytest.raises(ValueError, match=message):
+        staging.validate_candidate(sha)
+
+
+def test_release_pin_checks_the_commit_is_on_main(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", github.REPOSITORY)
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setattr(github, "api", lambda _: {"protected": True})
+    commands = []
+    monkeypatch.setattr(staging.subprocess, "run", lambda command, **_: commands.append(command))
+    staging.validate_candidate(SHA)
+    assert commands == [["git", "merge-base", "--is-ancestor", SHA, "origin/main"]]
+
+
+@pytest.mark.parametrize("rehearsal", [False, True])
+def test_stage_cli_only_pins(monkeypatch, tmp_path: Path, rehearsal: bool) -> None:
+    seen = {}
+    monkeypatch.setattr(staging, "pin", lambda *args, **kwargs: seen.update(args=args, **kwargs))
+    argv = ["release_stage.py", "pin", "--candidate-sha", SHA, "--output", str(tmp_path)]
+    monkeypatch.setattr(sys, "argv", argv + (["--rehearsal"] if rehearsal else []))
+    staging.main()
+    assert seen == {"args": (SHA, None, None, tmp_path), "rehearsal": rehearsal}
+    monkeypatch.setattr(sys, "argv", ["release_stage.py", "reserve", "--candidate-sha", SHA])
+    with pytest.raises(SystemExit):
+        staging.main()
