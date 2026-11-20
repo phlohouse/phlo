@@ -7,6 +7,7 @@ authorization-gated, re-init into a non-empty directory is refused, and
 production mode rejects default credentials.
 """
 
+import json
 import os
 import sys
 from collections.abc import Iterable
@@ -24,6 +25,7 @@ from phlo.cli.commands.services.utils import (
     _get_env_overrides,
     _get_service_overrides,
     _warn_secret_env_overrides,
+    apply_action_defaults,
     apply_notebook_defaults,
     apply_preview_defaults,
     apply_uv_lock_env_override,
@@ -209,15 +211,12 @@ def init_cmd(
 ):
     """Initialize Phlo infrastructure in .phlo/ directory.
 
-    Creates complete Docker Compose configuration for the full Phlo stack:
-    - PostgreSQL, MinIO, Nessie (storage layer)
-    - Trino (query engine)
-    - Dagster (orchestration)
-    - Observatory (data platform UI)
-    - Superset (BI)
-    - pgweb (database admin)
-    - Optional: Prometheus, Loki, Grafana (--profile observability)
-    - Optional: PostgREST, Hasura (--profile api)
+    Renders Docker Compose configuration for the services of the installed
+    Phlo packages. With phlo[defaults] that is PostgreSQL, MinIO and Nessie
+    (storage), Trino (query), Dagster (orchestration) and, in development,
+    phlo-api with Observatory signed in as the local dev user on loopback.
+    Other packages add their services when installed; `phlo services add`
+    renders optional ones, and --profile renders a whole profile.
 
     Use --dev to mount local phlo source for development iteration.
     Use --service-dev to opt into service-specific `dev:` runtimes as well.
@@ -299,8 +298,16 @@ def init_cmd(
 
     # Load existing phlo.yaml config for user overrides
     existing_config = _load_existing_project_config(config_file)
-    if observatory_dev:
-        _configure_observatory_dev(existing_config, project_name, phlo_dir, config_file)
+    signed_in = _apply_observatory_dev(
+        existing_config,
+        project_name,
+        phlo_dir,
+        config_file,
+        explicit=observatory_dev,
+        automatic=_wants_local_observatory(
+            existing_config, all_services, production, publish_all_interfaces
+        ),
+    )
     user_overrides = _get_service_overrides(existing_config)
     # Service selection and inline-service discovery use the same effective
     # overrides as Compose generation.
@@ -315,6 +322,7 @@ def init_cmd(
         discovery, all_services, existing_config, user_overrides, env_overrides, profiles
     )
     env_overrides = apply_notebook_defaults(services_to_install, env_overrides)
+    env_overrides = apply_action_defaults(services_to_install, env_overrides)
     env_overrides = apply_preview_defaults(
         services_to_install, env_overrides, existing_config.get("environments")
     )
@@ -392,7 +400,11 @@ def init_cmd(
 
     # Never adopt existing customized files during a preserving re-init.
     _record_initial_generation(
-        phlo_dir, copied_files, preserve_existing=preserve_generation, allow_insecure=allow_insecure
+        phlo_dir,
+        copied_files,
+        preserve_existing=preserve_generation,
+        allow_insecure=allow_insecure,
+        sign_in=signed_in,
     )
 
     # Summary
@@ -411,26 +423,129 @@ def init_cmd(
         click.echo(f"Optional profiles: {', '.join(sorted(available_profiles))}")
 
     click.echo("")
+    click.echo(f"Generated credentials are in {env_local_file.relative_to(Path.cwd())}.")
+    click.echo("")
     click.echo("Next steps:")
-    click.echo("  1. Commit non-secret defaults in phlo.yaml (env:)")
-    click.echo(f"  2. Set secrets in {env_local_file.relative_to(Path.cwd())}")
-    click.echo("  3. Run: phlo services start")
-    click.echo("  4. Inspect services with: phlo services list")
+    click.echo("  1. Run: phlo services start")
+    click.echo("  2. Check the stack with: phlo doctor")
 
 
 def _record_initial_generation(
-    phlo_dir: Path, copied_files: list[str], *, preserve_existing: bool, allow_insecure: bool
+    phlo_dir: Path,
+    copied_files: list[str],
+    *,
+    preserve_existing: bool,
+    allow_insecure: bool,
+    sign_in: bool = False,
 ) -> None:
     if preserve_existing:
         return
     generated = [".phlo/docker-compose.yml", *(f".phlo/{name}" for name in copied_files)]
+    if sign_in:
+        # The local sign-in files are generated too; record them so a later
+        # reviewed upgrade can repeat the activation instead of refusing it.
+        generated.extend(_SIGN_IN_FILES)
     if (phlo_dir / "overrides/compose.host.yaml").is_file():
         generated.append(".phlo/overrides/compose.host.yaml")
+    baseline = json.loads(generation_baseline(Path.cwd(), generated))
+    if not sign_in:
+        # A re-init leaves an earlier automatic sign-in alone; keep its record.
+        baseline["files"].update(_recorded_sign_in(phlo_dir / BASELINE))
+        baseline["files"] = dict(sorted(baseline["files"].items()))
     write_sensitive_file(
         phlo_dir / BASELINE,
-        generation_baseline(Path.cwd(), generated),
+        json.dumps(baseline, indent=2) + "\n",
         allow_insecure=allow_insecure,
     )
+
+
+_SIGN_IN_FILES = (
+    "phlo.yaml",
+    ".phlo/authorization/roles.yaml",
+    ".phlo/authorization/policies.yaml",
+)
+
+
+def _recorded_sign_in(path: Path) -> dict[str, str | None]:
+    try:
+        recorded = json.loads(path.read_text(encoding="utf-8")).get("files") or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {name: recorded[name] for name in _SIGN_IN_FILES if name in recorded}
+
+
+def _apply_observatory_dev(
+    config: dict,
+    project_name: str,
+    phlo_dir: Path,
+    config_file: Path,
+    *,
+    explicit: bool,
+    automatic: bool,
+) -> bool:
+    """Set up the local Observatory sign-in when asked, or by default in development.
+
+    Observatory is part of the default local stack: with the API and UI
+    installed and no sign-in configured, the loopback dev identity is set up
+    without a flag. Only the explicit flag turns a refusal into an error.
+    """
+    if explicit:
+        _configure_observatory_dev(config, project_name, phlo_dir, config_file)
+        return True
+    if automatic:
+        try:
+            _configure_observatory_dev(config, project_name, phlo_dir, config_file)
+        except click.ClickException as exc:
+            click.echo(f"Local Observatory sign-in not configured: {exc.message}", err=True)
+            return False
+        return True
+    return False
+
+
+def _render_project_config(config_file: Path, original: dict, config: dict) -> str:
+    """Return phlo.yaml with ``config``'s changes, keeping the file's comments.
+
+    New top-level sections are appended to the existing text. When a section
+    that already exists changes, the whole file is rewritten from ``config``.
+    """
+    try:
+        text = config_file.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    changed = [key for key in config if config[key] != original.get(key)]
+    if not text.strip() or any(key in original for key in changed):
+        return yaml.safe_dump(config, sort_keys=False)
+    added = yaml.safe_dump({key: config[key] for key in changed}, sort_keys=False)
+    return f"{text.rstrip()}\n\n# Local Observatory sign-in (development only)\n{added}"
+
+
+def _wants_local_observatory(
+    config: dict,
+    all_services: dict,
+    production: bool,
+    publish_all_interfaces: bool,
+) -> bool:
+    """Return whether init should set up the local Observatory without a flag.
+
+    Only a development, loopback-only stack with the API and UI installed and
+    no authentication of its own qualifies. Anything else keeps its settings.
+    """
+    from phlo.config.env import load_project_env
+    from phlo.security.mode import is_regulated
+
+    if production or publish_all_interfaces or is_regulated():
+        return False
+    if not {"phlo-api", "observatory"} <= set(all_services):
+        return False
+    if config.get("authentication"):
+        return False
+    services = config.get("services") or {}
+    if any(
+        (services.get(name) or {}).get("enabled") is False for name in ("phlo-api", "observatory")
+    ):
+        return False
+    environment = load_project_env(Path.cwd()).get("PHLO_ENVIRONMENT", "development")
+    return environment.lower() in {"dev", "development", "local", "test"}
 
 
 def _configure_observatory_dev(
@@ -441,9 +556,13 @@ def _configure_observatory_dev(
     *,
     write: bool = True,
 ) -> dict[Path, str]:
-    """Add a development-only read contract through the existing project config."""
+    """Add the local development identity through the existing project config."""
+    import copy
+
     from phlo.config.env import load_project_env
     from phlo.security.mode import is_regulated
+
+    original = copy.deepcopy(config)
 
     env = config.setdefault("env", {})
     effective = load_project_env(config_file.parent)
@@ -469,15 +588,6 @@ def _configure_observatory_dev(
         raise click.ClickException(
             "Configure the actual Dagster location, Nessie ref and local Compose project in phlo.yaml environments before onboarding a customized provider stack."
         )
-    base = phlo_dir / "docker-compose.yml"
-    if base.exists():
-        existing_services = yaml.safe_load(base.read_text()).get("services", {})
-        if not {"phlo-api", "observatory"} <= existing_services.keys() or not config.get(
-            "environments"
-        ):
-            raise click.ClickException(
-                "Upgrade the generated stack to include API/UI and configure actual environments before development activation."
-            )
     if config.get("authentication"):
         raise click.ClickException(
             "Existing authentication must be reviewed manually; it will not be overwritten."
@@ -538,7 +648,7 @@ def _configure_observatory_dev(
         for index, pattern in enumerate((f"env={environment}", f"env={environment}|*"))
     ]
     files = {
-        config_file: yaml.safe_dump(config, sort_keys=False),
+        config_file: _render_project_config(config_file, original, config),
         authorization / "roles.yaml": yaml.safe_dump(
             {"roles": {"admin": {}}, "subjects": {"users": {"dev_user": ["admin"]}}}
         ),
@@ -551,7 +661,7 @@ def _configure_observatory_dev(
         from phlo.config.project import clear_config_cache
 
         clear_config_cache()
-        click.echo("Configured dev_user with environment-scoped reads. V1 mutations remain denied.")
+        click.echo("Configured the local Observatory sign-in (dev_user, loopback only).")
     return files
 
 

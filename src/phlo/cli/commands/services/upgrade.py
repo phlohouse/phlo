@@ -16,6 +16,10 @@ from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands.services.utils import (
     _get_env_overrides,
     _get_service_overrides,
+    apply_action_defaults,
+    apply_notebook_defaults,
+    apply_preview_defaults,
+    dev_access_policies,
     ensure_compose_project,
     expand_service_dependencies,
     normalize_services_enabled_disabled_config,
@@ -86,7 +90,7 @@ def _development_activation(
 
 def _candidate(
     root: Path, production: bool, observatory_dev: bool = False
-) -> tuple[dict[str, tuple[bytes, int]], tuple, tuple, tuple, dict]:
+) -> tuple[dict[str, tuple[bytes, int]], tuple, tuple, tuple, dict, frozenset[str]]:
     state = root / ".phlo"
     config = yaml.safe_load(checked_path(root, "phlo.yaml").read_text(encoding="utf-8")) or {}
     activation = _development_activation(root, config, production) if observatory_dev else {}
@@ -108,7 +112,15 @@ def _candidate(
             selected.append(ServiceDefinition.from_inline(name, overrides[name]))
     _, disabled = normalize_services_enabled_disabled_config(config)
     services = expand_service_dependencies(discovery, selected, excluded=disabled)
-    env = {**os.environ, **_get_env_overrides(config)}
+    # The same derived settings `phlo services init` writes, so a service the
+    # upgrade brings in (such as trino-preview) is switched on, not left idle.
+    configured_env = _get_env_overrides(config)
+    derived_env = apply_preview_defaults(
+        services,
+        apply_action_defaults(services, apply_notebook_defaults(services, configured_env)),
+        config.get("environments"),
+    )
+    env = {**os.environ, **derived_env}
     for path in project_env_paths(state):
         checked_path(root, path.relative_to(root).as_posix())
         env.update(parse_env_file(path))
@@ -150,13 +162,112 @@ def _candidate(
             content if content is not None else source.read_bytes(),
             mode,
         )
+    additive = _derived_files(root, state, config, services, generator, files, derived_env)
     companions = tuple(name for name in rendered["services"] if name not in old["services"])
     order = tuple(service.name for service in discovery.resolve_dependencies(services))
     images = {
         name: (old["services"].get(name, {}).get("image"), config.get("image"))
         for name, config in rendered["services"].items()
     }
-    return files, companions, order, migrations, images
+    return files, companions, order, migrations, images, frozenset(additive)
+
+
+def _derived_files(
+    root: Path,
+    state: Path,
+    config: dict,
+    services: list,
+    generator: ComposeGenerator,
+    files: dict[str, tuple[bytes, int]],
+    derived_env: dict,
+) -> set[str]:
+    """Add the env defaults and dev grants the rendered services need to ``files``.
+
+    Returns the paths whose new content only adds to the operator's file.
+    """
+    additive: set[str] = set()
+    owned = (set(derived_env) - set(_get_env_overrides(config))) | {"PHLO_API_EXTRAS"}
+    merged_env = _merge_env_defaults(
+        checked_path(root, ".phlo/overrides/.env"),
+        generator.generate_env(services, env_overrides=derived_env),
+        owned,
+    )
+    if merged_env is not None:
+        files[".phlo/overrides/.env"] = merged_env
+        additive.add(".phlo/overrides/.env")
+    else:
+        _keep_current(root, ".phlo/overrides/.env", files)
+    policies_name = ".phlo/authorization/policies.yaml"
+    activated = files.get(policies_name)
+    policies = dev_access_policies(
+        state,
+        services,
+        config.get("environments") or {},
+        announce=False,
+        current=activated[0].decode("utf-8") if activated else None,
+    )
+    if policies is not None:
+        files[policies_name] = (policies.encode("utf-8"), 0o600)
+        if not activated:
+            additive.add(policies_name)
+    elif not activated:
+        _keep_current(root, policies_name, files)
+    return additive
+
+
+def _keep_current(root: Path, name: str, files: dict[str, tuple[bytes, int]]) -> None:
+    """List an up-to-date derived file as unchanged, so re-applying a plan still matches."""
+    path = checked_path(root, name)
+    if path.is_file():
+        files[name] = (path.read_bytes(), path.stat().st_mode & 0o777)
+
+
+def _merge_env_defaults(path: Path, rendered: str, owned: set[str]) -> tuple[bytes, int] | None:
+    """Return the defaults file with new variables added and owned blanks filled.
+
+    Nothing the operator set is replaced: only variables missing from the file,
+    and Phlo-derived ones (``owned``) that are still empty, take the new value.
+    """
+    if not path.is_file():
+        return None
+    current = path.read_text(encoding="utf-8")
+    wanted = parse_env_file_text(rendered)
+    lines = current.splitlines()
+    present: dict[str, int] = {}
+    for index, line in enumerate(lines):
+        key, sep, _value = line.partition("=")
+        if sep and not line.lstrip().startswith("#"):
+            present[key.strip()] = index
+    changed = False
+    appended = False
+    for key, value in wanted.items():
+        if key in present:
+            index = present[key]
+            if key in owned and value and not lines[index].partition("=")[2].strip():
+                lines[index] = f"{key}={value}"
+                changed = True
+        elif value or key in owned:
+            if not appended:
+                lines.extend(["", "# Added by phlo services upgrade"])
+                appended = True
+            lines.append(f"{key}={value}")
+            changed = True
+    if not changed:
+        return None
+    mode = path.stat().st_mode & 0o777
+    return ("\n".join(lines) + "\n").encode("utf-8"), mode
+
+
+def parse_env_file_text(text: str) -> dict[str, str]:
+    """Parse ``KEY=value`` lines, ignoring comments and blanks."""
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if sep:
+            values[key.strip()] = value
+    return values
 
 
 def _retain_storage(old: dict, candidate: dict) -> tuple[str, ...]:
@@ -194,7 +305,9 @@ def build_plan(
     observatory_dev: bool = False,
     repair_empty_api_binds: bool = False,
 ) -> tuple[GeneratedStackPlan, dict[str, tuple[bytes, int]]]:
-    files, companions, order, migrations, images = _candidate(root, production, observatory_dev)
+    files, companions, order, migrations, images, additive = _candidate(
+        root, production, observatory_dev
+    )
     runtime_ownership = ()
     if repair_empty_api_binds:
         if select_project_container_backend().name != "docker":
@@ -236,6 +349,8 @@ def build_plan(
             }
         )
     baseline = apply_rewrites(root, baseline)
+    # Additive merges keep every operator value, so the current file is their base.
+    baseline.update({name: file_digest(root, name) for name in additive})
     inputs = ["phlo.yaml", f".phlo/{BASELINE}", f".phlo/{REWRITES}"]
     if observatory_dev:
         inputs.extend((".phlo/authorization/roles.yaml", ".phlo/authorization/policies.yaml"))

@@ -265,6 +265,8 @@ def prepare_observatory_start(
                 (
                     "observatory",
                     "dagster",
+                    # Schedules, sensors and queued Observatory runs need the daemon.
+                    "dagster-daemon",
                     "nessie",
                     *project.get("services", {}).get("enabled", []),
                 )
@@ -288,9 +290,12 @@ def prepare_observatory_start(
         raise click.UsageError(
             "Local Observatory onboarding uses detached containers; omit --native, --profile, --service and --no-detach."
         )
-    return service or ("observatory", "dagster", "nessie"), prepare_observatory_development(
-        backend_name
-    )
+    return service or (
+        "observatory",
+        "dagster",
+        "dagster-daemon",
+        "nessie",
+    ), prepare_observatory_development(backend_name)
 
 
 def prepare_observatory_development(backend_name: str | None) -> tuple[str, str, str]:

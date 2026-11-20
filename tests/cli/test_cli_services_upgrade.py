@@ -317,6 +317,10 @@ def test_legacy_development_activation_is_reviewed_idempotent_and_preserves_cust
     tmp_path, monkeypatch, shared
 ):
     monkeypatch.chdir(tmp_path)
+    # A stack generated before init set up the local sign-in by itself.
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
     runner = CliRunner()
     result = runner.invoke(init_cmd, ["--no-dev", "--profile", "api"])
     assert result.exit_code == 0, result.output
