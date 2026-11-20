@@ -33,7 +33,9 @@ compose:
     pids_limit: 1024
     mem_limit: ${PHLO_NOTEBOOK_KERNELS_MEMORY:-4g}
     environment:
-        PHLO_NOTEBOOK_GATEWAY_TOKEN: ${PHLO_NOTEBOOK_GATEWAY_TOKEN:?Run phlo services init to generate PHLO_NOTEBOOK_GATEWAY_TOKEN}
+        # Interpolated even when the profile is off, so it must not be required here;
+        # the kernel host itself refuses a token under 32 characters.
+        PHLO_NOTEBOOK_GATEWAY_TOKEN: ${PHLO_NOTEBOOK_GATEWAY_TOKEN:-}
         PHLO_NOTEBOOK_PACKAGE_INDEX: ${PHLO_NOTEBOOK_PACKAGE_INDEX:-}
     ports:
         - "${PHLO_NOTEBOOK_GATEWAY_PORT:-10090}:8890"
