@@ -409,3 +409,37 @@ def test_release_rates_an_unrated_advisory_through_its_ghsa_alias() -> None:
     assert delta.release_blocking([finding], details.__getitem__) == []
     details["GHSA-low"] = osv("HIGH", True)
     assert delta.release_blocking([finding], details.__getitem__)[0]["severity"] == "high"
+
+
+def test_a_waiver_on_an_unrated_advisory_is_checked_against_its_ghsa_rating(tmp_path) -> None:
+    from datetime import datetime
+
+    finding = {
+        "lockfile": "uv.lock",
+        "ecosystem": "PyPI",
+        "name": "example",
+        "version": "1.0",
+        "advisories": ["PYSEC-1"],
+    }
+    details = {
+        "PYSEC-1": {**osv(None, True), "aliases": ["GHSA-1"]},
+        "GHSA-1": osv("HIGH", True),
+    }
+    ledger = tmp_path / "ledger.json"
+    record = {
+        **{key: finding[key] for key in ("lockfile", "ecosystem", "name", "version")},
+        "advisory": "PYSEC-1",
+        "severity": "high",
+        "exploited": False,
+        "owner": "iamgp",
+        "rationale": "No compatible fix yet; the vulnerable path is not reachable",
+        "first_seen": "2026-11-18T00:00:00+00:00",
+        "expires": "2026-12-01T00:00:00+00:00",
+    }
+    ledger.write_text(json.dumps([record]))
+    shipped = delta.release_blocking([finding], details.__getitem__)
+    now = datetime(2026, 11, 20, tzinfo=UTC)
+    assert delta.assess_existing(shipped, ledger, now, details.__getitem__) == []
+    ledger.write_text(json.dumps([{**record, "severity": "moderate"}]))
+    with pytest.raises(ValueError, match="Unconfirmed severity"):
+        delta.assess_existing(shipped, ledger, now, details.__getitem__)

@@ -186,6 +186,20 @@ def advisory_severity(detail: dict) -> str:
     return severity if severity in WAIVER_DAYS else "unknown"
 
 
+def rated_severity(data: dict, detail: Callable[[str], dict]) -> str:
+    """Rate an advisory, reading a GHSA alias when the record has no severity.
+
+    PYSEC records usually carry no severity; their GHSA alias does.
+    """
+    severity = advisory_severity(data)
+    for alias in data.get("aliases", []) or []:
+        if severity != "unknown":
+            break
+        if str(alias).startswith("GHSA-"):
+            severity = advisory_severity(detail(alias))
+    return severity
+
+
 def advisory_fixable(detail: dict, ecosystem: str, name: str) -> bool:
     """True when OSV records a fixed version for this package."""
     for affected in detail.get("affected", []) or []:
@@ -272,7 +286,7 @@ def assess_existing(
             ) + (advisory,)
             record = accepted.get(key)
             if record is not None:
-                severity = advisory_severity(detail(advisory))
+                severity = rated_severity(detail(advisory), detail)
                 if severity != record["severity"]:
                     raise ValueError(f"Unconfirmed severity for {advisory}")
             else:
@@ -291,13 +305,7 @@ def release_blocking(
             continue
         for advisory in finding["advisories"]:
             data = detail(advisory)
-            severity = advisory_severity(data)
-            # PYSEC records usually carry no severity; their GHSA alias does.
-            for alias in data.get("aliases", []) or []:
-                if severity != "unknown":
-                    break
-                if str(alias).startswith("GHSA-"):
-                    severity = advisory_severity(detail(alias))
+            severity = rated_severity(data, detail)
             if severity in RELEASE_BLOCKING and advisory_fixable(
                 data, finding["ecosystem"], finding["name"]
             ):
