@@ -303,3 +303,148 @@ def test_emitted_queue_manifest_round_trips_through_the_consumer(tmp_path, monke
     evidence.reuse(SHA, output)
     assert json.loads(output.read_text())["reused"] is False
     assert "different inventory" in json.loads(output.read_text())["reason"]
+
+
+HEAD = "c" * 40
+QUEUE = "d" * 40
+TREE = "e" * 40
+
+
+def tree_reuse_setup(tmp_path, monkeypatch, **overrides):
+    """Synthetic GitHub responses for one queued PR whose own run was full and green."""
+    run = {
+        "id": 88,
+        "run_attempt": 1,
+        "head_sha": HEAD,
+        "repository": {"full_name": "phlohouse/phlo"},
+        "head_repository": {"full_name": "phlohouse/phlo"},
+        "workflow_id": 12,
+        "path": evidence.WORKFLOW,
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "run_started_at": (NOW - timedelta(hours=1)).isoformat(),
+    }
+    run.update(overrides.pop("run", {}))
+    pull = {
+        "head": {"sha": HEAD, "repo": {"full_name": overrides.pop("head_repo", "phlohouse/phlo")}}
+    }
+    expected = {"ci / core", "pr / required"}
+    jobs = [
+        {"name": name, "status": "completed", "conclusion": "success", "head_sha": HEAD}
+        for name in sorted(expected)
+    ]
+    jobs = overrides.pop("jobs", jobs)
+    record = overrides.pop("record", {"tree": TREE, "head": HEAD, "run_id": 88})
+    merged = overrides.pop("merged", TREE)
+    branch = overrides.pop("branch", f"refs/heads/gh-readonly-queue/main/pr-1308-{'b' * 40}")
+
+    def api(path):
+        if path.endswith("/pulls/1308"):
+            return pull
+        if "workflows/pr.yml" in path:
+            return {"id": 12, "path": evidence.WORKFLOW}
+        return run
+
+    def download(found, name, destination):
+        assert found is run and name == "validated-tree"
+        folder = destination / name
+        folder.mkdir()
+        (folder / "validated-tree.json").write_text(json.dumps(record))
+        return folder
+
+    monkeypatch.setattr(evidence.github, "api", api)
+    monkeypatch.setattr(evidence.github, "pages", lambda *_args: [{"id": 88}])
+    monkeypatch.setattr(evidence.github, "download_artifact", download)
+    monkeypatch.setattr(evidence, "merged_tree", lambda base, head: merged)
+    monkeypatch.setattr(evidence, "expected_jobs", lambda: expected)
+    monkeypatch.setattr(evidence, "run_jobs", lambda _run: jobs)
+    monkeypatch.setattr(
+        evidence.subprocess, "check_output", lambda *_args, **_kwargs: f"{TREE}\n".encode()
+    )
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"merge_group": {"head_ref": branch, "head_sha": QUEUE, "base_sha": "b" * 40}})
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    monkeypatch.setenv("GITHUB_SHA", QUEUE)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    output = tmp_path / "decision.json"
+    evidence.tree_reuse(output, now=NOW)
+    return json.loads(output.read_text())
+
+
+def test_queue_reuses_a_full_green_pr_run_on_the_identical_tree(tmp_path, monkeypatch):
+    decision = tree_reuse_setup(tmp_path, monkeypatch)
+    assert decision == {
+        "reused": True,
+        "tree": TREE,
+        "pull_request": 1308,
+        "head": HEAD,
+        "run_id": 88,
+        "run_attempt": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"merged": "f" * 40},
+        {"record": {"tree": "f" * 40, "head": HEAD, "run_id": 88}},
+        {"record": {"tree": TREE, "head": HEAD, "run_id": 87}},
+        {"head_repo": "fork/phlo"},
+        {"run": {"head_repository": {"full_name": "fork/phlo"}}},
+        {"run": {"event": "merge_group"}},
+        {"run": {"conclusion": "failure"}},
+        {"run": {"status": "in_progress"}},
+        {"run": {"path": ".github/workflows/other.yml"}},
+        {"run": {"run_started_at": (NOW - timedelta(hours=25)).isoformat()}},
+        {
+            "jobs": [
+                {
+                    "name": "pr / required",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "head_sha": HEAD,
+                }
+            ]
+        },
+        {
+            "jobs": [
+                {
+                    "name": "ci / core",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "head_sha": HEAD,
+                },
+                {
+                    "name": "pr / required",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "head_sha": HEAD,
+                },
+            ]
+        },
+        {"branch": "refs/heads/gh-readonly-queue/main/not-a-pr"},
+    ],
+    ids=[
+        "main-moved",
+        "other-tree",
+        "other-run",
+        "fork-pr",
+        "fork-run",
+        "queue-run",
+        "red-run",
+        "unfinished-run",
+        "other-workflow",
+        "stale-run",
+        "partial-run",
+        "skipped-lane",
+        "not-a-pr-entry",
+    ],
+)
+def test_anything_unproven_gets_the_full_queue_run(tmp_path, monkeypatch, overrides):
+    monkeypatch.setattr(evidence.time, "sleep", lambda _seconds: None)
+    decision = tree_reuse_setup(tmp_path, monkeypatch, **overrides)
+    assert decision["reused"] is False
+    assert decision["reason"]

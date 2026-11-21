@@ -28,10 +28,11 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
     """Fail open for unrecognised paths; expand package changes to their dependents.
 
     Workspace coverage runs every package's tests on each PR. The isolated
-    package groups only add a check of each package's declared dependencies,
-    so they run when a dependency manifest changes and for an empty diff: the
-    merge queue, manual runs and nightly, whose full evidence covers every
-    configured job.
+    package groups add a check of each package's declared dependencies. They
+    run for an empty diff (the merge queue, manual runs and nightly), when a
+    dependency manifest changes, and on every broad PR: a broad PR then proves
+    the full job set, so the merge queue can reuse that run for an identical
+    tree instead of repeating it.
     """
     groups = {
         group: packages.split()
@@ -99,21 +100,6 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
         and path.count("/") == 2
         and path.endswith("/pyproject.toml")
     } & package_names
-    workspace_manifest = bool({"pyproject.toml", "uv.lock"} & paths)
-    if not paths or workspace_manifest:
-        isolated = package_groups(package_names)
-        isolated_reason = (
-            "empty diff (merge queue, manual or nightly) or workspace dependency manifest"
-        )
-    else:
-        isolated = package_groups(with_dependents(manifests))
-        isolated_reason = (
-            "dependency manifests and reverse dependencies: "
-            + ", ".join(sorted(with_dependents(manifests)))
-            if manifests
-            else "no dependency manifest changes; workspace coverage runs package tests"
-        )
-
     broad = (
         not paths
         or bool(package_changes - package_names)
@@ -124,6 +110,22 @@ def select(paths: set[str], root: Path = ROOT) -> dict[str, object]:
             for path in paths
         )
     )
+    workspace_manifest = bool({"pyproject.toml", "uv.lock"} & paths)
+    if not paths or workspace_manifest or broad:
+        isolated = package_groups(package_names)
+        isolated_reason = (
+            "empty diff (merge queue, manual or nightly), workspace dependency manifest, "
+            "or a broad change whose full run the merge queue can reuse"
+        )
+    else:
+        isolated = package_groups(with_dependents(manifests))
+        isolated_reason = (
+            "dependency manifests and reverse dependencies: "
+            + ", ".join(sorted(with_dependents(manifests)))
+            if manifests
+            else "no dependency manifest changes; workspace coverage runs package tests"
+        )
+
     if broad:
         return {
             "groups": isolated,

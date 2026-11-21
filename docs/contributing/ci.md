@@ -8,15 +8,30 @@ Phlo separates **safe to merge**, **source health**, **artifact readiness** and
 `pr / required` remains the single required merge result. Pull requests select
 lanes from the changed packages and their reverse dependencies. Unknown inputs
 select full validation; only explicitly inert documentation omits executable
-lanes. Every merge group runs every lane on its prospective merge SHA.
+lanes. Every merge group runs every lane on its prospective merge SHA, or
+reuses a PR run that already passed every lane on the identical tree (below).
+
+When main has not moved since a PR's run, the merge queue entry is the same
+bytes the PR already tested. The queue then reuses that run instead of
+repeating it, and reruns only the dependency-risk and container lanes against
+the queue base. Reuse needs all of these, or the entry gets the full run: a
+same-repository PR; the PR's latest validation run is completed, green and
+under 24 hours old; it ran every configured job, isolated package groups
+included; it recorded the tree it tested and that tree equals the queue
+commit's tree; and the PR head merged onto the queue base produces that tree.
+A reused entry writes no full-queue evidence, so a release candidate at that
+commit runs full validation itself.
 
 Isolated package tests run each package in its own dependency environment. The
 workspace coverage shards already run those tests, so the isolated groups only
-check declared dependencies. PRs run them only when a dependency manifest
-changes: a package's `pyproject.toml` selects that package and its reverse
-dependencies, and the root `pyproject.toml` or `uv.lock` selects every group.
-Merge groups and nightly run every group, because merge-queue evidence must
-cover every configured job.
+check declared dependencies. A PR that changes only package sources runs them
+when a dependency manifest changes: a package's `pyproject.toml` selects that
+package and its reverse dependencies, and the root `pyproject.toml` or
+`uv.lock` selects every group. A broad PR (anything outside `packages/`, such
+as `src/`, `tests/` or `scripts/`) runs every group, in parallel with the rest,
+so its run is complete and the merge queue can reuse it. Merge groups and
+nightly run every group, because merge-queue evidence must cover every
+configured job.
 
 Required lanes cover Python quality and behaviour, installed provider artifacts,
 PostgreSQL concurrency, quickstart and recovery, Observatory, GitHub writer and
@@ -47,7 +62,7 @@ environments.
 | Stage | Scope |
 | --- | --- |
 | Pull request | Affected checks and reverse dependencies, introduced dependency risk, conservative full coverage for unknown changes. |
-| Merge queue | All buckets on the exact prospective merge SHA, including the full dependency policy. |
+| Merge queue | All buckets on the exact prospective merge SHA, including the full dependency policy, unless a complete green PR run tested the identical tree; then only dependency risk and container policy rerun. |
 | Main and beta | Authenticate and reuse full queue evidence. Run the full fallback only when evidence cannot be reused. |
 | Scheduled maintenance | Nightly: full integration, the source golden path, Python 3.13, Windows portability and the release rehearsal with image scans. Weekly: mutation report. Red scheduled runs open a tracking issue. |
 | Release Rehearsal | On the ReleaseX PR, release-machinery PRs and nightly: build the distributions and images once and run the artifact golden path against them. Publishes nothing. |

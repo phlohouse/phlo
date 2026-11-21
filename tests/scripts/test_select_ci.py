@@ -34,7 +34,12 @@ def test_source_changes_leave_isolated_package_groups_to_dependency_changes() ->
     assert selection["python"] is True
     assert selection["integration"] is True
     assert "phlo-nessie" in selection["reasons"]["python"]
-    assert select({"scripts/select_ci.py"})["groups"] == []
+
+
+def test_broad_changes_run_every_isolated_group_so_the_queue_can_reuse_them() -> None:
+    # A broad PR proves the full job set; the merge queue reuses it for an identical tree.
+    assert select({"scripts/select_ci.py"})["groups"] == select(set())["groups"]
+    assert len(select({"src/phlo/__init__.py"})["groups"]) == len(select(set())["groups"])
 
 
 def test_trino_manifest_selects_reverse_dependency_groups() -> None:
