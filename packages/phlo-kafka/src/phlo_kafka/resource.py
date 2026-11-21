@@ -34,6 +34,7 @@ class KafkaResource:
 
     def _require_confluent(self) -> Any:
         try:
+            # reason: the client loads its native library on import; keep it off module import.
             import confluent_kafka  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover - environment dependent
             raise RuntimeError(

@@ -510,7 +510,7 @@ Source: `packages/phlo-kafka/src/phlo_kafka/settings.py`
 | `kafka_dead_letter_retention_ms` | `["KAFKA_DEAD_LETTER_RETENTION_MS"]` | `<class 'int'>` | false | `2592000000` | Dead-letter topic retention in milliseconds (default 30d) |
 | `kafka_dead_letter_suffix` | `["KAFKA_DEAD_LETTER_SUFFIX"]` | `<class 'str'>` | false | `.dlq` | Suffix for dead-letter topics |
 | `kafka_host` | `["KAFKA_HOST"]` | `<class 'str'>` | false | `kafka` | Kafka broker host |
-| `kafka_port` | `["KAFKA_PORT"]` | `<class 'int'>` | false | `9092` | Kafka broker port |
+| `kafka_port` | `["KAFKA_BROKER_PORT"]` | `<class 'int'>` | false | `9092` | Kafka broker port on the service network |
 | `kafka_retention_ms` | `["KAFKA_RETENTION_MS"]` | `<class 'int'>` | false | `604800000` | Source topic retention in milliseconds (default 7d) |
 | `kafka_schema_policy` | `["KAFKA_SCHEMA_POLICY"]` | `<class 'str'>` | false | `additive` | Default schema policy: additive compatible changes auto-register |
 

@@ -32,6 +32,7 @@ def ensure_topic(admin: Any, *, topic: str, compacted: bool = False, retention_m
     }
     if compacted:
         config["cleanup.policy"] = "compact"
+    # reason: the client loads its native library on import; keep it off module import.
     from confluent_kafka.admin import NewTopic  # noqa: PLC0415
 
     futures = admin.create_topics(

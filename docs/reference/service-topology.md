@@ -50,7 +50,7 @@
 | `rustfs` | [phlo-rustfs](../../packages/phlo-rustfs/src/phlo_rustfs/service.yaml) | `rustfs-volume-setup` | 9000 → 9000/tcp (RUSTFS_API_PORT); 9001 → 9001/tcp (RUSTFS_CONSOLE_PORT) | none | false |
 | `rustfs-setup` | [phlo-rustfs](../../packages/phlo-rustfs/src/phlo_rustfs/rustfs-setup.yaml) | `rustfs` | none | none | false |
 | `rustfs-volume-setup` | [phlo-rustfs](../../packages/phlo-rustfs/src/phlo_rustfs/rustfs-volume-setup.yaml) | none | none | none | false |
-| `superset` | [phlo-superset](../../packages/phlo-superset/src/phlo_superset/service.yaml) | `postgres`, `trino` | 8088 → 8088/tcp (SUPERSET_PORT) | none | true |
+| `superset` | [phlo-superset](../../packages/phlo-superset/src/phlo_superset/service.yaml) | `postgres`, `trino` | 10007 → 8088/tcp (SUPERSET_PORT) | none | true |
 | `traefik` | [phlo-traefik](../../packages/phlo-traefik/src/phlo_traefik/service.yaml) | `traefik-docker` | 80 → 80/tcp (TRAEFIK_HTTP_PORT) | proxy | false |
 | `traefik-docker` | [phlo-traefik](../../packages/phlo-traefik/src/phlo_traefik/traefik-docker-daemon.yaml) | none | none | proxy | false |
 | `trino` | [phlo-trino](../../packages/phlo-trino/src/phlo_trino/service.yaml) | `minio`, `nessie` | 10005 → 8080/tcp (TRINO_PORT) | none | true |

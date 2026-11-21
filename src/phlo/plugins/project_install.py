@@ -145,6 +145,15 @@ def _install_into_interpreter(packages: list[str], version: str, uv: str | None)
         raise PluginInstallError(result.stderr.strip()[-500:] or "package install failed")
 
 
+def _refresh_discovery() -> None:
+    """Forget cached entry points and manifests so the new packages are found."""
+    from phlo.plugins.discovery._plugin_loading import refresh as refresh_plugins
+    from phlo.plugins.discovery._service_definition import refresh as refresh_services
+
+    refresh_plugins()
+    refresh_services()
+
+
 def install_packages(packages: list[str], *, cwd: Path | None = None) -> str:
     """Install ``packages`` for this project and return where they went.
 
@@ -164,8 +173,6 @@ def install_packages(packages: list[str], *, cwd: Path | None = None) -> str:
         _install_into_interpreter(packages, version, uv)
         where = "interpreter"
     importlib.invalidate_caches()
-    from phlo.plugins.discovery import refresh
-
-    refresh()
+    _refresh_discovery()
     logger.info("plugin_packages_installed", packages=packages, target=where)
     return where

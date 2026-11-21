@@ -127,7 +127,7 @@ def configured_project_id() -> str | None:
     Runs launched from the CLI or Observatory carry no phlo/project_id tag, so
     without this their run evidence could never name its project.
     """
-    from phlo.config import get_settings
+    from phlo.config.settings import get_settings
     from phlo.config.project import get_project_name_from_config
 
     configured = get_settings().phlo_project

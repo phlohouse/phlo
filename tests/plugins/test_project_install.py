@@ -26,7 +26,7 @@ RELEASE = {
 def _release(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("phlo.capabilities.support_status.load_support_manifest", lambda: RELEASE)
     monkeypatch.setattr(project_install, "installed_phlo_version", lambda: "0.19.0")
-    monkeypatch.setattr("phlo.plugins.discovery.refresh", lambda: None)
+    monkeypatch.setattr(project_install, "_refresh_discovery", lambda: None)
 
 
 def test_first_party_packages_are_pinned_to_the_release() -> None:
