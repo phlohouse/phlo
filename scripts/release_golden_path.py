@@ -1176,7 +1176,12 @@ _REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 
 def _wheel_requirements(wheel: Path) -> set[str]:
-    """Return the unconditional distribution names a wheel requires."""
+    """Return the distribution names a wheel requires outside its extras.
+
+    Other markers are not evaluated: callers keep only first-party BOM wheels,
+    and no first-party requirement carries one. This runs under the runner's
+    bare python3, which may lack ``packaging``.
+    """
     import zipfile
 
     with zipfile.ZipFile(wheel) as archive:
@@ -1210,7 +1215,11 @@ def operator_wheels(config: RunConfig) -> list[dict[str, object]]:
     wheels = {
         str(artifact["name"]): artifact for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL)
     }
-    support = json.loads(_SUPPORT_MANIFEST.read_text(encoding="utf-8"))
+    # The candidate pins its own support manifest; the checkout's is a fallback.
+    pinned = bom.get("support_manifest")
+    support = json.loads(
+        pinned if isinstance(pinned, str) else _SUPPORT_MANIFEST.read_text(encoding="utf-8")
+    )
     pending = [
         str(package["name"])
         for package in support["packages"]

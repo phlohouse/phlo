@@ -1450,6 +1450,28 @@ def test_operator_installs_the_core_and_its_dependencies_not_every_published_plu
     assert names == ["phlo", "phlo-api", "phlo-lineage"]
 
 
+def test_operator_scopes_come_from_the_candidate_support_manifest(tmp_path: Path) -> None:
+    """A candidate built from another commit is judged by its own pinned scopes."""
+    config = _config(tmp_path)
+    artifacts = [
+        {"kind": "wheel", "name": name, "version": "1.0.0", "digest": f"sha256:{index}"}
+        for index, name in enumerate(("phlo", "phlo-kafka"))
+    ]
+    pinned = {
+        "packages": [
+            {"name": "phlo", "scope": "blessed_core"},
+            {"name": "phlo-kafka", "scope": "blessed_core"},
+        ]
+    }
+    config.__dict__.update(
+        bom={"artifacts": artifacts, "support_manifest": json.dumps(pinned)}, staging_dir=None
+    )
+
+    names = [artifact["name"] for artifact in release_golden_path.operator_wheels(config)]
+
+    assert names == ["phlo", "phlo-kafka"]
+
+
 def test_verify_installed_versions_requires_exact_bom_versions(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
     config.__dict__.update(bom=_candidate_bom())
