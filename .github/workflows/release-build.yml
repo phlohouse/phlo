@@ -111,6 +111,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+      # The check resolves each extra with uv.
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: distributions-${{ needs.distributions.outputs.sha }}

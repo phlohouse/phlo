@@ -142,6 +142,9 @@ def test_release_build_runs_the_check_on_the_built_distributions() -> None:
         i for i, step in enumerate(steps) if "check_published_extras.py" in step.get("run", "")
     )
     assert download < check
+    # The check shells out to uv, so the job must install it first.
+    setup = next(i for i, step in enumerate(steps) if "setup-uv" in step.get("uses", ""))
+    assert setup < check
     assert steps[download]["with"]["name"] == "distributions-${{ needs.distributions.outputs.sha }}"
     assert '--distributions "$RUNNER_TEMP/distributions"' in steps[check]["run"]
     assert '"$CANDIDATE_SHA:registry/support/v1.json"' in steps[check]["run"]
