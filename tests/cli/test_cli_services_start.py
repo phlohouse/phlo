@@ -193,7 +193,7 @@ def test_services_start_explains_an_unreachable_docker_daemon(monkeypatch, tmp_p
 
     assert result.exit_code == 1
     assert "Docker isn't reachable" in result.output
-    assert "Start Docker Desktop" in result.output
+    assert "Start Docker (Docker Desktop, Colima or the Docker daemon)" in result.output
     assert "Cannot connect to the Docker daemon" in result.output
     assert "Traceback" not in result.output
     assert not isinstance(result.exception, OSError)

@@ -34,7 +34,11 @@ class ContainerRuntimeUnavailable(OSError):
 
 def _runtime_unavailable(runtime: str, stderr: str) -> ContainerRuntimeUnavailable:
     detail = next((line.strip() for line in stderr.splitlines() if line.strip()), "")
-    start = "Start Docker Desktop (or the Docker daemon)" if runtime == "Docker" else "Start Podman"
+    start = (
+        "Start Docker (Docker Desktop, Colima or the Docker daemon)"
+        if runtime == "Docker"
+        else "Start Podman (podman machine start)"
+    )
     message = (
         f"{runtime} isn't reachable, so phlo can't see the project's containers. "
         f"{start} and try again."
