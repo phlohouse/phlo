@@ -92,6 +92,31 @@ def test_init_defaults_to_minimal_template(tmp_path) -> None:
     assert _project_dependencies(project_dir) == ["phlo[defaults]"]
 
 
+def test_init_runs_in_a_new_folder_that_only_holds_phlo_startup_logs(tmp_path) -> None:
+    """`mkdir lake && cd lake && phlo init` works although every command logs to .phlo/logs."""
+    logs = tmp_path / ".phlo" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "20261121.log").write_text("startup\n")
+
+    result = CliRunner().invoke(cli, ["init", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "phlo.yaml").exists()
+
+
+@pytest.mark.parametrize("existing", ["notes.txt", ".phlo/docker-compose.yml"])
+def test_init_still_refuses_a_folder_with_other_content(tmp_path, existing: str) -> None:
+    path = tmp_path / existing
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("x\n")
+
+    result = CliRunner().invoke(cli, ["init", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "is not empty" in result.output
+    assert not (tmp_path / "phlo.yaml").exists()
+
+
 def test_init_list_templates_outputs_metadata() -> None:
     result = CliRunner().invoke(cli, ["init", "--list-templates"])
 

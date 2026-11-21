@@ -15,6 +15,7 @@ from pathlib import Path
 
 import click
 import yaml
+from pydantic import ValidationError
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands.services.planner import ServiceSelectionPlan, build_service_selection_plan
@@ -41,8 +42,10 @@ from phlo.cli.infrastructure.secure_files import write_sensitive_file
 from phlo.cli.infrastructure.utils import parse_env_file
 from phlo.cli.output import user_error
 from phlo.config.layout import SHARED_LAYOUT_MARKER, env_defaults_path, env_secrets_path
+from phlo.config.project import get_enabled_disabled_service_names
 from phlo.config_schema import ProjectConfig
 from phlo.infrastructure.container_backend import project_container_host_identity
+from phlo.infrastructure.utils import compose_project_name
 from phlo.operations.generated_stack import BASELINE, generation_baseline
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
 from phlo.plugins.compose.generator import ComposeGenerator
@@ -267,6 +270,8 @@ def init_cmd(
         phlo_source,
         phlo_dir,
     )
+    _require_project_folder(config_file)
+
     # Derive project name from directory if not specified
     if not project_name:
         project_name = Path.cwd().name.lower().replace(" ", "-").replace("_", "-")
@@ -331,6 +336,7 @@ def init_cmd(
     selection_plan, services_to_install = _select_initial_services(
         discovery, all_services, existing_config, user_overrides, env_overrides, profiles
     )
+    _record_profile_services(config_file, selection_plan, profiles)
     env_overrides = apply_notebook_defaults(services_to_install, env_overrides)
     env_overrides = apply_action_defaults(services_to_install, env_overrides)
     env_overrides = apply_preview_defaults(
@@ -466,6 +472,57 @@ def _record_initial_generation(
         phlo_dir / BASELINE,
         json.dumps(baseline, indent=2) + "\n",
         allow_insecure=allow_insecure,
+    )
+
+
+def _record_profile_services(
+    config_file: Path, selection_plan: ServiceSelectionPlan, profiles: tuple[str, ...]
+) -> None:
+    """Enable the requested profiles' services in phlo.yaml.
+
+    A plain ``phlo services start`` starts enabled services, and a later
+    regeneration (``phlo services add``, ``phlo upgrade``) keeps them, so the
+    profiles chosen here keep working without repeating ``--profile``.
+    """
+    requested = {profile.strip() for profile in profiles if profile.strip()}
+    names = [
+        service.name for service in selection_plan.selected_services if service.profile in requested
+    ]
+    if not names:
+        return
+    config = _load_existing_project_config(config_file)
+    enabled, disabled = get_enabled_disabled_service_names(config)
+    services = config.get("services")
+    if not isinstance(services, dict):
+        services = config["services"] = {}
+    listed = services.get("enabled")
+    listed_names = [str(name) for name in listed] if isinstance(listed, list) else []
+    added = sorted(name for name in names if name not in disabled and name not in enabled)
+    if not added:
+        return
+    services["enabled"] = sorted({*listed_names, *added})
+    config_file.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    click.echo(f"Enabled in {PHLO_CONFIG_FILE}: {', '.join(added)}")
+
+
+def _require_project_folder(config_file: Path) -> None:
+    """Refuse to generate a stack into a folder that holds something other than a project.
+
+    An empty folder still gets a standalone ``phlo.yaml``; a folder with other files but
+    no ``phlo.yaml`` usually means ``phlo init`` refused to run there.
+    """
+    if config_file.exists():
+        return
+    project_root = config_file.parent
+    other = sorted(
+        entry.name for entry in project_root.iterdir() if entry.name not in {".phlo", ".DS_Store"}
+    )
+    if not other:
+        return
+    raise click.ClickException(
+        f"{project_root} has no {PHLO_CONFIG_FILE} but isn't empty, so it doesn't look like a "
+        "phlo project. Run `phlo init` here first (add --force if you want the project "
+        "files alongside what is already in the folder), then run `phlo services init`."
     )
 
 
@@ -616,7 +673,7 @@ def _configure_observatory_dev(
             "sandbox": {
                 "dagster_location": "phlo_dagster.framework.definitions",
                 "nessie_ref": effective.get("NESSIE_DEFAULT_REF", "main"),
-                "compose_project": config.get("name") or project_name,
+                "compose_project": compose_project_name(config.get("name") or project_name),
             },
         },
     )
@@ -632,7 +689,10 @@ def _configure_observatory_dev(
             "PHLO_AUTHORIZATION_MODE": "required",
         }
     )
-    ProjectConfig.model_validate(config)
+    try:
+        ProjectConfig.model_validate(config)
+    except ValidationError as exc:
+        raise click.ClickException(f"phlo.yaml would not be valid: {exc}") from exc
     for name in ("phlo-api", "observatory"):
         if services[name].get("ports"):
             raise click.ClickException(

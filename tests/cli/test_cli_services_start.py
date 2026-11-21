@@ -122,6 +122,93 @@ def test_services_start_reports_invalid_ports_through_cli(
     assert "Traceback" not in result.output
 
 
+def test_services_start_brings_up_profile_services_the_project_enabled(
+    monkeypatch, tmp_path
+) -> None:
+    """`phlo services init --profile notebooks` then a plain start runs the kernel host."""
+    from phlo.cli.commands.services import start as start_module
+
+    (tmp_path / "phlo.yaml").write_text("services:\n  enabled: [kernels]\n")
+    profiles_seen: list[tuple[str, ...]] = []
+
+    def compose_base_cmd(**kwargs):
+        profiles_seen.append(tuple(kwargs.get("profiles") or ()))
+        return ["docker", "compose"]
+
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose=(
+            "services:\n"
+            "  database: {}\n"
+            "  kernels:\n"
+            "    profiles: [notebooks]\n"
+            "  metrics:\n"
+            "    profiles: [observability]\n"
+        ),
+        snapshots=[
+            [
+                ServiceStatus(service="database", state="running", health=None),
+                ServiceStatus(service="kernels", state="running", health=None),
+            ]
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    commands: list[list[str]] = []
+
+    def run_command(cmd, **_kwargs):
+        commands.append(list(cmd))
+        return CompletedProcess(args=cmd, returncode=0)
+
+    monkeypatch.setattr(start_module, "compose_base_cmd", compose_base_cmd)
+    monkeypatch.setattr(start_module, "run_command", run_command)
+    result = CliRunner().invoke(start_module.start_cmd, [])
+
+    assert result.exit_code == 0, result.output
+    assert profiles_seen == [("notebooks",)]
+    # The profile is active, so the command names its targets: the rest of a
+    # profile (here none, in general hasura next to phlo-api) stays off.
+    assert sorted(commands[0][commands[0].index("-d") + 1 :]) == ["database", "kernels"]
+    assert "Services running: database, kernels" in result.output
+    assert "metrics" not in result.output
+
+
+def test_services_start_explains_an_unreachable_docker_daemon(monkeypatch, tmp_path) -> None:
+    """A stopped Docker daemon is a clear instruction, not a traceback."""
+    from phlo.cli.commands.services import start as start_module
+    from phlo.infrastructure.container_backend import DockerBackend
+
+    monkeypatch.setattr(
+        "phlo.infrastructure.container_backend.subprocess.run",
+        lambda *args, **_: CompletedProcess(
+            args[0],
+            1,
+            stdout="",
+            stderr="Cannot connect to the Docker daemon at unix:///var/run/docker.sock.\n",
+        ),
+    )
+    postgres = _service("postgres")
+    monkeypatch.setattr(
+        start_module, "ServiceDiscovery", lambda: FakeDiscovery({"postgres": postgres})
+    )
+    result = _invoke_services_start_with_statuses(
+        monkeypatch,
+        tmp_path,
+        compose="services:\n  postgres:\n    ports:\n      - 15432:5432\n",
+        snapshots=[],
+        backend=DockerBackend(),
+        args=["--service", "postgres"],
+    )
+
+    assert result.exit_code == 1
+    assert "Docker isn't reachable" in result.output
+    assert "Start Docker (Docker Desktop, Colima or the Docker daemon)" in result.output
+    assert "Cannot connect to the Docker daemon" in result.output
+    assert "Traceback" not in result.output
+    assert not isinstance(result.exception, OSError)
+
+
 @pytest.mark.parametrize(
     "port", ["18080-18082:8080-8082", "{target: 8080, published: '18080-18082'}"]
 )

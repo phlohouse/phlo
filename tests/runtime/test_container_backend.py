@@ -373,8 +373,12 @@ def test_failed_container_query_is_not_an_empty_project(backend, monkeypatch):
         "phlo.infrastructure.container_backend.subprocess.run",
         lambda *args, **_: CompletedProcess(args[0], 1, stdout="", stderr="daemon unavailable"),
     )
-    with pytest.raises(OSError, match="status is unavailable"):
+    with pytest.raises(
+        container_backend.ContainerRuntimeUnavailable, match="isn't reachable"
+    ) as exc_info:
         backend.list_project_containers("demo")
+    assert isinstance(exc_info.value, OSError)
+    assert "daemon unavailable" in str(exc_info.value)
 
 
 @pytest.mark.parametrize("backend", [DockerBackend, PodmanBackend])

@@ -18,10 +18,12 @@ phlo services add notebooks
 When you set up a new project, choose the profile at the start instead:
 
 ```bash
-phlo services init --observatory-dev --profile notebooks
+phlo services init --profile notebooks
 phlo services start
 ```
 
+`phlo services init` records the profile's services under `services.enabled` in
+`phlo.yaml`, so every later `phlo services start` runs the kernel host too.
 Then open **Notebooks** in Observatory. There is nothing else to set.
 
 Adding notebooks:

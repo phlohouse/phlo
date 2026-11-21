@@ -36,3 +36,19 @@ def test_compact_dict_empty_input() -> None:
 )
 def test_dedupe_preserve_order(values: list, expected: list) -> None:
     assert dedupe_preserve_order(values) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("phlo fixture with spaces", "phlo-fixture-with-spaces"),
+        ("My_Lakehouse", "my_lakehouse"),
+        ("lake-1", "lake-1"),
+        ("  ", "phlo"),
+    ],
+)
+def test_compose_project_name_is_valid_for_compose(name: str, expected: str) -> None:
+    """A phlo.yaml name with spaces or capitals still gives Compose a valid project name."""
+    from phlo.infrastructure.utils import compose_project_name
+
+    assert compose_project_name(name) == expected

@@ -275,6 +275,28 @@ def _render_next_steps(selected_template) -> list[str]:
     return [step if step.startswith("uv ") else f"uv run {step}" for step in dict.fromkeys(steps)]
 
 
+def _has_existing_content(project_dir: Path) -> bool:
+    """Return whether the folder holds anything besides phlo's own startup logs.
+
+    Every phlo command writes ``.phlo/logs`` before it runs, so a freshly
+    created folder already contains it by the time ``phlo init`` checks.
+    """
+    for entry in project_dir.iterdir():
+        if entry.name == ".DS_Store":
+            continue
+        only_logs = (
+            entry.name == ".phlo"
+            and entry.is_dir()
+            and all(
+                path.relative_to(entry).parts[0] == "logs" or path.name == ".DS_Store"
+                for path in entry.rglob("*")
+            )
+        )
+        if not only_logs:
+            return True
+    return False
+
+
 @cli.command("init")
 @click.argument("project_name", required=False)
 @click.option(
@@ -343,7 +365,7 @@ def init(
             click.echo(f"Creating new project: {project_dir}")
 
     # Check if directory exists and is not empty
-    if project_dir.exists() and any(project_dir.iterdir()) and not force:
+    if project_dir.exists() and _has_existing_content(project_dir) and not force:
         raise user_error(
             f"Directory {project_dir} is not empty",
             details=["Use --force to initialize anyway."],

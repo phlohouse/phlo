@@ -5,6 +5,7 @@ env/config files never raise: they log a warning and fall back to defaults
 derived from the current directory name.
 """
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -58,7 +59,19 @@ def get_project_config() -> dict:
     }
 
 
+def compose_project_name(name: str) -> str:
+    """Return ``name`` as a Compose project name (lowercase letters, digits, ``-``, ``_``).
+
+    A ``phlo.yaml`` name such as ``"My Lakehouse"`` becomes ``my-lakehouse``;
+    a name that is already valid is returned unchanged.
+    """
+    slug = re.sub(r"[^a-z0-9_-]+", "-", str(name).strip().lower()).strip("-_")
+    return slug or "phlo"
+
+
 def get_project_name() -> str:
     """Get the project name for Docker Compose."""
     config = get_project_config()
-    return config.get("name", Path.cwd().name.lower().replace(" ", "-").replace("_", "-"))
+    return compose_project_name(
+        config.get("name") or Path.cwd().name.lower().replace(" ", "-").replace("_", "-")
+    )

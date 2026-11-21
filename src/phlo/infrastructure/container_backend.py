@@ -28,6 +28,26 @@ from phlo.security.mode import requires_http_authorization
 BackendName = Literal["docker", "podman", "auto"]
 
 
+class ContainerRuntimeUnavailable(OSError):
+    """The container runtime did not answer, so project status is unknown."""
+
+
+def _runtime_unavailable(runtime: str, stderr: str) -> ContainerRuntimeUnavailable:
+    detail = next((line.strip() for line in stderr.splitlines() if line.strip()), "")
+    start = (
+        "Start Docker (Docker Desktop, Colima or the Docker daemon)"
+        if runtime == "Docker"
+        else "Start Podman (podman machine start)"
+    )
+    message = (
+        f"{runtime} isn't reachable, so phlo can't see the project's containers. "
+        f"{start} and try again."
+    )
+    if detail:
+        message += f" ({runtime} said: {detail})"
+    return ContainerRuntimeUnavailable(message)
+
+
 @dataclass(frozen=True)
 class ContainerInfo:
     """Describe one container in a compose project."""
@@ -328,7 +348,7 @@ class DockerBackend:
             check=False,
         )
         if result.returncode != 0:
-            raise OSError("Docker container status is unavailable.")
+            raise _runtime_unavailable("Docker", result.stderr or "")
         if not result.stdout.strip():
             return []
 
@@ -490,7 +510,7 @@ class PodmanBackend:
                 check=False,
             )
             if result.returncode != 0:
-                raise OSError("Podman container status is unavailable.")
+                raise _runtime_unavailable("Podman", result.stderr or "")
             if not result.stdout.strip():
                 continue
 

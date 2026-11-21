@@ -14,7 +14,7 @@ import signal
 import socket
 import subprocess
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Collection, Coroutine
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic as _readiness_monotonic
@@ -57,6 +57,7 @@ from phlo.cli.infrastructure.command import run_command
 from phlo.cli.infrastructure.compose import compose_base_cmd
 from phlo.cli.infrastructure.container_backend import (
     ContainerBackend,
+    ContainerRuntimeUnavailable,
     ServiceStatus,
     select_project_container_backend,
 )
@@ -143,13 +144,20 @@ def _declared_completed_successfully_services(
     return completed_successfully
 
 
-def _default_compose_service_names(compose_file: Path) -> list[str]:
-    """Return default-profile services and dependencies Compose starts without targets."""
+def _default_compose_service_names(
+    compose_file: Path, enabled_names: Collection[str] = ()
+) -> list[str]:
+    """Return the services and dependencies a plain start brings up.
+
+    That is every rendered service without a Compose profile, plus the rendered
+    profile services the project enabled in phlo.yaml (``phlo services init
+    --profile`` and ``phlo services add`` record them there).
+    """
     services = _load_compose_services(compose_file)
     selected = {
         name
         for name, config in services.items()
-        if isinstance(config, dict) and not config.get("profiles")
+        if isinstance(config, dict) and (not config.get("profiles") or name in enabled_names)
     }
     pending = list(selected)
     while pending:
@@ -164,6 +172,19 @@ def _default_compose_service_names(compose_file: Path) -> list[str]:
                 selected.add(dependency)
                 pending.append(dependency)
     return sorted(selected)
+
+
+def _default_compose_profiles(
+    compose_file: Path, enabled_names: Collection[str] = ()
+) -> tuple[str, ...]:
+    """Return the Compose profiles a plain start must activate for its selection."""
+    services = _load_compose_services(compose_file)
+    profiles: set[str] = set()
+    for name in _default_compose_service_names(compose_file, enabled_names):
+        config = services.get(name)
+        if isinstance(config, dict):
+            profiles.update(str(profile) for profile in config.get("profiles") or [])
+    return tuple(sorted(profiles))
 
 
 def _project_service_statuses(
@@ -309,9 +330,19 @@ def _load_native_env_overrides(project_root: Path) -> dict[str, str]:
 
 def _load_disabled_service_names(project_root: Path) -> set[str]:
     """Load disabled service names from project config, tolerating missing/bad files."""
+    return _load_service_state_names(project_root)[1]
+
+
+def _load_enabled_service_names(project_root: Path) -> set[str]:
+    """Load enabled service names from project config, tolerating missing/bad files."""
+    return _load_service_state_names(project_root)[0]
+
+
+def _load_service_state_names(project_root: Path) -> tuple[set[str], set[str]]:
+    """Load enabled and disabled service names, tolerating missing or bad files."""
     config_file = project_root / "phlo.yaml"
     if not config_file.exists():
-        return set()
+        return set(), set()
 
     try:
         config = yaml.safe_load(config_file.read_text()) or {}
@@ -321,12 +352,12 @@ def _load_disabled_service_names(project_root: Path) -> set[str]:
             config_file=str(config_file),
             exc_info=True,
         )
-        return set()
+        return set(), set()
 
-    _, disabled_names = get_enabled_disabled_service_names(
+    enabled_names, disabled_names = get_enabled_disabled_service_names(
         config if isinstance(config, dict) else {}
     )
-    return disabled_names
+    return enabled_names - disabled_names, disabled_names
 
 
 def _load_project_config(project_root: Path) -> dict[str, Any]:
@@ -400,12 +431,12 @@ def _preflight_requested_host_ports(
     config = _load_project_config(plan.project_root)
     env = _load_environment(plan.phlo_dir, config)
     backend = select_project_container_backend(cli_backend=plan.backend_name)
+    try:
+        containers = backend.list_project_containers(plan.project_name)
+    except ContainerRuntimeUnavailable as exc:
+        raise click.ClickException(str(exc)) from exc
     running_containers = {
-        container.service: {
-            "status": container.state,
-            "ports": [],
-        }
-        for container in backend.list_project_containers(plan.project_name)
+        container.service: {"status": container.state, "ports": []} for container in containers
     }
 
     invalid_ports, requested_ports = _requested_host_ports(
@@ -506,7 +537,9 @@ def _expand_requested_services(
         definition = discovered_services.get(name) or ServiceDefinition(name=name, description=name)
         all_services[name] = replace(definition, depends_on=list(config.get("depends_on") or []))
     if not service_names:
-        service_names = _default_compose_service_names(compose_file)
+        service_names = _default_compose_service_names(
+            compose_file, _load_enabled_service_names(Path.cwd())
+        )
         # Compose owns the implicit selection. Installed optional services that
         # are absent from this project must not become native startup targets.
         all_services = {
@@ -740,6 +773,12 @@ def start_cmd(
     # When --profile is specified without --service, target only profile services
     # This prevents restarting already-running core services
     services_list = _resolve_start_targets(profile, services_list, project_name)
+    # A plain start also brings up the profile services the project enabled
+    # (`phlo services init --profile`, `phlo services add`), not just Compose defaults.
+    enabled_names = _load_enabled_service_names(Path.cwd())
+    compose_profiles = profile or (
+        () if services_list else _default_compose_profiles(compose_file, enabled_names)
+    )
 
     if services_list:
         click.echo(f"Starting services: {', '.join(services_list)}...")
@@ -802,7 +841,7 @@ def start_cmd(
         stop_cmd = compose_base_cmd(
             phlo_dir=phlo_dir,
             project_name=project_name,
-            profiles=profile,
+            profiles=compose_profiles,
             backend_name=backend_name,
         )
         stop_cmd.append("stop")
@@ -815,11 +854,13 @@ def start_cmd(
         cmd = _build_start_command(
             phlo_dir,
             project_name,
-            profile,
+            compose_profiles,
             backend_name,
             detach,
             build,
-            docker_services_list if services_list or native else [],
+            # Activating an enabled service's profile must not start the rest of
+            # that profile, so a plain start with profiles names its targets.
+            docker_services_list if services_list or native or compose_profiles else [],
             no_deps=native,
         )
 
@@ -1072,7 +1113,9 @@ def _wait_and_report_start(
                 name for name in docker_services_list if name in compose_service_names
             ]
         else:
-            selected_services = _default_compose_service_names(compose_file)
+            selected_services = _default_compose_service_names(
+                compose_file, _load_enabled_service_names(Path.cwd())
+            )
         backend = select_project_container_backend(cli_backend=backend_name)
         started_services = _wait_for_services_ready(
             backend=backend,
