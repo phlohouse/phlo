@@ -429,14 +429,19 @@ def test_publication_workflow_publishes_attested_images_after_digest_scans() -> 
         for step in _job_steps(merge_job)
         if str(step.get("uses", "")).startswith("actions/download-artifact@")
     ]
-    downloaded_names = {(step.get("with") or {}).get("name") for step in merge_downloads}
-    assert {
-        "digest-${{ matrix.target.service }}-amd64",
-        "digest-${{ matrix.target.service }}-arm64",
-    } <= downloaded_names
-    assert not any("pattern" in (step.get("with") or {}) for step in merge_downloads)
-    manifest_script = _step_with_id(_job_steps(merge_job), "manifest")["run"]
+    # One job publishes every target; each digest artifact keeps its own
+    # directory so a target only ever takes its own two architecture digests.
+    assert "strategy" not in merge_job
+    assert "manifest" not in jobs
+    assert [(step.get("with") or {}).get("pattern") for step in merge_downloads] == ["digest-*"]
+    assert not any((step.get("with") or {}).get("merge-multiple") for step in merge_downloads)
+    manifest_step = _step_with_id(_job_steps(merge_job), "manifest")
+    assert manifest_step["env"]["TARGETS"] == "${{ inputs.targets }}"
+    manifest_script = manifest_step["run"]
     assert "docker buildx imagetools create" in manifest_script
+    assert '"digests/digest-$service-$arch"/*' in manifest_script
+    upload = _step_using(_job_steps(merge_job), "actions/upload-artifact@")
+    assert upload["with"]["name"] == "generated-service-images"
 
     scan_step = _step_named(build_steps, "Scan immutable architecture digest")
     assert scan_step["env"]["PLATFORM"] == "${{ matrix.architecture.platform }}"

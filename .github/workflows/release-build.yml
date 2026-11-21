@@ -22,6 +22,13 @@ on:
           and Release run both. amd64 is always required.
         type: string
         default: '["amd64","arm64"]'
+      upgrade_scope:
+        description: >-
+          How much of the Observatory journey the retained-volume upgrade repeats.
+          PR rehearsals run "upgrade" (the upgrade-only checks; the fresh part
+          proves the rest). Nightly and Release run "full".
+        type: string
+        default: full
     outputs:
       sha:
         description: The commit that was built.
@@ -53,12 +60,16 @@ jobs:
           REQUESTED_SHA: ${{ inputs.sha }}
           REHEARSAL: ${{ inputs.rehearsal }}
           HOSTS: ${{ inputs.hosts }}
+          UPGRADE_SCOPE: ${{ inputs.upgrade_scope }}
         run: |
           set -euo pipefail
-          # Release always proves both hosts; a rehearsal may drop arm64 only.
+          # Release always proves both hosts and the full upgrade journey; a
+          # rehearsal may drop arm64 and shorten the upgrade journey only.
           jq -e 'type == "array" and index("amd64") != null and all(.[]; . == "amd64" or . == "arm64") and length == (unique | length)' <<< "$HOSTS"
+          case "$UPGRADE_SCOPE" in full|upgrade) ;; *) echo "unknown upgrade scope"; exit 1 ;; esac
           if [ "$REHEARSAL" != true ]; then
             jq -e 'sort == ["amd64","arm64"]' <<< "$HOSTS"
+            test "$UPGRADE_SCOPE" = full
           fi
           sha="${REQUESTED_SHA:-$(git rev-parse HEAD)}"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
@@ -78,18 +89,46 @@ jobs:
           mkdir -p "$RUNNER_TEMP/tree"
           git archive "$CANDIDATE_SHA" | tar -x -C "$RUNNER_TEMP/tree"
           uv build --directory "$RUNNER_TEMP/tree" --all-packages --out-dir "$RUNNER_TEMP/distributions"
-      - name: Fail if any published extra cannot resolve from PyPI
-        run: >-
-          python3 scripts/check_published_extras.py
-          --manifest "$RUNNER_TEMP/tree/registry/support/v1.json"
-          --distributions "$RUNNER_TEMP/distributions"
-          --python-version 3.12
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: distributions-${{ steps.sha.outputs.sha }}
           path: ${{ runner.temp }}/distributions
           if-no-files-found: error
           retention-days: 30
+
+  # Beside the image build rather than before it: the BOM is not pinned
+  # until this passes, so nothing is lost by not waiting on it.
+  published-extras:
+    needs: distributions
+    name: build / published extras resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      # The check resolves each extra with uv.
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        with:
+          version: "0.12.1"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: distributions-${{ needs.distributions.outputs.sha }}
+          path: ${{ runner.temp }}/distributions
+      - name: Fail if any published extra cannot resolve from PyPI
+        env:
+          CANDIDATE_SHA: ${{ needs.distributions.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git show "$CANDIDATE_SHA:registry/support/v1.json" > "$RUNNER_TEMP/support-manifest.json"
+          python3 scripts/check_published_extras.py \
+            --manifest "$RUNNER_TEMP/support-manifest.json" \
+            --distributions "$RUNNER_TEMP/distributions" \
+            --python-version 3.12
 
   images:
     needs: distributions
@@ -103,7 +142,7 @@ jobs:
       rehearsal: ${{ inputs.rehearsal }}
 
   pin:
-    needs: [distributions, images]
+    needs: [distributions, images, published-extras]
     name: build / pin BOM
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -206,11 +245,13 @@ jobs:
       - name: Run this part of the artifact golden path against the built bytes
         env:
           PART: ${{ matrix.part }}
+          UPGRADE_SCOPE: ${{ inputs.upgrade_scope }}
         run: >-
           python3 scripts/release_golden_path.py
           --candidate-bom candidate/bom.json
           --previous-candidate-bom previous/bom.json
           --part "$PART"
+          --upgrade-scope "$UPGRADE_SCOPE"
           --evidence-output "$RUNNER_TEMP/evidence-$PART.json"
       - name: Mark a part that produced no evidence as failed
         # Part artifacts are named per run, not per attempt, so re-running only

@@ -691,3 +691,105 @@ def test_installed_start_streams_pull_output_and_keeps_other_output_private(
     assert pull == [False]
     starts = [capture for args, capture in calls if args[-2:] == ["services", "start"]]
     assert starts == [True]
+
+
+@pytest.mark.parametrize(
+    ("provenance", "accepted"),
+    [
+        ({"rehearsal": True}, True),
+        ({"rehearsal": False}, False),
+        ({"rehearsal": "true"}, False),
+        ({}, False),
+        (None, False),
+    ],
+)
+def test_only_a_rehearsal_may_shorten_the_upgrade_journey(
+    tmp_path, config, observatory, provenance, accepted
+):
+    staging = tmp_path / "candidate"
+    staging.mkdir()
+    if provenance is not None:
+        (staging / "provenance.json").write_text(json.dumps(provenance))
+    staged = replace(config, staging_dir=staging)
+    observatory.require_upgrade_scope(staged, "full")
+    observatory.require_upgrade_scope(replace(config, staging_dir=None), "full")
+    with pytest.raises(observatory.golden.CandidateError, match="Unknown upgrade scope"):
+        observatory.require_upgrade_scope(staged, "partial")
+    if accepted:
+        observatory.require_upgrade_scope(staged, "upgrade")
+    else:
+        with pytest.raises(observatory.golden.CandidateError, match="rehearsal candidate"):
+            observatory.require_upgrade_scope(staged, "upgrade")
+
+
+@pytest.mark.parametrize("scope", ["full", "upgrade"])
+def test_upgrade_scope_stops_after_the_upgrade_only_checks(
+    tmp_path, config, observatory, monkeypatch, scope
+):
+    """Synthetic call-order contract: the shortened upgrade still proves the upgrade."""
+    calls: list[str] = []
+
+    def record(name, value=None):
+        def action(*_args, **_kwargs):
+            calls.append(name)
+            return value if value is not None else {name: True}
+
+        return action
+
+    golden = observatory.golden
+    monkeypatch.setattr(golden, "verify_candidate_bom", record("verify_bom"))
+    monkeypatch.setattr(golden, "install_operator_from_bom", record("install", (None, ["w"])))
+    monkeypatch.setattr(golden, "run", record("run"))
+    monkeypatch.setattr(golden, "service_url", lambda *_args: "http://api")
+    monkeypatch.setattr(observatory, "initialize", record("initialize"))
+    monkeypatch.setattr(observatory, "installed", record("installed", {"phlo": "0.19.0"}))
+    monkeypatch.setattr(observatory, "verify_ports", record("ports"))
+    monkeypatch.setattr(observatory, "start", record("start"))
+    monkeypatch.setattr(observatory, "legacy_target", record("legacy_target", {"env": "dev"}))
+    monkeypatch.setattr(observatory, "target", record("target", {"env": "dev"}))
+    monkeypatch.setattr(observatory, "seed", record("seed"))
+    monkeypatch.setattr(observatory, "transition", record("transition"))
+    monkeypatch.setattr(observatory, "verify_data", record("verify_data"))
+    monkeypatch.setattr(observatory, "compose", record("compose"))
+    monkeypatch.setattr(observatory, "wait_ready", record("wait_ready"))
+    monkeypatch.setattr(observatory, "verify_overview", record("overview"))
+    ready = {
+        "capabilities": {
+            "query_preview": [{"state": "configured", "reason_code": "backend_reachable"}]
+        }
+    }
+    disabled = {"capabilities": {"query_preview": [{"state": "disabled"}]}}
+    responses = iter([ready, disabled])
+    monkeypatch.setattr(observatory, "request", lambda *_args, **_kwargs: next(responses))
+    monkeypatch.setattr(observatory, "provision_preview", record("provision", ["image"]))
+    monkeypatch.setattr(observatory, "verify_preview_runtime", record("preview_runtime"))
+
+    class Stop(Exception):
+        pass
+
+    def browser(*_args, **_kwargs):
+        calls.append("browser_journey")
+        raise Stop
+
+    monkeypatch.setattr(observatory, "browser_journey", browser)
+    old = replace(config, project_dir=tmp_path / "upgrade", bom={"artifacts": []})
+    (old.project_dir / ".phlo").mkdir(parents=True)
+    candidate = replace(old, operator_env=tmp_path / "candidate-operator")
+
+    def go():
+        return observatory.run_one(
+            old, candidate=candidate, artifacts=tmp_path / "artifacts", upgrade_scope=scope
+        )
+
+    if scope == "upgrade":
+        result, wheels = go()
+        assert wheels == ["w"]
+        assert result["upgrade_scope"] == "upgrade"
+        assert {"seed", "transition", "readiness", "overview"} <= set(result)
+        assert "verify_data" in calls
+        assert "provision" not in calls and "browser_journey" not in calls
+    else:
+        # The full journey carries on to provisioning, browser and OIDC.
+        with pytest.raises(Stop):
+            go()
+        assert calls.index("provision") < calls.index("browser_journey")

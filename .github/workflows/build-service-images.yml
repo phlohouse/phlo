@@ -195,8 +195,11 @@ jobs:
           path: digests/*
           if-no-files-found: error
 
+  # One job publishes every target's manifest and the digest manifest. A
+  # matrix job per target plus a collector cost two more runner queues on the
+  # release path, which is most of this stage's wall-clock when runners are busy.
   merge:
-    name: Publish ${{ matrix.target.service }} manifest
+    name: Publish multi-architecture manifests
     needs: build
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-24.04
@@ -204,21 +207,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJSON(inputs.targets) }}
     steps:
-      - name: Download amd64 digest
+      - name: Download every architecture digest
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
-          name: digest-${{ matrix.target.service }}-amd64
-          path: digests
-
-      - name: Download arm64 digest
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: digest-${{ matrix.target.service }}-arm64
+          pattern: digest-*
           path: digests
 
       - name: Set up Docker Buildx
@@ -231,81 +224,58 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish multi-architecture manifest
+      - name: Publish multi-architecture manifests
         id: manifest
         env:
-          IMAGE: ${{ matrix.target.image }}
+          TARGETS: ${{ inputs.targets }}
           IMMUTABLE_TAGS: ${{ inputs.immutable_tags }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$IMMUTABLE_TAGS" = true ]]; then
-            if docker buildx imagetools inspect "$IMAGE" > /dev/null 2> "$RUNNER_TEMP/inspect-error"; then
-              echo "::error::Image tag $IMAGE already exists; publish a new image version."
-              exit 1
-            elif ! grep -Eq 'manifest unknown|: not found' "$RUNNER_TEMP/inspect-error"; then
-              cat "$RUNNER_TEMP/inspect-error" >&2
-              exit 1
-            fi
-          fi
-          refs=()
-          for digest_file in digests/*; do
-            refs+=("${IMAGE%:*}@sha256:${digest_file##*/}")
-          done
-          if [[ "${#refs[@]}" -ne 2 ]]; then
-            echo "expected two architecture digests, found ${#refs[@]}" >&2
+          mkdir -p published
+          mapfile -t rows < <(jq -c '.[]' <<< "$TARGETS")
+          if [[ "${#rows[@]}" -eq 0 ]]; then
+            echo "no image targets" >&2
             exit 1
           fi
-          docker buildx imagetools create --tag "$IMAGE" "${refs[@]}"
-          digest="$(
-            docker buildx imagetools inspect \
-              --format '{{json .Manifest.Digest}}' \
-              "$IMAGE" | jq -r .
-          )"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-
-      - name: Record published digest
-        env:
-          DIGEST: ${{ steps.manifest.outputs.digest }}
-          IMAGE: ${{ matrix.target.image }}
-          SERVICE: ${{ matrix.target.service }}
-          SERVICES: ${{ toJSON(matrix.target.services) }}
-        shell: bash
-        run: |
-          jq -n \
-            --arg image "$IMAGE" \
-            --arg digest "$DIGEST" \
-            --argjson services "$SERVICES" \
-            '{image: $image, digest: $digest, services: $services}' \
-            > "published-${SERVICE}.json"
-
-      - name: Upload published digest
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: published-${{ matrix.target.service }}
-          path: published-${{ matrix.target.service }}.json
-          if-no-files-found: error
-
-  manifest:
-    name: Published image digest manifest
-    needs: merge
-    if: always() && needs.merge.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Download published digests
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          pattern: published-*
-          path: published
-          merge-multiple: true
-
-      - name: Assemble digest manifest
-        shell: bash
-        run: jq -s 'sort_by(.image)' published/*.json > generated-service-images.json
+          for row in "${rows[@]}"; do
+            image="$(jq -r .image <<< "$row")"
+            service="$(jq -r .service <<< "$row")"
+            if [[ "$IMMUTABLE_TAGS" = true ]]; then
+              if docker buildx imagetools inspect "$image" > /dev/null 2> "$RUNNER_TEMP/inspect-error"; then
+                echo "::error::Image tag $image already exists; publish a new image version."
+                exit 1
+              elif ! grep -Eq 'manifest unknown|: not found' "$RUNNER_TEMP/inspect-error"; then
+                cat "$RUNNER_TEMP/inspect-error" >&2
+                exit 1
+              fi
+            fi
+            refs=()
+            for arch in amd64 arm64; do
+              for digest_file in "digests/digest-$service-$arch"/*; do
+                [[ -e "$digest_file" ]] || continue
+                refs+=("${image%:*}@sha256:${digest_file##*/}")
+              done
+            done
+            if [[ "${#refs[@]}" -ne 2 ]]; then
+              echo "expected two architecture digests for $service, found ${#refs[@]}" >&2
+              exit 1
+            fi
+            docker buildx imagetools create --tag "$image" "${refs[@]}"
+            digest="$(
+              docker buildx imagetools inspect \
+                --format '{{json .Manifest.Digest}}' \
+                "$image" | jq -r .
+            )"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            jq -n \
+              --arg image "$image" \
+              --arg digest "$digest" \
+              --argjson services "$(jq -c .services <<< "$row")" \
+              '{image: $image, digest: $digest, services: $services}' \
+              > "published/$service.json"
+          done
+          jq -s 'sort_by(.image)' published/*.json > generated-service-images.json
 
       - name: Upload digest manifest
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f

@@ -109,6 +109,7 @@ def test_rehearsal_builds_and_smokes_without_any_publication_authority() -> None
     assert jobs["build"]["with"] == {
         "rehearsal": True,
         "hosts": "${{ github.event_name == 'pull_request' && '[\"amd64\"]' || '[\"amd64\",\"arm64\"]' }}",
+        "upgrade_scope": "${{ github.event_name == 'pull_request' && 'upgrade' || 'full' }}",
     }
     assert jobs["report"]["if"] == "failure() && github.event_name == 'schedule'"
     build = workflow("release-build.yml")["jobs"]
@@ -144,10 +145,37 @@ def test_release_build_hosts_require_amd64_and_both_hosts_for_release(
     guard = step["run"].split('sha="${REQUESTED_SHA', 1)[0]
     result = subprocess.run(
         ["bash", "-c", guard],
-        env=dict(os.environ, HOSTS=hosts, REHEARSAL=rehearsal),
+        env=dict(os.environ, HOSTS=hosts, REHEARSAL=rehearsal, UPGRADE_SCOPE="full"),
         capture_output=True,
     )
     assert (result.returncode == 0) == accepted
+
+
+@pytest.mark.parametrize(
+    ("scope", "rehearsal", "accepted"),
+    [
+        ("full", "false", True),
+        ("full", "true", True),
+        ("upgrade", "true", True),
+        ("upgrade", "false", False),
+        ("", "true", False),
+        ("partial", "true", False),
+    ],
+)
+def test_release_build_runs_the_full_upgrade_journey_for_release(
+    scope: str, rehearsal: str, accepted: bool
+) -> None:
+    build = workflow("release-build.yml")
+    assert build[True]["workflow_call"]["inputs"]["upgrade_scope"]["default"] == "full"
+    step = next(step for step in build["jobs"]["distributions"]["steps"] if step.get("id") == "sha")
+    guard = step["run"].split('sha="${REQUESTED_SHA', 1)[0]
+    result = subprocess.run(
+        ["bash", "-c", guard],
+        env=dict(os.environ, HOSTS='["amd64","arm64"]', REHEARSAL=rehearsal, UPGRADE_SCOPE=scope),
+        capture_output=True,
+    )
+    assert (result.returncode == 0) == accepted
+    assert "upgrade_scope" not in str(workflow("release-promotion.yml"))
 
 
 def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path) -> None:
@@ -228,19 +256,39 @@ def test_independent_image_tags_are_never_overwritten(
         "esac\nexit 1\n"
     )
     docker.chmod(0o755)
-    digests = tmp_path / "digests"
-    digests.mkdir()
-    for digest in ("a" * 64, "b" * 64):
+    for arch, digest in (("amd64", "a" * 64), ("arm64", "b" * 64)):
+        digests = tmp_path / "digests" / f"digest-minio-{arch}"
+        digests.mkdir(parents=True)
         (digests / digest).touch()
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
     monkeypatch.setenv("REGISTRY_STATE", registry_state)
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
-    monkeypatch.setenv("IMAGE", "ghcr.io/phlohouse/phlo-minio:0.29.1")
+    monkeypatch.setenv(
+        "TARGETS",
+        json.dumps(
+            [
+                {
+                    "image": "ghcr.io/phlohouse/phlo-minio:0.29.1",
+                    "service": "minio",
+                    "services": ["minio"],
+                }
+            ]
+        ),
+    )
     monkeypatch.setenv("IMMUTABLE_TAGS", "true")
     result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True)
     assert (result.returncode == 0) is (registry_state == "missing"), result.stderr
-    assert (tmp_path / "published").exists() is (registry_state == "missing")
+    published = tmp_path / "generated-service-images.json"
+    assert published.exists() is (registry_state == "missing")
+    if registry_state == "missing":
+        assert json.loads(published.read_text()) == [
+            {
+                "image": "ghcr.io/phlohouse/phlo-minio:0.29.1",
+                "digest": "sha256:" + "0" * 63 + "3",
+                "services": ["minio"],
+            }
+        ]
 
 
 def test_build_uses_built_distributions_for_images_and_one_bom() -> None:
@@ -332,3 +380,58 @@ def test_rescan_verifies_exact_subject_and_workflow_and_rejects_unsigned_images(
     fleet = next(s for s in rescan["jobs"]["rescan"]["steps"] if s.get("id") == "fleet")
     assert fleet["name"] == "Include the latest independently published MinIO image"
     assert step["if"] == scan["if"] == "${{ !cancelled() && steps.fleet.outcome == 'success' }}"
+
+
+@pytest.mark.parametrize(
+    ("branch_change", "rehearses"),
+    [("docs/notes.md", False), ("packages/phlo-x/src/phlo_x/service.yaml", True)],
+)
+def test_rehearsal_selection_ignores_main_changes_a_stale_branch_lacks(
+    tmp_path: Path, branch_change: str, rehearses: bool
+) -> None:
+    """A PR behind main must not rehearse for release-path changes it did not make."""
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            cwd=tmp_path,
+            text=True,
+        ).strip()
+
+    def write(path: str) -> None:
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(path)
+
+    git("init", "-q", "-b", "main")
+    write("README.md")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    git("checkout", "-qb", "feature")
+    write(branch_change)
+    git("add", ".")
+    git("commit", "-qm", "feature")
+    git("checkout", "-q", "main")
+    # main moves on with a release-path change the branch has not merged
+    write("packages/phlo-y/src/phlo_y/service.yaml")
+    write(".github/workflows/release-build.yml")
+    git("add", ".")
+    git("commit", "-qm", "main moves")
+    git("merge", "-q", "--no-ff", "--no-edit", "feature")
+    select = workflow("release-rehearsal.yml")["jobs"]["select"]
+    step = next(step for step in select["steps"] if step.get("id") == "select")
+    output = tmp_path / "output"
+    subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=dict(
+            os.environ,
+            EVENT_NAME="pull_request",
+            HEAD_REF="feature",
+            HEAD_REPO="phlohouse/phlo",
+            GITHUB_REPOSITORY="phlohouse/phlo",
+            GITHUB_OUTPUT=str(output),
+        ),
+        check=True,
+    )
+    assert output.read_text().strip() == f"run={str(rehearses).lower()}"

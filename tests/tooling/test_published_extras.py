@@ -128,11 +128,27 @@ def test_missing_release_wheel_fails_closed(tmp_path: Path) -> None:
 
 def test_release_build_runs_the_check_on_the_built_distributions() -> None:
     stage = yaml.safe_load((REPO_ROOT / ".github/workflows/release-build.yml").read_text())
-    steps = stage["jobs"]["distributions"]["steps"]
-    build = next(i for i, step in enumerate(steps) if "uv build" in step.get("run", ""))
+    jobs = stage["jobs"]
+    # The check runs beside the image build, and the BOM is not pinned until it passes.
+    extras = jobs["published-extras"]
+    assert extras["needs"] == "distributions"
+    assert "published-extras" in jobs["pin"]["needs"]
+    assert "images" not in str(extras["needs"])
+    steps = extras["steps"]
+    download = next(
+        i for i, step in enumerate(steps) if "download-artifact" in step.get("uses", "")
+    )
     check = next(
         i for i, step in enumerate(steps) if "check_published_extras.py" in step.get("run", "")
     )
-    upload = next(i for i, step in enumerate(steps) if "upload-artifact" in step.get("uses", ""))
-    assert build < check < upload
+    assert download < check
+    # The check shells out to uv, so the job must install it first.
+    setup = next(i for i, step in enumerate(steps) if "setup-uv" in step.get("uses", ""))
+    assert setup < check
+    assert steps[download]["with"]["name"] == "distributions-${{ needs.distributions.outputs.sha }}"
     assert '--distributions "$RUNNER_TEMP/distributions"' in steps[check]["run"]
+    assert '"$CANDIDATE_SHA:registry/support/v1.json"' in steps[check]["run"]
+    assert not any(
+        "check_published_extras.py" in step.get("run", "")
+        for step in jobs["distributions"]["steps"]
+    )
