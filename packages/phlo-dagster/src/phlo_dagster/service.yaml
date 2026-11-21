@@ -54,6 +54,9 @@ compose:
     traefik.http.routers.dagster.rule: "Host(`dagster.${TRAEFIK_DOMAIN:-phlo.localhost}`)"
     traefik.http.routers.dagster.entrypoints: "web"
     traefik.http.services.dagster.loadbalancer.server.port: "3000"
+    # The webserver is also on the internal dagster-code network, which the
+    # proxy cannot reach; route through the project's default network.
+    traefik.docker.network: "${COMPOSE_PROJECT_NAME}_default"
   environment:
     DAGSTER_HOME: /opt/dagster
     PYTHONPATH: /opt/dagster:/app
