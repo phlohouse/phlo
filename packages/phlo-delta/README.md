@@ -9,7 +9,7 @@ Provides Delta Lake table-store resources using the `deltalake` (delta-rs) Pytho
 ## Installation
 
 ```bash
-pip install phlo-delta
+uv add phlo-delta
 # or
 phlo plugin install delta
 ```

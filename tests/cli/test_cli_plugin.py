@@ -1270,13 +1270,16 @@ def test_plugin_install(monkeypatch):
         "phlo.cli.commands.plugin.install.get_registry_plugin",
         lambda name: registry_plugin,
     )
-    monkeypatch.setattr("phlo.cli.commands.plugin.install.run_pip", lambda args: calls.append(args))
+    monkeypatch.setattr(
+        "phlo.cli.commands.plugin.install.install_packages",
+        lambda packages: calls.append(packages) or "interpreter",
+    )
 
     runner = CliRunner()
     result = runner.invoke(plugin_group, ["install", "registry_source"])
 
     assert result.exit_code == 0
-    assert calls == [["install", "phlo-plugin-registry==1.0.0"]]
+    assert calls == [["phlo-plugin-registry==1.0.0"]]
 
 
 def test_plugin_update(monkeypatch):
@@ -1305,13 +1308,16 @@ def test_plugin_update(monkeypatch):
         "phlo.cli.commands.plugin.utils.get_installed_version",
         lambda package: "1.0.0",
     )
-    monkeypatch.setattr("phlo.cli.commands.plugin.update.run_pip", lambda args: calls.append(args))
+    monkeypatch.setattr(
+        "phlo.cli.commands.plugin.update.install_packages",
+        lambda packages: calls.append(packages) or "interpreter",
+    )
 
     runner = CliRunner()
     result = runner.invoke(plugin_group, ["update"])
 
     assert result.exit_code == 0
-    assert calls == [["install", "--upgrade", "phlo-plugin-registry==2.0.0"]]
+    assert calls == [["phlo-plugin-registry==2.0.0"]]
 
 
 @pytest.mark.parametrize(

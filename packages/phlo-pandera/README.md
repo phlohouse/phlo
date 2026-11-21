@@ -9,7 +9,7 @@ Define and execute data quality checks using the `@phlo.quality.pandera` decorat
 ## Installation
 
 ```bash
-pip install phlo-pandera
+uv add phlo-pandera
 # or
 phlo plugin install pandera
 ```

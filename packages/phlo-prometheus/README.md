@@ -9,7 +9,7 @@ Metrics collection and monitoring for the Phlo data lakehouse. Uses Docker-based
 ## Installation
 
 ```bash
-pip install phlo-prometheus
+uv add phlo-prometheus
 # or
 phlo plugin install prometheus
 ```

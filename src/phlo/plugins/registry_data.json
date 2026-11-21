@@ -12,6 +12,51 @@
       "tags": ["ingestion", "airbyte", "connectors"],
       "verified": false
     },
+    "clickstack": {
+      "type": "service",
+      "package": "phlo-clickstack",
+      "description": "ClickStack observability for logs, traces and metrics",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-clickstack",
+      "tags": ["observability", "logs", "traces"],
+      "verified": true
+    },
+    "oauth2-proxy": {
+      "type": "service",
+      "package": "phlo-oauth2-proxy",
+      "description": "OAuth2 sign-in proxy in front of Observatory and phlo-api",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-oauth2-proxy",
+      "tags": ["auth", "security"],
+      "verified": true
+    },
+    "traefik": {
+      "type": "service",
+      "package": "phlo-traefik",
+      "description": "Traefik reverse proxy with TLS for the stack",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-traefik",
+      "tags": ["proxy", "tls"],
+      "verified": true
+    },
+    "phlo-observer": {
+      "type": "service",
+      "package": "phlo-observe-plugin",
+      "description": "phlo-observer service for phlo-observe tracking",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-observe-plugin",
+      "tags": ["observability"],
+      "verified": true
+    },
+    "otel": {
+      "type": "hooks",
+      "package": "phlo-otel",
+      "description": "OpenTelemetry traces and metrics for Phlo",
+      "author": "Phlo Team",
+      "homepage": "https://github.com/phlohouse/phlo/tree/main/packages/phlo-otel",
+      "tags": ["observability", "tracing", "metrics"],
+      "verified": true
+    },
     "kafka": {
       "type": "service",
       "package": "phlo-kafka",

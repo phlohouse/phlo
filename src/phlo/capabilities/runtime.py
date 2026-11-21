@@ -121,6 +121,24 @@ class RuntimeContext(Protocol):
         ...
 
 
+def configured_project_id() -> str | None:
+    """Return PHLO_PROJECT, else the project name in phlo.yaml.
+
+    Runs launched from the CLI or Observatory carry no phlo/project_id tag, so
+    without this their run evidence could never name its project.
+    """
+    from phlo.config.project import get_project_name_from_config
+    from phlo.config.settings import get_settings
+
+    configured = get_settings().phlo_project
+    if configured and configured.strip():
+        return configured
+    try:
+        return get_project_name_from_config()
+    except (OSError, ValueError):
+        return None
+
+
 def routing_from_context(context: RuntimeContext) -> RuntimeRouting:
     """Build canonical routing data from a runtime context.
 
@@ -151,7 +169,7 @@ def routing_from_context(context: RuntimeContext) -> RuntimeRouting:
     ref = runtime_ref_from_tags(tags)
 
     attempt, attempt_error = attempt_from_tags(tags)
-    project = resolve_project_identity(tags)
+    project = resolve_project_identity(tags, configured_project_id())
     return RuntimeRouting(
         environment=environment,
         ref=ref,

@@ -126,10 +126,15 @@ class ServiceFilePlan:
             for relative in self.directories
             if not overwrite and (self.output_dir / relative).exists()
         ]
+        kept = {self.output_dir / relative for relative in self.files}
         for relative in self.directories:
             dest = self.output_dir / relative
-            if overwrite and dest.exists():
-                shutil.rmtree(dest)
+            if overwrite and dest.is_dir() and not dest.is_symlink():
+                # Keep the directory itself: a running container bind-mounts
+                # it, and replacing it would leave the container an empty one.
+                _prune(dest, kept)
+            elif overwrite and dest.exists():
+                dest.unlink()
             dest.mkdir(parents=True, exist_ok=True)
         copied = []
         for relative, (source, content) in self.files.items():
@@ -153,6 +158,18 @@ class ServiceFilePlan:
                 temporary.unlink(missing_ok=True)
             copied.append(relative)
         return copied
+
+
+def _prune(directory: Path, kept: set[Path]) -> None:
+    """Remove entries under ``directory`` that the plan does not write."""
+    needed = {parent for path in kept for parent in path.parents}
+    for child in directory.iterdir():
+        if child.is_dir() and not child.is_symlink() and child in needed:
+            _prune(child, kept)
+        elif child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        elif child not in kept:
+            child.unlink()
 
 
 def _declared_files(service: ServiceDefinition, plan: ServiceFilePlan) -> dict[str, Path]:

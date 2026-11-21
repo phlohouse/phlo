@@ -207,7 +207,9 @@ def _ensure_configured() -> bool:
     process is configured, matching the fail-open contract.
     """
     if threading.current_thread() is not threading.main_thread():
-        return False
+        # Emit through a runtime the process already configured; never
+        # install one from here.
+        return _configured and not _configure_failed
     return configure()
 
 

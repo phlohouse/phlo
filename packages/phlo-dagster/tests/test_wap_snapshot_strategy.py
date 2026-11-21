@@ -178,8 +178,8 @@ def test_snapshot_launch_creates_candidate_namespace_binding(monkeypatch, tmp_pa
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     _snapshot_strategy(monkeypatch)
     monkeypatch.setattr(
-        "phlo_dagster.wap_launch.get_settings",
-        lambda: SimpleNamespace(phlo_project="warehouse"),
+        "phlo_dagster.wap_launch.configured_project_id",
+        lambda: "warehouse",
     )
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
@@ -211,8 +211,8 @@ def test_snapshot_launch_rejects_branch_only_catalog(monkeypatch) -> None:
     monkeypatch.setenv("PHLO_PROJECT_PATH", "/tmp")
     _snapshot_strategy(monkeypatch)
     monkeypatch.setattr(
-        "phlo_dagster.wap_launch.get_settings",
-        lambda: SimpleNamespace(phlo_project="warehouse"),
+        "phlo_dagster.wap_launch.configured_project_id",
+        lambda: "warehouse",
     )
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
@@ -233,8 +233,8 @@ def test_snapshot_launch_cleanup_aborts_candidates(monkeypatch, tmp_path) -> Non
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     _snapshot_strategy(monkeypatch)
     monkeypatch.setattr(
-        "phlo_dagster.wap_launch.get_settings",
-        lambda: SimpleNamespace(phlo_project="warehouse"),
+        "phlo_dagster.wap_launch.configured_project_id",
+        lambda: "warehouse",
     )
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",

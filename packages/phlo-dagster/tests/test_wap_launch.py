@@ -61,8 +61,8 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
     catalog = _Catalog()
     monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
     monkeypatch.setattr(
-        "phlo_dagster.wap_launch.get_settings",
-        lambda: SimpleNamespace(phlo_project="warehouse"),
+        "phlo_dagster.wap_launch.configured_project_id",
+        lambda: "warehouse",
     )
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
@@ -106,8 +106,8 @@ def test_prepare_wap_launch_creates_deterministic_branch_tags_and_manifest(
 def test_prepare_wap_launch_refuses_to_reuse_an_existing_branch(monkeypatch) -> None:
     catalog = _Catalog({"main": "main-hash", "pipeline-run-request-42": "old-hash"})
     monkeypatch.setattr(
-        "phlo_dagster.wap_launch.get_settings",
-        lambda: SimpleNamespace(phlo_project="warehouse"),
+        "phlo_dagster.wap_launch.configured_project_id",
+        lambda: "warehouse",
     )
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
@@ -126,8 +126,8 @@ def test_prepare_wap_launch_refuses_to_reuse_an_existing_branch(monkeypatch) -> 
 
 def test_prepare_wap_launch_requires_project_before_creating_a_branch(monkeypatch) -> None:
     monkeypatch.setattr(
-        "phlo_dagster.wap_launch.get_settings",
-        lambda: SimpleNamespace(phlo_project=None),
+        "phlo_dagster.wap_launch.configured_project_id",
+        lambda: None,
     )
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
@@ -158,9 +158,7 @@ def test_submit_wap_launch_binds_only_acknowledged_runs(
     monkeypatch.setenv("PHLO_OPERATIONS_JOURNAL_DIR", str(tmp_path / "operations"))
     if outcome == "missing_journal":
         monkeypatch.delenv("PHLO_OPERATIONS_JOURNAL_DIR")
-    monkeypatch.setattr(
-        "phlo_dagster.wap_launch.get_settings", lambda: SimpleNamespace(phlo_project="warehouse")
-    )
+    monkeypatch.setattr("phlo_dagster.wap_launch.configured_project_id", lambda: "warehouse")
     monkeypatch.setattr(
         "phlo_dagster.wap_launch.resolve_capability",
         lambda _: SimpleNamespace(

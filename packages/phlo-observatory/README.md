@@ -9,7 +9,7 @@ Web-based UI for exploring the data lakehouse through Phlo API. View lineage, br
 ## Installation
 
 ```bash
-pip install phlo-observatory
+uv add phlo-observatory
 # or
 phlo plugin install observatory
 ```

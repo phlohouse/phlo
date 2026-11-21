@@ -11,6 +11,7 @@ import pytest
 from phlo.capabilities import (
     ApiBackendSpec,
     CapabilitySupport,
+    CatalogScannerSpec,
     CatalogSpec,
     DataInterval,
     LineageSinkSpec,
@@ -554,6 +555,21 @@ def test_resolve_object_store_defaults_to_minio_when_ambiguous() -> None:
     assert resolved.name == "minio"
 
 
+@pytest.mark.parametrize(
+    ("family", "spec_type"),
+    [("catalog", CatalogSpec), ("catalog_scanner", CatalogScannerSpec)],
+)
+def test_resolve_catalog_defaults_to_nessie_when_polaris_is_installed(family, spec_type) -> None:
+    """Adding Polaris next to Nessie must not leave catalog lookups unresolved."""
+    register_capability(family, spec_type(name="polaris", provider=object()))
+    register_capability(family, spec_type(name="nessie", provider=object()))
+
+    resolved = resolve_capability(family)
+
+    assert resolved is not None
+    assert resolved.name == "nessie"
+
+
 def test_resolve_object_store_single_preview_store_still_resolves() -> None:
     """A single installed (preview) object store resolves without a default."""
     register_capability(
@@ -579,3 +595,54 @@ def test_resolve_object_store_explicit_choice_overrides_minio_default() -> None:
 
     assert resolved is not None
     assert resolved.name == "rustfs"
+
+
+@pytest.mark.parametrize(
+    ("phlo_project", "tags", "expected", "error"),
+    [
+        (None, {}, "library", None),
+        ("override", {}, "override", None),
+        (None, {"phlo/project_id": "library"}, "library", None),
+        (None, {"phlo/project_id": "other"}, None, "project_conflict"),
+    ],
+)
+def test_untagged_runs_name_the_configured_project(
+    tmp_path, monkeypatch, phlo_project, tags, expected, error
+) -> None:
+    """CLI and Observatory runs carry no project tag; phlo.yaml names the project."""
+    from phlo.config.settings import _get_config
+
+    (tmp_path / "phlo.yaml").write_text("name: library\n")
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    if phlo_project:
+        monkeypatch.setenv("PHLO_PROJECT", phlo_project)
+    else:
+        monkeypatch.delenv("PHLO_PROJECT", raising=False)
+    _get_config.cache_clear()
+
+    class StubRuntime:
+        run_id = "run-1"
+        partition_key = None
+
+    StubRuntime.tags = tags
+    routing = routing_from_context(StubRuntime())
+    _get_config.cache_clear()
+
+    assert (routing.project_id, routing.project_error) == (expected, error)
+
+
+def test_runs_outside_a_project_report_the_missing_project(tmp_path, monkeypatch) -> None:
+    from phlo.config.settings import _get_config
+
+    monkeypatch.setenv("PHLO_PROJECT_PATH", str(tmp_path))
+    monkeypatch.delenv("PHLO_PROJECT", raising=False)
+    _get_config.cache_clear()
+
+    class StubRuntime:
+        run_id = "run-1"
+        tags: dict[str, str] = {}
+
+    routing = routing_from_context(StubRuntime())
+    _get_config.cache_clear()
+
+    assert (routing.project_id, routing.project_error) == (None, "project_missing")

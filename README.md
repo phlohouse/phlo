@@ -71,7 +71,7 @@ uv run phlo services stop
 
 While the stack is running, Observatory is at <http://localhost:3001> and Dagster at <http://localhost:10006>. `phlo services ports` lists the rest.
 
-`phlo services init` generates a random password for every service into `.phlo/.env.local`. There are no default credentials.
+`phlo services init` generates a random password for every service into `.phlo/secrets/.env`. There are no default credentials. Credentials that come from somewhere else, such as an identity provider's client secret, are left empty for you to fill in. In development, Observatory signs you in as the local `dev_user` on loopback, with rights to materialize, run jobs, use branches and upload data. Behind a TLS-inspecting proxy, put its CA certificate in `.phlo/certs/` as a `.crt` file and the service images trust it.
 
 The [first pipeline tutorial](docs/getting-started/first-pipeline.md) walks through the same steps, including breaking the schema on purpose to watch a run get blocked. `phlo init --list-templates` shows the other starters: `minimal` (the default), `api-ingestion`, `basic` and `dbt-medallion` (dbt), `sling-replication`, and `observability-demo`.
 
@@ -106,7 +106,16 @@ Each part of the stack is a named capability. Phlo resolves it to an installed p
 
 ```bash
 uv add phlo-polaris                     # Iceberg tables on a Polaris catalog instead of Nessie
-export PHLO_DEFAULT_CAPABILITIES='{"catalog":"polaris"}'
+```
+
+```yaml
+# phlo.yaml
+capabilities:
+  defaults:
+    catalog: polaris
+```
+
+```bash
 uv run phlo services init && uv run phlo services start
 ```
 

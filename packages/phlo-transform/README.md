@@ -14,7 +14,7 @@ capability specs; it does not reimplement SQL analysis.
 ## Install
 
 ```bash
-pip install phlo-transform
+uv add phlo-transform
 
 # The engine binary, downloaded into .phlo/bin with a verified checksum
 phlo transform install

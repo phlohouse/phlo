@@ -183,6 +183,9 @@ def test_public_cli_supports_text_replacement_and_directory_yaml_json_leaves(tmp
     assert datasource == {
         "apiVersion": 1,
         "datasources": [{"name": "Project", "type": "prometheus", "url": "http://prometheus:9090"}],
+        "deleteDatasources": [
+            {"name": name, "orgId": 1} for name in ("Trino", "Prometheus", "Loki", "PostgreSQL")
+        ],
     }
     dashboard = json.loads(
         (output / "grafana/dashboards/infrastructure.json").read_text(encoding="utf-8")
@@ -399,6 +402,24 @@ def test_no_overrides_preserve_bundled_files_across_every_provider(tmp_path):
         overrides[service.name] = {"files": files}
     composer.copy_service_files(services, tmp_path / ".phlo", user_overrides=overrides)
     assert _snapshot(tmp_path / ".phlo") == expected
+
+
+def test_regeneration_keeps_bundled_directories_that_containers_mount(tmp_path):
+    """A running container bind-mounts the directory; replacing it would empty its view."""
+    discovery = ServiceDiscovery()
+    services = [discovery.discover()["postgrest"]]
+    composer = ComposeGenerator(discovery)
+    composer.copy_service_files(services, tmp_path / ".phlo")
+    directory = tmp_path / ".phlo" / "postgrest" / "conf"
+    inode = directory.stat().st_ino
+    (directory / "stale.conf").write_text("left from an older release\n")
+    (directory / "stale-dir").mkdir()
+    (directory / "stale-dir" / "old.conf").write_text("old\n")
+
+    composer.copy_service_files(services, tmp_path / ".phlo")
+
+    assert directory.stat().st_ino == inode
+    assert sorted(path.name for path in directory.iterdir()) == ["postgrest.conf"]
 
 
 def test_preserved_directory_defaults_stay_untouched_but_explicit_overlay_regenerates(tmp_path):

@@ -452,8 +452,8 @@ def test_blessed_decorator_persists_runtime_correlation_through_sqlite(
         lambda **_kwargs: {"rows_inserted": 1, "rows_deleted": 0},
     )
     monkeypatch.setattr(
-        "phlo_dagster.adapter.get_settings",
-        lambda: SimpleNamespace(phlo_project="project-durable"),
+        "phlo_dagster.adapter.configured_project_id",
+        lambda: "project-durable",
     )
 
     @phlo_ingestion(
@@ -514,8 +514,8 @@ def test_dagster_runtime_project_identity_is_explicit(
     from phlo_dagster.adapter import DagsterRuntime
 
     monkeypatch.setattr(
-        "phlo_dagster.adapter.get_settings",
-        lambda: SimpleNamespace(phlo_project=configured),
+        "phlo_dagster.adapter.configured_project_id",
+        lambda: configured,
     )
     runtime_tags = {**tags, "phlo/attempt": "1"}
     runtime = DagsterRuntime(
@@ -546,8 +546,8 @@ def test_dlt_emits_explicit_project_correlation_gap(monkeypatch, tags, configure
     from phlo_dagster.adapter import DagsterRuntime
 
     monkeypatch.setattr(
-        "phlo_dagster.adapter.get_settings",
-        lambda: SimpleNamespace(phlo_project=configured),
+        "phlo_dagster.adapter.configured_project_id",
+        lambda: configured,
     )
     runtime_tags = {**tags, "phlo/attempt": "1"}
     runtime = DagsterRuntime(

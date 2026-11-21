@@ -123,6 +123,8 @@ class InMemorySettingsService:
 # requests within a single dev/test process.  Durable (postgres) mode
 # does NOT use this cache — it resolves the capability on every call.
 _memory_service: InMemorySettingsService | None = None
+# Whether get_settings_service() has already loaded provider plugins itself.
+_plugins_discovered = False
 
 
 def get_settings_service() -> SettingsStore:
@@ -157,6 +159,15 @@ def get_settings_service() -> SettingsStore:
     from phlo.capabilities.resolver import resolve_capability
 
     result = resolve_capability("settings_store")
+    global _plugins_discovered
+    if result is None and not _plugins_discovered:
+        # CLI commands such as `phlo trino` read settings before anything has
+        # loaded the provider plugins; load them once per process and look again.
+        from phlo.application.discovery import discover_capabilities
+
+        _plugins_discovered = True
+        discover_capabilities()
+        result = resolve_capability("settings_store")
     if result is None:
         logger.warning("observatory_settings_storage_unavailable", reason="no_provider")
         raise StorageUnavailableError("Durable settings storage backend is not available")

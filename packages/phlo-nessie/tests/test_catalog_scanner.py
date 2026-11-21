@@ -23,8 +23,8 @@ class _QueryEngine:
 
 
 def test_list_namespaces_uses_query_engine_capability(monkeypatch) -> None:
-    """Fallback namespace scans should resolve the query engine via capabilities."""
-    engine = _QueryEngine([("raw",), ("curated",)])
+    """Fallback scans resolve the query engine and skip Trino's own schemas."""
+    engine = _QueryEngine([("information_schema",), ("raw",), ("system",), ("curated",)])
     monkeypatch.setattr(
         catalog_scanner_module,
         "get_settings",

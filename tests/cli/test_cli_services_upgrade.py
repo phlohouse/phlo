@@ -317,6 +317,10 @@ def test_legacy_development_activation_is_reviewed_idempotent_and_preserves_cust
     tmp_path, monkeypatch, shared
 ):
     monkeypatch.chdir(tmp_path)
+    # A stack generated before init set up the local sign-in by itself.
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
     runner = CliRunner()
     result = runner.invoke(init_cmd, ["--no-dev", "--profile", "api"])
     assert result.exit_code == 0, result.output
@@ -490,3 +494,52 @@ def test_reviewed_empty_api_bind_repair_and_failure_recovery(tmp_path, monkeypat
     result = runner.invoke(upgrade_cmd, command)
     assert result.exit_code != 0 and "symlink" in result.output
     assert (saved / "retained.jsonl").read_text() == "preserve after restart\n"
+
+
+def test_upgrade_sets_up_the_local_sign_in_a_development_stack_lacks(tmp_path, monkeypatch):
+    """Verify a stack from before automatic sign-in gets it, once, without a flag."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
+    result = CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"])
+    assert result.exit_code == 0, result.output
+    assert "authentication" not in yaml.safe_load((tmp_path / "phlo.yaml").read_text())
+    plan = _review(tmp_path)
+    assert next(change for change in plan.files if change.path == "phlo.yaml").state == "replace"
+    for _ in range(2):
+        result = _apply(tmp_path, plan)
+        assert result.exit_code == 0, result.output
+    config = yaml.safe_load((tmp_path / "phlo.yaml").read_text())
+    assert config["authentication"]["static"] == {"enabled": True, "dev_mode": True}
+    assert all(change.state == "unchanged" for change in _review(tmp_path).files)
+
+
+def test_upgrade_leaves_an_operators_own_sign_in_alone(tmp_path, monkeypatch):
+    """Verify configured authentication is never replaced by the local sign-in."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
+    assert CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"]).exit_code == 0
+    config_file = tmp_path / "phlo.yaml"
+    config = yaml.safe_load(config_file.read_text())
+    config["authentication"] = {"provider": "jwt"}
+    config_file.write_text(yaml.safe_dump(config))
+    plan = _review(tmp_path)
+    assert all(change.path != "phlo.yaml" for change in plan.files)
+
+
+def test_upgrade_leaves_hand_written_authorization_alone(tmp_path, monkeypatch):
+    """Verify existing roles stop the automatic sign-in instead of failing the upgrade."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "phlo.cli.commands.services.init._wants_local_observatory", lambda *_args: False
+    )
+    assert CliRunner().invoke(init_cmd, ["--no-dev", "--profile", "api"]).exit_code == 0
+    roles = tmp_path / ".phlo/authorization/roles.yaml"
+    roles.parent.mkdir(parents=True, exist_ok=True)
+    roles.write_text("roles:\n  analyst: {}\n")
+    plan = _review(tmp_path)
+    assert all(change.path != "phlo.yaml" for change in plan.files)
+    assert roles.read_text() == "roles:\n  analyst: {}\n"

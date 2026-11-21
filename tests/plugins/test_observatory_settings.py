@@ -49,6 +49,8 @@ def _isolate(monkeypatch):
     """Ensure each test starts with a clean capability registry and memory cache."""
     _clear_settings_store_capability()
     _reset_memory_service()
+    # Installed provider plugins would register a real store; tests register their own.
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: None)
     monkeypatch.setenv("PHLO_OBSERVATORY_SETTINGS_BACKEND", "postgres")
     monkeypatch.delenv("PHLO_OBSERVATORY_SETTINGS_DB_URL", raising=False)
     yield
@@ -125,9 +127,24 @@ def test_postgres_mode_resolves_capability() -> None:
     assert service is mock_store
 
 
-def test_postgres_mode_without_capability_raises_storage_unavailable() -> None:
+def test_postgres_mode_without_capability_raises_storage_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with pytest.raises(StorageUnavailableError, match="not available"):
         get_settings_service()
+
+
+def test_settings_lookup_loads_provider_plugins_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A CLI command that reads settings before loading plugins still finds the store."""
+    import phlo.plugins.observatory_settings as module
+
+    calls: list[int] = []
+    monkeypatch.setattr(module, "_plugins_discovered", False)
+    monkeypatch.setattr("phlo.application.discovery.discover_capabilities", lambda: calls.append(1))
+    for _ in range(2):
+        with pytest.raises(StorageUnavailableError):
+            get_settings_service()
+    assert calls == [1]
 
 
 def test_postgres_mode_does_not_create_in_memory_record_on_failure() -> None:

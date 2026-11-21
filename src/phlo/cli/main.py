@@ -6,7 +6,6 @@ Entry module for the phlo console script; imported by the phlo-mcp server and
 covered extensively by the CLI and integration test suites.
 """
 
-import importlib.util
 import os
 import shutil
 import subprocess
@@ -44,7 +43,7 @@ def cli(quiet: bool, no_color: bool) -> None:
 
     Build and inspect lakehouse workflows locally with minimal boilerplate.
 
-    Documentation: https://github.com/iamgp/phlo
+    Documentation: https://github.com/phlohouse/phlo
     """
     if quiet:
         os.environ["PHLO_QUIET"] = "1"
@@ -258,37 +257,22 @@ def _available_service_count() -> int:
 
 
 def _render_next_steps(selected_template) -> list[str]:
-    """Tailor project next steps to the packages installed in this environment."""
+    """Return the commands that take a new project from files to a running stack.
+
+    The generated pyproject depends on ``phlo[defaults]``, so ``uv sync`` installs
+    the service plugins and every later command runs in the project environment.
+    """
     template_steps = list(selected_template.metadata.next_steps)
-    steps = ["uv pip install -e ."]
-
-    service_count = _available_service_count()
-    template_service_start_steps = [
+    service_start_steps = [
         step for step in template_steps if step.startswith("phlo services start")
-    ]
-    if service_count == 0:
-        install_step = 'Install service plugins: uv pip install "phlo[defaults]"'
-        if install_step not in steps:
-            steps.append(install_step)
-    else:
-        steps.append("phlo services init")
-        if template_service_start_steps:
-            steps.extend(template_service_start_steps)
-        else:
-            steps.append("phlo services start")
-        steps.append("phlo doctor")
-
-    for step in template_steps:
-        if step == "phlo services init" or step.startswith("phlo services start"):
-            continue
-        if step == "phlo workflow create" and importlib.util.find_spec("phlo_dlt") is None:
-            install_step = 'Install workflow plugins: uv pip install "phlo[defaults]"'
-            if install_step not in steps:
-                steps.append(install_step)
-            continue
-        steps.append(step)
-
-    return list(dict.fromkeys(steps))
+    ] or ["phlo services start"]
+    steps = ["uv sync", "phlo services init", *service_start_steps, "phlo doctor"]
+    steps.extend(
+        step
+        for step in template_steps
+        if step != "phlo services init" and not step.startswith("phlo services start")
+    )
+    return [step if step.startswith("uv ") else f"uv run {step}" for step in dict.fromkeys(steps)]
 
 
 @cli.command("init")
@@ -404,7 +388,7 @@ def init(
             click.echo(f"  {step_number}. {next_step}")
             step_number += 1
 
-        click.echo("\nDocumentation: https://github.com/iamgp/phlo")
+        click.echo("\nDocumentation: https://github.com/phlohouse/phlo")
 
     except click.ClickException:
         _rollback_failed_init(project_dir, project_existed, before)

@@ -148,6 +148,7 @@
         "service:loki",
         "service:loki-setup",
         "service:prometheus",
+        "service:prometheus-docker",
         "service:prometheus-setup",
         "service:clickhouse",
         "service:clickhouse-setup",
@@ -834,6 +835,16 @@
       "current_maturity": "preview",
       "reason": "Internal filtered Docker access companion for the preview Alloy service.",
       "evidence": ["packages/phlo-alloy/src/phlo_alloy/alloy-docker-daemon.yaml"]
+    },
+    {
+      "name": "prometheus-docker",
+      "package": "phlo-prometheus",
+      "source": "packages/phlo-prometheus/src/phlo_prometheus/prometheus-docker-daemon.yaml",
+      "scope": "optional",
+      "target_status": "preview",
+      "current_maturity": "preview",
+      "reason": "Internal filtered Docker discovery companion for the preview Prometheus service.",
+      "evidence": ["packages/phlo-prometheus/src/phlo_prometheus/prometheus-docker-daemon.yaml"]
     },
     {
       "name": "grafana",

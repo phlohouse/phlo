@@ -15,7 +15,16 @@ class KafkaSettings(BaseConfig):
     """Settings for the Phlo Kafka service and consumer assets."""
 
     kafka_host: str = Field(default="kafka", description="Kafka broker host")
-    kafka_port: int = Field(default=9092, description="Kafka broker port")
+    # KAFKA_PORT is the host-published port, which the generated env file sets
+    # for every process, including the Dagster containers. Reading it here
+    # would point in-network clients at kafka:<host port>, so the broker's
+    # in-network port has its own variable; KAFKA_PORT only applies when the
+    # broker hostname does not resolve and the client falls back to localhost.
+    kafka_port: int = Field(
+        default=9092,
+        validation_alias="KAFKA_BROKER_PORT",
+        description="Kafka broker port on the service network",
+    )
     kafka_consumer_group_prefix: str = Field(
         default="phlo", description="Prefix applied to consumer group ids"
     )

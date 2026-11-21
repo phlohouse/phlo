@@ -158,7 +158,7 @@ def test_run_service_hooks_skips_missing_dependency(
 
     calls: list[list[str]] = []
 
-    monkeypatch.setattr("phlo.plugins.discovery.ServiceDiscovery", ServiceFakeDiscovery)
+    monkeypatch.setattr("phlo.plugins.discovery.services.ServiceDiscovery", ServiceFakeDiscovery)
     monkeypatch.setattr("importlib.util.find_spec", lambda _name: None)
     monkeypatch.setattr(
         service_utils,
@@ -169,6 +169,44 @@ def test_run_service_hooks_skips_missing_dependency(
     service_utils._run_service_hooks("post_start", ["dagster"], "demo", tmp_path)
 
     assert calls == []
+
+
+def test_run_service_hooks_passes_the_declared_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A hook's environment reaches its command, on top of the caller's environment."""
+    service = ServiceDefinition(
+        name="superset",
+        description="Superset",
+        category="bi",
+        hooks={
+            "post_start": [
+                {
+                    "command": ["python", "-m", "phlo_superset.hooks", "add-database"],
+                    "environment": {"SUPERSET_DATABASE_URI": "trino://superset@trino:8080/x"},
+                }
+            ]
+        },
+    )
+
+    class ServiceFakeDiscovery(FakeDiscovery):
+        def get_service(self, name: str):
+            return service if name == "superset" else None
+
+    envs: list = []
+    monkeypatch.setenv("PHLO_HOOK_CALLER", "kept")
+    monkeypatch.setattr("phlo.plugins.discovery.services.ServiceDiscovery", ServiceFakeDiscovery)
+    monkeypatch.setattr(
+        service_utils,
+        "run_command",
+        lambda cmd, env=None, **_kwargs: envs.append(env) or CompletedProcess(cmd, 0, "", ""),
+    )
+
+    service_utils._run_service_hooks("post_start", ["superset"], "demo", tmp_path)
+
+    [env] = envs
+    assert env["SUPERSET_DATABASE_URI"] == "trino://superset@trino:8080/x"
+    assert env["PHLO_HOOK_CALLER"] == "kept"
 
 
 def test_stop_native_processes_clears_exited_entries(

@@ -102,3 +102,23 @@ def test_refuses_an_unsafe_catalog_map(tmp_path: Path, mapping: str) -> None:
     with pytest.raises(ValueError):
         bootstrap(tmp_path, mapping)
     assert not (tmp_path / "server").exists()
+
+
+def test_entrypoint_status_stays_off_stdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One-off commands through the API entrypoint (migrations --json) own stdout."""
+    import phlo_api.preview_bootstrap as module
+
+    settings = type(
+        "Settings",
+        (),
+        {"phlo_v1_preview_state_dir": str(tmp_path), "phlo_v1_preview_catalogs": "{}"},
+    )()
+    monkeypatch.setattr(module, "get_process_settings", lambda: settings)
+    monkeypatch.setattr(module, "bootstrap", lambda *_args: None)
+
+    assert module.main() == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "credentials are ready" in captured.err

@@ -55,7 +55,7 @@ def test_socket_and_root_exceptions_are_bounded_by_runtime_waivers() -> None:
         assert waiver["image"] == document["image"]
         assert waiver["rationale"] and waiver["compensating_control"]
         if socket:
-            assert name in {"alloy-docker", "traefik-docker"}
+            assert name in {"alloy-docker", "prometheus-docker", "traefik-docker"}
             assert not compose.get("ports")
             assert compose["read_only"] and compose["cap_drop"] == ["ALL"]
             assert all(document["networks"][n]["internal"] for n in compose["networks"])
@@ -81,7 +81,11 @@ def test_socket_proxies_read_the_configured_host_socket(env: dict[str, str], exp
             source, _, target = resolved.partition(":")
             if target.startswith("/var/run/docker.sock"):
                 proxies[document["name"]] = source
-    assert proxies == {"alloy-docker": expected, "traefik-docker": expected}
+    assert proxies == {
+        "alloy-docker": expected,
+        "prometheus-docker": expected,
+        "traefik-docker": expected,
+    }
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,8 @@
 """Plugin install command.
 
-Resolves a plugin name against the registry to a pinned package spec, installs
-it with pip, and reports the result. Treated as a mutation: the whole command
+Resolves a plugin name against the registry to a package spec, adds it to the
+project (or the current interpreter outside a uv project) without changing the
+installed Phlo, and reports the result. Treated as a mutation: the whole command
 sits behind require_mutation_authorization.
 """
 
@@ -12,9 +13,10 @@ import sys
 import click
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
-from phlo.cli.commands.plugin.utils import collect_installed_plugins, console, run_pip
+from phlo.cli.commands.plugin.utils import collect_installed_plugins, console
 from phlo.cli.output import json_envelope
 from phlo.logging import get_logger
+from phlo.plugins.project_install import install_packages
 from phlo.plugins.registry_client import fetch_registry
 from phlo.plugins.registry_client import get_plugin as get_registry_plugin
 
@@ -48,7 +50,7 @@ def resolve_install_target(plugin_name: str) -> tuple[str, str]:
 @click.option("--json", "output_json", is_flag=True, help="Emit machine-readable JSON.")
 @require_mutation_authorization("plugin.install")
 def install_cmd(plugin_name: str, output_json: bool):
-    """Install a plugin from the registry (wraps pip)."""
+    """Install a plugin from the registry into this project."""
     try:
         name_part = plugin_name.split("==", 1)[0]
         package_spec, display_name = resolve_install_target(plugin_name)
@@ -59,7 +61,12 @@ def install_cmd(plugin_name: str, output_json: bool):
         )
         if not output_json:
             console.print(f"Installing {display_name}...")
-        run_pip(["install", package_spec])
+        target = install_packages([package_spec])
+        if target == "project-env":
+            console.print(
+                "Added to the project; run phlo through `uv run phlo` to use it.",
+                highlight=False,
+            )
         installed = collect_installed_plugins("all")
         maybe_installed = [
             plugin

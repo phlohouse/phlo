@@ -16,6 +16,10 @@ from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands.services.utils import (
     _get_env_overrides,
     _get_service_overrides,
+    apply_action_defaults,
+    apply_notebook_defaults,
+    apply_preview_defaults,
+    dev_access_policies,
     ensure_compose_project,
     expand_service_dependencies,
     normalize_services_enabled_disabled_config,
@@ -84,15 +88,40 @@ def _development_activation(
     }
 
 
+_DEV_AUTHENTICATION = {"provider": "static", "static": {"enabled": True, "dev_mode": True}}
+
+
+def _automatic_activation(
+    root: Path, config: dict, old: dict, production: bool
+) -> dict[str, tuple[bytes, int]]:
+    """Set up the local Observatory sign-in a development stack lacks, as init does.
+
+    Only a stack with the API and UI, and no sign-in other than this one, takes
+    part; anything the activation refuses is left for an explicit review.
+    """
+    services = old["services"]
+    if "phlo-api" not in services or "observatory" not in services:
+        return {}
+    if config.get("authentication") not in (None, {}, _DEV_AUTHENTICATION):
+        return {}
+    try:
+        return _development_activation(root, config, production)
+    except (ValueError, click.ClickException):
+        return {}
+
+
 def _candidate(
-    root: Path, production: bool, observatory_dev: bool = False
-) -> tuple[dict[str, tuple[bytes, int]], tuple, tuple, tuple, dict]:
+    root: Path, production: bool, observatory_dev: bool | None = False
+) -> tuple[dict[str, tuple[bytes, int]], tuple, tuple, tuple, dict, frozenset[str]]:
     state = root / ".phlo"
     config = yaml.safe_load(checked_path(root, "phlo.yaml").read_text(encoding="utf-8")) or {}
-    activation = _development_activation(root, config, production) if observatory_dev else {}
     old = yaml.safe_load(checked_path(root, ".phlo/docker-compose.yml").read_text(encoding="utf-8"))
     if not isinstance(old, dict) or not isinstance(old.get("services"), dict):
         raise ValueError("Existing Compose must contain services")
+    if observatory_dev is None:
+        activation = _automatic_activation(root, config, old, production)
+    else:
+        activation = _development_activation(root, config, production) if observatory_dev else {}
     if "/opt/phlo-dev" in json.dumps(old):
         raise ValueError(
             "Source-mounted development stacks require an explicit non-dev regeneration"
@@ -108,10 +137,20 @@ def _candidate(
             selected.append(ServiceDefinition.from_inline(name, overrides[name]))
     _, disabled = normalize_services_enabled_disabled_config(config)
     services = expand_service_dependencies(discovery, selected, excluded=disabled)
-    env = {**os.environ, **_get_env_overrides(config)}
+    # The same derived settings `phlo services init` writes, so a service the
+    # upgrade brings in (such as trino-preview) is switched on, not left idle.
+    configured_env = _get_env_overrides(config)
+    derived_env = apply_preview_defaults(
+        services,
+        apply_action_defaults(services, apply_notebook_defaults(services, configured_env)),
+        config.get("environments"),
+    )
+    env = {**os.environ, **derived_env}
+    file_env: dict[str, str] = {}
     for path in project_env_paths(state):
         checked_path(root, path.relative_to(root).as_posix())
-        env.update(parse_env_file(path))
+        file_env.update(parse_env_file(path))
+    env.update(file_env)
     generator = ComposeGenerator(discovery, host_identity=project_container_host_identity())
     rendered = yaml.safe_load(
         generator.generate_compose(
@@ -132,6 +171,9 @@ def _candidate(
             rendered[key] = {**rendered.get(key, {}), **value}
         else:
             rendered.setdefault(key, value)
+    _bake_derived_defaults(
+        rendered, _derived_values(config, services, generator, derived_env, file_env)
+    )
     marker = checked_path(root, ".phlo/.gitignore")
     shared = marker.exists() and SHARED_LAYOUT_MARKER in marker.read_text(encoding="utf-8")
     files: dict[str, tuple[bytes, int]] = dict(activation)
@@ -150,13 +192,119 @@ def _candidate(
             content if content is not None else source.read_bytes(),
             mode,
         )
+    additive = _derived_files(state, config, services, files)
     companions = tuple(name for name in rendered["services"] if name not in old["services"])
     order = tuple(service.name for service in discovery.resolve_dependencies(services))
     images = {
         name: (old["services"].get(name, {}).get("image"), config.get("image"))
         for name, config in rendered["services"].items()
     }
-    return files, companions, order, migrations, images
+    return files, companions, order, migrations, images, frozenset(additive)
+
+
+def _derived_values(
+    config: dict,
+    services: list,
+    generator: ComposeGenerator,
+    derived_env: dict,
+    file_env: dict[str, str],
+) -> dict[str, str]:
+    """Return the Phlo-derived settings the project's env files leave empty.
+
+    These are the values `phlo services init` writes for a new stack (actions,
+    query preview, notebook providers). An upgrade never edits the operator's
+    env files, so they travel in the generated Compose file instead.
+    """
+    owned = (set(derived_env) - set(_get_env_overrides(config))) | {"PHLO_API_EXTRAS"}
+    rendered = parse_env_text(generator.generate_env(services, env_overrides=derived_env))
+    return {
+        key: value
+        for key, value in rendered.items()
+        if key in owned and value and not file_env.get(key, "").strip()
+    }
+
+
+def _bake_derived_defaults(rendered: dict, values: dict[str, str]) -> None:
+    """Make each ``${KEY:-}`` reference to a derived setting default to its value.
+
+    A value set later in an env file still wins; a value Compose cannot carry
+    inside a default (one with ``}``) is written literally.
+    """
+    if not values:
+        return
+    for service in rendered.get("services", {}).values():
+        if not isinstance(service, dict):
+            continue
+        build = service.get("build")
+        mappings = [service.get("environment")]
+        if isinstance(build, dict):
+            mappings.append(build.get("args"))
+        for mapping in mappings:
+            if not isinstance(mapping, dict):
+                continue
+            for key, current in mapping.items():
+                if key not in values or not _is_plain_reference(key, current):
+                    continue
+                escaped = values[key].replace("$", "$$")
+                mapping[key] = escaped if "}" in escaped else f"${{{key}:-{escaped}}}"
+
+
+def _is_plain_reference(key: str, value: object) -> bool:
+    """Whether ``value`` only reads ``key`` from the environment, with any default."""
+    if not isinstance(value, str):
+        return False
+    return (
+        any(
+            value.startswith(prefix) and value.endswith("}") and "${" not in value[len(prefix) :]
+            for prefix in (f"${{{key}:-", f"${{{key}-")
+        )
+        or value == f"${{{key}}}"
+    )
+
+
+def _derived_files(
+    state: Path, config: dict, services: list, files: dict[str, tuple[bytes, int]]
+) -> set[str]:
+    """Add the dev grants the rendered services need to ``files``.
+
+    Returns the paths whose new content only adds to the operator's file.
+    """
+    additive: set[str] = set()
+    policies_name = ".phlo/authorization/policies.yaml"
+    activated = files.get(policies_name)
+    policies = dev_access_policies(
+        state,
+        services,
+        config.get("environments") or {},
+        announce=False,
+        current=activated[0].decode("utf-8") if activated else None,
+    )
+    if policies is not None:
+        files[policies_name] = (policies.encode("utf-8"), 0o600)
+        if not activated:
+            additive.add(policies_name)
+    elif not activated:
+        _keep_current(state.parent, policies_name, files)
+    return additive
+
+
+def _keep_current(root: Path, name: str, files: dict[str, tuple[bytes, int]]) -> None:
+    """List an up-to-date derived file as unchanged, so re-applying a plan still matches."""
+    path = checked_path(root, name)
+    if path.is_file():
+        files[name] = (path.read_bytes(), path.stat().st_mode & 0o777)
+
+
+def parse_env_text(text: str) -> dict[str, str]:
+    """Parse ``KEY=value`` lines, ignoring comments and blanks."""
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if sep:
+            values[key.strip()] = value
+    return values
 
 
 def _retain_storage(old: dict, candidate: dict) -> tuple[str, ...]:
@@ -191,10 +339,14 @@ def build_plan(
     root: Path,
     previous_generated: Path | None,
     production: bool,
-    observatory_dev: bool = False,
+    observatory_dev: bool | None = False,
     repair_empty_api_binds: bool = False,
 ) -> tuple[GeneratedStackPlan, dict[str, tuple[bytes, int]]]:
-    files, companions, order, migrations, images = _candidate(root, production, observatory_dev)
+    files, companions, order, migrations, images, additive = _candidate(
+        root, production, observatory_dev
+    )
+    # Only the sign-in activation adds phlo.yaml to the generated files.
+    activated = bool(observatory_dev) or (observatory_dev is None and "phlo.yaml" in files)
     runtime_ownership = ()
     if repair_empty_api_binds:
         if select_project_container_backend().name != "docker":
@@ -227,7 +379,7 @@ def build_plan(
             if previous_baseline.exists()
             else {}
         )
-    if observatory_dev:
+    if activated:
         baseline.update(
             {
                 name: file_digest(root, name)
@@ -236,8 +388,10 @@ def build_plan(
             }
         )
     baseline = apply_rewrites(root, baseline)
+    # Additive merges keep every operator value, so the current file is their base.
+    baseline.update({name: file_digest(root, name) for name in additive})
     inputs = ["phlo.yaml", f".phlo/{BASELINE}", f".phlo/{REWRITES}"]
-    if observatory_dev:
+    if activated:
         inputs.extend((".phlo/authorization/roles.yaml", ".phlo/authorization/policies.yaml"))
     inputs.extend(path.relative_to(root).as_posix() for path in project_env_paths(root / ".phlo"))
     inputs.append(".phlo/.gitignore")
@@ -466,9 +620,13 @@ def _write_upgrade(
 )
 @click.option("--production", is_flag=True, help="Keep the production rendering profile.")
 @click.option(
-    "--observatory-dev",
-    is_flag=True,
-    help="Include explicit local-development activation in the reviewed plan; requires actual configured environments.",
+    "--observatory-dev/--no-observatory-dev",
+    default=None,
+    help=(
+        "Include the local-development sign-in in the reviewed plan. Development stacks "
+        "with the API and UI and no sign-in of their own get it by default; "
+        "--no-observatory-dev leaves it out."
+    ),
 )
 @click.option(
     "--repair-empty-api-binds",
@@ -490,7 +648,7 @@ def upgrade_cmd(
     confirm: str | None,
     previous_generated: Path | None,
     production: bool,
-    observatory_dev: bool,
+    observatory_dev: bool | None,
     repair_empty_api_binds: bool,
     allow_insecure: bool,
 ) -> None:
@@ -505,7 +663,12 @@ def upgrade_cmd(
         if dry_run and plan_path:
             raise ValueError("--dry-run and --apply are mutually exclusive")
         current, files = build_plan(
-            root, previous_generated, production, observatory_dev, repair_empty_api_binds
+            root,
+            previous_generated,
+            production,
+            # Without either flag, a development stack gets the sign-in as init gives it.
+            observatory_dev,
+            repair_empty_api_binds,
         )
         if plan_path:
             reviewed = GeneratedStackPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))

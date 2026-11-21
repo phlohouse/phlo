@@ -181,7 +181,9 @@ def _render_env_variable(
     value = overrides.get(var_name, normalize_env_value(default))
     if is_secret and var_name in existing_values:
         value = existing_values[var_name]
-    elif is_secret and var_name not in overrides:
+    elif is_secret and var_name not in overrides and var_config.get("generate", True) is not False:
+        # `generate: false` marks a credential issued elsewhere (an identity
+        # provider, a Git host): a random value could never work, so it stays empty.
         value = generate_local_secret(var_name)
     lines = []
     if description := var_config.get("description", ""):

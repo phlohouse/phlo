@@ -12,9 +12,7 @@ depends_on:
 compose:
   restart: unless-stopped
   labels:
-    phlo.metrics.enabled: "true"
-    phlo.metrics.port: "hasura:8080"
-    phlo.metrics.path: "/v1/metrics"
+    phlo.metrics.enabled: "false" # Hasura CE has no Prometheus endpoint
   environment:
     HASURA_GRAPHQL_DATABASE_URL: postgresql://${POSTGRES_USER:-phlo}:${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-phlo}
     HASURA_GRAPHQL_ENABLE_CONSOLE: "false"
