@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from collections.abc import Iterator
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,17 @@ from phlo.plugins.base import AssetProviderPlugin, PluginMetadata, Transformatio
 from phlo.plugins.discovery.registry import PluginRegistry
 
 pytestmark = [pytest.mark.core_regression, pytest.mark.filterwarnings("ignore::DeprecationWarning")]
+
+
+@pytest.fixture(autouse=True)
+def _clear_flow_declarations() -> Iterator[None]:
+    """Declarations are process-global; leaving them behind leaks owners into
+    later tests in the same worker (an Observatory dataset test saw this
+    module's gold.orders contract)."""
+    import phlo
+
+    yield
+    phlo.clear_flow_declarations()
 
 
 @pytest.fixture
