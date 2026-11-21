@@ -11,6 +11,7 @@ import pytest
 from phlo.capabilities import (
     ApiBackendSpec,
     CapabilitySupport,
+    CatalogScannerSpec,
     CatalogSpec,
     DataInterval,
     LineageSinkSpec,
@@ -552,6 +553,21 @@ def test_resolve_object_store_defaults_to_minio_when_ambiguous() -> None:
 
     assert resolved is not None
     assert resolved.name == "minio"
+
+
+@pytest.mark.parametrize(
+    ("family", "spec_type"),
+    [("catalog", CatalogSpec), ("catalog_scanner", CatalogScannerSpec)],
+)
+def test_resolve_catalog_defaults_to_nessie_when_polaris_is_installed(family, spec_type) -> None:
+    """Adding Polaris next to Nessie must not leave catalog lookups unresolved."""
+    register_capability(family, spec_type(name="polaris", provider=object()))
+    register_capability(family, spec_type(name="nessie", provider=object()))
+
+    resolved = resolve_capability(family)
+
+    assert resolved is not None
+    assert resolved.name == "nessie"
 
 
 def test_resolve_object_store_single_preview_store_still_resolves() -> None:
