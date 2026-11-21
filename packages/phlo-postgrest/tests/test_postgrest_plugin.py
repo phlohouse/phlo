@@ -2,7 +2,7 @@
 
 Locks the service definition to a pinned upstream image, project Postgres
 credentials in PGRST_DB_URI (never a template fallback password), the bundled
-config mount, and the pgrep-based healthcheck.
+config mount, and a healthcheck the shell-less image can run.
 """
 
 from phlo_postgrest.plugin import PostgrestServicePlugin
@@ -29,8 +29,11 @@ def test_postgrest_uses_the_project_postgres_credentials() -> None:
     )
     assert "POSTGREST_VERSION" not in definition["env_vars"]
     assert {"source": "conf", "dest": "postgrest/conf"} in definition["files"]
+    # The image has no shell or pgrep; PostgREST checks its own admin server.
     assert definition["compose"]["healthcheck"]["test"] == [
         "CMD",
-        "pgrep",
-        "postgrest",
+        "/bin/postgrest",
+        "--ready",
+        "/etc/postgrest/postgrest.conf",
     ]
+    assert definition["compose"]["environment"]["PGRST_ADMIN_SERVER_PORT"] == "3001"

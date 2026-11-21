@@ -1,31 +1,42 @@
 apiVersion: 1
 
+# Earlier releases provisioned a Trino source whose plugin is not installed,
+# and gave the others generated uids that the dashboards cannot name. Grafana
+# cannot change a provisioned uid in place, so the sources are recreated.
+deleteDatasources:
+  - name: Trino
+    orgId: 1
+  - name: Prometheus
+    orgId: 1
+  - name: Loki
+    orgId: 1
+  - name: PostgreSQL
+    orgId: 1
+
 datasources:
   - name: Prometheus
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
 
   - name: Loki
+    uid: loki
     type: loki
     access: proxy
     url: http://loki:3100
 
-  - name: Trino
-    type: trino
-    access: proxy
-    url: http://trino:8080
-    jsonData:
-      catalog: iceberg
-
+  # Grafana expands ${VAR} from its container environment, which the service
+  # definition fills from the project's generated Postgres credentials.
   - name: PostgreSQL
-    type: postgres
+    uid: postgres
+    type: grafana-postgresql-datasource
     access: proxy
     url: postgres:5432
-    database: ${POSTGRES_DB:-phlo}
-    user: ${POSTGRES_USER:-phlo}
+    user: ${POSTGRES_USER}
     secureJsonData:
-      password: ${POSTGRES_PASSWORD:-phlo}
+      password: ${POSTGRES_PASSWORD}
     jsonData:
+      database: ${POSTGRES_DB}
       sslmode: disable

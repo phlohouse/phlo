@@ -77,9 +77,12 @@ def test_other_authorization_is_never_widened(tmp_path: Path) -> None:
 
 
 def test_no_grant_without_the_kernel_host(tmp_path: Path) -> None:
-    """Verify the dev identity stays read-only when notebooks are not added."""
-    _write_policies(tmp_path, ["observatory-dev-discovery"])
-    assert grant_dev_access(tmp_path, [API], ["sandbox"]) is False
+    """Verify the dev identity gains no notebook rights when notebooks are not added."""
+    path = _write_policies(tmp_path, ["observatory-dev-discovery"])
+    assert grant_dev_access(tmp_path, [TRINO], ["sandbox"]) is False
+    grant_dev_access(tmp_path, [API], ["sandbox"])
+    policy_ids = [p["policy_id"] for p in yaml.safe_load(path.read_text())["policies"]]
+    assert not any("notebooks" in policy_id for policy_id in policy_ids)
 
 
 def test_regenerating_keeps_the_dev_source_mount(tmp_path: Path) -> None:

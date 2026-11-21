@@ -27,6 +27,12 @@ def test_query_rejects_writes_or_references_outside_selected_catalog(sql: str) -
         validate_workspace_query(sql, "prod_catalog")
 
 
+def test_another_catalog_is_refused_with_the_name_to_use_instead() -> None:
+    """The lake's own catalog name is refused under a ref-scoped catalog, so say what works."""
+    with pytest.raises(InvalidWorkspaceQuery, match=r"'iceberg'.*for example raw\.orders"):
+        validate_workspace_query("select * from iceberg.raw.orders", "iceberg_main")
+
+
 def test_query_accepts_ctes_joins_and_comments_inside_selected_catalog() -> None:
     result = validate_workspace_query(
         "-- read only\nWITH orders AS (SELECT id FROM prod_catalog.analytics.orders) "

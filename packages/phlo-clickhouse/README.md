@@ -9,7 +9,7 @@ ClickHouse service and resource plugin for Phlo.
 ## Installation
 
 ```bash
-pip install phlo-clickhouse
+uv add phlo-clickhouse
 ```
 
 ## Usage
@@ -62,7 +62,7 @@ This plugin registers the following capabilities:
 Install with dbt support:
 
 ```bash
-pip install phlo-clickhouse[dbt]
+uv add "phlo-clickhouse[dbt]"
 ```
 
 This provides the `dbt-clickhouse` adapter for running dbt transforms against ClickHouse.

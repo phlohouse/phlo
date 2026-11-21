@@ -23,7 +23,7 @@ Install the package, then enable the observability profile when a standalone
 observer is wanted:
 
 ```bash
-pip install phlo-observe-plugin
+uv add phlo-observe-plugin
 phlo services init --profile observability
 phlo services start
 phlo services start --profile observability

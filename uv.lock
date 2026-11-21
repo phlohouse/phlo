@@ -4409,6 +4409,7 @@ name = "phlo-kafka"
 version = "0.18.0"
 source = { editable = "packages/phlo-kafka" }
 dependencies = [
+    { name = "confluent-kafka" },
     { name = "phlo" },
 ]
 
@@ -4423,6 +4424,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "confluent-kafka", specifier = ">=2.0" },
     { name = "confluent-kafka", marker = "extra == 'consumer'", specifier = ">=2.0" },
     { name = "phlo", editable = "." },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },

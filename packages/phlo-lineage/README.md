@@ -9,7 +9,7 @@ Tracks data lineage at the row level, enabling you to trace individual records b
 ## Installation
 
 ```bash
-pip install phlo-lineage
+uv add phlo-lineage
 # or
 phlo plugin install lineage
 ```

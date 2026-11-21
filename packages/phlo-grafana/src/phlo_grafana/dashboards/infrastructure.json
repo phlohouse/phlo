@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -92,7 +92,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "up{service!=\"\"}",
           "legendFormat": "{{service}}",
@@ -143,7 +143,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{cascade_component=\"trino\"}",
+          "expr": "{service=\"trino\"}",
           "refId": "A"
         }
       ],
@@ -166,7 +166,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -240,9 +240,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "rate(http_server_requests_seconds_count{job=\"nessie\"}[5m])",
+          "expr": "rate(http_server_requests_seconds_count{service=\"nessie\"}[5m])",
           "legendFormat": "{{uri}} - {{method}}",
           "refId": "A"
         }
@@ -278,7 +278,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{cascade_component=\"nessie\"}",
+          "expr": "{service=\"nessie\"}",
           "refId": "A"
         }
       ],
@@ -301,7 +301,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -376,18 +376,18 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "rate(minio_s3_requests_incoming_bytes[5m])",
+          "expr": "rate(minio_s3_traffic_received_bytes[5m])",
           "legendFormat": "Incoming",
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "rate(minio_s3_requests_outgoing_bytes[5m])",
+          "expr": "rate(minio_s3_traffic_sent_bytes[5m])",
           "legendFormat": "Outgoing",
           "refId": "B"
         }
@@ -398,7 +398,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -472,7 +472,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "minio_bucket_usage_object_total",
           "legendFormat": "{{bucket}}",
@@ -498,7 +498,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -572,18 +572,18 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "rate(pg_stat_database_xact_commit{datname=\"lakehouse\"}[5m])",
+          "expr": "rate(pg_stat_database_xact_commit{datname!~\"template.*\"}[5m])",
           "legendFormat": "Commits",
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "rate(pg_stat_database_xact_rollback{datname=\"lakehouse\"}[5m])",
+          "expr": "rate(pg_stat_database_xact_rollback{datname!~\"template.*\"}[5m])",
           "legendFormat": "Rollbacks",
           "refId": "B"
         }
@@ -594,7 +594,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -669,9 +669,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "pg_database_size_bytes{datname=\"lakehouse\"}",
+          "expr": "pg_database_size_bytes{datname!~\"template.*\"}",
           "legendFormat": "Database Size",
           "refId": "A"
         }
@@ -720,7 +720,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{cascade_component=~\"dagster-.*\"}",
+          "expr": "{service=~\"dagster.*\"}",
           "refId": "A"
         }
       ],

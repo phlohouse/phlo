@@ -9,7 +9,7 @@ Syncs table metadata, lineage, and quality check results to OpenMetadata for dat
 ## Installation
 
 ```bash
-pip install phlo-openmetadata
+uv add phlo-openmetadata
 # or
 phlo plugin install openmetadata
 ```

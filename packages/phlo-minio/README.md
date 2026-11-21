@@ -185,7 +185,7 @@ modify MinIO or distribute a derived image.
 ## Installation
 
 ```bash
-pip install phlo-minio
+uv add phlo-minio
 # or
 phlo plugin install minio
 ```

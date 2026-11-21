@@ -46,6 +46,11 @@ def _ts(epoch: Any) -> datetime | None:
 
 def _emit_pipeline_run(context: Any, dagster_status: Any) -> None:
     """Emit the terminal ``pipeline.run`` event for one Dagster run."""
+    # The code server evaluates sensors on gRPC worker threads, where the
+    # telemetry runtime never configures itself, and nothing else in that
+    # process configures it. Sensor evaluation is this process's own work,
+    # so configure here; otherwise every terminal event would be dropped.
+    phlo_observe.configure()
     # enabled(), not available(): a disabled runtime should skip the run-stats
     # query entirely, not do the work and drop the event at emit().
     if not phlo_observe.enabled():

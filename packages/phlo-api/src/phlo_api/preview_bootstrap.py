@@ -246,7 +246,8 @@ def main() -> int:
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"Query preview setup failed: {exc}", file=sys.stderr)
         return 1
-    print("Query preview credentials are ready.")
+    # stderr: one-off commands run through this entrypoint print JSON on stdout.
+    print("Query preview credentials are ready.", file=sys.stderr)
     return 0
 
 

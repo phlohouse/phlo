@@ -9,7 +9,7 @@ FastAPI-based backend service exposing Phlo internals to the Observatory UI. Pro
 ## Installation
 
 ```bash
-pip install phlo-api
+uv add phlo-api
 # or
 phlo plugin install api
 ```

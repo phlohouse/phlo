@@ -10,7 +10,7 @@ query ClickHouse-backed observability data and link to the HyperDX UI.
 ## Installation
 
 ```bash
-pip install phlo-clickstack
+uv add phlo-clickstack
 # or
 phlo plugin install clickstack
 ```

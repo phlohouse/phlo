@@ -9,7 +9,7 @@ Business intelligence and data visualization platform. Connects to Trino to quer
 ## Installation
 
 ```bash
-pip install phlo-superset
+uv add phlo-superset
 # or
 phlo plugin install superset
 ```

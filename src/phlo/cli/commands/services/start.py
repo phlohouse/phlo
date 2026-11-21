@@ -9,6 +9,7 @@ and requires authorization via services.start.
 from __future__ import annotations
 
 import asyncio
+import errno
 import signal
 import socket
 import subprocess
@@ -393,7 +394,11 @@ def _is_host_port_available(port: int) -> bool:
                 sock.bind(address)
         except AttributeError:
             continue
-        except OSError:
+        except OSError as exc:
+            # A host without IPv6 cannot bind "::" at all; that says nothing
+            # about whether the port is free.
+            if exc.errno in {errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL} and family != socket.AF_INET:
+                continue
             return False
     return True
 

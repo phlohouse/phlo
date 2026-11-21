@@ -9,12 +9,12 @@ Nessie provides Git-like version control for Iceberg tables. Enables branching, 
 ## Installation
 
 ```bash
-pip install phlo-nessie
+uv add phlo-nessie
 # or
 phlo plugin install nessie
 
 # Nessie plus the Trino catalog adapter
-pip install 'phlo-nessie[trino]'
+uv add 'phlo-nessie[trino]'
 ```
 
 ## Configuration

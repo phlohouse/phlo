@@ -265,6 +265,8 @@ def prepare_observatory_start(
                 (
                     "observatory",
                     "dagster",
+                    # Schedules, sensors and queued Observatory runs need the daemon.
+                    "dagster-daemon",
                     "nessie",
                     *project.get("services", {}).get("enabled", []),
                 )
@@ -288,9 +290,12 @@ def prepare_observatory_start(
         raise click.UsageError(
             "Local Observatory onboarding uses detached containers; omit --native, --profile, --service and --no-detach."
         )
-    return service or ("observatory", "dagster", "nessie"), prepare_observatory_development(
-        backend_name
-    )
+    return service or (
+        "observatory",
+        "dagster",
+        "dagster-daemon",
+        "nessie",
+    ), prepare_observatory_development(backend_name)
 
 
 def prepare_observatory_development(backend_name: str | None) -> tuple[str, str, str]:
@@ -446,8 +451,11 @@ def wait_observatory_development(
                     write_sensitive_file(phlo_dir / "observatory-ready.json", json.dumps(report))
                     click.echo(f"Open Observatory: {report['url']}")
                     click.echo(
-                        "Authenticated dashboard access is verified. Configure additional roles with phlo authz before enabling mutations."
+                        "Authenticated dashboard access is verified."
+                        if not development
+                        else "Signed in as the local dev user."
                     )
+                    click.echo("Grant other people access with phlo authz.")
                     if _has_generated_preview(phlo_dir):
                         click.echo(
                             "The Query page and notebook SQL cells read through the read-only trino-preview service."
