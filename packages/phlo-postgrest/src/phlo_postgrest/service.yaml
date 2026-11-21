@@ -35,9 +35,6 @@ env_vars:
   POSTGREST_PORT:
     default: 3002
     description: PostgREST API port
-  PGRST_DB_SCHEMAS:
-    default: public
-    description: Comma-separated list of schemas to expose (auto-configured by hook)
 
 files:
   - source: conf
