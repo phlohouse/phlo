@@ -3176,12 +3176,12 @@
           "required": false
         },
         {
-          "alias": "kafka_port",
+          "alias": "KAFKA_BROKER_PORT",
           "annotation": "<class 'int'>",
           "default": 9092,
-          "description": "Kafka broker port",
+          "description": "Kafka broker port on the service network",
           "environment_names": [
-            "KAFKA_PORT"
+            "KAFKA_BROKER_PORT"
           ],
           "name": "kafka_port",
           "required": false

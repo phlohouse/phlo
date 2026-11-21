@@ -1,5 +1,5 @@
 {
-  "component_count": 99,
+  "component_count": 100,
   "components": [
     {
       "applicable_gates": [
@@ -1174,6 +1174,15 @@
       "applicable_gates": [],
       "blockers": [],
       "component": "service:prometheus",
+      "current_maturity": "preview",
+      "readiness": "not gated",
+      "target_profile": "optional",
+      "target_status": "preview"
+    },
+    {
+      "applicable_gates": [],
+      "blockers": [],
+      "component": "service:prometheus-docker",
       "current_maturity": "preview",
       "readiness": "not gated",
       "target_profile": "optional",
