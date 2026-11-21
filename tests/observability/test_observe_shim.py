@@ -487,3 +487,34 @@ def test_null_event_interface() -> None:
     assert evt.attributes == {"a": 1}
     assert evt.correlation == {"run_id": "r"}
     assert isinstance(phlo_observe._null_scope(), contextlib.AbstractContextManager)
+
+
+def _on_worker_thread(call):
+    import threading
+
+    result: list[object] = []
+    worker = threading.Thread(target=lambda: result.append(call()))
+    worker.start()
+    worker.join()
+    return result[0]
+
+
+def test_worker_threads_emit_once_the_process_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gRPC code server runs sensors on worker threads; they must reach the runtime."""
+    monkeypatch.setenv("OBSERVE_DRAINS", "memory")
+    phlo_observe.reset_for_tests()
+
+    assert _on_worker_thread(phlo_observe.enabled) is False
+    assert phlo_observe.configure() is True
+    assert _on_worker_thread(phlo_observe.enabled) is True
+
+
+def test_worker_threads_never_configure_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OBSERVE_DRAINS", "memory")
+    phlo_observe.reset_for_tests()
+
+    _on_worker_thread(phlo_observe.enabled)
+
+    assert phlo_observe._configured is False

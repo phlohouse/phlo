@@ -499,16 +499,23 @@ def test_materialize_dry_run_uses_configured_container_backend(
 
 @patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")
 @patch("phlo_dagster.cli_materialize.get_project_name", return_value="mock-project")
-def test_materialize_defaults_partition_to_today(mock_project, mock_container) -> None:
-    """Omitted --partition defaults to today so partitioned assets never run bare."""
-    from datetime import UTC, datetime
+def test_materialize_defaults_partition_to_the_latest_complete_day(
+    mock_project, mock_container
+) -> None:
+    """Omitted --partition picks a partition that exists, so partitioned assets never run bare.
+
+    Today's daily partition only exists once the day ends; defaulting to it
+    made every bare ``phlo materialize`` of a daily asset fail.
+    """
+    from phlo_dagster.partitions import daily_partition
 
     runner = CliRunner()
     result = runner.invoke(materialize, ["dlt_orders", "--dry-run"])
 
     assert result.exit_code == 0
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    assert f"--partition {today}" in result.output
+    latest = daily_partition.get_last_partition_key()
+    assert latest in daily_partition.get_partition_keys()
+    assert f"--partition {latest}" in result.output
 
 
 @patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")

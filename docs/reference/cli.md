@@ -1447,7 +1447,7 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 
 ## `phlo plugin install`
 
-Install a plugin from the registry (wraps pip).
+Install a plugin from the registry into this project.
 
 Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 

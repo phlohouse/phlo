@@ -63,7 +63,7 @@ from phlo.capabilities.interfaces import (
     VersionedCatalog,
 )
 from phlo.capabilities.resolver import resolve_capability
-from phlo.config import get_settings
+from phlo.capabilities.runtime import configured_project_id
 from phlo.config.process import get_process_settings
 from phlo.hooks import HookCorrelation, QualityResultEvent, get_hook_bus
 from phlo.logging import get_logger
@@ -297,7 +297,7 @@ def _project_identity_for_run(run: Any) -> ProjectIdentity:
     """Resolve run tags against the configured single-project identity."""
     return resolve_project_identity(
         getattr(run, "tags", {}) or {},
-        get_settings().phlo_project,
+        configured_project_id(),
     )
 
 

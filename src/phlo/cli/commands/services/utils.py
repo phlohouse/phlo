@@ -1055,6 +1055,10 @@ def _regenerate_compose(discovery, config: dict, phlo_dir: Path):
         ),
         config.get("environments"),
     )
+    if any(service.name == "phlo-observer" for service in services_to_install):
+        # As services init does for the observability profile: with the
+        # observer in the stack, Dagster containers send it their events.
+        env_overrides.setdefault("OBSERVE_HTTP_ENDPOINT", "http://localhost:10010/v1/events")
     env_local_file = env_secrets_path(phlo_dir)
     existing_env_local = parse_env_file(env_local_file)
 

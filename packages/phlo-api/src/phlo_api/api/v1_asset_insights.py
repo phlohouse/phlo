@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Query, Request
 from pydantic import AwareDatetime
 
-from phlo.config.settings import get_settings
+from phlo.capabilities.runtime import configured_project_id
 from phlo_api.api import v1_assets as assets
 from phlo_api.api.v1 import _run_on_ref, _target
 from phlo_api.api.v1_pages import decode_cursor, decode_offset, encode_cursor
@@ -522,7 +522,7 @@ def _schema_versions(
 
 def _run_snapshot(request: Request, run_id: str, table_name: str) -> tuple[int, Any]:
     """Return the final snapshot a run wrote to ``table_name`` and when the run finished."""
-    project_id = (get_settings().phlo_project or "").strip()
+    project_id = (configured_project_id() or "").strip()
     if not project_id:
         raise BackendUnavailableError("Run evidence project identity is not configured.")
     store = get_run_evidence_store(request)

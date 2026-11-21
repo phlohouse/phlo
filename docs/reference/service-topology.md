@@ -18,7 +18,7 @@
 | `dagster` | [phlo-dagster](../../packages/phlo-dagster/src/phlo_dagster/service.yaml) | `dagster-code`, `minio`, `nessie`, `postgres`, `trino` | 10006 → 3000/tcp (DAGSTER_PORT) | none | true |
 | `dagster-code` | [phlo-dagster](../../packages/phlo-dagster/src/phlo_dagster/dagster-code.yaml) | `minio`, `nessie`, `postgres`, `trino` | none | none | true |
 | `dagster-daemon` | [phlo-dagster](../../packages/phlo-dagster/src/phlo_dagster/dagster-daemon.yaml) | `dagster` | none | none | true |
-| `grafana` | [phlo-grafana](../../packages/phlo-grafana/src/phlo_grafana/service.yaml) | `loki`, `prometheus` | 3003 → 3000/tcp (GRAFANA_PORT) | observability | false |
+| `grafana` | [phlo-grafana](../../packages/phlo-grafana/src/phlo_grafana/service.yaml) | `loki`, `postgres`, `prometheus` | 3003 → 3000/tcp (GRAFANA_PORT) | observability | false |
 | `hasura` | [phlo-hasura](../../packages/phlo-hasura/src/phlo_hasura/service.yaml) | `postgres` | 8082 → 8080/tcp (HASURA_PORT) | api | false |
 | `kafka` | [phlo-kafka](../../packages/phlo-kafka/src/phlo_kafka/service.yaml) | none | 10021 → 9094/tcp (KAFKA_PORT) | none | false |
 | `loki` | [phlo-loki](../../packages/phlo-loki/src/phlo_loki/service.yaml) | `loki-setup` | 3100 → 3100/tcp (LOKI_PORT) | observability | false |
@@ -44,7 +44,8 @@
 | `postgres-exporter` | [phlo-postgres](../../packages/phlo-postgres/src/phlo_postgres/exporter_service.yaml) | `postgres` | 9187 → 9187/tcp (POSTGRES_EXPORTER_PORT) | observability | false |
 | `postgres-volume-setup` | [phlo-postgres](../../packages/phlo-postgres/src/phlo_postgres/volume_setup.yaml) | none | none | none | false |
 | `postgrest` | [phlo-postgrest](../../packages/phlo-postgrest/src/phlo_postgrest/service.yaml) | `postgres` | 3002 → 3000/tcp (POSTGREST_PORT) | api | false |
-| `prometheus` | [phlo-prometheus](../../packages/phlo-prometheus/src/phlo_prometheus/service.yaml) | `prometheus-setup` | 9090 → 9090/tcp (PROMETHEUS_PORT) | observability | false |
+| `prometheus` | [phlo-prometheus](../../packages/phlo-prometheus/src/phlo_prometheus/service.yaml) | `prometheus-docker`, `prometheus-setup` | 9090 → 9090/tcp (PROMETHEUS_PORT) | observability | false |
+| `prometheus-docker` | [phlo-prometheus](../../packages/phlo-prometheus/src/phlo_prometheus/prometheus-docker-daemon.yaml) | none | none | observability | false |
 | `prometheus-setup` | [phlo-prometheus](../../packages/phlo-prometheus/src/phlo_prometheus/prometheus-setup.yaml) | none | none | observability | false |
 | `rustfs` | [phlo-rustfs](../../packages/phlo-rustfs/src/phlo_rustfs/service.yaml) | `rustfs-volume-setup` | 9000 → 9000/tcp (RUSTFS_API_PORT); 9001 → 9001/tcp (RUSTFS_CONSOLE_PORT) | none | false |
 | `rustfs-setup` | [phlo-rustfs](../../packages/phlo-rustfs/src/phlo_rustfs/rustfs-setup.yaml) | `rustfs` | none | none | false |

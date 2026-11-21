@@ -47,7 +47,6 @@ import sys
 import time
 import uuid
 from collections import deque
-from datetime import UTC, datetime
 from time import sleep as _sleep
 from typing import Optional
 
@@ -122,7 +121,7 @@ def wait_for_dagster_runtime(
 @click.option(
     "--no-default-partition",
     is_flag=True,
-    help="Do not default the partition to today when --partition is omitted",
+    help="Do not default the partition to the latest complete day when --partition is omitted",
 )
 @click.option("--select", help="Asset selector expression")
 @click.option(
@@ -147,9 +146,10 @@ def materialize(
 
     select overrides asset_name; no_contract_refresh skips automatic schema
     contract refresh; dry_run prints the command without executing. When the
-    selected asset is partitioned, an omitted --partition defaults to today
-    (UTC) so ad-hoc runs never execute partitioned assets unpartitioned;
-    pass --no-default-partition to opt out.
+    selected asset is partitioned, an omitted --partition defaults to the
+    latest complete day of the default daily partitioning (today's partition
+    does not exist until the day ends), so ad-hoc runs never execute
+    partitioned assets unpartitioned; pass --no-default-partition to opt out.
 
     Raises: SystemExit on command failure or when the container backend is
     not found.
@@ -157,7 +157,9 @@ def materialize(
     if not asset_name and not select:
         raise click.UsageError("Provide ASSET_NAME or --select.")
     if partition is None and not no_default_partition:
-        partition = datetime.now(UTC).strftime("%Y-%m-%d")
+        from phlo_dagster.partitions import daily_partition
+
+        partition = daily_partition.get_last_partition_key()
 
     wap_config = load_wap_config()
     if wap_config.enabled:

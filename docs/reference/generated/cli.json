@@ -4335,7 +4335,7 @@
         {
           "default": false,
           "envvar": null,
-          "help": "Do not default the partition to today when --partition is omitted",
+          "help": "Do not default the partition to the latest complete day when --partition is omitted",
           "is_flag": true,
           "kind": "option",
           "multiple": false,
@@ -6645,7 +6645,7 @@
         "json": true
       },
       "command": "phlo plugin install",
-      "description": "Install a plugin from the registry (wraps pip).",
+      "description": "Install a plugin from the registry into this project.",
       "kind": "command",
       "package": "phlo",
       "parameters": [

@@ -717,6 +717,9 @@ def _select_initial_services(
         additional_services=inline_services,
         excluded=selection_plan.disabled_names,
     )
+    if any(service.name == "phlo-observer" for service in services_to_install):
+        # Also when the observer is enabled in phlo.yaml rather than by profile.
+        env_overrides.setdefault("OBSERVE_HTTP_ENDPOINT", "http://localhost:10010/v1/events")
     return selection_plan, services_to_install
 
 

@@ -223,6 +223,7 @@
       "default": false,
       "depends_on": [
         "loki",
+        "postgres",
         "prometheus"
       ],
       "name": "grafana",
@@ -634,6 +635,7 @@
     {
       "default": false,
       "depends_on": [
+        "prometheus-docker",
         "prometheus-setup"
       ],
       "name": "prometheus",
@@ -649,6 +651,15 @@
       ],
       "profile": "observability",
       "source": "packages/phlo-prometheus/src/phlo_prometheus/service.yaml"
+    },
+    {
+      "default": false,
+      "depends_on": [],
+      "name": "prometheus-docker",
+      "package": "phlo-prometheus",
+      "ports": [],
+      "profile": "observability",
+      "source": "packages/phlo-prometheus/src/phlo_prometheus/prometheus-docker-daemon.yaml"
     },
     {
       "default": false,

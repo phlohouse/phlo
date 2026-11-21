@@ -237,3 +237,26 @@ def test_services_add_reports_a_package_it_cannot_install(
     assert result.exit_code == 1
     assert "phlo-grafana is not published with phlo 0.19.0" in result.output
     assert "Traceback" not in result.output
+
+
+def test_adding_the_observer_points_dagster_at_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Dagster containers send events to the in-stack observer, not the host's localhost."""
+    from phlo.cli.commands.services import add as add_module
+    from phlo.cli.main import cli
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OBSERVE_HTTP_ENDPOINT", raising=False)
+    (tmp_path / "phlo.yaml").write_text("name: lake\n")
+    init = CliRunner().invoke(cli, ["services", "init", "--no-dev", "--force"])
+    assert init.exit_code == 0, init.output
+
+    result = CliRunner().invoke(add_module.add_cmd, ["phlo-observer", "--no-start"])
+
+    assert result.exit_code == 0, result.output
+    compose = yaml.safe_load((tmp_path / ".phlo" / "docker-compose.yml").read_text())
+    for name in ("dagster", "dagster-daemon"):
+        environment = compose["services"][name]["environment"]
+        assert environment["OBSERVE_HTTP_ENDPOINT"] == "http://phlo-observer:8080/v1/events"
