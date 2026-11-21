@@ -444,7 +444,6 @@ def test_queue_reuses_a_full_green_pr_run_on_the_identical_tree(tmp_path, monkey
     ],
 )
 def test_anything_unproven_gets_the_full_queue_run(tmp_path, monkeypatch, overrides):
-    monkeypatch.setattr(evidence.time, "sleep", lambda _seconds: None)
     decision = tree_reuse_setup(tmp_path, monkeypatch, **overrides)
     assert decision["reused"] is False
     assert decision["reason"]
