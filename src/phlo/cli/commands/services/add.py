@@ -18,6 +18,7 @@ from phlo.cli.commands.services.common import (
     run_compose,
     validate_requested_profiles,
 )
+from phlo.cli.commands.services.start import describe_missing_env, missing_required_env_vars
 from phlo.cli.commands.services.utils import (
     PHLO_CONFIG_FILE,
     _regenerate_compose,
@@ -237,12 +238,16 @@ def add_cmd(
         return
 
     click.echo("")
+    services_to_start = _configured_services(phlo_dir, all_services, services_to_enable)
+    if not services_to_start:
+        return
+
     click.echo("Starting newly-added services...")
     if _start_services(
         phlo_dir=phlo_dir,
         project_name=get_project_name(),
         profile_names=normalized_profiles,
-        service_names=services_to_enable,
+        service_names=services_to_start,
     ):
         click.echo("Services added and started.")
         if installed_packages:
@@ -251,6 +256,25 @@ def add_cmd(
         click.echo(
             "Services added but not started; run phlo services start once the error is fixed."
         )
+
+
+def _configured_services(phlo_dir: Path, all_services: dict, service_names: list[str]) -> list[str]:
+    """Drop services whose required settings are unset, saying what each needs.
+
+    A service such as oauth2-proxy without an IdP would crash-loop, so it is
+    added but held back until it is configured.
+    """
+    missing = missing_required_env_vars(
+        phlo_dir=phlo_dir,
+        project_root=Path.cwd(),
+        services=[all_services[name] for name in service_names if name in all_services],
+    )
+    for name, env_names in missing.items():
+        details = describe_missing_env(phlo_dir, all_services[name], env_names)
+        click.echo(f"{name} was added but not started until it is configured: {details}.")
+    if missing:
+        click.echo("Then run `phlo services start`.")
+    return [name for name in service_names if name not in missing]
 
 
 def _restart_project_runtimes(*, phlo_dir: Path, project_name: str) -> None:

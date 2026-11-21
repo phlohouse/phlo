@@ -321,3 +321,60 @@ def test_services_add_restarts_dagster_after_installing_a_package(
         ["compose", "up", "-d", "kafka"],
         ["compose", "restart", "dagster-code", "dagster"],
     ]
+
+
+def test_services_add_holds_back_a_service_whose_required_settings_are_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """oauth2-proxy without an IdP would crash-loop, so it is added but not started."""
+    from phlo.cli.commands.services import add as add_module
+
+    oauth = ServiceDefinition(
+        name="oauth2-proxy",
+        description="OAuth proxy",
+        category="auth",
+        env_vars={
+            "OAUTH2_PROXY_OIDC_ISSUER_URL": {"description": "Issuer"},
+            "OAUTH2_PROXY_CLIENT_SECRET": {"description": "Secret", "secret": True},
+            "OAUTH2_PROXY_PROVIDER": {"default": "oidc", "description": "Provider"},
+        },
+    )
+    pgweb = _service("pgweb")
+    commands: list[list[str]] = []
+
+    class AuthFakeDiscovery(FakeDiscovery):
+        def discover(self) -> dict[str, ServiceDefinition]:
+            return {oauth.name: oauth, pgweb.name: pgweb}
+
+    def fake_compose(cmd, **_kwargs):
+        commands.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".phlo" / "overrides").mkdir(parents=True)
+    (tmp_path / ".phlo" / "overrides" / ".env").write_text("OAUTH2_PROXY_OIDC_ISSUER_URL=\n")
+    (tmp_path / ".phlo" / "secrets").mkdir()
+    (tmp_path / ".phlo" / "secrets" / ".env").write_text("OAUTH2_PROXY_CLIENT_SECRET=\n")
+    (tmp_path / "phlo.yaml").write_text("services:\n  enabled: []\n")
+    monkeypatch.delenv("OAUTH2_PROXY_OIDC_ISSUER_URL", raising=False)
+    monkeypatch.delenv("OAUTH2_PROXY_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(add_module, "ServiceDiscovery", AuthFakeDiscovery)
+    monkeypatch.setattr(add_module, "_regenerate_compose", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(add_module, "compose_base_cmd", lambda **_kwargs: ["compose"])
+    monkeypatch.setattr(add_module, "run_compose", fake_compose)
+    monkeypatch.setattr(add_module, "get_project_name", lambda: "lake")
+
+    result = CliRunner().invoke(
+        add_module.add_cmd, ["--service", "oauth2-proxy", "--service", "pgweb"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert commands == [["compose", "up", "-d", "pgweb"]]
+    assert "oauth2-proxy was added but not started until it is configured" in result.output
+    assert (
+        "OAUTH2_PROXY_OIDC_ISSUER_URL in .phlo/overrides/.env (or phlo.yaml env:)" in result.output
+    )
+    assert "OAUTH2_PROXY_CLIENT_SECRET in .phlo/secrets/.env" in result.output
+    enabled = yaml.safe_load((tmp_path / "phlo.yaml").read_text())["services"]["enabled"]
+    assert "oauth2-proxy" in enabled
