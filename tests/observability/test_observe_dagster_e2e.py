@@ -21,8 +21,10 @@ The module skips cleanly when its external services are unavailable.
 
 from __future__ import annotations
 
+import contextlib
 import statistics
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -795,6 +797,25 @@ def test_caller_explicit_console_level_survives_scope(
     assert "STEP_SUCCESS" in err or "RUN_SUCCESS" in err
 
 
+@contextlib.contextmanager
+def _coverage_paused() -> Iterator[None]:
+    """Stop the active coverage tracer, if any, for the duration of the block."""
+    try:
+        import coverage
+    except ImportError:
+        yield
+        return
+    active = coverage.Coverage.current()
+    if active is None:
+        yield
+        return
+    active.stop()
+    try:
+        yield
+    finally:
+        active.start()
+
+
 def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bus: Any) -> None:
     """Whole-pipeline overhead: real materialize() runs with and without
     observability. Unlike the per-emit microbenchmarks, this exercises the
@@ -839,15 +860,19 @@ def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bu
     enabled_runs: list[float] = []
     disabled_runs: list[float] = []
     enabled_events = 0
-    for _ in range(n):
-        _configure(True)
-        _materialize_once()
-        _backend().clear()
-        enabled_runs.append(_timed())
-        enabled_events += len(_backend().payloads())
-        _configure(False)
-        _materialize_once()
-        disabled_runs.append(_timed())
+    # The coverage tracer charges every traced line, and observability is the
+    # extra Python on the enabled leg, so under CI coverage it measured the
+    # tracer (600-900ms) rather than observability. Pause it while timing.
+    with _coverage_paused():
+        for _ in range(n):
+            _configure(True)
+            _materialize_once()
+            _backend().clear()
+            enabled_runs.append(_timed())
+            enabled_events += len(_backend().payloads())
+            _configure(False)
+            _materialize_once()
+            disabled_runs.append(_timed())
     assert enabled_events > 0
     _configure(True)
     assert len(_backend().payloads()) == 0
