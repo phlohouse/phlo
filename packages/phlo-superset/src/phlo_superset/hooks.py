@@ -162,14 +162,15 @@ def _discover_query_engine_database_uri() -> str:
     )
 
 
-def add_query_engine_database() -> None:
+def add_query_engine_database() -> bool:
     """Provision the configured query-engine database connection in Superset:
     wait for health (up to 60 seconds), authenticate, fetch a CSRF token, then
-    create the connection with SQL Lab access and async/CTAS/CVAS/DML enabled
-    if it does not already exist. Errors are logged, never raised.
+    create a read-only, synchronous SQL Lab connection if it does not
+    already exist. Errors are logged, never raised; the return
+    value says whether the connection exists afterwards.
 
     Environment:
-        SUPERSET_URL: Superset base URL (default: http://localhost:8088).
+        SUPERSET_URL: Superset base URL (default: http://localhost:<SUPERSET_PORT>).
         SUPERSET_ADMIN_USER: Admin username for API authentication (required).
         SUPERSET_ADMIN_PASSWORD: Admin password for API authentication (required).
         SUPERSET_DATABASE_NAME: Logical name for the database in Superset UI.
@@ -183,16 +184,17 @@ def add_query_engine_database() -> None:
 
     """
     start = time.perf_counter()
-    superset_url = os.environ.get("SUPERSET_URL", "http://localhost:8088")
     admin_user, admin_password = _superset_admin_credentials()
     if not admin_user or not admin_password:
         logger.error(
             "superset_admin_credentials_missing",
-            superset_url=superset_url,
             admin_user_set=bool(admin_user),
             admin_password_set=bool(admin_password),
         )
-        return
+        return False
+    superset_url = os.environ.get(
+        "SUPERSET_URL", f"http://localhost:{get_settings().superset_port}"
+    )
     logger.info(
         "superset_add_query_engine_database_started",
         superset_url=superset_url,
@@ -225,7 +227,7 @@ def add_query_engine_database() -> None:
             attempts=30,
             elapsed_ms=round((time.perf_counter() - start) * 1000, 2),
         )
-        return
+        return False
 
     session = requests.Session()
 
@@ -251,7 +253,7 @@ def add_query_engine_database() -> None:
             superset_url=superset_url,
             error=str(exc),
         )
-        return
+        return False
 
     # Get CSRF token
     try:
@@ -271,7 +273,7 @@ def add_query_engine_database() -> None:
         database_name = _superset_database_name()
     except RuntimeError as exc:
         logger.error("superset_database_name_resolution_failed", error=str(exc))
-        return
+        return False
 
     try:
         dbs_resp = session.get(f"{superset_url}/api/v1/database/", timeout=10)
@@ -284,7 +286,7 @@ def add_query_engine_database() -> None:
                     database_name=database_name,
                     elapsed_ms=round((time.perf_counter() - start) * 1000, 2),
                 )
-                return
+                return True
     except requests.RequestException as exc:
         logger.warning(
             "superset_database_list_failed",
@@ -296,16 +298,18 @@ def add_query_engine_database() -> None:
         database_uri = _configured_database_uri() or _discover_query_engine_database_uri()
     except RuntimeError as exc:
         logger.error("superset_database_uri_resolution_failed", error=str(exc))
-        return
+        return False
 
     database_payload = {
         "database_name": database_name,
         "sqlalchemy_uri": database_uri,
         "expose_in_sqllab": True,
-        "allow_run_async": True,
-        "allow_ctas": True,
-        "allow_cvas": True,
-        "allow_dml": True,
+        # The stack runs no Celery worker or results backend, so async queries
+        # would fail; and lake writes go through Phlo pipelines, not SQL Lab.
+        "allow_run_async": False,
+        "allow_ctas": False,
+        "allow_cvas": False,
+        "allow_dml": False,
         "extra": '{"allows_virtual_table_explore": true}',
     }
 
@@ -336,6 +340,8 @@ def add_query_engine_database() -> None:
             error=str(exc),
             elapsed_ms=round((time.perf_counter() - start) * 1000, 2),
         )
+        return False
+    return True
 
 
 if __name__ == "__main__":
@@ -344,6 +350,7 @@ if __name__ == "__main__":
     setup_logging()
 
     if len(sys.argv) > 1 and sys.argv[1] == "add-database":
-        add_query_engine_database()
+        # A non-zero exit makes `phlo services start` report the failure.
+        sys.exit(0 if add_query_engine_database() else 1)
     else:
         logger.info("Usage: python -m phlo_superset.hooks add-database")

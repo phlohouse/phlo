@@ -120,7 +120,8 @@ def test_add_query_engine_database_handles_database_uri_resolution_failure(monke
         lambda: (_ for _ in ()).throw(RuntimeError("missing uri metadata")),
     )
 
-    hooks.add_query_engine_database()
+    # The failure is reported, so `phlo services start` can warn about it.
+    assert hooks.add_query_engine_database() is False
 
     assert session.post.call_count == 1
 
@@ -176,3 +177,47 @@ def test_add_query_engine_database_returns_when_admin_credentials_missing(monkey
     hooks.add_query_engine_database()
 
     session_factory.assert_not_called()
+
+
+def test_the_manifest_registers_a_read_only_connection_on_the_service_network() -> None:
+    """The hook runs on the host, but Superset connects from its container."""
+    from pathlib import Path
+
+    import yaml
+
+    manifest = yaml.safe_load(
+        (Path(hooks.__file__).parent / "service.yaml").read_text(encoding="utf-8")
+    )
+    [hook] = manifest["hooks"]["post_start"]
+    assert hook["environment"]["SUPERSET_DATABASE_URI"] == "trino://superset@trino:8080/iceberg"
+    assert "SUPERSET_URL" not in hook["environment"]
+    # The upstream image has no Trino driver; the container installs a pinned one.
+    assert "trino==" in manifest["compose"]["command"]
+    assert manifest["compose"]["environment"]["PYTHONPATH"] == "/app/superset_home/drivers"
+
+
+def test_the_connection_is_synchronous_and_read_only(monkeypatch) -> None:
+    monkeypatch.setenv("SUPERSET_ADMIN_USER", "test-admin")
+    monkeypatch.setenv("SUPERSET_ADMIN_PASSWORD", "test-password")
+    monkeypatch.setenv("SUPERSET_URL", "http://superset.test")
+    session = Mock()
+    session.headers = {}
+    ok = Mock()
+    ok.raise_for_status.return_value = None
+    ok.json.return_value = {"access_token": "token", "result": []}
+    session.post.return_value = ok
+    session.get.return_value = ok
+    monkeypatch.setattr(
+        hooks.requests, "get", lambda *_args, **_kwargs: SimpleNamespace(status_code=200)
+    )
+    monkeypatch.setattr(hooks.requests, "Session", lambda: session)
+    monkeypatch.setattr(hooks, "_superset_database_name", lambda: "iceberg")
+    monkeypatch.setattr(hooks, "_configured_database_uri", lambda: "trino://superset@trino:8080/x")
+
+    assert hooks.add_query_engine_database() is True
+
+    payload = session.post.call_args_list[-1].kwargs["json"]
+    assert payload["allow_run_async"] is False
+    assert payload["allow_dml"] is False
+    assert payload["allow_ctas"] is False
+    assert payload["allow_cvas"] is False

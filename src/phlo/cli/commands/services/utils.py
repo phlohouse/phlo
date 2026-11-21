@@ -420,6 +420,13 @@ def _format_hook_command(command: object, substitutions: dict[str, str]) -> list
     return formatted
 
 
+def _hook_environment(declared: object) -> dict[str, str] | None:
+    """Return the process environment plus a hook's declared ``environment``."""
+    if not isinstance(declared, dict) or not declared:
+        return None
+    return {**os.environ, **{str(key): str(value) for key, value in declared.items()}}
+
+
 def _run_service_hooks(
     hook_name: str,
     service_names: list[str],
@@ -497,7 +504,12 @@ def _run_service_hooks(
                 timeout_seconds=timeout,
             )
             try:
-                result = run_command(command, timeout_seconds=timeout, check=False)
+                result = run_command(
+                    command,
+                    timeout_seconds=timeout,
+                    env=_hook_environment(hook.get("environment")),
+                    check=False,
+                )
             except Exception as exc:
                 failed_count += 1
                 click.echo(
