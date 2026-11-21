@@ -380,3 +380,58 @@ def test_rescan_verifies_exact_subject_and_workflow_and_rejects_unsigned_images(
     fleet = next(s for s in rescan["jobs"]["rescan"]["steps"] if s.get("id") == "fleet")
     assert fleet["name"] == "Include the latest independently published MinIO image"
     assert step["if"] == scan["if"] == "${{ !cancelled() && steps.fleet.outcome == 'success' }}"
+
+
+@pytest.mark.parametrize(
+    ("branch_change", "rehearses"),
+    [("docs/notes.md", False), ("packages/phlo-x/src/phlo_x/service.yaml", True)],
+)
+def test_rehearsal_selection_ignores_main_changes_a_stale_branch_lacks(
+    tmp_path: Path, branch_change: str, rehearses: bool
+) -> None:
+    """A PR behind main must not rehearse for release-path changes it did not make."""
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            cwd=tmp_path,
+            text=True,
+        ).strip()
+
+    def write(path: str) -> None:
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(path)
+
+    git("init", "-q", "-b", "main")
+    write("README.md")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    git("checkout", "-qb", "feature")
+    write(branch_change)
+    git("add", ".")
+    git("commit", "-qm", "feature")
+    git("checkout", "-q", "main")
+    # main moves on with a release-path change the branch has not merged
+    write("packages/phlo-y/src/phlo_y/service.yaml")
+    write(".github/workflows/release-build.yml")
+    git("add", ".")
+    git("commit", "-qm", "main moves")
+    git("merge", "-q", "--no-ff", "--no-edit", "feature")
+    select = workflow("release-rehearsal.yml")["jobs"]["select"]
+    step = next(step for step in select["steps"] if step.get("id") == "select")
+    output = tmp_path / "output"
+    subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=dict(
+            os.environ,
+            EVENT_NAME="pull_request",
+            HEAD_REF="feature",
+            HEAD_REPO="phlohouse/phlo",
+            GITHUB_REPOSITORY="phlohouse/phlo",
+            GITHUB_OUTPUT=str(output),
+        ),
+        check=True,
+    )
+    assert output.read_text().strip() == f"run={str(rehearses).lower()}"
