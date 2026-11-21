@@ -90,6 +90,19 @@ runtime_waivers:
     owner: phlohouse
     remediation_issue: https://github.com/phlohouse/phlo/issues/984
     review_by: 2026-11-10
+  - id: prometheus-filtered-socket
+    service: prometheus-docker
+    image: haproxy:3.2-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
+    exception: root-runtime-and-docker-socket
+    rationale: The proxy needs the root-owned host socket. Prometheus itself has no socket mount.
+    compensating_control: >-
+      Dedicated internal network, no published ports, read-only root filesystem/socket
+      mount, all capabilities dropped, no-new-privileges. Only GET/HEAD ping, version,
+      network and container-list endpoints pass; inspection, logs, events, mutation,
+      archive, exec and image endpoints are denied.
+    owner: phlohouse
+    remediation_issue: https://github.com/phlohouse/phlo/issues/984
+    review_by: 2027-02-20
   - id: traefik-filtered-socket
     service: traefik-docker
     image: haproxy:3.2-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be

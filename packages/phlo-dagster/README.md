@@ -9,7 +9,7 @@ Data orchestration platform for scheduling and monitoring data pipelines. Transl
 ## Installation
 
 ```bash
-pip install phlo-dagster
+uv add phlo-dagster
 # or
 phlo plugin install dagster
 ```

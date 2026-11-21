@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -72,7 +72,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "up{service=\"trino\"}",
           "refId": "A"
@@ -84,7 +84,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -132,7 +132,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "up{service=\"nessie\"}",
           "refId": "A"
@@ -144,7 +144,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -192,9 +192,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "up{service=\"postgres\"}",
+          "expr": "pg_up",
           "refId": "A"
         }
       ],
@@ -204,7 +204,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -252,9 +252,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "up{service=\"minio\"}",
+          "expr": "up{service=\"minio\", job=\"phlo-services\"}",
           "refId": "A"
         }
       ],
@@ -264,7 +264,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "Loki"
+        "uid": "loki"
       },
       "gridPos": {
         "h": 8,
@@ -287,9 +287,9 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "Loki"
+            "uid": "loki"
           },
-          "expr": "{cascade_component=~\"trino|nessie|dagster-.*\"} |~ \"(?i)(error|fatal|exception)\"",
+          "expr": "{service=~\"trino|nessie|dagster.*\"} |~ \"(?i)(error|fatal|exception)\"",
           "refId": "A"
         }
       ],
@@ -299,7 +299,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -374,7 +374,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "minio_bucket_usage_total_bytes",
           "legendFormat": "{{bucket}}",
@@ -387,7 +387,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -461,9 +461,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
-          "expr": "pg_stat_database_numbackends{datname=\"lakehouse\"}",
+          "expr": "pg_stat_database_numbackends{datname!~\"template.*\"}",
           "legendFormat": "Active Connections",
           "refId": "A"
         }

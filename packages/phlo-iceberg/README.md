@@ -9,7 +9,7 @@ Provides PyIceberg table-store resources for adapters. Enables ACID transactions
 ## Installation
 
 ```bash
-pip install phlo-iceberg
+uv add phlo-iceberg
 # or
 phlo plugin install iceberg
 ```

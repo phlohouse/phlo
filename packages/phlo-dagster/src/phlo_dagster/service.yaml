@@ -49,9 +49,7 @@ compose:
     # short Docker default on a cold bundled-stack boot.
     start_period: 120s
   labels:
-    phlo.metrics.enabled: "true"
-    phlo.metrics.port: "dagster:3000"
-    phlo.metrics.path: "/metrics"
+    phlo.metrics.enabled: "false" # The webserver has no Prometheus endpoint
     traefik.enable: "true"
     traefik.http.routers.dagster.rule: "Host(`dagster.${TRAEFIK_DOMAIN:-phlo.localhost}`)"
     traefik.http.routers.dagster.entrypoints: "web"

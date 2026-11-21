@@ -33,6 +33,9 @@ compose:
   environment:
     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Run phlo services init to generate MINIO_ROOT_PASSWORD}
+    # Prometheus scrapes cluster metrics without credentials. Set jwt to
+    # require a bearer token; metrics carry no object data.
+    MINIO_PROMETHEUS_AUTH_TYPE: ${MINIO_PROMETHEUS_AUTH_TYPE:-public}
     # TLS
     MINIO_SERVER_URL: ${MINIO_SERVER_URL:-}
     # LDAP

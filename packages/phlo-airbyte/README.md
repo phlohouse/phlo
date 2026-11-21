@@ -26,7 +26,7 @@ them.
 ## Installation
 
 ```bash
-pip install phlo-airbyte
+uv add phlo-airbyte
 # or
 phlo plugin install airbyte
 ```

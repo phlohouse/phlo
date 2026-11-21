@@ -9,7 +9,7 @@ Shared testing utilities, fixtures, and mocks for developing and testing Phlo pa
 ## Installation
 
 ```bash
-pip install phlo-testing
+uv add phlo-testing
 ```
 
 ## Usage

@@ -8,9 +8,15 @@ image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f26
 
 depends_on:
   - prometheus-setup
+  - prometheus-docker
+networks:
+  default: {}
+  prometheus-docker:
+    internal: true
 compose:
   restart: unless-stopped
   user: "65534:65534"
+  networks: [default, prometheus-docker]
   labels:
     phlo.metrics.enabled: "true"
     phlo.metrics.port: "prometheus:9090"

@@ -249,8 +249,9 @@ def add_cmd(
 def _install_service_packages(names: list[str]) -> None:
     """Install the first-party packages that provide ``names``, as uv add would.
 
-    Only names the plugin registry lists as services are installed; any other
-    name is reported as unknown by the caller.
+    Only names the plugin registry lists are installed. A package can ship a
+    service under an entry of another type, so discovery afterwards decides;
+    any name still missing is reported as unknown by the caller.
     """
     from phlo.plugins.project_install import PluginInstallError, install_packages
     from phlo.plugins.registry_client import get_plugin
@@ -258,7 +259,7 @@ def _install_service_packages(names: list[str]) -> None:
     packages = []
     for name in names:
         entry = get_plugin(name)
-        if entry is not None and entry.type == "service":
+        if entry is not None:
             packages.append(entry.package)
     if not packages:
         return

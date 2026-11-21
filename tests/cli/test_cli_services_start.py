@@ -496,6 +496,7 @@ def test_get_profile_service_names_returns_profile_services() -> None:
         "phlo-observer-db-setup",
         "postgres-exporter",
         "prometheus",
+        "prometheus-docker",
         "prometheus-setup",
     ]
 
@@ -518,6 +519,7 @@ def test_get_profile_service_names_returns_profile_services() -> None:
         "postgres-exporter",
         "postgrest",
         "prometheus",
+        "prometheus-docker",
         "prometheus-setup",
         "trino-preview",
     ]

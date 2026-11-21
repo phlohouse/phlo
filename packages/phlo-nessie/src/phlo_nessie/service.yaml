@@ -13,7 +13,8 @@ compose:
   restart: unless-stopped
   labels:
     phlo.metrics.enabled: "true"
-    phlo.metrics.port: "nessie:19120"
+    # Quarkus serves metrics on its management port, not the API port.
+    phlo.metrics.port: "nessie:9000"
     phlo.metrics.path: "/q/metrics"
     traefik.enable: "true"
     traefik.http.routers.nessie.rule: "Host(`nessie.${TRAEFIK_DOMAIN:-phlo.localhost}`)"
