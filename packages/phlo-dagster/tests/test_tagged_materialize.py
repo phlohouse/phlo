@@ -39,6 +39,26 @@ def test_command_tags_runs_with_the_default_environment_ref(
     assert argv[-4:] == ["--select", "orders", "--partition", "2026-02-03"]
 
 
+def test_command_passes_a_chosen_partition_as_a_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a CLI-chosen partition reaches Dagster only as a default."""
+    monkeypatch.setattr(materialization_command, "_default_run_target", lambda: None)
+    monkeypatch.setattr(materialization_command, "load_project_env", lambda: {})
+    argv = materialization_command.build_materialization_command(
+        _Backend(), "dagster", "orders", "2026-02-03", partition_is_default=True
+    )
+    assert argv[3:9] == [
+        "python",
+        "-m",
+        "phlo_dagster.tagged_materialize",
+        "--default-partition",
+        "2026-02-03",
+        "--",
+    ]
+    assert "--partition" not in argv
+
+
 def test_command_without_environments_uses_the_plain_cli(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -115,9 +135,72 @@ def test_entry_point_refuses_an_unknown_code_location(
 
 
 @pytest.mark.parametrize(
-    "argv", [["phlo/ref=main"], ["bad", "--"], ["=x", "--"], ["--location", "--"]]
+    "argv",
+    [
+        ["phlo/ref=main"],
+        ["bad", "--"],
+        ["=x", "--"],
+        ["--location", "--"],
+        ["--default-partition", "--"],
+        ["--location", "a", "--location", "b", "--"],
+    ],
 )
 def test_entry_point_rejects_malformed_arguments(argv: list[str]) -> None:
     """Verify missing separators and malformed tags fail before Dagster starts."""
     with pytest.raises(SystemExit):
         tagged_materialize.main(argv)
+
+
+def _definitions_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    (tmp_path / "phlo_partition_defs.py").write_text(
+        "import dagster as dg\n"
+        "daily = dg.DailyPartitionsDefinition(start_date='2026-01-01')\n"
+        "@dg.asset(partitions_def=daily)\n"
+        "def daily_orders() -> None:\n"
+        "    return None\n"
+        "@dg.asset\n"
+        "def kafka_orders() -> None:\n"
+        "    return None\n"
+        "defs = dg.Definitions(assets=[daily_orders, kafka_orders])\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    return "phlo_partition_defs"
+
+
+@pytest.mark.parametrize(
+    ("selected", "expected"), [("daily_orders", "2026-02-03"), ("kafka_orders", None)]
+)
+def test_entry_point_applies_the_default_partition_only_to_partitioned_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selected: str, expected: str | None
+) -> None:
+    """Verify Dagster gets the default for a partitioned asset and none for an unpartitioned one."""
+    import dagster._cli as dagster_cli
+    import dagster._cli.asset as asset_cli
+
+    module = _definitions_module(tmp_path, monkeypatch)
+    seen: dict = {}
+
+    def fake_execute_materialize(**kwargs):
+        seen["partition"] = kwargs["partition"]
+
+    def fake_main():
+        asset_cli.execute_materialize_command(
+            instance=None,
+            select=selected,
+            partition=None,
+            partition_range=None,
+            config=(),
+            config_json=None,
+            python_pointer_opts=asset_cli.PythonPointerOpts(
+                module_name=module, working_directory=str(tmp_path)
+            ),
+        )
+        return 0
+
+    monkeypatch.setattr(asset_cli, "execute_materialize_command", fake_execute_materialize)
+    monkeypatch.setattr(dagster_cli, "main", fake_main)
+    monkeypatch.setattr(tagged_materialize.sys, "argv", list(tagged_materialize.sys.argv))
+
+    assert tagged_materialize.main(["--default-partition", "2026-02-03", "--"]) == 0
+    assert seen == {"partition": expected}

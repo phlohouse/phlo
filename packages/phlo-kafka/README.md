@@ -27,7 +27,6 @@ output snapshot id.
 
 ```bash
 uv add phlo-kafka
-uv add "phlo-kafka[consumer]"  # with confluent-kafka
 # or
 phlo plugin install kafka
 ```

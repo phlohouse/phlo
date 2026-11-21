@@ -7,7 +7,12 @@ attributes runs to environments by both, could not show them. This entry point
 adds the tags and records the workspace's code location as the run's origin,
 the same origin the webserver gives runs it launches.
 
-Usage: ``python -m phlo_dagster.tagged_materialize [--location NAME] KEY=VALUE [...] -- <args>``
+``--default-partition KEY`` is the partition ``phlo materialize`` picks when the
+user names none. It applies only when the selected assets are partitioned, so an
+unpartitioned asset still runs (Dagster refuses ``--partition`` for those).
+
+Usage: ``python -m phlo_dagster.tagged_materialize [--location NAME]
+[--default-partition KEY] KEY=VALUE [...] -- <args>``
 """
 
 from __future__ import annotations
@@ -20,27 +25,32 @@ from typing import Any
 
 import yaml
 
-_USAGE = "usage: tagged_materialize [--location NAME] KEY=VALUE [...] -- <materialize args>"
+_USAGE = (
+    "usage: tagged_materialize [--location NAME] [--default-partition KEY] KEY=VALUE [...]"
+    " -- <materialize args>"
+)
+_OPTIONS = ("--location", "--default-partition")
 
 
-def _split(argv: Sequence[str]) -> tuple[str | None, dict[str, str], list[str]]:
+def _split(argv: Sequence[str]) -> tuple[dict[str, str], dict[str, str], list[str]]:
     items = list(argv)
     if "--" not in items:
         raise SystemExit(_USAGE)
     index = items.index("--")
     head, rest = items[:index], items[index + 1 :]
-    location = None
-    if head[:1] == ["--location"]:
-        if len(head) < 2 or not head[1]:
+    options: dict[str, str] = {}
+    while head[:1] and head[0] in _OPTIONS:
+        if len(head) < 2 or not head[1] or head[1] in _OPTIONS or head[0] in options:
             raise SystemExit(_USAGE)
-        location, head = head[1], head[2:]
+        options[head[0]] = head[1]
+        head = head[2:]
     tags: dict[str, str] = {}
     for item in head:
         key, sep, value = item.partition("=")
         if not sep or not key or not value:
             raise SystemExit(f"invalid run tag {item!r}; expected KEY=VALUE")
         tags[key] = value
-    return location, tags, rest
+    return options, tags, rest
 
 
 def _workspace_server(location: str | None, workspace: Path) -> dict[str, Any]:
@@ -88,17 +98,40 @@ def _remote_origin(server: dict[str, Any], job_name: str) -> Any:
     )
 
 
+def _selection_is_partitioned(asset_cli: Any, select: str, python_pointer_opts: Any) -> bool:
+    """Return whether any asset ``select`` names is partitioned.
+
+    The definitions module is already imported by then, so loading the
+    repository again here is cheap.
+    """
+    from dagster import AssetSelection
+
+    origin = asset_cli.get_repository_python_origin_from_cli_opts(python_pointer_opts)
+    repo_def = asset_cli.recon_repository_from_origin(origin).get_definition()
+    asset_keys = AssetSelection.from_coercible(select.split(",")).resolve(repo_def.asset_graph)
+    job_def = repo_def.get_implicit_job_def_for_assets(asset_keys)
+    if job_def is None:
+        # Mixed partitioning: let Dagster report it with the partition applied.
+        return True
+    return any(job_def.asset_layer.get(key).partitions_def is not None for key in asset_keys)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Start the Dagster materialize command as a tagged run of the workspace location."""
-    location, tags, rest = _split(sys.argv[1:] if argv is None else argv)
-    workspace = Path(os.environ.get("DAGSTER_HOME", "/opt/dagster")) / "workspace.yaml"
-    server = _workspace_server(location, workspace)
+    options, tags, rest = _split(sys.argv[1:] if argv is None else argv)
+    location = options.get("--location")
+    default_partition = options.get("--default-partition")
+    server = None
+    if location is not None or tags:
+        workspace = Path(os.environ.get("DAGSTER_HOME", "/opt/dagster")) / "workspace.yaml"
+        server = _workspace_server(location, workspace)
 
     import dagster._cli.asset as asset_cli
     from dagster import DagsterInstance
     from dagster._cli import main as dagster_main
 
     execute_job = asset_cli.execute_job
+    execute_materialize = asset_cli.execute_materialize_command
     create_run_for_job = DagsterInstance.create_run_for_job
     extra = tags
 
@@ -111,11 +144,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             kwargs["remote_job_origin"] = _remote_origin(server, job_def.name)
         return create_run_for_job(self, job_def, *args, **kwargs)
 
+    def defaulted_materialize(**kwargs: Any) -> Any:
+        if (
+            kwargs.get("partition") is None
+            and kwargs.get("partition_range") is None
+            and _selection_is_partitioned(
+                asset_cli, kwargs["select"], kwargs["python_pointer_opts"]
+            )
+        ):
+            kwargs["partition"] = default_partition
+        return execute_materialize(**kwargs)
+
     # The Dagster CLI calls these by name, so replace them where they are looked up.
-    replacements = (
-        (asset_cli, "execute_job", tagged_execute_job),
-        (DagsterInstance, "create_run_for_job", located_create_run),
-    )
+    replacements: list[tuple[Any, str, Any]] = []
+    if tags:
+        replacements.append((asset_cli, "execute_job", tagged_execute_job))
+    if server is not None:
+        replacements.append((DagsterInstance, "create_run_for_job", located_create_run))
+    if default_partition is not None:
+        replacements.append((asset_cli, "execute_materialize_command", defaulted_materialize))
     for owner, name, replacement in replacements:
         setattr(owner, name, replacement)
     sys.argv = ["dagster", "asset", "materialize", *rest]

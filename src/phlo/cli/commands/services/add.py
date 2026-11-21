@@ -33,6 +33,10 @@ from phlo.plugins.discovery.services import ServiceDiscovery
 
 logger = get_logger(__name__)
 
+# Services that install the mounted project's dependencies when they start, so
+# they only see a newly installed plugin package after a restart.
+_PROJECT_RUNTIME_SERVICES = ("dagster-code", "dagster", "dagster-daemon")
+
 
 def _load_project_config(config_file: Path) -> dict:
     """Load project config, ensuring a mapping root."""
@@ -195,8 +199,9 @@ def add_cmd(
         raise click.ClickException("Specify a service name, --service, or --profile.")
 
     unknown_services = [name for name in explicit_services if name not in all_services]
+    installed_packages = False
     if unknown_services:
-        _install_service_packages(unknown_services)
+        installed_packages = _install_service_packages(unknown_services)
         discovery = ServiceDiscovery()
         all_services = discovery.discover()
         unknown_services = [name for name in explicit_services if name not in all_services]
@@ -240,13 +245,38 @@ def add_cmd(
         service_names=services_to_enable,
     ):
         click.echo("Services added and started.")
+        if installed_packages:
+            _restart_project_runtimes(phlo_dir=phlo_dir, project_name=get_project_name())
     else:
         click.echo(
             "Services added but not started; run phlo services start once the error is fixed."
         )
 
 
-def _install_service_packages(names: list[str]) -> None:
+def _restart_project_runtimes(*, phlo_dir: Path, project_name: str) -> None:
+    """Restart the services that load project packages, so they pick up new ones."""
+    compose_file = phlo_dir / "docker-compose.yml"
+    try:
+        rendered = yaml.safe_load(compose_file.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        rendered = {}
+    present = set((rendered.get("services") or {}).keys())
+    services = [name for name in _PROJECT_RUNTIME_SERVICES if name in present]
+    if not services:
+        return
+    click.echo(f"Restarting {', '.join(services)} to load the new packages...")
+    cmd = compose_base_cmd(phlo_dir=phlo_dir, project_name=project_name)
+    cmd.extend(["restart", *services])
+    result = run_compose(cmd, check=False, capture_output=False)
+    if result.returncode != 0:
+        click.echo(
+            f"Warning: could not restart {', '.join(services)}; restart them with "
+            f"`phlo services restart --service {','.join(services)}`.",
+            err=True,
+        )
+
+
+def _install_service_packages(names: list[str]) -> bool:
     """Install the first-party packages that provide ``names``, as uv add would.
 
     Only names the plugin registry lists are installed. A package can ship a
@@ -262,7 +292,7 @@ def _install_service_packages(names: list[str]) -> None:
         if entry is not None:
             packages.append(entry.package)
     if not packages:
-        return
+        return False
     packages = list(dict.fromkeys(packages))
     click.echo(f"Installing {', '.join(packages)}...")
     try:
@@ -274,3 +304,4 @@ def _install_service_packages(names: list[str]) -> None:
             f"Added {', '.join(packages)} to the project. Run `uv run phlo services add "
             f"{' '.join(names)}` to render it."
         )
+    return True

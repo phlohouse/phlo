@@ -15,7 +15,7 @@ from phlo.capabilities.interfaces import (
     IngestionCheckpointStore,
     SourceOffsetRange,
 )
-from phlo.capabilities.resolver import resolve_capability
+from phlo.capabilities.registry import get_capability_registry
 from phlo.exceptions import PhloConfigError
 
 
@@ -34,15 +34,22 @@ def idempotency_key(
     return f"kafka-batch-v2:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
+CHECKPOINT_RESOURCE = "ingestion_checkpoints"
+
+
 def resolve_checkpoint_store(name: str | None = None) -> IngestionCheckpointStore:
-    """Resolve the configured checkpoint store capability, failing closed."""
-    resolution = resolve_capability("ingestion_checkpoints", name)
-    if resolution is None:
-        raise PhloConfigError(
-            message="Kafka ingestion requires an ingestion checkpoint store capability.",
-            suggestions=["Install phlo-postgres to enable durable ingestion checkpoints."],
-        )
-    return resolution.provider
+    """Resolve the checkpoint store resource, failing closed.
+
+    phlo-postgres registers the store as the ``ingestion_checkpoints`` resource.
+    """
+    wanted = name or CHECKPOINT_RESOURCE
+    for spec in get_capability_registry().list("resource"):
+        if spec.name == wanted and isinstance(spec.resource, IngestionCheckpointStore):
+            return spec.resource
+    raise PhloConfigError(
+        message="Kafka ingestion requires an ingestion checkpoint store capability.",
+        suggestions=["Install phlo-postgres to enable durable ingestion checkpoints."],
+    )
 
 
 class KafkaCheckpointAdapter:

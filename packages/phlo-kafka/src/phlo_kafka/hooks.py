@@ -24,7 +24,7 @@ INIT_TIMEOUT_SECONDS = 60
 
 def ensure_topic(admin: Any, *, topic: str, compacted: bool = False, retention_ms: int) -> bool:
     """Create one topic with the requested policy when absent."""
-    if topic in admin.list_topics().topics:
+    if topic in admin.list_topics(timeout=10).topics:
         logger.info("kafka_topic_exists", topic=topic)
         return False
     config = {
@@ -32,16 +32,12 @@ def ensure_topic(admin: Any, *, topic: str, compacted: bool = False, retention_m
     }
     if compacted:
         config["cleanup.policy"] = "compact"
-    admin.create_topics(
-        [
-            {
-                "topic": topic,
-                "num_partitions": 1,
-                "replication_factor": 1,
-                "config": config,
-            }
-        ]
+    from confluent_kafka.admin import NewTopic  # ty: ignore[unresolved-import]  # noqa: PLC0415
+
+    futures = admin.create_topics(
+        [NewTopic(topic, num_partitions=1, replication_factor=1, config=config)]
     )
+    futures[topic].result(timeout=30)
     logger.info("kafka_topic_created", topic=topic, compacted=compacted)
     return True
 
@@ -53,7 +49,7 @@ def init_topics(*, resource: Any | None = None, settings: Any | None = None) -> 
 
         resource = KafkaResource()
     try:
-        confluent_kafka = resource._require_confluent()
+        resource._require_confluent()
     except RuntimeError:
         logger.warning("kafka_topic_init_skipped_missing_consumer_dependency")
         return 0
@@ -65,7 +61,7 @@ def init_topics(*, resource: Any | None = None, settings: Any | None = None) -> 
     deadline = time.monotonic() + INIT_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         try:
-            admin = confluent_kafka.AdminClient({"bootstrap.servers": resource.bootstrap_servers})
+            admin = resource.admin()
             checkpoint_topic = settings.kafka_checkpoint_topic
             ensure_topic(
                 admin,
@@ -75,6 +71,7 @@ def init_topics(*, resource: Any | None = None, settings: Any | None = None) -> 
             )
             return 0
         except Exception:
+            logger.debug("kafka_topic_init_retry", exc_info=True)
             time.sleep(2)
     logger.warning("kafka_topic_init_unavailable")
     return 0

@@ -39,12 +39,10 @@ def _topics() -> None:
     from phlo_kafka.resource import KafkaResource
 
     try:
-        confluent_kafka = KafkaResource()._require_confluent()
-        admin = confluent_kafka.AdminClient(
-            {"bootstrap.servers": KafkaResource().bootstrap_servers}
-        )
-        metadata = admin.list_topics(timeout=10)
+        metadata = KafkaResource().admin().list_topics(timeout=10)
     except Exception as exc:
-        command_failed_error(f"Could not list Kafka topics: {exc}")
+        raise command_failed_error(
+            "kafka topics", details=[f"Could not list Kafka topics: {exc}"]
+        ) from exc
     for topic in sorted(metadata.topics):
         click.echo(f"  - {topic}")

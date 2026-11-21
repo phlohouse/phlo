@@ -30,8 +30,13 @@ def build_materialization_command(
     partition: str | None,
     *,
     refresh_contracts: bool | None = None,
+    partition_is_default: bool = False,
 ) -> list[str]:
-    """Build an exec command for a selected container without discovering services."""
+    """Build an exec command for a selected container without discovering services.
+
+    ``partition_is_default`` marks a partition the CLI chose itself; it is
+    passed on as a default that only partitioned selections use.
+    """
     host_platform = platform.system()
     exec_env = {
         "PHLO_HOST_PLATFORM": host_platform,
@@ -47,14 +52,18 @@ def build_materialization_command(
     # Record the ref the run writes and its code location, so phlo-api shows
     # the run in its environment like runs launched from Observatory.
     target = _default_run_target()
-    if target is None:
+    default_partition = partition if partition and partition_is_default else None
+    if target is None and default_partition is None:
         launcher = ["dagster", "asset", "materialize"]
     else:
-        ref, location = target
         launcher = ["python", "-m", "phlo_dagster.tagged_materialize"]
-        if location:
-            launcher.extend(["--location", location])
-        launcher.extend([f"phlo/ref={ref}", "--"])
+        if target is not None and target[1]:
+            launcher.extend(["--location", target[1]])
+        if default_partition is not None:
+            launcher.extend(["--default-partition", default_partition])
+        if target is not None:
+            launcher.append(f"phlo/ref={target[0]}")
+        launcher.append("--")
     command = [
         *launcher,
         "-m",
@@ -62,7 +71,7 @@ def build_materialization_command(
         "--select",
         selection,
     ]
-    if partition:
+    if partition and default_partition is None:
         command.extend(["--partition", partition])
     return backend.container_exec_cmd(
         container_name=container_name,

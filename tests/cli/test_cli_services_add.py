@@ -6,6 +6,8 @@ service is selected for install again on the next compose regeneration.
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 import yaml
 from click.testing import CliRunner
@@ -260,3 +262,62 @@ def test_adding_the_observer_points_dagster_at_it(
     for name in ("dagster", "dagster-daemon"):
         environment = compose["services"][name]["environment"]
         assert environment["OBSERVE_HTTP_ENDPOINT"] == "http://phlo-observer:8080/v1/events"
+
+
+def test_services_add_restarts_dagster_after_installing_a_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Dagster installs project packages on start, so it is restarted to load the new one."""
+    from phlo.cli.commands.services import add as add_module
+    from phlo.plugins.registry_client import RegistryPlugin
+
+    kafka = _service("kafka")
+    services: dict[str, ServiceDefinition] = {}
+    commands: list[list[str]] = []
+
+    class InstallingFakeDiscovery(FakeDiscovery):
+        def discover(self) -> dict[str, ServiceDefinition]:
+            return dict(services)
+
+    def fake_install(packages: list[str]) -> str:
+        services["kafka"] = kafka
+        return "project"
+
+    def fake_compose(cmd, **_kwargs):
+        commands.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    entry = RegistryPlugin(
+        name="kafka",
+        type="service",
+        package="phlo-kafka",
+        version=None,
+        description="Kafka",
+        author="Phlo Team",
+        homepage=None,
+        tags=[],
+        verified=True,
+        core=False,
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".phlo").mkdir()
+    (tmp_path / ".phlo" / "docker-compose.yml").write_text(
+        "services:\n  dagster: {}\n  dagster-code: {}\n  kafka: {}\n"
+    )
+    (tmp_path / "phlo.yaml").write_text("services:\n  enabled: []\n")
+    monkeypatch.setattr(add_module, "ServiceDiscovery", InstallingFakeDiscovery)
+    monkeypatch.setattr(add_module, "_regenerate_compose", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(add_module, "compose_base_cmd", lambda **_kwargs: ["compose"])
+    monkeypatch.setattr(add_module, "run_compose", fake_compose)
+    monkeypatch.setattr(add_module, "get_project_name", lambda: "lake")
+    monkeypatch.setattr("phlo.plugins.registry_client.get_plugin", lambda name: entry)
+    monkeypatch.setattr("phlo.plugins.project_install.install_packages", fake_install)
+
+    result = CliRunner().invoke(add_module.add_cmd, ["kafka"])
+
+    assert result.exit_code == 0, result.output
+    assert commands == [
+        ["compose", "up", "-d", "kafka"],
+        ["compose", "restart", "dagster-code", "dagster"],
+    ]

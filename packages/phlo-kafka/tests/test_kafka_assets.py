@@ -34,7 +34,9 @@ def test_legacy_stager_default_keeps_existing_call_signature():
         written.extend(pq.read_table(data_path).to_pylist())
         return {"rows_inserted": 1}
 
+    created = []
     provider = SimpleNamespace(
+        ensure_table=lambda *, table_name, schema: created.append((table_name, schema.names)),
         merge_parquet=merge,
         observe_table_state=lambda **kwargs: SimpleNamespace(revision="snapshot"),
     )
@@ -46,6 +48,8 @@ def test_legacy_stager_default_keeps_existing_call_signature():
         == "snapshot"
     )
     assert written == [{"id": "1", "extra": "keep"}]
+    # The first batch creates its destination from the records' schema.
+    assert created == [("raw.events", ["id", "extra"])]
 
 
 def test_stager_rejects_misadvertised_provider_before_staging():
@@ -369,6 +373,20 @@ def test_consumer_registration_requires_unique_key() -> None:
     clear_kafka_assets()
 
 
+def test_consumer_registration_requires_a_namespaced_destination() -> None:
+    """A bare table name fails at definition time, not as a catalog error mid-run."""
+    clear_kafka_assets()
+    with pytest.raises(PhloConfigError, match="names no namespace"):
+        phlo_kafka_consumer(
+            name="bad",
+            topic_pattern="events",
+            destination_table="events",
+            unique_key=["id"],
+            group="ingestion",
+        )
+    clear_kafka_assets()
+
+
 def test_registered_asset_exposes_provider_neutral_metadata() -> None:
     clear_kafka_assets()
 
@@ -505,7 +523,7 @@ def test_asset_scopes_promotion_and_retries_without_committing_offsets(monkeypat
         ),
     )
     monkeypatch.setattr(
-        "phlo_kafka.checkpoints.resolve_capability", lambda *args: SimpleNamespace(provider=store)
+        "phlo_kafka.checkpoints.resolve_checkpoint_store", lambda *args: store
     )
     clear_kafka_assets()
     try:
@@ -561,6 +579,10 @@ def test_asset_recovers_offset_commit_without_skipping_new_records(monkeypatch, 
         def __init__(self):
             self.rows = {}
             self.revision = 0
+            self.schemas = []
+
+        def ensure_table(self, *, table_name, schema):
+            self.schemas.append((table_name, schema.names))
 
         def merge_parquet(self, *, table_name, data_path, unique_key):
             rows = pq.read_table(data_path).to_pylist()
@@ -599,7 +621,7 @@ def test_asset_recovers_offset_commit_without_skipping_new_records(monkeypatch, 
         "phlo_kafka.assets.resolve_capability", lambda _: SimpleNamespace(provider=table_store)
     )
     monkeypatch.setattr(
-        "phlo_kafka.checkpoints.resolve_capability", lambda *args: SimpleNamespace(provider=store)
+        "phlo_kafka.checkpoints.resolve_checkpoint_store", lambda *args: store
     )
     clear_kafka_assets()
     try:

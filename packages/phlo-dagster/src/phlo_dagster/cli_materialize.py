@@ -156,7 +156,8 @@ def materialize(
     """
     if not asset_name and not select:
         raise click.UsageError("Provide ASSET_NAME or --select.")
-    if partition is None and not no_default_partition:
+    partition_is_default = partition is None and not no_default_partition
+    if partition_is_default:
         from phlo_dagster.partitions import daily_partition
 
         partition = daily_partition.get_last_partition_key()
@@ -171,7 +172,26 @@ def materialize(
         return
     if environment is not None:
         raise click.UsageError("--environment requires WAP to be enabled.")
-    _materialize_container(asset_name, select, partition, no_contract_refresh, dry_run, output_json)
+    _materialize_container(
+        _dagster_asset_path(asset_name) if asset_name else None,
+        select,
+        partition,
+        no_contract_refresh,
+        dry_run,
+        output_json,
+        partition_is_default=partition_is_default,
+    )
+
+
+def _dagster_asset_path(asset_name: str) -> str:
+    """Return a Phlo asset key (``group.name``) in Dagster's ``group/name`` form.
+
+    Phlo turns dots in asset keys into key path components, and the run output
+    prints keys with dots, so the name a user copies from it must resolve.
+    """
+    if "/" in asset_name:
+        return asset_name
+    return asset_name.replace(".", "/")
 
 
 def _materialize_wap(
@@ -277,6 +297,8 @@ def _materialize_container(
     no_contract_refresh: bool,
     dry_run: bool,
     output_json: bool,
+    *,
+    partition_is_default: bool = False,
 ) -> None:
     effective_selection = select or asset_name or ""
 
@@ -307,6 +329,7 @@ def _materialize_container(
             effective_selection,
             partition,
             refresh_contracts=not no_contract_refresh,
+            partition_is_default=partition_is_default,
         )
 
         if dry_run:
