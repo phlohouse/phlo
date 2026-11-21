@@ -15,6 +15,7 @@ from pathlib import Path
 
 import click
 import yaml
+from pydantic import ValidationError
 
 from phlo.cli.authorization_wrappers import require_mutation_authorization
 from phlo.cli.commands.services.planner import ServiceSelectionPlan, build_service_selection_plan
@@ -44,6 +45,7 @@ from phlo.config.layout import SHARED_LAYOUT_MARKER, env_defaults_path, env_secr
 from phlo.config.project import get_enabled_disabled_service_names
 from phlo.config_schema import ProjectConfig
 from phlo.infrastructure.container_backend import project_container_host_identity
+from phlo.infrastructure.utils import compose_project_name
 from phlo.operations.generated_stack import BASELINE, generation_baseline
 from phlo.plugins.compose.artifacts import render_shared_gitignore, write_compose_layers
 from phlo.plugins.compose.generator import ComposeGenerator
@@ -668,7 +670,7 @@ def _configure_observatory_dev(
             "sandbox": {
                 "dagster_location": "phlo_dagster.framework.definitions",
                 "nessie_ref": effective.get("NESSIE_DEFAULT_REF", "main"),
-                "compose_project": config.get("name") or project_name,
+                "compose_project": compose_project_name(config.get("name") or project_name),
             },
         },
     )
@@ -684,7 +686,10 @@ def _configure_observatory_dev(
             "PHLO_AUTHORIZATION_MODE": "required",
         }
     )
-    ProjectConfig.model_validate(config)
+    try:
+        ProjectConfig.model_validate(config)
+    except ValidationError as exc:
+        raise click.ClickException(f"phlo.yaml would not be valid: {exc}") from exc
     for name in ("phlo-api", "observatory"):
         if services[name].get("ports"):
             raise click.ClickException(

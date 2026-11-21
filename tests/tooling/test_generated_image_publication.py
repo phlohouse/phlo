@@ -325,7 +325,12 @@ def test_staging_renders_all_services_with_generated_credentials(
     )
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
     targets = json.loads(values["targets"])
-    assert {target["service"] for target in targets} == {"dagster", "observatory", "phlo-api"}
+    assert {target["service"] for target in targets} == {
+        "dagster",
+        "observatory",
+        "phlo-api",
+        "phlo-notebook-kernels",
+    }
     assert all(target["image"].endswith(f"-development:{sha}") for target in targets)
     assert values["has_targets"] == "true"
     credentials = parse_project_env_file(tmp_path / "generated-service-project/.phlo/secrets/.env")
