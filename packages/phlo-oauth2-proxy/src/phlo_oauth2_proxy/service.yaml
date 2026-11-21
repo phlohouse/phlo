@@ -66,4 +66,5 @@ env_vars:
     default: "*"
     description: Comma-separated list of allowed email domains (use * for any)
   OAUTH2_PROXY_WHITELIST_DOMAINS:
-    description: Comma-separated hostnames oauth2-proxy may redirect back to
+    required: false
+    description: Comma-separated hostnames oauth2-proxy may redirect back to; empty uses the API and Observatory hosts

@@ -62,7 +62,7 @@ from phlo.cli.infrastructure.container_backend import (
 )
 from phlo.cli.infrastructure.utils import get_project_name, parse_env_file
 from phlo.cli.output import missing_compose_file_error
-from phlo.config.layout import env_defaults_path, project_env_paths
+from phlo.config.layout import env_defaults_path, env_secrets_path, project_env_paths
 from phlo.logging import get_logger
 from phlo.plugins.discovery._service_definition import ServicePortRangeError
 from phlo.plugins.discovery.service_manifest import ServiceManifestResolver
@@ -526,6 +526,54 @@ def _expand_requested_services(
     )
 
 
+def missing_required_env_vars(
+    *,
+    phlo_dir: Path,
+    project_root: Path,
+    services: list[ServiceDefinition],
+) -> dict[str, list[str]]:
+    """Return, per service, the required env values left unset.
+
+    A value is required when it has no default and is not marked
+    ``required: false`` (compose derives those when they are empty).
+    """
+    if not services:
+        return {}
+
+    env = _load_environment(phlo_dir, _load_project_config(project_root))
+    missing: dict[str, list[str]] = {}
+    for service in services:
+        for env_name, spec in sorted((service.env_vars or {}).items()):
+            if not isinstance(spec, dict) or "default" in spec or spec.get("required") is False:
+                continue
+            value = env.get(env_name)
+            if value is None or value == "":
+                missing.setdefault(service.name, []).append(env_name)
+    return missing
+
+
+def _project_relative(phlo_dir: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(phlo_dir.resolve().parent))
+    except ValueError:
+        return str(path)
+
+
+def describe_missing_env(phlo_dir: Path, service: ServiceDefinition, names: list[str]) -> str:
+    """Say which values a service needs and the project file each one belongs in."""
+    env_vars = service.env_vars or {}
+    secrets = [n for n in names if isinstance(env_vars.get(n), dict) and env_vars[n].get("secret")]
+    settings = [n for n in names if n not in secrets]
+    parts = []
+    if settings:
+        target = _project_relative(phlo_dir, env_defaults_path(phlo_dir))
+        parts.append(f"set {', '.join(settings)} in {target} (or phlo.yaml env:)")
+    if secrets:
+        target = _project_relative(phlo_dir, env_secrets_path(phlo_dir))
+        parts.append(f"set {', '.join(secrets)} in {target}")
+    return "; ".join(parts)
+
+
 def _preflight_required_env_vars(
     *,
     phlo_dir: Path,
@@ -533,31 +581,25 @@ def _preflight_required_env_vars(
     services: list[ServiceDefinition],
 ) -> None:
     """Fail before compose start when selected services are missing required env values."""
-    if not services:
-        return
-
-    env = _load_environment(phlo_dir, _load_project_config(project_root))
-    missing: list[str] = []
-    for service in services:
-        for env_name, spec in sorted((service.env_vars or {}).items()):
-            if not isinstance(spec, dict) or "default" in spec:
-                continue
-            value = env.get(env_name)
-            if value is None or value == "":
-                missing.append(f"{service.name}: {env_name}")
-
+    missing = missing_required_env_vars(
+        phlo_dir=phlo_dir, project_root=project_root, services=services
+    )
     if not missing:
         return
 
-    rendered = ", ".join(missing)
+    rendered = ", ".join(f"{name}: {env}" for name, envs in missing.items() for env in envs)
     logger.warning(
         "services_start_required_env_missing",
         missing=rendered,
         service_count=len(services),
     )
+    by_name = {service.name: service for service in services}
+    details = " ".join(
+        f"{name} needs configuration: {describe_missing_env(phlo_dir, by_name[name], envs)}."
+        for name, envs in missing.items()
+    )
     raise click.ClickException(
-        "required environment values are missing for selected services: "
-        f"{rendered}. Set them in phlo.yaml env: or .phlo/.env.local."
+        f"required environment values are missing for selected services: {rendered}. {details}"
     )
 
 
