@@ -532,7 +532,11 @@ def missing_required_env_vars(
     project_root: Path,
     services: list[ServiceDefinition],
 ) -> dict[str, list[str]]:
-    """Return, per service, the required env values (no default) left unset."""
+    """Return, per service, the required env values left unset.
+
+    A value is required when it has no default and is not marked
+    ``required: false`` (compose derives those when they are empty).
+    """
     if not services:
         return {}
 
@@ -540,7 +544,7 @@ def missing_required_env_vars(
     missing: dict[str, list[str]] = {}
     for service in services:
         for env_name, spec in sorted((service.env_vars or {}).items()):
-            if not isinstance(spec, dict) or "default" in spec:
+            if not isinstance(spec, dict) or "default" in spec or spec.get("required") is False:
                 continue
             value = env.get(env_name)
             if value is None or value == "":

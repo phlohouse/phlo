@@ -338,6 +338,7 @@ def test_services_add_holds_back_a_service_whose_required_settings_are_unset(
             "OAUTH2_PROXY_OIDC_ISSUER_URL": {"description": "Issuer"},
             "OAUTH2_PROXY_CLIENT_SECRET": {"description": "Secret", "secret": True},
             "OAUTH2_PROXY_PROVIDER": {"default": "oidc", "description": "Provider"},
+            "OAUTH2_PROXY_WHITELIST_DOMAINS": {"required": False, "description": "Derived"},
         },
     )
     pgweb = _service("pgweb")
@@ -376,5 +377,6 @@ def test_services_add_holds_back_a_service_whose_required_settings_are_unset(
         "OAUTH2_PROXY_OIDC_ISSUER_URL in .phlo/overrides/.env (or phlo.yaml env:)" in result.output
     )
     assert "OAUTH2_PROXY_CLIENT_SECRET in .phlo/secrets/.env" in result.output
+    assert "WHITELIST_DOMAINS" not in result.output
     enabled = yaml.safe_load((tmp_path / "phlo.yaml").read_text())["services"]["enabled"]
     assert "oauth2-proxy" in enabled
