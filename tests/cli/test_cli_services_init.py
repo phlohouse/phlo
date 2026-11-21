@@ -1606,6 +1606,7 @@ def test_services_init_stages_uv_lock_metadata_for_lock_aware_builds(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """uv-managed projects get staged lock metadata and a lock-aware build flag."""
+    (tmp_path / "phlo.yaml").write_text("name: lake\n")
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "lake"\nversion = "0.1.0"\n')
     (tmp_path / "uv.lock").write_text("version = 1\n")
     composer = _RecordingComposer.__new__(_RecordingComposer)
@@ -1857,3 +1858,51 @@ def test_regenerate_compose_writes_env_defaults_as_utf8_with_non_ascii_descripti
 
     defaults = env_defaults_path(phlo_dir).read_bytes().decode("utf-8")
     assert "—" in defaults
+
+
+def test_services_init_refuses_a_non_empty_folder_without_a_project(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Where `phlo init` refused, `phlo services init` must not build a stack either."""
+    from phlo.cli.commands.services.init import init_cmd
+
+    (tmp_path / "notes.txt").write_text("not a phlo project\n")
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(init_cmd, [])
+
+    assert result.exit_code == 1
+    assert "doesn't look like a phlo project" in result.output
+    assert "Run `phlo init` here first" in result.output
+    assert "Traceback" not in result.output
+    assert not (tmp_path / "phlo.yaml").exists()
+    assert not (tmp_path / ".phlo").exists()
+
+
+def test_services_init_records_requested_profile_services_as_enabled(tmp_path) -> None:
+    """Profiles chosen at init stay part of the stack for later starts and regenerations."""
+    import yaml
+
+    from phlo.cli.commands.services.init import _record_profile_services
+    from phlo.cli.commands.services.planner import ServiceSelectionPlan
+
+    config_file = tmp_path / "phlo.yaml"
+    config_file.write_text(
+        "name: lake\nservices:\n  observatory:\n    enabled: true\n  grafana:\n    enabled: false\n"
+    )
+    kernels = ServiceDefinition(name="phlo-notebook-kernels", description="k", profile="notebooks")
+    grafana = ServiceDefinition(name="grafana", description="g", profile="notebooks")
+    postgres = ServiceDefinition(name="postgres", description="p", default=True)
+    plan = ServiceSelectionPlan(
+        selected_services=(postgres, kernels, grafana),
+        disabled_names=frozenset({"grafana"}),
+        requested_names=(),
+        profiles=("notebooks",),
+    )
+
+    _record_profile_services(config_file, plan, ("notebooks",))
+
+    services = yaml.safe_load(config_file.read_text())["services"]
+    assert services["enabled"] == ["phlo-notebook-kernels"]
+    assert services["observatory"] == {"enabled": True}
+    assert services["grafana"] == {"enabled": False}

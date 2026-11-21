@@ -10,6 +10,9 @@ from phlo.infrastructure.container_backend import (
     ContainerInfo as ContainerInfo,
 )
 from phlo.infrastructure.container_backend import (
+    ContainerRuntimeUnavailable as ContainerRuntimeUnavailable,
+)
+from phlo.infrastructure.container_backend import (
     DockerBackend as DockerBackend,
 )
 from phlo.infrastructure.container_backend import (
