@@ -11,15 +11,18 @@ depends_on:
 
 compose:
   restart: "no"
+  environment:
+    CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+    CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Run phlo services init to generate CLICKHOUSE_PASSWORD}
   entrypoint: >
     /bin/sh -c "
     until clickhouse-client --host clickhouse --user $${CLICKHOUSE_USER:-default}
-    --password $${CLICKHOUSE_PASSWORD:-}
+    --password \"$${CLICKHOUSE_PASSWORD}\"
     --query 'SELECT 1' 2>/dev/null; do
     echo 'Waiting for ClickHouse...' && sleep 2;
     done &&
     clickhouse-client --host clickhouse --user $${CLICKHOUSE_USER:-default}
-    --password $${CLICKHOUSE_PASSWORD:-}
+    --password \"$${CLICKHOUSE_PASSWORD}\"
     --multiquery --query '
     CREATE DATABASE IF NOT EXISTS raw;
     CREATE DATABASE IF NOT EXISTS staging;
