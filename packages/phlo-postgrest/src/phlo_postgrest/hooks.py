@@ -21,11 +21,13 @@ than imported directly; builds on phlo.infrastructure.config and phlo.logging.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from phlo.config.env import project_env_value
 from phlo.infrastructure.config import get_project_name_from_config, load_infrastructure_config
 from phlo.logging import get_logger, setup_logging
 
@@ -302,70 +304,86 @@ def discover_schemas() -> list[str]:
     return _discover_schemas_via_docker(db_uri)
 
 
-def configure_schemas() -> None:
-    """Auto-configure PostgREST to expose all discovered schemas.
+ANON_ROLE = "anon"
+API_SCHEMA = "api"
+_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-    Discovers user schemas from the database (prioritizing 'marts' when
-    present), rewrites the db-schemas directive in postgrest.conf, restarts
-    the PostgREST container to apply changes, and waits for it to become
-    healthy.
+
+def _mart_schema() -> str:
+    """Return the schema phlo publishes serving tables to (POSTGRES_MART_SCHEMA)."""
+    schema = (project_env_value("POSTGRES_MART_SCHEMA", project_root=Path.cwd()) or "").strip()
+    schema = schema or "marts"
+    if not _IDENTIFIER.match(schema):
+        raise ValueError(f"POSTGRES_MART_SCHEMA must be a plain lowercase identifier: {schema!r}")
+    return schema
+
+
+def anonymous_access_sql(mart_schema: str) -> str:
+    """Return idempotent SQL giving the anonymous role read-only access.
+
+    Anonymous callers may read published marts and the ``api`` schema that
+    ``phlo postgrest generate-views`` fills. They get no write privileges and
+    nothing in Dagster, Nessie, Polaris or phlo's own schemas.
+    """
+    return f"""
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{ANON_ROLE}') THEN
+    CREATE ROLE {ANON_ROLE} NOLOGIN NOINHERIT;
+  END IF;
+END
+$$;
+GRANT {ANON_ROLE} TO CURRENT_USER;
+CREATE SCHEMA IF NOT EXISTS {API_SCHEMA};
+CREATE SCHEMA IF NOT EXISTS {mart_schema};
+GRANT USAGE ON SCHEMA {API_SCHEMA}, {mart_schema} TO {ANON_ROLE};
+GRANT SELECT ON ALL TABLES IN SCHEMA {mart_schema} TO {ANON_ROLE};
+ALTER DEFAULT PRIVILEGES IN SCHEMA {mart_schema} GRANT SELECT ON TABLES TO {ANON_ROLE};
+"""
+
+
+def _set_directive(lines: list[str], key: str, value: str) -> list[str]:
+    """Set ``key = "value"`` in postgrest.conf lines, appending it when absent."""
+    directive = f'{key} = "{value}"'
+    updated = [directive if line.split("=", 1)[0].strip() == key else line for line in lines]
+    if directive not in updated:
+        updated.append(directive)
+    return updated
+
+
+def configure_schemas() -> None:
+    """Expose published marts read-only through a least-privilege anonymous role.
+
+    Creates the ``anon`` role, grants it SELECT on the published mart schema
+    (``POSTGRES_MART_SCHEMA``, default ``marts``) and USAGE on ``api``, then
+    points PostgREST at those schemas and restarts it. Earlier templates used
+    the database owner as the anonymous role and exposed every schema,
+    including Dagster, Nessie and Polaris tables; that setting is replaced.
+    A custom ``db-anon-role`` is kept, so operators can lock the API down.
 
     Raises: FileNotFoundError when the PostgREST configuration is missing;
-    RuntimeError when the container restart fails.
-
-    Example:
-        >>> from phlo_postgrest.hooks import configure_schemas
-        >>> configure_schemas()
-        Discovering user schemas for PostgREST...
-        Discovered schemas: marts,public,staging
-        Updated .phlo/postgrest/conf/postgrest.conf
-        PostgREST restarted successfully
+    RuntimeError when the role setup fails.
     """
-    logger.info("Discovering user schemas for PostgREST...")
-
-    try:
-        schemas = discover_schemas()
-    except Exception as e:
-        logger.error("Failed to discover schemas: %s", e)
-        raise
-
-    if not schemas:
-        logger.warning("No user schemas found, using default 'public'")
-        schemas = ["public"]
-    elif "marts" in schemas:
-        schemas = ["marts"] + [schema for schema in schemas if schema != "marts"]
-
-    schemas_str = ",".join(schemas)
-    logger.info("Discovered schemas: %s", schemas_str)
-
     config_file = _get_config_file()
-
     if not config_file.exists():
         logger.warning("Config file not found at %s", config_file)
         return
 
-    content = config_file.read_text()
-    lines = content.splitlines()
+    config_values = _read_config_values(config_file)
+    db_uri = config_values.get("db-uri")
+    if not db_uri:
+        raise ValueError("db-uri not found in PostgREST config")
 
-    # Rewrite db-schemas in place, inserting the directive after db-anon-role
-    # when the config does not have one yet.
-    updated = False
-    new_lines = []
-    for line in lines:
-        if line.startswith("db-schemas"):
-            new_lines.append(f'db-schemas = "{schemas_str}"')
-            updated = True
-        else:
-            new_lines.append(line)
+    mart_schema = _mart_schema()
+    _run_psql(db_uri, anonymous_access_sql(mart_schema))
 
-    if not updated:
-        # Add db-schemas line after db-anon-role
-        for i, line in enumerate(new_lines):
-            if line.startswith("db-anon-role"):
-                new_lines.insert(i + 1, f'db-schemas = "{schemas_str}"')
-                break
-
-    config_file.write_text("\n".join(new_lines) + "\n")
+    lines = config_file.read_text().splitlines()
+    anon_role = config_values.get("db-anon-role", "")
+    if not anon_role or anon_role == _parse_db_uri(db_uri)["username"]:
+        lines = _set_directive(lines, "db-anon-role", ANON_ROLE)
+    schemas_str = f"{mart_schema},{API_SCHEMA}"
+    lines = _set_directive(lines, "db-schemas", schemas_str)
+    config_file.write_text("\n".join(lines) + "\n")
     logger.info("Updated %s with db-schemas=%s", config_file, schemas_str)
 
     # Restart PostgREST container to pick up new config

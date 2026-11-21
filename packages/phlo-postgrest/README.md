@@ -36,9 +36,24 @@ This package is **fully auto-configured**:
 | Feature                 | How It Works                           |
 | ----------------------- | -------------------------------------- |
 | **Database Connection** | Auto-connects to Phlo's PostgreSQL     |
-| **Schema Exposure**     | Exposes `api` and `public` schemas     |
-| **Anonymous Role**      | Uses `POSTGRES_USER` as anonymous role |
+| **Schema Exposure**     | Exposes the published marts schema (`POSTGRES_MART_SCHEMA`, default `marts`) and `api` |
+| **Anonymous Role**      | A `NOLOGIN` `anon` role with read-only `SELECT` on published marts, including tables published later |
 | **OpenAPI Docs**        | Auto-generates OpenAPI spec            |
+
+Anonymous callers cannot write, and cannot see Dagster, Nessie, Polaris or
+phlo's own tables, because those schemas are never exposed and `anon` has no
+grants on them.
+
+## Hardening
+
+- To serve only chosen models, tag them in dbt (`public`, `analyst`, `admin`)
+  and run `phlo postgrest generate-views`. The views land in `api` with
+  matching grants.
+- To turn off anonymous reads, set `db-anon-role` in
+  `.phlo/postgrest/conf/postgrest.conf` to a role with no grants. The
+  start hook keeps any role other than the database owner, and ingress
+  (oauth2-proxy) or JWT auth (`phlo postgrest setup-auth`) can then gate
+  access.
 
 ## Usage
 
