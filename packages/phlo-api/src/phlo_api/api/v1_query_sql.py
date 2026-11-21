@@ -67,7 +67,9 @@ def validate_workspace_query(sql: str, catalog: str) -> str:
         reference = table.args.get("catalog")
         if reference is not None and reference.name != catalog:
             raise InvalidWorkspaceQuery(
-                "Query references a catalog outside the selected environment."
+                f"Query references catalog {reference.name!r}, outside the selected "
+                "environment. Leave the catalog out, for example "
+                f"{table.db or 'schema'}.{table.name}, to read this environment's data."
             )
     _limit_count(statements[0])
     return statements[0].sql(dialect="trino")
