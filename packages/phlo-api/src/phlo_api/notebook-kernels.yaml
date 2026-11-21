@@ -5,7 +5,7 @@ category: api
 default: false
 profile: notebooks
 
-image: ghcr.io/phlohouse/phlo-notebook-kernels:0.19.0
+image: ghcr.io/phlohouse/phlo-notebook-kernels:0.20.0
 build:
     context: ./phlo-notebook-kernels
     dockerfile: Dockerfile

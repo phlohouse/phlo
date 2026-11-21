@@ -1,5 +1,67 @@
 ## [phlo 0.17.0 + 38 packages] - 2026-09-22
 
+## [phlo 0.20.0 + 39 packages] - 2026-11-21
+
+### Added
+- phlo: Snowsight-style notebooks in Observatory on Jupyter kernels (#1292)
+- phlo: publish every workspace package with each release (#1308)
+- phlo-api: Snowsight-style notebooks in Observatory on Jupyter kernels (#1292)
+- phlo-api: publish every workspace package with each release (#1308)
+- phlo-minio: Snowsight-style notebooks in Observatory on Jupyter kernels (#1292)
+- phlo-observatory: Snowsight-style notebooks in Observatory on Jupyter kernels (#1292)
+- phlo-trino: Snowsight-style notebooks in Observatory on Jupyter kernels (#1292)
+
+### Fixed
+- phlo: block releases only on fixable severe findings that ship (#1301)
+- phlo: keep migrated Compose recognised as generated output in upgrade plans (#1305)
+- phlo: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo: serve published marts through a read-only anon role (#1309)
+- phlo: hold back added services until their required settings exist (#1310)
+- phlo: make the first start of a new lakehouse work (init, notebook kernels, Docker down) (#1312)
+- phlo-airbyte: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-alerting: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-alloy: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-api: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-clickhouse: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-clickstack: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-core-plugins: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-dagster: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-dbt: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-delta: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-dlt: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-grafana: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-hasura: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-iceberg: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-kafka: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-lineage: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-loki: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-minio: keep migrated Compose recognised as generated output in upgrade plans (#1305)
+- phlo-minio: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-nessie: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-oauth2-proxy: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-oauth2-proxy: hold back added services until their required settings exist (#1310)
+- phlo-observatory: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-observatory-example: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-observe-plugin: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-openmetadata: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-pandera: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-pgweb: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-polaris: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-postgres: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-postgrest: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-postgrest: serve published marts through a read-only anon role (#1309)
+- phlo-prometheus: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-rustfs: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-sling: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-superset: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-testing: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-transform: make a fresh phlo init lakehouse work out of the box (#1307)
+- phlo-trino: make a fresh phlo init lakehouse work out of the box (#1307)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (60 commits)
+
 ## [phlo 0.19.0 + 39 packages] - 2026-11-15
 
 ### Added
