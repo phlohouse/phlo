@@ -216,7 +216,13 @@ files, `relx.toml` and the support manifest), and nightly on main.
 A rehearsal BOM records `"rehearsal": true`, and publishing refuses it. The
 amd64 golden path must pass. PR rehearsals run the golden path on amd64 only;
 the nightly rehearsal and Release also run arm64, which reports without
-blocking. Images are still built for both architectures on every rehearsal. It is not part of
+blocking. Images are still built for both architectures on every rehearsal.
+PR rehearsals also shorten the retained-volume upgrade part to the checks only
+an upgrade can fail (the transition, the retained rows, the restarted stack,
+readiness and the preview the upgrade brings); the fresh part on the same PR
+proves the rest of the Observatory journey. Nightly and Release rerun the whole
+journey on the upgraded stack, and the golden path refuses the shortened
+upgrade for a BOM that is not a rehearsal. It is not part of
 `pr / required`, but a red rehearsal on the ReleaseX PR means the release will
 fail.
 

@@ -109,6 +109,7 @@ def test_rehearsal_builds_and_smokes_without_any_publication_authority() -> None
     assert jobs["build"]["with"] == {
         "rehearsal": True,
         "hosts": "${{ github.event_name == 'pull_request' && '[\"amd64\"]' || '[\"amd64\",\"arm64\"]' }}",
+        "upgrade_scope": "${{ github.event_name == 'pull_request' && 'upgrade' || 'full' }}",
     }
     assert jobs["report"]["if"] == "failure() && github.event_name == 'schedule'"
     build = workflow("release-build.yml")["jobs"]
@@ -144,10 +145,37 @@ def test_release_build_hosts_require_amd64_and_both_hosts_for_release(
     guard = step["run"].split('sha="${REQUESTED_SHA', 1)[0]
     result = subprocess.run(
         ["bash", "-c", guard],
-        env=dict(os.environ, HOSTS=hosts, REHEARSAL=rehearsal),
+        env=dict(os.environ, HOSTS=hosts, REHEARSAL=rehearsal, UPGRADE_SCOPE="full"),
         capture_output=True,
     )
     assert (result.returncode == 0) == accepted
+
+
+@pytest.mark.parametrize(
+    ("scope", "rehearsal", "accepted"),
+    [
+        ("full", "false", True),
+        ("full", "true", True),
+        ("upgrade", "true", True),
+        ("upgrade", "false", False),
+        ("", "true", False),
+        ("partial", "true", False),
+    ],
+)
+def test_release_build_runs_the_full_upgrade_journey_for_release(
+    scope: str, rehearsal: str, accepted: bool
+) -> None:
+    build = workflow("release-build.yml")
+    assert build[True]["workflow_call"]["inputs"]["upgrade_scope"]["default"] == "full"
+    step = next(step for step in build["jobs"]["distributions"]["steps"] if step.get("id") == "sha")
+    guard = step["run"].split('sha="${REQUESTED_SHA', 1)[0]
+    result = subprocess.run(
+        ["bash", "-c", guard],
+        env=dict(os.environ, HOSTS='["amd64","arm64"]', REHEARSAL=rehearsal, UPGRADE_SCOPE=scope),
+        capture_output=True,
+    )
+    assert (result.returncode == 0) == accepted
+    assert "upgrade_scope" not in str(workflow("release-promotion.yml"))
 
 
 def test_minio_publication_needs_no_phlo_release_or_distributions(tmp_path: Path) -> None:

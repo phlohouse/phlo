@@ -74,6 +74,10 @@ jobs:
       rehearsal: true
       # PRs prove amd64; the nightly schedule and Release also prove arm64.
       hosts: ${{ github.event_name == 'pull_request' && '["amd64"]' || '["amd64","arm64"]' }}
+      # PRs run the upgrade-only checks after the upgrade; the fresh part
+      # proves the rest of the journey. Nightly reruns all of it on the
+      # upgraded stack, as Release does.
+      upgrade_scope: ${{ github.event_name == 'pull_request' && 'upgrade' || 'full' }}
 
   report:
     name: rehearsal / report red schedule

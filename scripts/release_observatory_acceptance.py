@@ -1427,8 +1427,37 @@ def verify_overview(api: str, binding: dict) -> dict:
     return {"scoped_runs": 1, "legacy_unscoped_excluded": True}
 
 
+#: How much of the Observatory journey the retained-volume upgrade repeats.
+#: ``full`` reruns the whole fresh journey on the upgraded stack (nightly and
+#: Release). ``upgrade`` stops after the checks only an upgrade can fail: the
+#: transition, the retained rows, the restarted stack and the preview the
+#: upgrade brings. PR rehearsals use it; the fresh part proves the rest.
+UPGRADE_SCOPES = ("full", "upgrade")
+
+
+def require_upgrade_scope(config: golden.RunConfig, scope: str) -> None:
+    """Fail closed: only a rehearsal staging set may shorten the upgrade journey."""
+    if scope not in UPGRADE_SCOPES:
+        raise golden.CandidateError(f"Unknown upgrade scope {scope!r}")
+    if scope == "full":
+        return
+    provenance = config.staging_dir / "provenance.json" if config.staging_dir else None
+    try:
+        rehearsal = json.loads(provenance.read_text(encoding="utf-8"))["rehearsal"] is True
+    except (AttributeError, OSError, KeyError, TypeError, ValueError):
+        rehearsal = False
+    if not rehearsal:
+        raise golden.CandidateError(
+            "Only a rehearsal candidate may run the shortened upgrade journey"
+        )
+
+
 def run_one(
-    config: golden.RunConfig, *, candidate: golden.RunConfig | None, artifacts: Path
+    config: golden.RunConfig,
+    *,
+    candidate: golden.RunConfig | None,
+    artifacts: Path,
+    upgrade_scope: str = "full",
 ) -> tuple[dict, list]:
     golden.verify_candidate_bom(config)
     _, wheels = golden.install_operator_from_bom(config)
@@ -1478,6 +1507,11 @@ def run_one(
             for check in generated["capabilities"]["query_preview"]
         ):
             raise golden.CandidateError("The generated query preview is not reachable on start")
+        if candidate is not None and upgrade_scope == "upgrade":
+            result["readiness"] = wait_ready(api, binding)
+            result["overview"] = verify_overview(api, binding)
+            result["upgrade_scope"] = upgrade_scope
+            return result, wheels
         # An operator replaces it with a provider-owned server. Removing it must
         # leave an honest disabled state, never fake success rows.
         golden.run(
@@ -1562,7 +1596,11 @@ def run_fresh(config: golden.RunConfig, *, artifacts: Path) -> tuple[dict, list]
 
 
 def run_upgrade(
-    config: golden.RunConfig, *, previous_bom: Path | None, artifacts: Path
+    config: golden.RunConfig,
+    *,
+    previous_bom: Path | None,
+    artifacts: Path,
+    upgrade_scope: str = "full",
 ) -> tuple[dict, list]:
     """Install the previous release, upgrade it to the candidate, and rerun the journey."""
     if previous_bom is None:
@@ -1570,6 +1608,7 @@ def run_upgrade(
             "Retained-volume Observatory acceptance requires an explicit previous candidate BOM"
         )
     _require_tools(config)
+    require_upgrade_scope(config, upgrade_scope)
     assert config.bom is not None
     previous = bom_module.load_bom(previous_bom)
     if previous["canonical_candidate_digest"] == config.bom["canonical_candidate_digest"]:
@@ -1592,7 +1631,10 @@ def run_upgrade(
         wheelhouse=config.wheelhouse,
     )
     result, _ = _run_private(
-        lambda: run_one(old, candidate=candidate, artifacts=artifacts / "upgrade"), temporary
+        lambda: run_one(
+            old, candidate=candidate, artifacts=artifacts / "upgrade", upgrade_scope=upgrade_scope
+        ),
+        temporary,
     )
     # The upgrade installs the previous release's wheels first, which are not
     # candidate artifacts; the fresh journey records what the candidate exercised.

@@ -2010,9 +2010,11 @@ class _CandidateJourney:
         previous_bom: Path | None = None,
         observatory_artifacts: Path | None = None,
         part: str = "all",
+        upgrade_scope: str = "full",
     ) -> None:
         self.config = config
         self.part = part
+        self.upgrade_scope = upgrade_scope
         self.bundle = bundle
         self.bom_path = bom_path
         self.previous_bom = previous_bom
@@ -2032,7 +2034,10 @@ class _CandidateJourney:
         from release_observatory_acceptance import run_upgrade
 
         return run_upgrade(
-            self.config, previous_bom=self.previous_bom, artifacts=self.observatory_artifacts
+            self.config,
+            previous_bom=self.previous_bom,
+            artifacts=self.observatory_artifacts,
+            upgrade_scope=self.upgrade_scope,
         )
 
     def bind_candidate(self) -> _StepOutput:
@@ -2275,6 +2280,7 @@ def main_candidate(args: argparse.Namespace) -> int:
         previous_bom=getattr(args, "previous_candidate_bom", None),
         observatory_artifacts=evidence_path.parent / f"{evidence_path.stem}-observatory",
         part=getattr(args, "part", "all"),
+        upgrade_scope=getattr(args, "upgrade_scope", "full"),
     )
     primary_error: Exception | None = None
     cleanup_errors: list[Exception] = []
@@ -2349,6 +2355,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=PARTS,
         default="all",
         help="Run one part of the candidate journey; merge the parts' evidence to validate it.",
+    )
+    parser.add_argument(
+        "--upgrade-scope",
+        choices=("full", "upgrade"),
+        default="full",
+        help=(
+            "How much of the Observatory journey the retained-volume upgrade repeats. "
+            "'upgrade' stops after the upgrade-only checks and is refused unless the "
+            "candidate is a rehearsal; Release always runs 'full'."
+        ),
     )
     return parser.parse_args(argv)
 

@@ -188,6 +188,8 @@ def test_release_smoke_runs_every_golden_path_part_and_merges_their_evidence() -
         "previous/bom.json",
         "--part",
         "$PART",
+        "--upgrade-scope",
+        "$UPGRADE_SCOPE",
         "--evidence-output",
         "$RUNNER_TEMP/evidence-$PART.json",
     ]
