@@ -221,3 +221,81 @@ def test_the_connection_is_synchronous_and_read_only(monkeypatch) -> None:
     assert payload["allow_dml"] is False
     assert payload["allow_ctas"] is False
     assert payload["allow_cvas"] is False
+
+
+def _signed_in(monkeypatch, *, health: object = None) -> Mock:
+    """A Superset that answers health checks and accepts the admin login."""
+    monkeypatch.setenv("SUPERSET_ADMIN_USER", "test-admin")
+    monkeypatch.setenv("SUPERSET_ADMIN_PASSWORD", "test-password")
+    monkeypatch.setenv("SUPERSET_URL", "http://superset.test")
+    monkeypatch.setattr(hooks.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        hooks.requests,
+        "get",
+        health or (lambda *_args, **_kwargs: SimpleNamespace(status_code=200)),
+    )
+    session = Mock()
+    session.headers = {}
+    ok = Mock()
+    ok.raise_for_status.return_value = None
+    ok.json.return_value = {"access_token": "token", "result": []}
+    session.post.return_value = ok
+    session.get.return_value = ok
+    monkeypatch.setattr(hooks.requests, "Session", lambda: session)
+    monkeypatch.setattr(hooks, "_superset_database_name", lambda: "iceberg")
+    monkeypatch.setattr(hooks, "_configured_database_uri", lambda: "trino://superset@trino:8080/x")
+    return session
+
+
+def test_an_unreachable_superset_fails_the_hook(monkeypatch) -> None:
+    """A Superset that never answers its health check is a failure, not a skip."""
+
+    def down(*_args, **_kwargs):
+        raise hooks.requests.ConnectionError("refused")
+
+    session = _signed_in(monkeypatch, health=down)
+
+    assert hooks.add_query_engine_database() is False
+    session.post.assert_not_called()
+
+
+def test_a_refused_login_fails_the_hook(monkeypatch) -> None:
+    session = _signed_in(monkeypatch)
+    session.post.return_value.raise_for_status.side_effect = hooks.requests.HTTPError("401")
+
+    assert hooks.add_query_engine_database() is False
+
+
+def test_an_already_registered_database_is_left_alone(monkeypatch) -> None:
+    session = _signed_in(monkeypatch)
+    session.get.return_value.json.return_value = {
+        "access_token": "token",
+        "result": [{"database_name": "iceberg"}],
+    }
+
+    assert hooks.add_query_engine_database() is True
+    # Only the login was posted; no second connection was created.
+    assert session.post.call_count == 1
+
+
+def test_a_rejected_connection_fails_the_hook(monkeypatch) -> None:
+    session = _signed_in(monkeypatch)
+    login = Mock()
+    login.raise_for_status.return_value = None
+    login.json.return_value = {"access_token": "token"}
+    rejected = Mock()
+    rejected.raise_for_status.side_effect = hooks.requests.HTTPError("422")
+    session.post.side_effect = [login, rejected]
+
+    assert hooks.add_query_engine_database() is False
+
+
+def test_an_unresolvable_database_name_fails_the_hook(monkeypatch) -> None:
+    _signed_in(monkeypatch)
+
+    def unresolved():
+        raise RuntimeError("no query engine")
+
+    monkeypatch.setattr(hooks, "_superset_database_name", unresolved)
+
+    assert hooks.add_query_engine_database() is False
