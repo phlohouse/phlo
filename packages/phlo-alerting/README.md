@@ -9,7 +9,7 @@ Routes alerts from quality check failures, telemetry events, and pipeline errors
 ## Installation
 
 ```bash
-pip install phlo-alerting
+uv add phlo-alerting
 # or
 phlo plugin install alerting
 ```

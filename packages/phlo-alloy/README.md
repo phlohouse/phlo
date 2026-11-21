@@ -9,7 +9,7 @@ Collects logs from all Docker containers and ships them to Loki for aggregation 
 ## Installation
 
 ```bash
-pip install phlo-alloy
+uv add phlo-alloy
 # or
 phlo plugin install alloy
 ```

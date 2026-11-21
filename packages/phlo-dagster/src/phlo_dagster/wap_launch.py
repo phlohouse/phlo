@@ -27,7 +27,7 @@ from typing import Any
 from phlo._correlation import resolve_project_identity
 from phlo.capabilities.interfaces import SnapshotPromotionCatalog, VersionedCatalog
 from phlo.capabilities.resolver import resolve_capability
-from phlo.config import get_settings
+from phlo.capabilities.runtime import configured_project_id
 from phlo.config.process import get_process_settings
 from phlo.config_schema import WapConfig
 from phlo.exceptions import PhloConfigError
@@ -441,7 +441,7 @@ class WapLaunch:
         evidence = _evidence()
         report = evidence.read_report(logical_run_id) or {}
         tags = report.get("launch_tags", {})
-        project = resolve_project_identity(tags, get_settings().phlo_project)
+        project = resolve_project_identity(tags, configured_project_id())
         checksum = tags.get(WAP_BINDING_TAG, "")
         binding = evidence.read_execution_seal(
             logical_run_id, checksum, tags, project_id=project.project_id or ""
@@ -629,7 +629,7 @@ def prepare_wap_launch(*, logical_run_id: str, environment: str | None = None) -
     """Create a WAP staging ref and tags before asking Dagster to start work."""
     from phlo.infrastructure import load_wap_config
 
-    project = resolve_project_identity(configured_project=get_settings().phlo_project)
+    project = resolve_project_identity(configured_project=configured_project_id())
     if not project.project_id:
         raise PhloConfigError(
             message="WAP materialization requires PHLO_PROJECT for run correlation.",
@@ -756,7 +756,7 @@ def verify_wap_execution(run: Any, *, capability_overrides: dict[str, str] | Non
     logical_run_id = tags.get(WAP_RUN_ID_TAG, "")
     checksum = tags.get(WAP_BINDING_TAG, "")
     evidence = _evidence()
-    project = resolve_project_identity(tags, get_settings().phlo_project)
+    project = resolve_project_identity(tags, configured_project_id())
     binding = evidence.read_execution_seal(
         logical_run_id, checksum, tags, project_id=project.project_id or ""
     )

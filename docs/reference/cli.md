@@ -1447,7 +1447,7 @@ Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 
 ## `phlo plugin install`
 
-Install a plugin from the registry (wraps pip).
+Install a plugin from the registry into this project.
 
 Capabilities: `json=true`, `dry_run=false`, `confirmation_flag=false`
 
@@ -1783,7 +1783,7 @@ Capabilities: `json=false`, `dry_run=false`, `confirmation_flag=false`
 | `no_dev` | option | `--no-dev` | `boolean` | false | `false` | flag |
 | `phlo_source` | option | `--phlo-source` | `path` | false | `Sentinel.UNSET` | none |
 | `service_dev` | option | `--service-dev` | `boolean` | false | `false` | flag |
-| `observatory_dev` | option | `--observatory-dev` | `boolean` | false | `false` | flag |
+| `observatory_dev` | option | `--observatory-dev` `--no-observatory-dev` | `boolean` | false | `none` | flag |
 | `production` | option | `--production` | `boolean` | false | `false` | flag |
 | `publish_all_interfaces` | option | `--publish-all-interfaces` | `boolean` | false | `false` | flag |
 | `allow_insecure` | option | `--allow-insecure` | `boolean` | false | `false` | flag |
@@ -1951,7 +1951,7 @@ Capabilities: `json=false`, `dry_run=true`, `confirmation_flag=false`
 | `confirm` | option | `--confirm` | `text` | false | `Sentinel.UNSET` | none |
 | `previous_generated` | option | `--previous-generated` | `directory` | false | `Sentinel.UNSET` | none |
 | `production` | option | `--production` | `boolean` | false | `false` | flag |
-| `observatory_dev` | option | `--observatory-dev` | `boolean` | false | `false` | flag |
+| `observatory_dev` | option | `--observatory-dev` `--no-observatory-dev` | `boolean` | false | `none` | flag |
 | `repair_empty_api_binds` | option | `--repair-empty-api-binds` | `boolean` | false | `false` | flag |
 | `allow_insecure` | option | `--allow-insecure` | `boolean` | false | `false` | flag |
 

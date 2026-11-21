@@ -89,7 +89,7 @@ def test_init_defaults_to_minimal_template(tmp_path) -> None:
     assert (project_dir / "phlo.yaml").exists()
     assert (project_dir / "workflows" / "__init__.py").exists()
     assert not (project_dir / "workflows" / "transforms" / "dbt" / "dbt_project.yml").exists()
-    assert _project_dependencies(project_dir) == ["phlo"]
+    assert _project_dependencies(project_dir) == ["phlo[defaults]"]
 
 
 def test_init_list_templates_outputs_metadata() -> None:
@@ -239,12 +239,12 @@ def test_csv_batch_init_prints_complete_onboarding_path(tmp_path) -> None:
 
     assert result.exit_code == 0, result.output
     assert f"cd {project_dir}" in result.output
-    assert "uv pip install -e ." in result.output
+    assert "uv sync" in result.output
     assert "phlo services init" in result.output
     assert "phlo services start" in result.output
     assert "phlo doctor" in result.output
     assert "phlo materialize dlt_events --partition 2025-01-15" in result.output
-    assert result.output.index("uv pip install -e .") < result.output.index("phlo services init")
+    assert result.output.index("uv sync") < result.output.index("phlo services init")
     assert result.output.index("phlo services init") < result.output.index("phlo services start")
     assert result.output.index("phlo services start") < result.output.index("phlo doctor")
 
@@ -254,7 +254,7 @@ def test_minimal_init_does_not_print_template_materialize_command(tmp_path) -> N
     result = CliRunner().invoke(cli, ["init", str(project_dir), "--template", "minimal"])
 
     assert result.exit_code == 0, result.output
-    assert "uv pip install -e ." in result.output
+    assert "uv sync" in result.output
     assert "phlo materialize" not in result.output
 
 
@@ -264,7 +264,8 @@ def test_generated_readme_uses_current_onboarding_commands(tmp_path) -> None:
 
     assert result.exit_code == 0, result.output
     readme = (project_dir / "README.md").read_text()
-    assert "uv pip install -e ." in readme
+    assert "uv sync" in readme
+    assert "uv run phlo services init" in readme
     assert "phlo services init" in readme
     assert "phlo services start" in readme
     assert "phlo services status" in readme
@@ -288,11 +289,11 @@ def test_csv_batch_readme_includes_runnable_template_command(tmp_path) -> None:
 @pytest.mark.parametrize(
     ("template_name", "expected_dependencies"),
     [
-        ("minimal", ["phlo"]),
-        ("basic", ["phlo", "phlo-dbt"]),
-        ("csv-batch", ["phlo", "phlo-dlt", "phlo-pandera"]),
-        ("api-ingestion", ["phlo", "phlo-dlt", "phlo-pandera"]),
-        ("observability-demo", ["phlo", "phlo-dlt", "phlo-pandera", "phlo-otel"]),
+        ("minimal", ["phlo[defaults]"]),
+        ("basic", ["phlo[defaults]", "phlo-dbt"]),
+        ("csv-batch", ["phlo[defaults]", "phlo-dlt", "phlo-pandera"]),
+        ("api-ingestion", ["phlo[defaults]", "phlo-dlt", "phlo-pandera"]),
+        ("observability-demo", ["phlo[defaults]", "phlo-dlt", "phlo-pandera", "phlo-otel"]),
     ],
 )
 def test_template_writes_required_packages_to_pyproject(

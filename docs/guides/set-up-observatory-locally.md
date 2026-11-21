@@ -11,13 +11,19 @@ shared network. It is not a production login mechanism.
 
 ## Generate the development configuration
 
-1. Choose local development once when initialising the services configuration:
+1. Initialise the services configuration:
 
    ```bash
-   phlo services init --observatory-dev
+   phlo services init
    ```
 
-   The command enables `phlo-api` and `observatory`, binds host ports to loopback,
+   In development, with `phlo-api` and `observatory` installed (both are in
+   `phlo[defaults]`) and no authentication configured in `phlo.yaml`, this sets
+   up the local sign-in by itself. `phlo services init --observatory-dev` does
+   the same explicitly, including on a project whose stack was generated
+   without the API and UI, and `--no-observatory-dev` leaves authentication to
+   you. `phlo services upgrade` gives an older development stack the same
+   sign-in in its reviewed plan. The command enables `phlo-api` and `observatory`, binds host ports to loopback,
    and writes the normal Compose and environment files without development source
    mounts. Use `--dev` separately only when developing Phlo itself. It also writes:
 
@@ -25,7 +31,10 @@ shared network. It is not a production login mechanism.
      authorisation, and a single `sandbox` target if no environments exist.
    - `.phlo/authorization/roles.yaml` with the `dev_user` role assignment.
    - `.phlo/authorization/policies.yaml` with discovery and environment-scoped
-     read permissions. V1 mutation permissions are not granted.
+     reads, plus what a developer does on their own lakehouse: materialize and
+     backfill assets, launch, cancel and retry runs, create and merge branches,
+     upload CSV files, and edit data products, metric models, drafts, queries
+     and notebooks. Admin, service and settings management are not granted.
 
    Existing authentication, API authorisation, and policy files are not
    overwritten. Review an existing security configuration manually instead.
@@ -77,8 +86,8 @@ shared network. It is not a production login mechanism.
 
    A backend outage must remain visible. Do not add a dummy environment to hide
    an unavailable target. Additional roles and mutation grants require an
-   explicit `phlo authz` setup. The generated identity has environment-scoped
-   reads, plus permission to run and save queries on the Query page.
+   explicit `phlo authz` setup. The generated identity has the environment-scoped
+   reads and actions listed in step 1.
 
 ## Query page
 

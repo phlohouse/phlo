@@ -9,7 +9,7 @@ Integrates dbt (data build tool) with the Phlo lakehouse. Provides asset specs f
 ## Installation
 
 ```bash
-pip install phlo-dbt
+uv add phlo-dbt
 # or
 phlo plugin install dbt
 ```

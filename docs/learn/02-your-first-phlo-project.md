@@ -45,16 +45,16 @@ Create a project and install its workflow package:
 ```bash
 phlo init my-lakehouse --template csv-batch
 cd my-lakehouse
-uv pip install -e .
+uv sync
 ```
 
 Generate and start the local runtime:
 
 ```bash
-phlo services init
-phlo services start
-phlo services status
-phlo doctor
+uv run phlo services init
+uv run phlo services start
+uv run phlo services status
+uv run phlo doctor
 ```
 
 Inspect what Dagster would launch for the completed partition before executing it:
@@ -81,7 +81,7 @@ Open `http://localhost:10006` and select the `dlt_events` asset. The asset graph
 
 ## Where this goes wrong
 
-- **The workflow package is not installed.** Dagster cannot import the project when `uv pip install -e .` has not run from the project root.
+- **The workflow package is not installed.** Dagster cannot import the project when `uv sync` has not run from the project root.
 - **The generated stack is not ready.** `phlo services status` and `phlo doctor` identify unhealthy or missing services before you investigate the asset.
 - **You choose today's partition.** The daily partition remains open, so use a completed date such as `2025-01-15`.
 - **You inspect only container logs.** Start with the Dagster run because it links the asset, partition, step, and check result.

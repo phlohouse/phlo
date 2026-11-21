@@ -523,6 +523,9 @@ def configure_non_dev_compose(
             "--profile",
             "api",
             "--force",
+            # This path proves service-token authentication, so it keeps the
+            # local development sign-in out of the stack.
+            "--no-observatory-dev",
         ),
         cwd=config.project_dir,
     )

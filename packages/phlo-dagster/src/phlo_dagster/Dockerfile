@@ -9,7 +9,7 @@ COPY . .
 # Placeholder lock metadata keeps non-uv builds working: generated stacks for
 # projects without pyproject.toml/uv.lock copy empty files and retain the
 # existing PyPI installation path.
-RUN mkdir -p /opt/phlo-build-context/wheelhouse \
+RUN mkdir -p /opt/phlo-build-context/wheelhouse /opt/phlo-build-context/certs \
     && touch /opt/phlo-build-context/pyproject.toml /opt/phlo-build-context/uv.lock
 
 FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS runtime
@@ -34,6 +34,12 @@ ARG PHLO_UV_LOCKED=""
 # consumers running `phlo services start --build` weeks after the phlo release.
 # `apt-get upgrade` below resolves the current point release even with a
 # digest-pinned base, so package pins cost nothing but breakage.
+# Extra certificate authorities (for example a corporate TLS-inspecting proxy)
+# come from the project's .phlo/certs/*.crt; the directory is usually empty.
+COPY --from=phlo-build-context /opt/phlo-build-context/certs/ /usr/local/share/ca-certificates/phlo/
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    PIP_CERT=/etc/ssl/certs/ca-certificates.crt
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get upgrade --no-install-recommends --yes \
@@ -44,6 +50,7 @@ RUN apt-get update \
         git \
         gosu \
     && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates \
     && pip install --no-cache-dir "uv==0.13.4"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

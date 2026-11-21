@@ -9,7 +9,7 @@ Core PostgreSQL database for metadata storage, lineage tracking, and operational
 ## Installation
 
 ```bash
-pip install phlo-postgres
+uv add phlo-postgres
 # or
 phlo plugin install postgres
 ```

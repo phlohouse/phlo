@@ -59,6 +59,7 @@ include-package-data = true
 phlo_clickhouse = [
     "service.yaml",
     "clickhouse-setup.yaml",
+    "conf/*.xml",
 ]
 
 [tool.setuptools.package-dir]

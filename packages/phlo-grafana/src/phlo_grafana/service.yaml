@@ -9,6 +9,7 @@ image: grafana/grafana:13.1.1@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb92
 depends_on:
   - prometheus
   - loki
+  - postgres
 
 compose:
   restart: unless-stopped
@@ -21,6 +22,10 @@ compose:
     GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
     GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run phlo services init to generate GRAFANA_ADMIN_PASSWORD}
     GF_USERS_ALLOW_SIGN_UP: "false"
+    # Read by the provisioned PostgreSQL data source.
+    POSTGRES_USER: ${POSTGRES_USER:-phlo}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run phlo services init to generate POSTGRES_PASSWORD}
+    POSTGRES_DB: ${POSTGRES_DB:-phlo}
   ports:
     - "${GRAFANA_PORT:-3003}:3000"
   volumes:

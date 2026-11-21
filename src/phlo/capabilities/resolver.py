@@ -24,10 +24,16 @@ from phlo.logging_context import get_logger
 
 logger = get_logger(__name__)
 
-# MinIO is the deterministic default object store when no explicit choice is
-# configured and multiple object-store providers are installed. This avoids
-# ambiguity and install-order-dependent resolution.
-FAMILY_DEFAULT_CAPABILITIES: dict[str, str] = {"object_store": "minio"}
+# Deterministic defaults when no explicit choice is configured and several
+# providers of a family are installed (for example Polaris next to Nessie, or
+# RustFS next to MinIO). This avoids ambiguity and install-order-dependent
+# resolution; phlo.yaml capabilities.defaults or PHLO_DEFAULT_CAPABILITIES
+# still pick another provider.
+FAMILY_DEFAULT_CAPABILITIES: dict[str, str] = {
+    "object_store": "minio",
+    "catalog": "nessie",
+    "catalog_scanner": "nessie",
+}
 
 
 class CapabilityRequirements(Protocol):

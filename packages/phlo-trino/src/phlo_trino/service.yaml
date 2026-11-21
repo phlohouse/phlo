@@ -69,6 +69,7 @@ env_vars:
     default: ""
     description: "OAuth2 client secret"
     secret: true
+    generate: false
   # TLS/HTTPS
   TRINO_HTTPS_ENABLED:
     default: "false"

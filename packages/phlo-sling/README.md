@@ -11,7 +11,7 @@ Where DLT excels at API-based ingestion with schema evolution and normalisation,
 ## Installation
 
 ```bash
-pip install phlo-sling
+uv add phlo-sling
 ```
 
 ## Usage

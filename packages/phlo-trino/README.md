@@ -9,7 +9,7 @@ Trino query engine for querying the Iceberg lakehouse. Provides SQL access to al
 ## Installation
 
 ```bash
-pip install phlo-trino
+uv add phlo-trino
 # or
 phlo plugin install trino
 ```

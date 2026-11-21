@@ -18,6 +18,17 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# Trust extra certificate authorities, such as a corporate TLS-inspecting proxy,
+# placed in the project's .phlo/certs/ as PEM files named *.crt.
+if compgen -G "/app/.phlo/certs/*.crt" > /dev/null; then
+    mkdir -p /usr/local/share/ca-certificates/phlo
+    cp /app/.phlo/certs/*.crt /usr/local/share/ca-certificates/phlo/
+    update-ca-certificates > /dev/null
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+    echo "Trusting extra certificate authorities from .phlo/certs"
+fi
+
 # If dev mode is enabled, sync dependencies from mounted pyproject.toml
 if [ "$PHLO_DEV_MODE" = "true" ] && [ -f /opt/phlo-dev/pyproject.toml ]; then
     echo "Dev mode: syncing dependencies from pyproject.toml..."
@@ -51,7 +62,18 @@ fi
 
 # Install the mounted user project so workflow imports and project dependencies
 # are available before Dagster loads Definitions.
+# A restarted container keeps what it installed, so it skips the install (and
+# the package index) until the project's dependency files change.
+project_install_marker=/var/lib/phlo-project-installed
+project_install_digest=""
 if [ -f /app/pyproject.toml ]; then
+    # uv.lock is optional; pipefail must not abort when it is absent.
+    project_install_digest="$( { cat /app/pyproject.toml; cat /app/uv.lock 2>/dev/null || true; } | sha256sum | cut -d' ' -f1)"
+fi
+if [ -n "$project_install_digest" ] && [ "$PHLO_DEV_MODE" != "true" ] \
+    && [ "$(cat "$project_install_marker" 2>/dev/null)" = "$project_install_digest" ]; then
+    echo "Mounted Phlo project unchanged; skipping install"
+elif [ -f /app/pyproject.toml ]; then
     echo "Installing mounted Phlo project..."
     # A generated project can declare an optional Phlo capability after the
     # stack has started (for example, phlo-pandera after creating an ingestion
@@ -93,6 +115,7 @@ PY
     else
         (cd /app && uv pip install "${uv_target[@]}" -e .)
     fi
+    echo "$project_install_digest" > "$project_install_marker"
     echo "Mounted Phlo project installed"
 fi
 

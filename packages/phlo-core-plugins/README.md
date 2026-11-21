@@ -9,7 +9,7 @@ Provides built-in quality check plugins and source connectors. These are registe
 ## Installation
 
 ```bash
-pip install phlo-core-plugins
+uv add phlo-core-plugins
 # or included with phlo by default
 ```
 

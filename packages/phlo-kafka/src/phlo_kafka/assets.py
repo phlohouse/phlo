@@ -31,6 +31,7 @@ from phlo.capabilities.resolver import resolve_capability
 from phlo.capabilities.runtime import RuntimeContext
 from phlo.capabilities.table_store import schema_policy_kwargs
 from phlo.exceptions import PhloConfigError
+from phlo.helpers.tables import table_exists
 from phlo.logging import get_logger, log_event
 
 from phlo_kafka.checkpoints import KafkaCheckpointAdapter
@@ -88,6 +89,15 @@ def _validate_consumer_config(config: KafkaConsumerConfig) -> None:
                 "idempotent merges are what make retries produce no duplicates."
             ),
             suggestions=["Declare the record fields that uniquely identify a logical row."],
+        )
+    namespace, _, table = config.destination_table.rpartition(".")
+    if not namespace or not table:
+        raise PhloConfigError(
+            message=(
+                f"Kafka consumer asset {config.name!r} writes to "
+                f"{config.destination_table!r}, which names no namespace."
+            ),
+            suggestions=[f"Name the destination as namespace.table, e.g. 'raw.{table}'."],
         )
 
 
@@ -272,7 +282,10 @@ def _make_stager(config: KafkaConsumerConfig, catalog: Any, table_store: Any):
         return stager
 
     policy_kwargs = schema_policy_kwargs(
-        table_store, config.schema_policy, methods=("merge_parquet",), legacy_default="additive"
+        table_store,
+        config.schema_policy,
+        methods=("merge_parquet", "ensure_table"),
+        legacy_default="additive",
     )
 
     def table_store_stager(checkpoint_id: str, records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -284,7 +297,16 @@ def _make_stager(config: KafkaConsumerConfig, catalog: Any, table_store: Any):
 
         with tempfile.TemporaryDirectory(prefix="phlo-kafka-stage-") as tmp:
             path = Path(tmp) / "batch.parquet"
-            pq.write_table(pa.Table.from_pylist(records), path)
+            batch = pa.Table.from_pylist(records)
+            pq.write_table(batch, path)
+            # The first batch creates the destination from the records' own
+            # schema; later batches go through the merge's schema policy.
+            if not table_exists(config.destination_table, table_store=table_store):
+                table_store.ensure_table(
+                    table_name=config.destination_table,
+                    schema=batch.schema,
+                    **policy_kwargs,
+                )
             result = table_store.merge_parquet(
                 table_name=config.destination_table,
                 data_path=str(path),

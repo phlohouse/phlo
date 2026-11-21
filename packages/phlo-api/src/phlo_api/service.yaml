@@ -13,7 +13,7 @@ build:
         PHLO_VERSION: ${PHLO_VERSION:-}
         PHLO_API_VERSION: ${PHLO_API_VERSION:-}
         PHLO_WHEELHOUSE: ${PHLO_WHEELHOUSE:-}
-        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS:-}
+        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS-dagster,dlt,iceberg,trino}
         PHLO_TRANSFORM_BINARY: ${PHLO_TRANSFORM_BINARY:-}
         PHLO_TRANSFORM_SHA256: ${PHLO_TRANSFORM_SHA256:-}
 
@@ -44,7 +44,7 @@ compose:
         HOST: 0.0.0.0
         PORT: 4000
         PYTHONUNBUFFERED: "1"
-        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS:-}
+        PHLO_API_EXTRAS: ${PHLO_API_EXTRAS-dagster,dlt,iceberg,trino}
         PHLO_AUTHORIZATION_MODE: ${PHLO_AUTHORIZATION_MODE:-required}
         PHLO_AUTHENTICATION_PROVIDER: ${PHLO_AUTHENTICATION_PROVIDER:-}
         PHLO_SERVICE_CREDENTIALS_FILE: ${PHLO_SERVICE_CREDENTIALS_FILE:-}
@@ -81,6 +81,10 @@ compose:
         PHLO_V1_BRANCH_CHECK_JOBS: ${PHLO_V1_BRANCH_CHECK_JOBS:-}
         PHLO_API_OPERATION_CONTROLS_DB_URL: ${PHLO_API_OPERATION_CONTROLS_DB_URL:-}
         PHLO_API_OPERATION_CONTROLS_NAMESPACE: ${PHLO_API_OPERATION_CONTROLS_NAMESPACE:-}
+        # Observatory actions claim a durable journal before they launch runs.
+        # Shared operation controls take precedence; otherwise it is kept in
+        # the API's persistent state directory.
+        PHLO_OPERATIONS_JOURNAL_DIR: ${PHLO_OPERATIONS_JOURNAL_DIR:-/app/.phlo/state/operations-journal}
         WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
         POSTGRES_HOST: postgres
         POSTGRES_PORT: "5432"
@@ -185,8 +189,8 @@ compose:
 
 env_vars:
     PHLO_API_EXTRAS:
-        default: ""
-        description: Comma-separated API provider extras to install when building, such as iceberg,dlt,trino,transform; empty keeps the base image minimal
+        default: "dagster,dlt,iceberg,trino"
+        description: Comma-separated API provider extras to install when building; the default gives Observatory the core stack's providers (Dagster, dlt, Iceberg, Trino). Set it to an empty value for a minimal image
     PHLO_TRANSFORM_BINARY:
         default: ""
         description: Optional approved native engine path relative to the API image build context; must run on the image platform and libc
@@ -202,6 +206,9 @@ env_vars:
     PHLO_API_OPERATION_CONTROLS_NAMESPACE:
         default: ""
         description: Stable project identity shared by every API replica; required with the controls DSN
+    PHLO_OPERATIONS_JOURNAL_DIR:
+        default: ""
+        description: Durable operation journal for Observatory actions when no shared operation controls are configured; empty uses the API state directory
     PHLO_VERSION:
         default: ""
         package: phlo
@@ -305,6 +312,7 @@ env_vars:
         default: ""
         description: Repository-scoped credential with contents write and pull request write permissions for draft check proposals
         secret: true
+        generate: false
     PHLO_V1_ACTIONS_SINGLE_REPLICA:
         default: ""
         description: Operator assertion that the API is deployed as one replica

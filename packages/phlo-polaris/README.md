@@ -20,7 +20,7 @@ for the same warehouse. Nessie remains fully supported; use
 ## Installation
 
 ```bash
-pip install phlo-polaris
+uv add phlo-polaris
 # or
 phlo plugin install polaris
 ```
