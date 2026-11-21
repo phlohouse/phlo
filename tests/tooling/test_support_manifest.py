@@ -84,15 +84,17 @@ def test_release_set_rejects_duplicate_package_and_service_names() -> None:
     assert "release_set.services contains duplicate service names" in errors
 
 
-def test_release_set_must_include_every_blessed_core_package() -> None:
+@pytest.mark.parametrize("left_out", ["phlo-trino", "phlo-kafka"])
+def test_release_set_must_include_every_manifest_package(left_out: str) -> None:
+    """Core or not, every workspace package publishes with each release."""
     manifest = _manifest()
     manifest["release_set"]["packages"] = [
-        entry for entry in manifest["release_set"]["packages"] if entry["name"] != "phlo-trino"
+        entry for entry in manifest["release_set"]["packages"] if entry["name"] != left_out
     ]
 
     errors = validate_manifest(manifest)
 
-    assert "release_set.packages must include every blessed_core package: ['phlo-trino']" in errors
+    assert f"release_set.packages must include every manifest package: ['{left_out}']" in errors
 
 
 def test_release_set_may_publish_non_core_manifest_packages_without_promoting_them() -> None:

@@ -715,16 +715,12 @@ def _release_set_package_errors(ctx: _ManifestContext) -> list[str]:
     if len(release_package_names) != len(set(release_package_names)):
         errors.append("release_set.packages contains duplicate package names")
     release_packages = {entry["name"]: entry["version"] for entry in release_set["packages"]}
-    blessed_packages = {
-        _normalise_package_name(entry["name"])
-        for entry in ctx.packages
-        if entry["scope"] == "blessed_core"
-    }
-    # The release set decides what is published; blessed_core decides what is promised.
-    # Every blessed_core package must ship, and any other manifest package may opt in.
-    if missing := sorted(blessed_packages - set(release_packages)):
-        errors.append(f"release_set.packages must include every blessed_core package: {missing}")
     declared_packages = {_normalise_package_name(entry["name"]) for entry in ctx.packages}
+    # The release set decides what is published; scope decides what is promised.
+    # Every workspace package ships with each release, so `phlo services add`
+    # can install any plugin at the release's version.
+    if missing := sorted(declared_packages - set(release_packages)):
+        errors.append(f"release_set.packages must include every manifest package: {missing}")
     if unknown := sorted(set(release_packages) - declared_packages):
         errors.append(
             f"release_set.packages names packages absent from the package manifest: {unknown}"

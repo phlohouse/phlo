@@ -1417,6 +1417,61 @@ def test_hashed_requirements_pin_every_bom_wheel_with_its_digest(tmp_path: Path)
     assert path == destination
 
 
+def test_operator_installs_the_core_and_its_dependencies_not_every_published_plugin(
+    tmp_path: Path,
+) -> None:
+    """Every package is published; the golden path still proves a core-only operator."""
+    config = _config(tmp_path)
+    distributions = tmp_path / "distributions"
+    distributions.mkdir()
+    requires = {"phlo-api": ["phlo-lineage>=0.1", "phlo-transform; extra == 'transform'"]}
+    artifacts = []
+    for name in ("phlo", "phlo-api", "phlo-lineage", "phlo-transform", "phlo-kafka"):
+        normalized = name.replace("-", "_")
+        wheel = distributions / f"{normalized}-1.0.0-py3-none-any.whl"
+        lines = [f"Name: {name}", "Version: 1.0.0"]
+        lines += [f"Requires-Dist: {requirement}" for requirement in requires.get(name, [])]
+        with zipfile.ZipFile(wheel, "w") as archive:
+            archive.writestr(f"{normalized}-1.0.0.dist-info/METADATA", "\n".join(lines) + "\n")
+        artifacts.append(
+            {
+                "kind": "wheel",
+                "name": name,
+                "version": "1.0.0",
+                "digest": release_golden_path.bom_module.file_sha256(wheel),
+            }
+        )
+    config.__dict__.update(bom={"artifacts": artifacts}, staging_dir=tmp_path)
+
+    names = [artifact["name"] for artifact in release_golden_path.operator_wheels(config)]
+
+    # The core's unconditional dependency comes along; the extra-only
+    # phlo-transform and the optional phlo-kafka are published, not installed.
+    assert names == ["phlo", "phlo-api", "phlo-lineage"]
+
+
+def test_operator_scopes_come_from_the_candidate_support_manifest(tmp_path: Path) -> None:
+    """A candidate built from another commit is judged by its own pinned scopes."""
+    config = _config(tmp_path)
+    artifacts = [
+        {"kind": "wheel", "name": name, "version": "1.0.0", "digest": f"sha256:{index}"}
+        for index, name in enumerate(("phlo", "phlo-kafka"))
+    ]
+    pinned = {
+        "packages": [
+            {"name": "phlo", "scope": "blessed_core"},
+            {"name": "phlo-kafka", "scope": "blessed_core"},
+        ]
+    }
+    config.__dict__.update(
+        bom={"artifacts": artifacts, "support_manifest": json.dumps(pinned)}, staging_dir=None
+    )
+
+    names = [artifact["name"] for artifact in release_golden_path.operator_wheels(config)]
+
+    assert names == ["phlo", "phlo-kafka"]
+
+
 def test_verify_installed_versions_requires_exact_bom_versions(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
     config.__dict__.update(bom=_candidate_bom())
