@@ -256,19 +256,39 @@ def test_independent_image_tags_are_never_overwritten(
         "esac\nexit 1\n"
     )
     docker.chmod(0o755)
-    digests = tmp_path / "digests"
-    digests.mkdir()
-    for digest in ("a" * 64, "b" * 64):
+    for arch, digest in (("amd64", "a" * 64), ("arm64", "b" * 64)):
+        digests = tmp_path / "digests" / f"digest-minio-{arch}"
+        digests.mkdir(parents=True)
         (digests / digest).touch()
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
     monkeypatch.setenv("REGISTRY_STATE", registry_state)
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
-    monkeypatch.setenv("IMAGE", "ghcr.io/phlohouse/phlo-minio:0.29.1")
+    monkeypatch.setenv(
+        "TARGETS",
+        json.dumps(
+            [
+                {
+                    "image": "ghcr.io/phlohouse/phlo-minio:0.29.1",
+                    "service": "minio",
+                    "services": ["minio"],
+                }
+            ]
+        ),
+    )
     monkeypatch.setenv("IMMUTABLE_TAGS", "true")
     result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True)
     assert (result.returncode == 0) is (registry_state == "missing"), result.stderr
-    assert (tmp_path / "published").exists() is (registry_state == "missing")
+    published = tmp_path / "generated-service-images.json"
+    assert published.exists() is (registry_state == "missing")
+    if registry_state == "missing":
+        assert json.loads(published.read_text()) == [
+            {
+                "image": "ghcr.io/phlohouse/phlo-minio:0.29.1",
+                "digest": "sha256:" + "0" * 63 + "3",
+                "services": ["minio"],
+            }
+        ]
 
 
 def test_build_uses_built_distributions_for_images_and_one_bom() -> None:
