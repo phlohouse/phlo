@@ -226,8 +226,8 @@ jobs:
           else
             test "$DOCS" = skipped
           fi
-      # A reused queue entry has no full-queue evidence of its own, so a release
-      # candidate at that commit falls back to running full validation.
+      # A reused queue entry has no full-queue evidence of its own; main re-proves
+      # the PR run its reuse decision names instead (ci_evidence.py reuse).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         if: github.event_name == 'merge_group' && needs.changes.outputs.reused != 'true'
         with:

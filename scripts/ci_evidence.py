@@ -268,12 +268,16 @@ def reuse(sha: str, output: Path) -> None:
         if run.get("status") != "completed" or run.get("conclusion") != "success":
             raise ValueError("Latest queue evidence is not complete and successful")
         with tempfile.TemporaryDirectory() as temporary:
-            name = f"merge-validation-{sha}-{run['id']}-{run['run_attempt']}"
-            artifact = github.download_artifact(run, name, Path(temporary))
-            manifest = json.loads((artifact / "merge-validation.json").read_text())
-            validate_manifest(manifest, run, run_jobs(run), expected_jobs(), policy_digest())
-            if manifest.get("dependency_assessment") != assessment_record(run, Path(temporary)):
-                raise ValueError("Dependency evidence differs from the queue manifest")
+            if reused_queue_entry(run, Path(temporary)):
+                pull_run = reused_pull_run(run, workflow, sha, Path(temporary))
+                decision.update(tested_by=pull_run)
+            else:
+                name = f"merge-validation-{sha}-{run['id']}-{run['run_attempt']}"
+                artifact = github.download_artifact(run, name, Path(temporary))
+                manifest = json.loads((artifact / "merge-validation.json").read_text())
+                validate_manifest(manifest, run, run_jobs(run), expected_jobs(), policy_digest())
+                if manifest.get("dependency_assessment") != assessment_record(run, Path(temporary)):
+                    raise ValueError("Dependency evidence differs from the queue manifest")
         decision.update(reused=True, run_id=run["id"], run_attempt=run["run_attempt"])
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
         decision["reason"] = str(error)
@@ -388,6 +392,48 @@ def tree_reuse(output: Path, *, now: datetime | None = None) -> None:
     if "GITHUB_OUTPUT" in os.environ:
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
             stream.write(f"reused={str(decision['reused']).lower()}\n")
+
+
+def reused_queue_entry(run: dict, destination: Path) -> dict | None:
+    """The queue run's own reuse decision, when it reused a PR run."""
+    name = f"tree-reuse-{run['head_sha']}"
+    artifacts = github.pages(
+        f"repos/{github.REPOSITORY}/actions/runs/{run['id']}/artifacts", "artifacts"
+    )
+    if not any(item.get("name") == name for item in artifacts):
+        return None
+    folder = github.download_artifact(run, name, destination)
+    decision = json.loads((folder / "tree-reuse.json").read_text())
+    return decision if decision.get("reused") is True else None
+
+
+def reused_pull_run(queue: dict, workflow: dict, sha: str, destination: Path) -> int:
+    """Main reuses a queue entry that reused a PR run only after re-proving that run.
+
+    The queue run itself must be complete and green (dependency risk and container
+    policy ran there against the queue base), and the PR run it named must still
+    be the fresh, complete, green run of the identical tree.
+    """
+    decision = reused_queue_entry(queue, destination / "queue")
+    if decision is None:
+        raise ValueError("The queue entry did not reuse a PR run")
+    tree = (
+        subprocess.check_output(["git", "rev-parse", f"{sha}^{{tree}}"], cwd=ROOT).decode().strip()
+    )
+    if decision.get("tree") != tree:
+        raise ValueError("The queue reuse decision names a different tree")
+    run = github.api(f"repos/{github.REPOSITORY}/actions/runs/{int(decision['run_id'])}")
+    validate_tested_run(run, workflow)
+    if run["head_sha"] != decision.get("head"):
+        raise ValueError("The reused PR run tested a different head")
+    record_dir = github.download_artifact(run, TREE_ARTIFACT, destination / "pull")
+    record = json.loads((record_dir / "validated-tree.json").read_text())
+    if record != {"tree": tree, "head": run["head_sha"], "run_id": run["id"]}:
+        raise ValueError("The PR run tested a different tree")
+    expected = expected_jobs()
+    successful_jobs(run_jobs(run), expected, run["head_sha"])
+    assessment_record(queue, destination / "assessment")
+    return run["id"]
 
 
 def main() -> None:

@@ -447,3 +447,112 @@ def test_anything_unproven_gets_the_full_queue_run(tmp_path, monkeypatch, overri
     decision = tree_reuse_setup(tmp_path, monkeypatch, **overrides)
     assert decision["reused"] is False
     assert decision["reason"]
+
+
+def main_reuse_setup(tmp_path, monkeypatch, *, decision=None, pull=None, jobs=None, record=None):
+    """Main after a reused queue entry: the queue run is green and names the PR run."""
+    queue = {
+        "id": 71,
+        "run_attempt": 1,
+        "head_sha": SHA,
+        "repository": {"full_name": "phlohouse/phlo"},
+        "head_repository": {"full_name": "phlohouse/phlo"},
+        "workflow_id": 31,
+        "path": evidence.WORKFLOW,
+        "event": "merge_group",
+        "head_branch": "gh-readonly-queue/main/pr-1308-" + "b" * 40,
+        "status": "completed",
+        "conclusion": "success",
+    }
+    pull_run = {
+        "id": 88,
+        "run_attempt": 1,
+        "head_sha": HEAD,
+        "repository": {"full_name": "phlohouse/phlo"},
+        "head_repository": {"full_name": "phlohouse/phlo"},
+        "workflow_id": 31,
+        "path": evidence.WORKFLOW,
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "run_started_at": datetime.now(UTC).isoformat(),
+    }
+    pull_run.update(pull or {})
+    expected = {"ci / core", "pr / required"}
+    files = {
+        "tree-reuse.json": decision
+        or {"reused": True, "tree": TREE, "head": HEAD, "run_id": 88, "pull_request": 1308},
+        "validated-tree.json": record or {"tree": TREE, "head": HEAD, "run_id": 88},
+    }
+
+    def api(path):
+        if "workflows/pr.yml" in path:
+            return {"id": 31, "path": evidence.WORKFLOW}
+        return pull_run if path.endswith("/runs/88") else queue
+
+    def pages(path, _key):
+        if path.endswith("/runs/71/artifacts"):
+            return [{"name": f"tree-reuse-{SHA}"}]
+        return [queue]
+
+    def download(found, name, destination):
+        folder = destination / name
+        folder.mkdir(parents=True)
+        filename = "tree-reuse.json" if name.startswith("tree-reuse-") else "validated-tree.json"
+        (folder / filename).write_text(json.dumps(files[filename]))
+        return folder
+
+    monkeypatch.setattr(evidence.github, "api", api)
+    monkeypatch.setattr(evidence.github, "pages", pages)
+    monkeypatch.setattr(evidence.github, "download_artifact", download)
+    monkeypatch.setattr(evidence, "expected_jobs", lambda: expected)
+    monkeypatch.setattr(
+        evidence,
+        "run_jobs",
+        lambda _run: (
+            jobs
+            if jobs is not None
+            else [
+                {"name": name, "status": "completed", "conclusion": "success", "head_sha": HEAD}
+                for name in expected
+            ]
+        ),
+    )
+    monkeypatch.setattr(evidence, "assessment_record", lambda run, _destination: {"ok": run["id"]})
+    monkeypatch.setattr(
+        evidence.subprocess, "check_output", lambda *_args, **_kwargs: f"{TREE}\n".encode()
+    )
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    output = tmp_path / "decision.json"
+    evidence.reuse(SHA, output)
+    return json.loads(output.read_text())
+
+
+def test_main_reuses_a_queue_entry_that_reused_the_identical_pr_run(tmp_path, monkeypatch):
+    assert main_reuse_setup(tmp_path, monkeypatch) == {
+        "reused": True,
+        "sha": SHA,
+        "tested_by": 88,
+        "run_id": 71,
+        "run_attempt": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"decision": {"reused": True, "tree": "f" * 40, "head": HEAD, "run_id": 88}},
+        {"record": {"tree": "f" * 40, "head": HEAD, "run_id": 88}},
+        {"pull": {"conclusion": "failure"}},
+        {"pull": {"head_sha": "9" * 40}},
+        {"pull": {"head_repository": {"full_name": "fork/phlo"}}},
+        {"jobs": []},
+    ],
+    ids=["other-tree", "pr-tested-other-tree", "red-pr-run", "other-head", "fork", "partial"],
+)
+def test_main_runs_full_validation_when_the_reused_pr_run_does_not_hold(
+    tmp_path, monkeypatch, overrides
+):
+    decision = main_reuse_setup(tmp_path, monkeypatch, **overrides)
+    assert decision["reused"] is False
+    assert decision["reason"]

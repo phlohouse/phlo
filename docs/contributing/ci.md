@@ -19,8 +19,10 @@ same-repository PR; the PR's latest validation run is completed, green and
 under 24 hours old; it ran every configured job, isolated package groups
 included; it recorded the tree it tested and that tree equals the queue
 commit's tree; and the PR head merged onto the queue base produces that tree.
-A reused entry writes no full-queue evidence, so a release candidate at that
-commit runs full validation itself.
+Main then accepts that queue entry the same way: it re-proves the named PR run
+(fresh, complete, green, same tree) and the queue run's dependency assessment,
+so the suite runs once per change. Past 24 hours, or if anything differs, main
+runs full validation itself.
 
 Isolated package tests run each package in its own dependency environment. The
 workspace coverage shards already run those tests, so the isolated groups only
