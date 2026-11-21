@@ -158,11 +158,12 @@ def test_required_suite_executes_and_rejects_skips(tmp_path, body) -> None:
 
 
 def test_merge_queue_executes_full_selection(tmp_path) -> None:
-    step = workflow("pr.yml")["jobs"]["changes"]["steps"][-1]
+    step = _select_step(workflow("pr.yml")["jobs"]["changes"])
     output = tmp_path / "output"
     summary = tmp_path / "summary"
     env = dict(
         os.environ,
+        REUSED="false",
         EVENT_NAME="merge_group",
         GITHUB_OUTPUT=str(output),
         GITHUB_STEP_SUMMARY=str(summary),
@@ -251,11 +252,18 @@ def test_pr_selection_fetches_exact_endpoints_from_a_shallow_merge(tmp_path, mis
             != 0
         )
     job = workflow("pr.yml")["jobs"]["changes"]
-    assert job["steps"][0]["with"] == {"persist-credentials": False, "fetch-depth": 1}
-    step = job["steps"][-1]
+    assert job["steps"][0]["with"] == {
+        "persist-credentials": False,
+        "fetch-depth": "${{ github.event_name == 'merge_group' && '0' || '1' }}",
+        "filter": "blob:none",
+    }
+    step = _select_step(job)
     output = tmp_path / "output"
     env = dict(
         os.environ,
+        REUSED="false",
+        RUNNER_TEMP=str(tmp_path),
+        GITHUB_RUN_ID="4242",
         EVENT_NAME="pull_request",
         BASE_SHA=base,
         HEAD_SHA=head,
@@ -277,6 +285,12 @@ def test_pr_selection_fetches_exact_endpoints_from_a_shallow_merge(tmp_path, mis
         assert actual.returncode == 0, actual.stderr
         values = dict(line.split("=", 1) for line in output.read_text().splitlines())
         assert json.loads(values["selection"]) == expected
+        # The run records the exact merge tree it tests, for the queue to match.
+        assert json.loads((tmp_path / "validated-tree.json").read_text()) == {
+            "tree": git("rev-parse", "HEAD^{tree}", cwd=checkout),
+            "head": head,
+            "run_id": 4242,
+        }
 
 
 def test_local_skip_remains_successful_without_required_plugin(tmp_path) -> None:
@@ -604,3 +618,42 @@ def test_rescan_attempts_every_image_before_reporting_failure(tmp_path, mode) ->
     calls = (tmp_path / "calls").read_text()
     assert "example/first@sha256:1" in calls
     assert "example/second@sha256:2" in calls
+
+
+def _select_step(job: dict) -> dict:
+    return next(step for step in job["steps"] if step.get("id") == "select")
+
+
+def test_a_reused_queue_entry_reruns_only_the_cheap_lanes(tmp_path) -> None:
+    pr = workflow("pr.yml")
+    changes = pr["jobs"]["changes"]
+    output = tmp_path / "output"
+    env = dict(
+        os.environ,
+        REUSED="true",
+        EVENT_NAME="merge_group",
+        GITHUB_OUTPUT=str(output),
+        GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+    )
+    subprocess.run(["bash", "-c", _select_step(changes)["run"]], cwd=ROOT, env=env, check=True)
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    selection = json.loads(values["selection"])
+    assert selection["groups"] == []
+    assert not any(
+        selection[lane]
+        for lane in ("python", "frontend", "writer", "integration", "docs", "plugin", "mutation")
+    )
+    reuse = next(step for step in changes["steps"] if step.get("id") == "reuse")
+    assert reuse["if"] == "github.event_name == 'merge_group'"
+    assert "ci_evidence.py tree-reuse" in reuse["run"]
+    # Only a verified reuse may skip lanes; the default is the full queue run.
+    assert changes["outputs"]["reused"] == "${{ steps.reuse.outputs.reused || 'false' }}"
+    assert _select_step(changes)["env"]["REUSED"] == "${{ steps.reuse.outputs.reused || 'false' }}"
+    # Security and container lanes always rerun against the queue base.
+    for lane in ("security", "containers"):
+        assert "if" not in pr["jobs"][lane]
+    required = pr["jobs"]["required"]
+    evidence = [step for step in required["steps"] if "merge_group" in str(step.get("if", ""))]
+    assert evidence and all(
+        "needs.changes.outputs.reused != 'true'" in step["if"] for step in evidence
+    )

@@ -268,12 +268,16 @@ def reuse(sha: str, output: Path) -> None:
         if run.get("status") != "completed" or run.get("conclusion") != "success":
             raise ValueError("Latest queue evidence is not complete and successful")
         with tempfile.TemporaryDirectory() as temporary:
-            name = f"merge-validation-{sha}-{run['id']}-{run['run_attempt']}"
-            artifact = github.download_artifact(run, name, Path(temporary))
-            manifest = json.loads((artifact / "merge-validation.json").read_text())
-            validate_manifest(manifest, run, run_jobs(run), expected_jobs(), policy_digest())
-            if manifest.get("dependency_assessment") != assessment_record(run, Path(temporary)):
-                raise ValueError("Dependency evidence differs from the queue manifest")
+            if reused_queue_entry(run, Path(temporary)):
+                pull_run = reused_pull_run(run, workflow, sha, Path(temporary))
+                decision.update(tested_by=pull_run)
+            else:
+                name = f"merge-validation-{sha}-{run['id']}-{run['run_attempt']}"
+                artifact = github.download_artifact(run, name, Path(temporary))
+                manifest = json.loads((artifact / "merge-validation.json").read_text())
+                validate_manifest(manifest, run, run_jobs(run), expected_jobs(), policy_digest())
+                if manifest.get("dependency_assessment") != assessment_record(run, Path(temporary)):
+                    raise ValueError("Dependency evidence differs from the queue manifest")
         decision.update(reused=True, run_id=run["id"], run_attempt=run["run_attempt"])
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
         decision["reason"] = str(error)
@@ -284,14 +288,164 @@ def reuse(sha: str, output: Path) -> None:
             stream.write(f"reused={str(decision['reused']).lower()}\n")
 
 
+TREE_ARTIFACT = "validated-tree"
+QUEUE_BRANCH = re.compile(r"^gh-readonly-queue/(?:main|beta)/pr-(\d+)-[0-9a-f]{40}$")
+#: Only the lanes the queue reruns itself; everything else comes from the PR run.
+NO_LANES: dict[str, object] = {
+    "groups": [],
+    "python": False,
+    "frontend": False,
+    "writer": False,
+    "integration": False,
+    "docs": False,
+    "plugin": False,
+    "mutation": False,
+}
+
+
+def validate_tested_run(run: dict, workflow: dict, *, now: datetime | None = None) -> None:
+    """Only a completed, successful, same-repository PR run of this workflow counts."""
+    started = datetime.fromisoformat(run["run_started_at"])
+    age = (now or datetime.now(UTC)) - started
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha", ""))
+        or run.get("event") != "pull_request"
+        or run.get("repository", {}).get("full_name") != github.REPOSITORY
+        or run.get("head_repository", {}).get("full_name") != github.REPOSITORY
+        or run.get("workflow_id") != workflow.get("id")
+        or workflow.get("path") != WORKFLOW
+        or run.get("path", "").split("@")[0] != WORKFLOW
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or not timedelta(0) <= age <= timedelta(hours=24)
+    ):
+        raise ValueError("Not a fresh, successful, same-repository PR validation run")
+
+
+def merged_tree(base: str, head: str) -> str:
+    """The tree a clean merge of ``head`` onto ``base`` produces; a conflict refuses."""
+    subprocess.run(
+        ["git", "fetch", "--no-tags", "--quiet", "--filter=blob:none", "origin", base, head],
+        check=True,
+        cwd=ROOT,
+    )
+    return (
+        subprocess.check_output(["git", "merge-tree", "--write-tree", base, head], cwd=ROOT)
+        .decode()
+        .split("\n", 1)[0]
+        .strip()
+    )
+
+
+def tree_reuse(output: Path, *, now: datetime | None = None) -> None:
+    """Reuse a PR run that already proved every configured job on these exact bytes.
+
+    The merge queue tests the PR squashed onto the queue base. When the PR's own
+    validation ran the full job set on a byte-identical tree, rerunning it proves
+    nothing new. Anything unproven means the full queue run, never a shortcut.
+    """
+    tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT).decode().strip()
+    decision: dict[str, object] = {"reused": False, "tree": tree}
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+        group = event["merge_group"]
+        match = QUEUE_BRANCH.fullmatch(group["head_ref"].removeprefix("refs/heads/"))
+        if not match or group["head_sha"] != os.environ["GITHUB_SHA"]:
+            raise ValueError("Not a merge-queue entry for one pull request")
+        number = int(match[1])
+        pull = github.api(f"repos/{github.REPOSITORY}/pulls/{number}")
+        head = pull["head"]["sha"]
+        if pull["head"]["repo"]["full_name"] != github.REPOSITORY:
+            raise ValueError("Fork pull requests always get the full queue run")
+        workflow = github.api(f"repos/{github.REPOSITORY}/actions/workflows/pr.yml")
+        runs = github.pages(
+            f"repos/{github.REPOSITORY}/actions/workflows/{workflow['id']}/runs"
+            f"?head_sha={head}&event=pull_request",
+            "workflow_runs",
+        )
+        if not runs:
+            raise ValueError("No PR validation run for the queued head")
+        run = github.api(
+            f"repos/{github.REPOSITORY}/actions/runs/{max(runs, key=lambda r: r['id'])['id']}"
+        )
+        validate_tested_run(run, workflow, now=now)
+        if merged_tree(group["base_sha"], head) != tree:
+            raise ValueError("The queued commit is not the PR head merged onto the queue base")
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = github.download_artifact(run, TREE_ARTIFACT, Path(temporary))
+            record = json.loads((artifact / "validated-tree.json").read_text())
+        if record != {"tree": tree, "head": head, "run_id": run["id"]}:
+            raise ValueError("The PR run tested a different tree")
+        expected = expected_jobs()
+        successful_jobs(settled_jobs(run, expected), expected, head)
+        decision.update(
+            reused=True,
+            pull_request=number,
+            head=head,
+            run_id=run["id"],
+            run_attempt=run["run_attempt"],
+        )
+    except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
+        decision["reason"] = str(error)
+    output.write_text(json.dumps(decision, indent=2) + "\n")
+    print(json.dumps(decision))
+    if "GITHUB_OUTPUT" in os.environ:
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
+            stream.write(f"reused={str(decision['reused']).lower()}\n")
+
+
+def reused_queue_entry(run: dict, destination: Path) -> dict | None:
+    """The queue run's own reuse decision, when it reused a PR run."""
+    name = f"tree-reuse-{run['head_sha']}"
+    artifacts = github.pages(
+        f"repos/{github.REPOSITORY}/actions/runs/{run['id']}/artifacts", "artifacts"
+    )
+    if not any(item.get("name") == name for item in artifacts):
+        return None
+    folder = github.download_artifact(run, name, destination)
+    decision = json.loads((folder / "tree-reuse.json").read_text())
+    return decision if decision.get("reused") is True else None
+
+
+def reused_pull_run(queue: dict, workflow: dict, sha: str, destination: Path) -> int:
+    """Main reuses a queue entry that reused a PR run only after re-proving that run.
+
+    The queue run itself must be complete and green (dependency risk and container
+    policy ran there against the queue base), and the PR run it named must still
+    be the fresh, complete, green run of the identical tree.
+    """
+    decision = reused_queue_entry(queue, destination / "queue")
+    if decision is None:
+        raise ValueError("The queue entry did not reuse a PR run")
+    tree = (
+        subprocess.check_output(["git", "rev-parse", f"{sha}^{{tree}}"], cwd=ROOT).decode().strip()
+    )
+    if decision.get("tree") != tree:
+        raise ValueError("The queue reuse decision names a different tree")
+    run = github.api(f"repos/{github.REPOSITORY}/actions/runs/{int(decision['run_id'])}")
+    validate_tested_run(run, workflow)
+    if run["head_sha"] != decision.get("head"):
+        raise ValueError("The reused PR run tested a different head")
+    record_dir = github.download_artifact(run, TREE_ARTIFACT, destination / "pull")
+    record = json.loads((record_dir / "validated-tree.json").read_text())
+    if record != {"tree": tree, "head": run["head_sha"], "run_id": run["id"]}:
+        raise ValueError("The PR run tested a different tree")
+    expected = expected_jobs()
+    successful_jobs(run_jobs(run), expected, run["head_sha"])
+    assessment_record(queue, destination / "assessment")
+    return run["id"]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("emit", "reuse"))
+    parser.add_argument("command", choices=("emit", "reuse", "tree-reuse"))
     parser.add_argument("--sha", default=os.environ.get("GITHUB_SHA"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "emit":
         emit(args.output)
+    elif args.command == "tree-reuse":
+        tree_reuse(args.output)
     else:
         reuse(args.sha, args.output)
 

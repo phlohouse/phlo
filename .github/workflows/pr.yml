@@ -22,22 +22,48 @@ jobs:
     name: pr / changed lanes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       selection: ${{ steps.select.outputs.selection }}
       python: ${{ steps.select.outputs.python }}
       integration: ${{ steps.select.outputs.integration }}
       docs: ${{ steps.select.outputs.docs }}
+      reused: ${{ steps.reuse.outputs.reused || 'false' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          fetch-depth: 1
+          # Matching a queue entry to its PR run merges the PR head onto the
+          # queue base, which needs commit history (not blobs).
+          fetch-depth: ${{ github.event_name == 'merge_group' && '0' || '1' }}
+          filter: blob:none
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
+        if: github.event_name == 'merge_group'
+        with:
+          version: "0.12.1"
+          enable-cache: false
+      # The queue entry is the PR squashed onto the queue base. When the PR's own
+      # run already passed every configured job on these exact bytes, the queue
+      # reruns only the cheap security and container lanes. Anything unproven
+      # (main moved, a fork, a partial or stale run) gets the full queue run.
+      - name: Reuse a PR run that tested this exact tree
+        id: reuse
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          uv run --no-project --with pyyaml==6.0.3 python scripts/ci_evidence.py tree-reuse
+          --output "$RUNNER_TEMP/tree-reuse.json"
       - name: Select affected lanes
         id: select
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REUSED: ${{ steps.reuse.outputs.reused || 'false' }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = pull_request ]; then
@@ -47,6 +73,12 @@ jobs:
             git cat-file -e "$BASE_SHA^{commit}"
             git cat-file -e "$HEAD_SHA^{commit}"
             selection="$(python3 scripts/select_ci.py --base "$BASE_SHA" --head "$HEAD_SHA")"
+            # Record the exact tree this run tests, for the merge queue to match.
+            jq -n --arg tree "$(git rev-parse 'HEAD^{tree}')" --arg head "$HEAD_SHA" \
+              --argjson run_id "$GITHUB_RUN_ID" '{tree: $tree, head: $head, run_id: $run_id}' \
+              > "$RUNNER_TEMP/validated-tree.json"
+          elif [ "$REUSED" = true ]; then
+            selection='{"groups":[],"python":false,"frontend":false,"writer":false,"integration":false,"docs":false,"plugin":false,"mutation":false,"reasons":{"reused":"the PR run passed every configured job on this exact tree"}}'
           else
             selection="$(python3 scripts/select_ci.py --base HEAD --head HEAD)"
           fi
@@ -57,6 +89,22 @@ jobs:
             echo "docs=$(jq -r .docs <<< "$selection")"
           } >> "$GITHUB_OUTPUT"
           jq .reasons <<< "$selection" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the tested tree
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: validated-tree
+          path: ${{ runner.temp }}/validated-tree.json
+          if-no-files-found: error
+          retention-days: 2
+      - name: Upload the reuse decision
+        if: github.event_name == 'merge_group'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: tree-reuse-${{ github.sha }}
+          path: ${{ runner.temp }}/tree-reuse.json
+          if-no-files-found: error
+          retention-days: 30
 
   ci:
     needs: changes
@@ -178,24 +226,26 @@ jobs:
           else
             test "$DOCS" = skipped
           fi
+      # A reused queue entry has no full-queue evidence of its own; main re-proves
+      # the PR run its reuse decision names instead (ci_evidence.py reuse).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        if: github.event_name == 'merge_group'
+        if: github.event_name == 'merge_group' && needs.changes.outputs.reused != 'true'
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098
-        if: github.event_name == 'merge_group'
+        if: github.event_name == 'merge_group' && needs.changes.outputs.reused != 'true'
         with:
           version: "0.12.1"
           enable-cache: false
       - name: Record authenticated full-queue evidence and job timings
-        if: github.event_name == 'merge_group'
+        if: github.event_name == 'merge_group' && needs.changes.outputs.reused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           uv run --no-project --with pyyaml==6.0.3 python scripts/ci_evidence.py emit
           --output merge-validation.json
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        if: github.event_name == 'merge_group'
+        if: github.event_name == 'merge_group' && needs.changes.outputs.reused != 'true'
         with:
           name: merge-validation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: merge-validation.json
