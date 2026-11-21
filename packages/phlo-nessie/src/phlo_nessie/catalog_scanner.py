@@ -31,6 +31,9 @@ from phlo_nessie.settings import get_settings
 
 logger = get_logger(__name__)
 
+# Trino lists its own metadata schemas next to the catalog's namespaces.
+_TRINO_VIRTUAL_SCHEMAS = frozenset({"information_schema", "system"})
+
 
 class NessieTableScanner:
     """Scan Nessie Iceberg REST catalog for namespaces and tables.
@@ -199,7 +202,7 @@ class NessieTableScanner:
             return []
         namespaces = []
         for row in rows:
-            if row and isinstance(row[0], str):
+            if row and isinstance(row[0], str) and row[0] not in _TRINO_VIRTUAL_SCHEMAS:
                 namespaces.append({"namespace": [row[0]]})
         return namespaces
 
