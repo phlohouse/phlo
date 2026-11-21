@@ -514,6 +514,8 @@ def test_observatory_datasets_endpoint_returns_profile_summaries(
     observatory._clear_read_model_cache()
     import phlo
 
+    phlo.clear_flow_declarations()
+
     @phlo.contract(table="gold.orders", owner="analytics", metadata={"classification": "internal"})
     def _orders_contract() -> None:
         return None
