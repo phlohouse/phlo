@@ -492,16 +492,17 @@ def _record_profile_services(
         return
     config = _load_existing_project_config(config_file)
     enabled, disabled = get_enabled_disabled_service_names(config)
-    if set(names) <= enabled:
-        return
     services = config.get("services")
     if not isinstance(services, dict):
         services = config["services"] = {}
     listed = services.get("enabled")
     listed_names = [str(name) for name in listed] if isinstance(listed, list) else []
-    services["enabled"] = sorted({*listed_names, *(name for name in names if name not in disabled)})
+    added = sorted(name for name in names if name not in disabled and name not in enabled)
+    if not added:
+        return
+    services["enabled"] = sorted({*listed_names, *added})
     config_file.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-    click.echo(f"Enabled in {PHLO_CONFIG_FILE}: {', '.join(sorted(names))}")
+    click.echo(f"Enabled in {PHLO_CONFIG_FILE}: {', '.join(added)}")
 
 
 def _require_project_folder(config_file: Path) -> None:
@@ -513,7 +514,9 @@ def _require_project_folder(config_file: Path) -> None:
     if config_file.exists():
         return
     project_root = config_file.parent
-    other = sorted(entry.name for entry in project_root.iterdir() if entry.name != ".phlo")
+    other = sorted(
+        entry.name for entry in project_root.iterdir() if entry.name not in {".phlo", ".DS_Store"}
+    )
     if not other:
         return
     raise click.ClickException(

@@ -155,11 +155,21 @@ def test_services_start_brings_up_profile_services_the_project_enabled(
     )
     assert result.exit_code == 0, result.output
 
+    commands: list[list[str]] = []
+
+    def run_command(cmd, **_kwargs):
+        commands.append(list(cmd))
+        return CompletedProcess(args=cmd, returncode=0)
+
     monkeypatch.setattr(start_module, "compose_base_cmd", compose_base_cmd)
+    monkeypatch.setattr(start_module, "run_command", run_command)
     result = CliRunner().invoke(start_module.start_cmd, [])
 
     assert result.exit_code == 0, result.output
     assert profiles_seen == [("notebooks",)]
+    # The profile is active, so the command names its targets: the rest of a
+    # profile (here none, in general hasura next to phlo-api) stays off.
+    assert sorted(commands[0][commands[0].index("-d") + 1 :]) == ["database", "kernels"]
     assert "Services running: database, kernels" in result.output
     assert "metrics" not in result.output
 

@@ -816,7 +816,9 @@ def start_cmd(
             backend_name,
             detach,
             build,
-            docker_services_list if services_list or native else [],
+            # Activating an enabled service's profile must not start the rest of
+            # that profile, so a plain start with profiles names its targets.
+            docker_services_list if services_list or native or compose_profiles else [],
             no_deps=native,
         )
 

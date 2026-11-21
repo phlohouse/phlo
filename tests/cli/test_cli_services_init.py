@@ -1867,6 +1867,7 @@ def test_services_init_refuses_a_non_empty_folder_without_a_project(
     from phlo.cli.commands.services.init import init_cmd
 
     (tmp_path / "notes.txt").write_text("not a phlo project\n")
+    (tmp_path / ".DS_Store").write_bytes(b"")
     monkeypatch.chdir(tmp_path)
 
     result = CliRunner().invoke(init_cmd, [])
@@ -1879,7 +1880,7 @@ def test_services_init_refuses_a_non_empty_folder_without_a_project(
     assert not (tmp_path / ".phlo").exists()
 
 
-def test_services_init_records_requested_profile_services_as_enabled(tmp_path) -> None:
+def test_services_init_records_requested_profile_services_as_enabled(tmp_path, capsys) -> None:
     """Profiles chosen at init stay part of the stack for later starts and regenerations."""
     import yaml
 
@@ -1904,5 +1905,15 @@ def test_services_init_records_requested_profile_services_as_enabled(tmp_path) -
 
     services = yaml.safe_load(config_file.read_text())["services"]
     assert services["enabled"] == ["phlo-notebook-kernels"]
+    assert "grafana" not in capsys.readouterr().out
     assert services["observatory"] == {"enabled": True}
     assert services["grafana"] == {"enabled": False}
+
+
+def test_services_init_guard_ignores_macos_folder_metadata(tmp_path) -> None:
+    from phlo.cli.commands.services.init import _require_project_folder
+
+    (tmp_path / ".DS_Store").write_bytes(b"")
+    (tmp_path / ".phlo" / "logs").mkdir(parents=True)
+
+    _require_project_folder(tmp_path / "phlo.yaml")
