@@ -267,7 +267,9 @@ class TestTableOperations:
             patch("phlo_iceberg.tables.create_namespace"),
             patch("phlo_iceberg.tables.get_catalog", return_value=mock_catalog),
         ):
-            ensure_table("raw.orders", pa.schema([("order_id", pa.string()), ("amount", pa.float64())]))
+            ensure_table(
+                "raw.orders", pa.schema([("order_id", pa.string()), ("amount", pa.float64())])
+            )
 
         created = mock_catalog.create_table.call_args.kwargs["schema"]
         assert isinstance(created, Schema)

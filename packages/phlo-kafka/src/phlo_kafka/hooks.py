@@ -32,7 +32,7 @@ def ensure_topic(admin: Any, *, topic: str, compacted: bool = False, retention_m
     }
     if compacted:
         config["cleanup.policy"] = "compact"
-    from confluent_kafka.admin import NewTopic  # ty: ignore[unresolved-import]  # noqa: PLC0415
+    from confluent_kafka.admin import NewTopic  # noqa: PLC0415
 
     futures = admin.create_topics(
         [NewTopic(topic, num_partitions=1, replication_factor=1, config=config)]

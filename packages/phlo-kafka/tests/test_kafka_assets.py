@@ -522,9 +522,7 @@ def test_asset_scopes_promotion_and_retries_without_committing_offsets(monkeypat
             support=SimpleNamespace(supports_promote=True, supports_snapshots=True),
         ),
     )
-    monkeypatch.setattr(
-        "phlo_kafka.checkpoints.resolve_checkpoint_store", lambda *args: store
-    )
+    monkeypatch.setattr("phlo_kafka.checkpoints.resolve_checkpoint_store", lambda *args: store)
     clear_kafka_assets()
     try:
         spec = phlo_kafka_consumer(
@@ -620,9 +618,7 @@ def test_asset_recovers_offset_commit_without_skipping_new_records(monkeypatch, 
     monkeypatch.setattr(
         "phlo_kafka.assets.resolve_capability", lambda _: SimpleNamespace(provider=table_store)
     )
-    monkeypatch.setattr(
-        "phlo_kafka.checkpoints.resolve_checkpoint_store", lambda *args: store
-    )
+    monkeypatch.setattr("phlo_kafka.checkpoints.resolve_checkpoint_store", lambda *args: store)
     clear_kafka_assets()
     try:
         spec = phlo_kafka_consumer(

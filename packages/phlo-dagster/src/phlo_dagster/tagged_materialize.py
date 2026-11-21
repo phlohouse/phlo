@@ -139,11 +139,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Tags the CLI computed itself, such as the partition, win.
         return execute_job(*args, tags={**extra, **(tags or {})}, **kwargs)
 
-    def located_create_run(self: Any, job_def: Any, *args: Any, **kwargs: Any) -> Any:
-        if kwargs.get("remote_job_origin") is None:
-            kwargs["remote_job_origin"] = _remote_origin(server, job_def.name)
-        return create_run_for_job(self, job_def, *args, **kwargs)
-
     def defaulted_materialize(**kwargs: Any) -> Any:
         if (
             kwargs.get("partition") is None
@@ -160,6 +155,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if tags:
         replacements.append((asset_cli, "execute_job", tagged_execute_job))
     if server is not None:
+        located = server
+
+        def located_create_run(self: Any, job_def: Any, *args: Any, **kwargs: Any) -> Any:
+            if kwargs.get("remote_job_origin") is None:
+                kwargs["remote_job_origin"] = _remote_origin(located, job_def.name)
+            return create_run_for_job(self, job_def, *args, **kwargs)
+
         replacements.append((DagsterInstance, "create_run_for_job", located_create_run))
     if default_partition is not None:
         replacements.append((asset_cli, "execute_materialize_command", defaulted_materialize))

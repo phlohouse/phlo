@@ -34,7 +34,7 @@ class KafkaResource:
 
     def _require_confluent(self) -> Any:
         try:
-            import confluent_kafka  # ty: ignore[unresolved-import]  # noqa: PLC0415
+            import confluent_kafka  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover - environment dependent
             raise RuntimeError(
                 "confluent-kafka is required for Kafka ingestion; reinstall phlo-kafka"
@@ -44,7 +44,7 @@ class KafkaResource:
     def admin(self) -> Any:
         """Create an admin client for topic metadata and topic creation."""
         self._require_confluent()
-        from confluent_kafka.admin import AdminClient  # ty: ignore[unresolved-import]
+        from confluent_kafka.admin import AdminClient
 
         return AdminClient({"bootstrap.servers": self.bootstrap_servers})
 
@@ -125,7 +125,7 @@ class KafkaResource:
     def commit_offsets(self, ranges: list[SourceOffsetRange], *, group_id: str) -> None:
         """Commit consumed consumer-group offsets after checkpoint promotion."""
         self._require_confluent()
-        from confluent_kafka import TopicPartition  # ty: ignore[unresolved-import]
+        from confluent_kafka import TopicPartition
 
         consumer = self.consumer(group_id=group_id)
         try:

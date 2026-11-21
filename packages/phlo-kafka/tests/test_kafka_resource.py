@@ -28,7 +28,9 @@ class _Admin:
 
     def create_topics(self, new_topics):
         self.created.extend(new_topics)
-        return {topic.topic: SimpleNamespace(result=lambda timeout=None: None) for topic in new_topics}
+        return {
+            topic.topic: SimpleNamespace(result=lambda timeout=None: None) for topic in new_topics
+        }
 
 
 class _NewTopic:
