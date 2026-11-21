@@ -250,3 +250,21 @@ def test_configure_schemas_rejects_an_unsafe_mart_schema(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="POSTGRES_MART_SCHEMA"):
         hooks.configure_schemas()
+
+
+def test_configure_schemas_runs_as_the_project_postgres_user(monkeypatch, tmp_path):
+    """Default privileges follow the role that publishes marts: POSTGRES_USER."""
+    from phlo_postgrest import hooks
+
+    config_file = _write_config(tmp_path, anon_role="phlo")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POSTGRES_USER", "lake")
+    monkeypatch.setenv("POSTGRES_DB", "lakehouse")
+    _stub_restart(monkeypatch, hooks)
+    uris: list[str] = []
+    monkeypatch.setattr(hooks, "_run_psql", lambda db_uri, sql: uris.append(db_uri))
+
+    hooks.configure_schemas()
+
+    assert uris == ["postgresql://lake@postgres/lakehouse"]
+    assert hooks._read_config_values(config_file)["db-anon-role"] == "anon"

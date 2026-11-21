@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from phlo.config.env import project_env_value
 from phlo.infrastructure.config import get_project_name_from_config, load_infrastructure_config
@@ -342,6 +342,21 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA {mart_schema} GRANT SELECT ON TABLES TO {ANON
 """
 
 
+def _project_db_uri(config_db_uri: str) -> str:
+    """Use the project's POSTGRES_USER and POSTGRES_DB over the static template.
+
+    The container gets its real URI from PGRST_DB_URI; the template's db-uri
+    only holds development defaults.
+    """
+    parsed = urlparse(config_db_uri)
+    parts = _parse_db_uri(config_db_uri)
+    root = Path.cwd()
+    user = project_env_value("POSTGRES_USER", project_root=root) or parts["username"]
+    database = project_env_value("POSTGRES_DB", project_root=root) or parts["database"]
+    host = parsed.hostname or "postgres"
+    return f"postgresql://{quote(user, safe='')}@{host}/{quote(database, safe='')}"
+
+
 def _set_directive(lines: list[str], key: str, value: str) -> list[str]:
     """Set ``key = "value"`` in postgrest.conf lines, appending it when absent."""
     directive = f'{key} = "{value}"'
@@ -361,7 +376,8 @@ def configure_schemas() -> None:
     including Dagster, Nessie and Polaris tables; that setting is replaced.
     A custom ``db-anon-role`` is kept, so operators can lock the API down.
 
-    Raises: FileNotFoundError when the PostgREST configuration is missing;
+    A missing PostgREST configuration is logged and skipped. Raises:
+    ValueError when db-uri is missing or POSTGRES_MART_SCHEMA is unsafe;
     RuntimeError when the role setup fails.
     """
     config_file = _get_config_file()
@@ -373,13 +389,18 @@ def configure_schemas() -> None:
     db_uri = config_values.get("db-uri")
     if not db_uri:
         raise ValueError("db-uri not found in PostgREST config")
+    owners = {_parse_db_uri(db_uri)["username"]}
+    db_uri = _project_db_uri(db_uri)
+    owners.add(_parse_db_uri(db_uri)["username"])
 
     mart_schema = _mart_schema()
+    # Run as the project's Postgres user, which also publishes marts, so the
+    # default privileges cover tables it publishes later.
     _run_psql(db_uri, anonymous_access_sql(mart_schema))
 
     lines = config_file.read_text().splitlines()
     anon_role = config_values.get("db-anon-role", "")
-    if not anon_role or anon_role == _parse_db_uri(db_uri)["username"]:
+    if not anon_role or anon_role in owners:
         lines = _set_directive(lines, "db-anon-role", ANON_ROLE)
     schemas_str = f"{mart_schema},{API_SCHEMA}"
     lines = _set_directive(lines, "db-schemas", schemas_str)
