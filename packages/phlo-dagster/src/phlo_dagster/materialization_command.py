@@ -10,6 +10,19 @@ from phlo.cli.infrastructure.container_backend import ContainerBackend, containe
 from phlo.config.env import load_project_env
 
 
+def _default_run_target() -> tuple[str, str | None] | None:
+    """Return the default environment's Nessie ref and code location, if configured."""
+    from phlo.config.project import get_default_environment, get_environment_targets
+
+    try:
+        target = get_environment_targets()[get_default_environment()]
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+    if not target.nessie_ref:
+        return None
+    return target.nessie_ref, target.dagster_location or None
+
+
 def build_materialization_command(
     backend: ContainerBackend,
     container_name: str,
@@ -17,8 +30,13 @@ def build_materialization_command(
     partition: str | None,
     *,
     refresh_contracts: bool | None = None,
+    partition_is_default: bool = False,
 ) -> list[str]:
-    """Build an exec command for a selected container without discovering services."""
+    """Build an exec command for a selected container without discovering services.
+
+    ``partition_is_default`` marks a partition the CLI chose itself; it is
+    passed on as a default that only partitioned selections use.
+    """
     host_platform = platform.system()
     exec_env = {
         "PHLO_HOST_PLATFORM": host_platform,
@@ -31,16 +49,29 @@ def build_materialization_command(
     for pretty_var in ("PHLO_OBSERVE_PRETTY", "PHLO_OBSERVE_PRETTY_VERBOSE", "OBSERVE_DRAINS"):
         if project_env.get(pretty_var):
             exec_env[pretty_var] = project_env[pretty_var]
+    # Record the ref the run writes and its code location, so phlo-api shows
+    # the run in its environment like runs launched from Observatory.
+    target = _default_run_target()
+    default_partition = partition if partition and partition_is_default else None
+    if target is None and default_partition is None:
+        launcher = ["dagster", "asset", "materialize"]
+    else:
+        launcher = ["python", "-m", "phlo_dagster.tagged_materialize"]
+        if target is not None and target[1]:
+            launcher.extend(["--location", target[1]])
+        if default_partition is not None:
+            launcher.extend(["--default-partition", default_partition])
+        if target is not None:
+            launcher.append(f"phlo/ref={target[0]}")
+        launcher.append("--")
     command = [
-        "dagster",
-        "asset",
-        "materialize",
+        *launcher,
         "-m",
         "phlo_dagster.framework.definitions",
         "--select",
         selection,
     ]
-    if partition:
+    if partition and default_partition is None:
         command.extend(["--partition", partition])
     return backend.container_exec_cmd(
         container_name=container_name,

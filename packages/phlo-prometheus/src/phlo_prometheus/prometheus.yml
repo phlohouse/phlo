@@ -3,16 +3,29 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  # Prometheus self-monitoring
-  - job_name: "prometheus"
+  # Trino serves OpenMetrics at /metrics to any named user.
+  - job_name: "trino"
+    http_headers:
+      X-Trino-User:
+        values: ["prometheus"]
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ["trino:8080"]
+        labels:
+          service: trino
 
-  # Auto-discover phlo services via Docker labels
-  # Services opt-in by setting label: phlo.metrics.enabled=true
+  # MinIO serves per-bucket usage on a second path.
+  - job_name: "minio-buckets"
+    metrics_path: /minio/v2/metrics/bucket
+    static_configs:
+      - targets: ["minio:9000"]
+        labels:
+          service: minio
+
+  # Auto-discover phlo services via Docker labels, through the read-only
+  # prometheus-docker proxy. Services opt in with phlo.metrics.enabled=true.
   - job_name: "phlo-services"
     docker_sd_configs:
-      - host: "unix:///var/run/docker.sock"
+      - host: "http://prometheus-docker:2375"
         refresh_interval: 30s
     relabel_configs:
       # Only scrape containers with phlo.metrics.enabled=true

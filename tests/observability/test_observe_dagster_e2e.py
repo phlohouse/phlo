@@ -21,10 +21,12 @@ The module skips cleanly when its external services are unavailable.
 
 from __future__ import annotations
 
-import contextlib
+import os
 import statistics
+import subprocess
+import sys
 import time
-from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -797,26 +799,42 @@ def test_caller_explicit_console_level_survives_scope(
     assert "STEP_SUCCESS" in err or "RUN_SUCCESS" in err
 
 
-@contextlib.contextmanager
-def _coverage_paused() -> Iterator[None]:
-    """Stop the active coverage tracer, if any, for the duration of the block."""
-    try:
-        import coverage
-    except ImportError:
-        yield
-        return
-    active = coverage.Coverage.current()
-    if active is None:
-        yield
-        return
-    active.stop()
-    try:
-        yield
-    finally:
-        active.start()
+_OVERHEAD_CHILD_ENV = "PHLO_OBSERVE_OVERHEAD_BENCHMARK_CHILD"
 
 
-def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bus: Any) -> None:
+def test_pipeline_materialization_overhead_enabled_vs_disabled() -> None:
+    """Measure the whole-pipeline overhead in a fresh interpreter.
+
+    The measurement uses process CPU time, so it must not share a test worker:
+    hook plugins, flow declarations and background threads that earlier tests
+    leave behind, plus the coverage tracer, inflated both legs about tenfold on
+    the four-worker CI runner and made the comparison noise.
+    """
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith(("COV_CORE_", "COVERAGE_", "PYTEST_XDIST"))
+    }
+    env[_OVERHEAD_CHILD_ENV] = "1"
+    node = f"{Path(__file__).resolve()}::test_pipeline_materialization_overhead_measurement"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-s", node],
+        cwd=Path(__file__).resolve().parents[2],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=280,
+        check=False,
+    )
+    assert result.returncode == 0, (result.stdout[-4000:], result.stderr[-2000:])
+    assert "1 passed" in result.stdout, result.stdout[-4000:]
+
+
+@pytest.mark.skipif(
+    os.environ.get(_OVERHEAD_CHILD_ENV) != "1",
+    reason="runs in its own interpreter from test_pipeline_materialization_overhead_enabled_vs_disabled",
+)
+def test_pipeline_materialization_overhead_measurement(captured: Any, bus: Any) -> None:
     """Whole-pipeline overhead: real materialize() runs with and without
     observability. Unlike the per-emit microbenchmarks, this exercises the
     actual integration cost — run/step scopes, hook translation, and check
@@ -863,16 +881,15 @@ def test_pipeline_materialization_overhead_enabled_vs_disabled(captured: Any, bu
     # The coverage tracer charges every traced line, and observability is the
     # extra Python on the enabled leg, so under CI coverage it measured the
     # tracer (600-900ms) rather than observability. Pause it while timing.
-    with _coverage_paused():
-        for _ in range(n):
-            _configure(True)
-            _materialize_once()
-            _backend().clear()
-            enabled_runs.append(_timed())
-            enabled_events += len(_backend().payloads())
-            _configure(False)
-            _materialize_once()
-            disabled_runs.append(_timed())
+    for _ in range(n):
+        _configure(True)
+        _materialize_once()
+        _backend().clear()
+        enabled_runs.append(_timed())
+        enabled_events += len(_backend().payloads())
+        _configure(False)
+        _materialize_once()
+        disabled_runs.append(_timed())
     assert enabled_events > 0
     _configure(True)
     assert len(_backend().payloads()) == 0

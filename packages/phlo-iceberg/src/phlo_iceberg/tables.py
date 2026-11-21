@@ -224,9 +224,23 @@ def _write_arrow_table(
     raise AssertionError("Unreachable write retry state")
 
 
+def _iceberg_schema(schema: Schema | pa.Schema) -> Schema:
+    """Return ``schema`` as an Iceberg schema, assigning field ids to an Arrow one.
+
+    Writers that only know their data (a Kafka batch, for one) describe the
+    table with the Arrow schema of the rows they hold.
+    """
+    if not isinstance(schema, pa.Schema):
+        return schema
+    from pyiceberg.catalog import Catalog
+    from pyiceberg.schema import assign_fresh_schema_ids
+
+    return assign_fresh_schema_ids(Catalog._convert_schema_if_needed(schema))
+
+
 def ensure_table(
     table_name: str,
-    schema: Schema,
+    schema: Schema | pa.Schema,
     partition_spec: list[tuple[str, str]] | None = None,
     ref: str = "main",
     *,
@@ -259,6 +273,7 @@ def ensure_table(
     """
     validate_schema_policy(schema_policy)
     _require_direct_write(ref)
+    schema = _iceberg_schema(schema)
     catalog = get_catalog(ref=ref)
 
     parts = table_name.split(".")

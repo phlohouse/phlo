@@ -523,6 +523,9 @@ def configure_non_dev_compose(
             "--profile",
             "api",
             "--force",
+            # This path proves service-token authentication, so it keeps the
+            # local development sign-in out of the stack.
+            "--no-observatory-dev",
         ),
         cwd=config.project_dir,
     )
@@ -1172,12 +1175,84 @@ def verify_candidate_bom(config: RunConfig) -> tuple[dict[str, object], list[dic
     return result, exercised
 
 
+_REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def _wheel_requirements(wheel: Path) -> set[str]:
+    """Return the distribution names a wheel requires outside its extras.
+
+    Other markers are not evaluated: callers keep only first-party BOM wheels,
+    and no first-party requirement carries one. This runs under the runner's
+    bare python3, which may lack ``packaging``.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(wheel) as archive:
+        metadata = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+        text = archive.read(metadata).decode("utf-8")
+    names: set[str] = set()
+    for line in text.splitlines():
+        if not line.startswith("Requires-Dist:"):
+            continue
+        requirement = line.removeprefix("Requires-Dist:")
+        if ";" in requirement and "extra ==" in requirement.split(";", 1)[1]:
+            continue
+        match = _REQUIREMENT_NAME.match(requirement)
+        if match:
+            names.add(match.group(1).lower().replace("_", "-"))
+    return names
+
+
+_SUPPORT_MANIFEST = Path(__file__).resolve().parents[1] / bom_module.SUPPORT_MANIFEST_PATH
+
+
+def operator_wheels(config: RunConfig) -> list[dict[str, object]]:
+    """Return the BOM wheels an operator of the core stack installs.
+
+    Every package is published, but the golden path proves the blessed core a
+    fresh project gets, so optional plugins stay out of the operator
+    environment. First-party dependencies of the core come along.
+    """
+    bom = config.bom
+    assert bom is not None
+    wheels = {
+        str(artifact["name"]): artifact for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL)
+    }
+    # The candidate pins its own support manifest; the checkout's is a fallback.
+    pinned = bom.get("support_manifest")
+    support = json.loads(
+        pinned if isinstance(pinned, str) else _SUPPORT_MANIFEST.read_text(encoding="utf-8")
+    )
+    pending = [
+        str(package["name"])
+        for package in support["packages"]
+        if package.get("scope") == "blessed_core" and package["name"] in wheels
+    ]
+    staged: dict[str, Path] = {}
+    if config.staging_dir is not None:
+        distributions = config.staging_dir / "distributions"
+        staged = {bom_module.file_sha256(path): path for path in distributions.glob("*.whl")}
+    selected: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in selected:
+            continue
+        selected.add(name)
+        # verify_candidate_bom owns digest checks; an unstaged wheel adds no dependencies.
+        wheel = staged.get(str(wheels[name]["digest"]))
+        if wheel is not None:
+            pending.extend(
+                dependency for dependency in _wheel_requirements(wheel) if dependency in wheels
+            )
+    return [wheels[name] for name in sorted(selected)]
+
+
 def write_hashed_requirements(config: RunConfig, path: Path) -> Path:
-    """Pin every BOM wheel with its exact digest for hash-enforced installation."""
+    """Pin each operator wheel with its exact digest for hash-enforced installation."""
     bom = config.bom
     assert bom is not None
     lines = []
-    for artifact in sorted(bom_artifacts(bom, bom_module.KIND_WHEEL), key=lambda a: str(a["name"])):
+    for artifact in operator_wheels(config):
         lines.append(
             f"{artifact['name']}=={artifact['version']} --hash=sha256:{artifact['digest']}"
         )
@@ -1192,9 +1267,8 @@ def install_operator_from_bom(
     bom = config.bom
     assert bom is not None and config.staging_dir is not None
     distributions = config.staging_dir / "distributions"
-    packages = tuple(
-        str(artifact["name"]) for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL)
-    )
+    wheels = operator_wheels(config)
+    packages = tuple(str(artifact["name"]) for artifact in wheels)
     requirements = write_hashed_requirements(
         config, config.operator_env.parent / "candidate-requirements.txt"
     )
@@ -1241,7 +1315,7 @@ def install_operator_from_bom(
             "installed_versions": installed,
             "no_source_import": True,
         },
-        bom_artifacts(bom, bom_module.KIND_SDIST) + bom_artifacts(bom, bom_module.KIND_WHEEL),
+        bom_artifacts(bom, bom_module.KIND_SDIST) + wheels,
     )
 
 
@@ -1260,7 +1334,8 @@ def verify_installed_versions(config: RunConfig) -> dict[str, str]:
         if separator:
             installed[name.lower().replace("_", "-")] = version
     mismatches = {}
-    for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL):
+    expected = operator_wheels(config)
+    for artifact in expected:
         name, version = str(artifact["name"]), str(artifact["version"])
         actual = installed.get(name)
         if actual != version:
@@ -1270,7 +1345,7 @@ def verify_installed_versions(config: RunConfig) -> dict[str, str]:
     return {
         name: installed[name]
         for name in installed
-        if name in {str(artifact["name"]) for artifact in bom_artifacts(bom, bom_module.KIND_WHEEL)}
+        if name in {str(artifact["name"]) for artifact in expected}
     }
 
 

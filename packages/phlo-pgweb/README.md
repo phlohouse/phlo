@@ -9,7 +9,7 @@ Web-based PostgreSQL database browser for exploring metadata, lineage store, and
 ## Installation
 
 ```bash
-pip install phlo-pgweb
+uv add phlo-pgweb
 # or
 phlo plugin install pgweb
 ```

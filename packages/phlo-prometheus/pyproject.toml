@@ -44,6 +44,8 @@ phlo_prometheus = [
     "service.yaml",
     "prometheus.yml",
     "prometheus-setup.yaml",
+    "prometheus-docker-daemon.yaml",
+    "docker-proxy.cfg",
 ]
 
 [tool.setuptools.package-dir]

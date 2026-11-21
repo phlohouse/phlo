@@ -2,7 +2,7 @@
 
 The Kafka client is optional infrastructure: imports resolve only when a
 consumer asset actually runs, so unit tests and plugin discovery never
-require the compiled dependency. Install with ``pip install phlo-kafka[consumer]``.
+require the compiled dependency. ``confluent-kafka`` is a dependency of phlo-kafka.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from phlo.logging import get_logger
 from phlo_kafka.settings import get_settings
 
 _CONSUME_POLL_TIMEOUT_SECONDS = 5.0
+_BROKER_TIMEOUT_SECONDS = 10.0
 
 logger = get_logger(__name__)
 
@@ -33,12 +34,20 @@ class KafkaResource:
 
     def _require_confluent(self) -> Any:
         try:
-            import confluent_kafka  # ty: ignore[unresolved-import]  # noqa: PLC0415
+            # reason: the client loads its native library on import; keep it off module import.
+            import confluent_kafka  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover - environment dependent
             raise RuntimeError(
-                "confluent-kafka is required for Kafka ingestion; install phlo-kafka[consumer]"
+                "confluent-kafka is required for Kafka ingestion; reinstall phlo-kafka"
             ) from exc
         return confluent_kafka
+
+    def admin(self) -> Any:
+        """Create an admin client for topic metadata and topic creation."""
+        self._require_confluent()
+        from confluent_kafka.admin import AdminClient
+
+        return AdminClient({"bootstrap.servers": self.bootstrap_servers})
 
     def consumer(self, *, group_id: str, auto_offset_reset: str = "earliest") -> Any:
         """Create a consumer with manual commit semantics."""
@@ -75,6 +84,15 @@ class KafkaResource:
         records: list[dict[str, Any]] = []
         ranges: dict[tuple[str, int], SourceOffsetRange] = {}
         try:
+            # poll() returns None both for an empty topic and for a broker it
+            # cannot reach, so confirm the broker answers before reading an
+            # empty poll as "no new records".
+            try:
+                consumer.list_topics(timeout=_BROKER_TIMEOUT_SECONDS)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Kafka broker {self.bootstrap_servers} did not respond: {exc}"
+                ) from exc
             while len(records) < max_records:
                 message = consumer.poll(timeout=_CONSUME_POLL_TIMEOUT_SECONDS)
                 if message is None:
@@ -108,7 +126,7 @@ class KafkaResource:
     def commit_offsets(self, ranges: list[SourceOffsetRange], *, group_id: str) -> None:
         """Commit consumed consumer-group offsets after checkpoint promotion."""
         self._require_confluent()
-        from confluent_kafka import TopicPartition  # ty: ignore[unresolved-import]
+        from confluent_kafka import TopicPartition
 
         consumer = self.consumer(group_id=group_id)
         try:
@@ -132,10 +150,7 @@ class KafkaResource:
     def health_check(self) -> bool:
         """Return whether the broker responds to metadata requests."""
         try:
-            admin = self._require_confluent().AdminClient(
-                {"bootstrap.servers": self.bootstrap_servers}
-            )
-            metadata = admin.list_topics(timeout=10)
+            metadata = self.admin().list_topics(timeout=10)
             return bool(metadata.topics is not None)
         except Exception:
             logger.warning("kafka_health_check_failed", exc_info=True)

@@ -1257,8 +1257,8 @@ def test_wap_project_identity_requires_authoritative_agreement(
     monkeypatch, tags, configured, expected_project, expected_error
 ):
     monkeypatch.setattr(
-        "phlo_dagster.wap_sensors.get_settings",
-        lambda: SimpleNamespace(phlo_project=configured),
+        "phlo_dagster.wap_sensors.configured_project_id",
+        lambda: configured,
     )
     run = SimpleNamespace(run_id="run-project", tags=tags)
 

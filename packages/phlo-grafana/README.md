@@ -4,14 +4,14 @@ Grafana visualization service for Phlo.
 
 ## Description
 
-Metrics visualization and dashboards for observability. Pre-configured with datasources for Prometheus, Loki, Trino, and PostgreSQL.
+Metrics visualization and dashboards for observability. Pre-configured with datasources for Prometheus, Loki, and PostgreSQL. Grafana's Trino data source is a separate plugin download, so it is not provisioned.
 
 ## Installation
 
 ```bash
-pip install phlo-grafana
-# or
-phlo plugin install grafana
+phlo services add grafana
+# or, for the whole observability stack
+phlo services add --profile observability
 ```
 
 ## Profile
@@ -25,7 +25,7 @@ Part of the `observability` profile.
 | `GRAFANA_PORT`           | `3003`   | Grafana web UI port |
 | `GRAFANA_VERSION`        | `13.1.1` | Grafana version     |
 | `GRAFANA_ADMIN_USER`     | `admin`  | Admin username      |
-| `GRAFANA_ADMIN_PASSWORD` | `admin`  | Admin password      |
+| `GRAFANA_ADMIN_PASSWORD` | generated | Admin password, in `.phlo/secrets/.env` |
 
 ## Auto-Configuration
 
@@ -33,7 +33,7 @@ This package is **fully auto-configured**:
 
 | Feature            | How It Works                                         |
 | ------------------ | ---------------------------------------------------- |
-| **Datasources**    | Pre-provisioned: Prometheus, Loki, Trino, PostgreSQL |
+| **Datasources**    | Pre-provisioned: Prometheus, Loki, PostgreSQL        |
 | **Dashboards**     | Pre-provisioned dashboards in `grafana/dashboards/`  |
 | **Metrics Labels** | Exposes Grafana metrics for Prometheus               |
 
@@ -43,8 +43,9 @@ This package is **fully auto-configured**:
 | ---------- | ---------- | ---------------------- |
 | Prometheus | prometheus | http://prometheus:9090 |
 | Loki       | loki       | http://loki:3100       |
-| Trino      | trino      | http://trino:8080      |
 | PostgreSQL | postgres   | postgres:5432          |
+
+The PostgreSQL data source signs in with the project's generated Postgres credentials.
 
 ## Usage
 

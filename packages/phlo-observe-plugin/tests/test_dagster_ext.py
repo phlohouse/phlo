@@ -35,6 +35,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
         calls.append({"name": name, **kwargs})
 
     monkeypatch.setattr(phlo_observe, "emit", _capture)
+    monkeypatch.setattr(phlo_observe, "configure", lambda **_: True)
     monkeypatch.setattr(phlo_observe, "enabled", lambda: True)
     monkeypatch.setattr(phlo_observe, "run_entity_for", lambda p, r: f"run://{p}/{r}")
     monkeypatch.setattr(
@@ -242,3 +243,25 @@ def test_sensors_default_to_running(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(defs.sensors) == 3
     for sensor in defs.sensors:
         assert sensor.default_status == dg.DefaultSensorStatus.RUNNING
+
+
+def test_sensor_on_a_worker_thread_reaches_the_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The code server evaluates run-status sensors on gRPC worker threads.
+
+    Nothing else configures telemetry in that process, so without configuring
+    here every terminal ``pipeline.run`` event was dropped and observer runs
+    never finished.
+    """
+    from phlo_observe_plugin.dagster_ext import _emit_pipeline_run
+
+    monkeypatch.setenv("OBSERVE_DRAINS", "memory")
+    phlo_observe.reset_for_tests()
+    emitted: list[str] = []
+    monkeypatch.setattr(phlo_observe, "emit", lambda name, **_: emitted.append(name))
+    monkeypatch.setattr(phlo_observe, "run_entity_for", lambda p, r: f"run://{p}/{r}")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.submit(_emit_pipeline_run, _context(), "SUCCESS").result()
+    phlo_observe.reset_for_tests()
+
+    assert emitted == ["pipeline.run"]

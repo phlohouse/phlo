@@ -1,0 +1,26 @@
+name: prometheus-docker
+description: Read-only Docker discovery proxy for Prometheus
+category: observability
+default: false
+profile: observability
+image: haproxy:3.2-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
+networks:
+  prometheus-docker:
+    internal: true
+compose:
+  restart: unless-stopped
+  user: "0:0" # Host socket ownership requires root; bounded by the registered waiver.
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [prometheus-docker]
+  volumes:
+    - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    - ./prometheus-docker/docker-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+env_vars:
+  DOCKER_SOCKET_PATH:
+    default: /var/run/docker.sock
+    description: Host Docker socket the read-only proxy reads; rootless Docker uses $XDG_RUNTIME_DIR/docker.sock
+files:
+  - source: docker-proxy.cfg
+    dest: prometheus-docker/docker-proxy.cfg

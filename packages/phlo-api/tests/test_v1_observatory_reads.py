@@ -551,9 +551,7 @@ def test_schema_diff_resolves_runs_to_snapshots_and_matches_fields_by_id(dagster
         return _Table()
 
     monkeypatch.setattr(v1_asset_insights, "_load_table", load_table)
-    monkeypatch.setattr(
-        v1_asset_insights, "get_settings", lambda: SimpleNamespace(phlo_project="demo")
-    )
+    monkeypatch.setattr(v1_asset_insights, "configured_project_id", lambda: "demo")
     store = default_run_evidence_store()
     store.initialize()
     # Run "first" wrote two commits; its final snapshot is the one no other write replaced.

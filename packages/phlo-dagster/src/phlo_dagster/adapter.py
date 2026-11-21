@@ -60,9 +60,9 @@ from phlo.capabilities.runtime import (
     RuntimeRouting,
     attempt_from_tags,
     capability_overrides_from_tags,
+    configured_project_id,
     runtime_ref_from_tags,
 )
-from phlo.config import get_settings
 from phlo.capabilities.specs import (
     AssetCheckSpec,
     AssetSpec,
@@ -263,7 +263,7 @@ class DagsterRuntime(RuntimeContext):
         }
         capability_overrides = capability_overrides_from_tags(tags)
         attempt, attempt_error = attempt_from_tags(tags)
-        project = resolve_project_identity(tags, get_settings().phlo_project)
+        project = resolve_project_identity(tags, configured_project_id())
         for capability_type, provider_name in self.asset_capability_overrides.items():
             capability_overrides.setdefault(capability_type, provider_name)
         mode = tags.get("phlo/interval_mode", "scheduled")

@@ -1,0 +1,10 @@
+<!-- Expose ClickHouse metrics for the phlo Prometheus service (phlo.metrics labels). -->
+<clickhouse>
+    <prometheus>
+        <endpoint>/metrics</endpoint>
+        <port>9363</port>
+        <metrics>true</metrics>
+        <events>true</events>
+        <asynchronous_metrics>true</asynchronous_metrics>
+    </prometheus>
+</clickhouse>

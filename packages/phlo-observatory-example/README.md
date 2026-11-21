@@ -11,7 +11,7 @@ Install the package in the Phlo environment so plugin discovery can read its
 manifest:
 
 ```sh
-pip install phlo-observatory-example
+uv add phlo-observatory-example
 ```
 
 The current Observatory UI does not load extension manifests. The package

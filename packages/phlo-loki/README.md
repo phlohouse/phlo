@@ -9,7 +9,7 @@ Log aggregation and querying service. Receives logs from Alloy and provides log 
 ## Installation
 
 ```bash
-pip install phlo-loki
+uv add phlo-loki
 # or
 phlo plugin install loki
 ```

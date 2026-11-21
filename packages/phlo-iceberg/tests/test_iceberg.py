@@ -256,6 +256,28 @@ class TestTableOperations:
         mock_catalog.create_table.assert_not_called()
         assert table is mock_existing_table
 
+    def test_ensure_table_accepts_the_arrow_schema_of_the_rows(self):
+        """A writer that only holds rows creates the table from their Arrow schema."""
+        import pyarrow as pa
+
+        mock_catalog = MagicMock()
+        mock_catalog.load_table.side_effect = Exception("Table not found")
+
+        with (
+            patch("phlo_iceberg.tables.create_namespace"),
+            patch("phlo_iceberg.tables.get_catalog", return_value=mock_catalog),
+        ):
+            ensure_table(
+                "raw.orders", pa.schema([("order_id", pa.string()), ("amount", pa.float64())])
+            )
+
+        created = mock_catalog.create_table.call_args.kwargs["schema"]
+        assert isinstance(created, Schema)
+        assert [(field.field_id, field.name) for field in created.fields] == [
+            (1, "order_id"),
+            (2, "amount"),
+        ]
+
     def test_ensure_table_invalid_table_name(self):
         """ensure_table rejects table names without exactly one namespace dot."""
         schema = Schema(NestedField(1, "id", StringType(), required=True))

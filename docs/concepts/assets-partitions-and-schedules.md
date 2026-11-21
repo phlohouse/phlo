@@ -18,7 +18,7 @@ dbt dependencies come from the manifest `depends_on.nodes` values. A dbt source 
 
 Partitioned assets use a daily `PartitionSpec` in the provider asset specification. dbt and DLT assets can expose daily partitions.
 
-`phlo materialize` defaults an omitted partition to today's UTC date for a selected partitioned asset. Use a completed date with `--partition`, or pass `--no-default-partition` when you explicitly do not want the default.
+`phlo materialize` defaults an omitted partition to the latest complete day of the default daily partitioning (today's partition only exists once the day ends). Pass another completed date with `--partition`, or pass `--no-default-partition` when you explicitly do not want the default.
 
 ## How a run happens
 

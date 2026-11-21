@@ -9,7 +9,7 @@ Provides S3-compatible object storage for the data lake using [RustFS](https://g
 ## Installation
 
 ```bash
-pip install phlo-rustfs
+uv add phlo-rustfs
 # or
 phlo plugin install rustfs
 ```

@@ -499,16 +499,46 @@ def test_materialize_dry_run_uses_configured_container_backend(
 
 @patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")
 @patch("phlo_dagster.cli_materialize.get_project_name", return_value="mock-project")
-def test_materialize_defaults_partition_to_today(mock_project, mock_container) -> None:
-    """Omitted --partition defaults to today so partitioned assets never run bare."""
-    from datetime import UTC, datetime
+def test_materialize_defaults_partition_to_the_latest_complete_day(
+    mock_project, mock_container
+) -> None:
+    """Omitted --partition picks a partition that exists, so partitioned assets never run bare.
+
+    Today's daily partition only exists once the day ends; defaulting to it
+    made every bare ``phlo materialize`` of a daily asset fail.
+    """
+    from phlo_dagster.partitions import daily_partition
 
     runner = CliRunner()
     result = runner.invoke(materialize, ["dlt_orders", "--dry-run"])
 
     assert result.exit_code == 0
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    assert f"--partition {today}" in result.output
+    latest = daily_partition.get_last_partition_key()
+    assert latest in daily_partition.get_partition_keys()
+    # A default the CLI picked applies only to partitioned assets, so
+    # unpartitioned assets (Kafka consumers, for one) still run.
+    assert f"--default-partition {latest}" in result.output
+    assert "--partition " not in result.output
+
+
+@patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")
+@patch("phlo_dagster.cli_materialize.get_project_name", return_value="mock-project")
+def test_materialize_passes_an_explicit_partition_as_given(mock_project, mock_container) -> None:
+    result = CliRunner().invoke(materialize, ["dlt_orders", "--dry-run", "-p", "2026-01-02"])
+
+    assert result.exit_code == 0
+    assert "--partition 2026-01-02" in result.output
+    assert "--default-partition" not in result.output
+
+
+@patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")
+@patch("phlo_dagster.cli_materialize.get_project_name", return_value="mock-project")
+def test_materialize_accepts_the_dotted_key_runs_print(mock_project, mock_container) -> None:
+    """Run output shows ``kafka.orders``; Dagster selects that asset as ``kafka/orders``."""
+    result = CliRunner().invoke(materialize, ["kafka.orders", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "--select kafka/orders" in result.output
 
 
 @patch("phlo_dagster.cli_materialize.find_dagster_container", return_value="mock-container")

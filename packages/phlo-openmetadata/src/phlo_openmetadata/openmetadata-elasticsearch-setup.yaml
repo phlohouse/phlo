@@ -12,6 +12,10 @@ compose:
     discovery.type: single-node
     ES_JAVA_OPTS: ${OPENMETADATA_ES_JAVA_OPTS:--Xms256m -Xmx256m}
     xpack.security.enabled: "false"
+    # Single-node metadata index: percentage disk watermarks would mark every
+    # index read-only on a large, mostly full developer disk and leave the
+    # catalog red.
+    cluster.routing.allocation.disk.threshold_enabled: "false"
   healthcheck:
     test:
       [

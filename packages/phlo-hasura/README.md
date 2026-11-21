@@ -9,7 +9,7 @@ GraphQL API engine with real-time subscriptions. Exposes PostgreSQL tables as Gr
 ## Installation
 
 ```bash
-pip install phlo-hasura
+uv add phlo-hasura
 # or
 phlo plugin install hasura
 ```

@@ -11,7 +11,7 @@ Schema validation is supplied by installed quality-provider capabilities such as
 ## Installation
 
 ```bash
-pip install phlo-dlt
+uv add phlo-dlt
 # or
 phlo plugin install dlt
 ```

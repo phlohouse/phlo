@@ -28,21 +28,29 @@ compose:
     SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
     SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?Run phlo services init to generate SUPERSET_ADMIN_PASSWORD}
     SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.com}
+    # The upstream image ships no Trino driver. Install the pinned driver once
+    # into the persistent Superset home, as Superset's own compose setup does.
+    PYTHONPATH: /app/superset_home/drivers
+    UV_CACHE_DIR: /tmp/uv-cache
   command: >
     /bin/sh -c "
+    (python -c 'import trino.sqlalchemy' 2>/dev/null ||
+    uv pip install --quiet --no-deps --python /app/.venv/bin/python
+    --target /app/superset_home/drivers
+    trino==0.340.0 tzlocal==5.4.5 lz4==4.4.5 orjson==3.13.0) &&
     superset db upgrade &&
     superset fab create-admin --username $${SUPERSET_ADMIN_USER} --firstname Admin --lastname User --email $${SUPERSET_ADMIN_EMAIL} --password $${SUPERSET_ADMIN_PASSWORD} || true &&
     superset init &&
     superset run -h 0.0.0.0 -p 8088 --with-threads
     "
   ports:
-    - "${SUPERSET_PORT:-8088}:8088"
+    - "${SUPERSET_PORT:-10007}:8088"
   volumes:
     - superset-home:/app/superset_home
 
 env_vars:
   SUPERSET_PORT:
-    default: 8088
+    default: 10007
     description: Superset web UI port
   SUPERSET_SECRET_KEY:
     description: Superset secret key for session encryption
@@ -67,8 +75,8 @@ hooks:
         - phlo_superset.hooks
         - add-database
       timeout_seconds: 120
+      # The hook runs on the host and registers the connection that the
+      # Superset container uses, so the URI names Trino on the service network.
       environment:
-        SUPERSET_URL: http://superset:8088
-        TRINO_HOST: trino
-        TRINO_PORT: "8080"
-        TRINO_CATALOG: iceberg
+        SUPERSET_DATABASE_NAME: iceberg
+        SUPERSET_DATABASE_URI: trino://superset@trino:8080/iceberg

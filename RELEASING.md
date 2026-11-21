@@ -115,7 +115,10 @@ registered with these exact values:
 - Workflow filename: `release-promotion.yml`
 - Environment: `pypi`
 
-Register any new project before its first release, using a pending publisher.
+Every workspace package is in the release set and publishes with each release;
+`validate_support_manifest.py` fails if one is missing. Publication does not
+extend the support promise: each package's scope does that. Register any new
+project before its first release, using a pending publisher.
 List the release set with:
 
 ```bash

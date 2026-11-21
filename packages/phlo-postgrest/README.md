@@ -9,7 +9,7 @@ Automatically generates RESTful API from PostgreSQL schemas. Exposes published t
 ## Installation
 
 ```bash
-pip install phlo-postgrest
+uv add phlo-postgrest
 # or
 phlo plugin install postgrest
 ```
