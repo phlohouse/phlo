@@ -7,6 +7,7 @@ admin credentials never raises — the hook logs and skips registration.
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -228,7 +229,9 @@ def _signed_in(monkeypatch, *, health: object = None) -> Mock:
     monkeypatch.setenv("SUPERSET_ADMIN_USER", "test-admin")
     monkeypatch.setenv("SUPERSET_ADMIN_PASSWORD", "test-password")
     monkeypatch.setenv("SUPERSET_URL", "http://superset.test")
-    monkeypatch.setattr(hooks.time, "sleep", lambda _seconds: None)
+    # A module-local clock: patching time.sleep itself would leak process-wide.
+    clock = SimpleNamespace(sleep=lambda _seconds: None, perf_counter=time.perf_counter)
+    monkeypatch.setattr(hooks, "time", clock)
     monkeypatch.setattr(
         hooks.requests,
         "get",
