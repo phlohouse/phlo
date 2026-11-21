@@ -146,9 +146,11 @@ def _candidate(
         config.get("environments"),
     )
     env = {**os.environ, **derived_env}
+    file_env: dict[str, str] = {}
     for path in project_env_paths(state):
         checked_path(root, path.relative_to(root).as_posix())
-        env.update(parse_env_file(path))
+        file_env.update(parse_env_file(path))
+    env.update(file_env)
     generator = ComposeGenerator(discovery, host_identity=project_container_host_identity())
     rendered = yaml.safe_load(
         generator.generate_compose(
@@ -169,6 +171,9 @@ def _candidate(
             rendered[key] = {**rendered.get(key, {}), **value}
         else:
             rendered.setdefault(key, value)
+    _bake_derived_defaults(
+        rendered, _derived_values(config, services, generator, derived_env, file_env)
+    )
     marker = checked_path(root, ".phlo/.gitignore")
     shared = marker.exists() and SHARED_LAYOUT_MARKER in marker.read_text(encoding="utf-8")
     files: dict[str, tuple[bytes, int]] = dict(activation)
@@ -187,7 +192,7 @@ def _candidate(
             content if content is not None else source.read_bytes(),
             mode,
         )
-    additive = _derived_files(root, state, config, services, generator, files, derived_env)
+    additive = _derived_files(state, config, services, files)
     companions = tuple(name for name in rendered["services"] if name not in old["services"])
     order = tuple(service.name for service in discovery.resolve_dependencies(services))
     images = {
@@ -197,31 +202,74 @@ def _candidate(
     return files, companions, order, migrations, images, frozenset(additive)
 
 
-def _derived_files(
-    root: Path,
-    state: Path,
+def _derived_values(
     config: dict,
     services: list,
     generator: ComposeGenerator,
-    files: dict[str, tuple[bytes, int]],
     derived_env: dict,
+    file_env: dict[str, str],
+) -> dict[str, str]:
+    """Return the Phlo-derived settings the project's env files leave empty.
+
+    These are the values `phlo services init` writes for a new stack (actions,
+    query preview, notebook providers). An upgrade never edits the operator's
+    env files, so they travel in the generated Compose file instead.
+    """
+    owned = (set(derived_env) - set(_get_env_overrides(config))) | {"PHLO_API_EXTRAS"}
+    rendered = parse_env_text(generator.generate_env(services, env_overrides=derived_env))
+    return {
+        key: value
+        for key, value in rendered.items()
+        if key in owned and value and not file_env.get(key, "").strip()
+    }
+
+
+def _bake_derived_defaults(rendered: dict, values: dict[str, str]) -> None:
+    """Make each ``${KEY:-}`` reference to a derived setting default to its value.
+
+    A value set later in an env file still wins; a value Compose cannot carry
+    inside a default (one with ``}``) is written literally.
+    """
+    if not values:
+        return
+    for service in rendered.get("services", {}).values():
+        if not isinstance(service, dict):
+            continue
+        build = service.get("build")
+        mappings = [service.get("environment")]
+        if isinstance(build, dict):
+            mappings.append(build.get("args"))
+        for mapping in mappings:
+            if not isinstance(mapping, dict):
+                continue
+            for key, current in mapping.items():
+                if key not in values or not _is_plain_reference(key, current):
+                    continue
+                escaped = values[key].replace("$", "$$")
+                mapping[key] = escaped if "}" in escaped else f"${{{key}:-{escaped}}}"
+
+
+def _is_plain_reference(key: str, value: object) -> bool:
+    """Whether ``value`` only reads ``key`` from the environment, with any default."""
+    if not isinstance(value, str):
+        return False
+    return (
+        any(
+            value.startswith(prefix) and value.endswith("}") and "${" not in value[len(prefix) :]
+            for prefix in (f"${{{key}:-", f"${{{key}-")
+        )
+        or value == f"${{{key}}}"
+    )
+
+
+def _derived_files(
+    state: Path, config: dict, services: list, files: dict[str, tuple[bytes, int]]
 ) -> set[str]:
-    """Add the env defaults and dev grants the rendered services need to ``files``.
+    """Add the dev grants the rendered services need to ``files``.
 
     Returns the paths whose new content only adds to the operator's file.
     """
     additive: set[str] = set()
-    owned = (set(derived_env) - set(_get_env_overrides(config))) | {"PHLO_API_EXTRAS"}
-    merged_env = _merge_env_defaults(
-        checked_path(root, ".phlo/overrides/.env"),
-        generator.generate_env(services, env_overrides=derived_env),
-        owned,
-    )
-    if merged_env is not None:
-        files[".phlo/overrides/.env"] = merged_env
-        additive.add(".phlo/overrides/.env")
-    else:
-        _keep_current(root, ".phlo/overrides/.env", files)
     policies_name = ".phlo/authorization/policies.yaml"
     activated = files.get(policies_name)
     policies = dev_access_policies(
@@ -236,7 +284,7 @@ def _derived_files(
         if not activated:
             additive.add(policies_name)
     elif not activated:
-        _keep_current(root, policies_name, files)
+        _keep_current(state.parent, policies_name, files)
     return additive
 
 
@@ -247,43 +295,7 @@ def _keep_current(root: Path, name: str, files: dict[str, tuple[bytes, int]]) ->
         files[name] = (path.read_bytes(), path.stat().st_mode & 0o777)
 
 
-def _merge_env_defaults(path: Path, rendered: str, owned: set[str]) -> tuple[bytes, int] | None:
-    """Return the defaults file with new variables added and owned blanks filled.
-
-    Nothing the operator set is replaced: only variables missing from the file,
-    and Phlo-derived ones (``owned``) that are still empty, take the new value.
-    """
-    if not path.is_file():
-        return None
-    current = path.read_text(encoding="utf-8")
-    wanted = parse_env_file_text(rendered)
-    lines = current.splitlines()
-    present: dict[str, int] = {}
-    for index, line in enumerate(lines):
-        key, sep, _value = line.partition("=")
-        if sep and not line.lstrip().startswith("#"):
-            present[key.strip()] = index
-    changed = False
-    appended = False
-    for key, value in wanted.items():
-        if key in present:
-            index = present[key]
-            if key in owned and value and not lines[index].partition("=")[2].strip():
-                lines[index] = f"{key}={value}"
-                changed = True
-        elif value or key in owned:
-            if not appended:
-                lines.extend(["", "# Added by phlo services upgrade"])
-                appended = True
-            lines.append(f"{key}={value}")
-            changed = True
-    if not changed:
-        return None
-    mode = path.stat().st_mode & 0o777
-    return ("\n".join(lines) + "\n").encode("utf-8"), mode
-
-
-def parse_env_file_text(text: str) -> dict[str, str]:
+def parse_env_text(text: str) -> dict[str, str]:
     """Parse ``KEY=value`` lines, ignoring comments and blanks."""
     values: dict[str, str] = {}
     for line in text.splitlines():

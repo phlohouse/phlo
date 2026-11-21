@@ -12,7 +12,7 @@ import yaml
 
 from phlo.cli.commands.services import init as init_module
 from phlo.cli.commands.services import start as start_module
-from phlo.cli.commands.services.upgrade import _merge_env_defaults
+from phlo.cli.commands.services.upgrade import _bake_derived_defaults
 from phlo.cli.commands.services.utils import (
     DEFAULT_API_EXTRAS,
     apply_action_defaults,
@@ -78,28 +78,40 @@ def test_dev_identity_can_operate_its_own_lakehouse(tmp_path: Path) -> None:
     assert "settings.manage" not in actions
 
 
-def test_upgrade_merge_adds_new_settings_and_fills_owned_blanks(tmp_path: Path) -> None:
-    """Verify an upgrade keeps operator values and fills only Phlo-derived blanks."""
-    path = tmp_path / ".env"
-    path.write_text("# kept\nPHLO_API_EXTRAS=\nWEB_CONCURRENCY=2\nOPERATOR_BLANK=\n")
-    rendered = (
-        "PHLO_API_EXTRAS=dagster,trino\nWEB_CONCURRENCY=1\nOPERATOR_BLANK=x\n"
-        "PHLO_V1_PREVIEW_TRINO_URL=https://trino-preview:8443\n"
+def test_upgrade_carries_derived_settings_in_compose_not_env_files() -> None:
+    """Verify derived settings become Compose defaults and other references stay."""
+    rendered = {
+        "services": {
+            "phlo-api": {
+                "build": {"args": {"PHLO_API_EXTRAS": "${PHLO_API_EXTRAS-dagster,dlt}"}},
+                "environment": {
+                    "PHLO_V1_PREVIEW_TRINO_URL": "${PHLO_V1_PREVIEW_TRINO_URL:-}",
+                    "PHLO_V1_PREVIEW_CATALOGS": "${PHLO_V1_PREVIEW_CATALOGS:-}",
+                    "WEB_CONCURRENCY": "${WEB_CONCURRENCY:-1}",
+                    "PHLO_V1_QUERY_SINGLE_REPLICA": "fixed",
+                },
+            }
+        }
+    }
+    _bake_derived_defaults(
+        rendered,
+        {
+            "PHLO_API_EXTRAS": "dagster,dlt,trino",
+            "PHLO_V1_PREVIEW_TRINO_URL": "https://trino-preview:8443",
+            "PHLO_V1_PREVIEW_CATALOGS": '{"dev":{"catalog":"preview_dev"}}',
+            "PHLO_V1_QUERY_SINGLE_REPLICA": "1",
+        },
     )
-    merged = _merge_env_defaults(path, rendered, {"PHLO_API_EXTRAS", "PHLO_V1_PREVIEW_TRINO_URL"})
-    assert merged is not None
-    text = merged[0].decode()
-    assert "# kept" in text
-    assert "PHLO_API_EXTRAS=dagster,trino" in text
-    assert "WEB_CONCURRENCY=2" in text
-    assert "OPERATOR_BLANK=\n" in text
-    assert text.count("# Added by phlo services upgrade") == 1
-    assert "PHLO_V1_PREVIEW_TRINO_URL=https://trino-preview:8443" in text
-    path.write_text(text)
-    assert (
-        _merge_env_defaults(path, rendered, {"PHLO_API_EXTRAS", "PHLO_V1_PREVIEW_TRINO_URL"})
-        is None
+    api = rendered["services"]["phlo-api"]
+    assert api["build"]["args"]["PHLO_API_EXTRAS"] == "${PHLO_API_EXTRAS:-dagster,dlt,trino}"
+    environment = api["environment"]
+    assert environment["PHLO_V1_PREVIEW_TRINO_URL"] == (
+        "${PHLO_V1_PREVIEW_TRINO_URL:-https://trino-preview:8443}"
     )
+    # Compose cannot hold a "}" inside a default, so the value is written as is.
+    assert environment["PHLO_V1_PREVIEW_CATALOGS"] == '{"dev":{"catalog":"preview_dev"}}'
+    assert environment["WEB_CONCURRENCY"] == "${WEB_CONCURRENCY:-1}"
+    assert environment["PHLO_V1_QUERY_SINGLE_REPLICA"] == "fixed"
 
 
 def test_externally_issued_secrets_are_never_generated() -> None:
