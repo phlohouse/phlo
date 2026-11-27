@@ -7,7 +7,7 @@ waivers: []
 runtime_waivers:
   - id: notebook-kernel-host-root
     service: phlo-notebook-kernels
-    image: ghcr.io/phlohouse/phlo-notebook-kernels:0.19.0
+    image: ghcr.io/phlohouse/phlo-notebook-kernels:0.20.0
     exception: root-runtime
     rationale: >-
       The kernel host isolates notebook kernels from each other by running each
