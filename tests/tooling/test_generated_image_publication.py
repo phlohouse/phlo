@@ -467,3 +467,30 @@ def test_container_security_replaces_legacy_remote_image_scan() -> None:
     assert "Validate generated Dockerfiles and Compose configuration" in container_workflow
     assert "docker build" not in container_workflow
     assert "aquasec/trivy" not in container_workflow
+
+
+def test_every_published_dockerfile_rebuilds_its_runtime_stage_uncached() -> None:
+    """Publication skips the cache only for a stage named ``runtime``.
+
+    A Dockerfile whose final stage has another name reuses a cached apt/apk
+    upgrade layer forever, so fixed OS CVEs never reach the published image
+    and the container vulnerability policy fails the release.
+    """
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/build-service-images.yml").read_text(encoding="utf-8")
+    )
+    build_step = _step_using(_job_steps(workflow["jobs"]["build"]), "docker/build-push-action@")
+    assert build_step["with"]["no-cache-filters"].split() == ["runtime"]
+
+    dockerfiles = sorted((REPO_ROOT / "packages").glob("*/src/**/Dockerfile"))
+    assert len(dockerfiles) >= 5
+    for dockerfile in dockerfiles:
+        stages = [
+            line.split()
+            for line in dockerfile.read_text(encoding="utf-8").splitlines()
+            if line.upper().startswith("FROM ")
+        ]
+        final = stages[-1]
+        assert len(final) == 4 and final[2].upper() == "AS" and final[3] == "runtime", (
+            f"{dockerfile.relative_to(REPO_ROOT)}: final stage must be named 'runtime'"
+        )
