@@ -1,6 +1,6 @@
 # Notebook kernel host: runs Observatory notebook kernels, one Unix user per
 # kernel, with no network for kernel users. See notebook_gateway.py.
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS runtime
 
 # hadolint ignore=DL3008
 RUN apt-get update \
