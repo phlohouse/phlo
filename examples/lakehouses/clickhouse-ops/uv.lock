@@ -2530,7 +2530,7 @@ wheels = [
 
 [[package]]
 name = "phlo"
-version = "0.19.0"
+version = "0.20.0"
 source = { editable = "../../../" }
 dependencies = [
     { name = "click" },
@@ -2675,7 +2675,7 @@ dev = [
 
 [[package]]
 name = "phlo-api"
-version = "0.19.0"
+version = "0.20.0"
 source = { editable = "../../../packages/phlo-api" }
 dependencies = [
     { name = "anyio" },
@@ -2720,11 +2720,11 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.38.0" },
     { name = "websockets", marker = "extra == 'notebooks'", specifier = ">=15.0" },
 ]
-provides-extras = ["dagster", "dev", "dlt", "iceberg", "lineage", "notebooks", "notebook-host", "transform", "trino"]
+provides-extras = ["dagster", "dev", "dlt", "iceberg", "lineage", "notebook-host", "notebooks", "transform", "trino"]
 
 [[package]]
 name = "phlo-clickhouse"
-version = "0.16.2"
+version = "0.16.3"
 source = { editable = "../../../packages/phlo-clickhouse" }
 dependencies = [
     { name = "clickhouse-connect" },
@@ -2797,7 +2797,7 @@ dev = [
 
 [[package]]
 name = "phlo-core-plugins"
-version = "0.16.2"
+version = "0.16.3"
 source = { editable = "../../../packages/phlo-core-plugins" }
 dependencies = [
     { name = "phlo" },
@@ -2817,7 +2817,7 @@ provides-extras = ["dev", "quality"]
 
 [[package]]
 name = "phlo-dagster"
-version = "0.19.0"
+version = "0.19.1"
 source = { editable = "../../../packages/phlo-dagster" }
 dependencies = [
     { name = "cryptography" },
@@ -2853,7 +2853,7 @@ provides-extras = ["alerting", "dev", "iceberg", "nessie", "observatory"]
 
 [[package]]
 name = "phlo-dbt"
-version = "0.18.0"
+version = "0.18.1"
 source = { editable = "../../../packages/phlo-dbt" }
 dependencies = [
     { name = "dbt-core" },
@@ -2877,7 +2877,7 @@ provides-extras = ["dagster", "dev", "quality"]
 
 [[package]]
 name = "phlo-dlt"
-version = "0.18.0"
+version = "0.18.1"
 source = { editable = "../../../packages/phlo-dlt" }
 dependencies = [
     { name = "dlt" },
@@ -2903,7 +2903,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-iceberg"
-version = "0.18.0"
+version = "0.18.1"
 source = { editable = "../../../packages/phlo-iceberg" }
 dependencies = [
     { name = "pandera", extra = ["pandas"] },
@@ -2927,7 +2927,7 @@ provides-extras = ["dev", "minio", "nessie"]
 
 [[package]]
 name = "phlo-minio"
-version = "0.18.0"
+version = "0.19.0"
 source = { editable = "../../../packages/phlo-minio" }
 dependencies = [
     { name = "phlo" },
@@ -2943,7 +2943,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-nessie"
-version = "0.18.0"
+version = "0.18.1"
 source = { editable = "../../../packages/phlo-nessie" }
 dependencies = [
     { name = "marshmallow" },
@@ -2968,7 +2968,7 @@ provides-extras = ["dev", "iceberg-cli", "observatory", "trino"]
 
 [[package]]
 name = "phlo-observatory"
-version = "0.19.0"
+version = "0.20.0"
 source = { editable = "../../../packages/phlo-observatory" }
 dependencies = [
     { name = "phlo" },
@@ -3014,7 +3014,7 @@ wheels = [
 
 [[package]]
 name = "phlo-observe-plugin"
-version = "0.2.2"
+version = "0.2.3"
 source = { editable = "../../../packages/phlo-observe-plugin" }
 dependencies = [
     { name = "phlo" },
@@ -3047,7 +3047,7 @@ wheels = [
 
 [[package]]
 name = "phlo-pandera"
-version = "0.17.0"
+version = "0.17.1"
 source = { editable = "../../../packages/phlo-pandera" }
 dependencies = [
     { name = "click" },
@@ -3075,7 +3075,7 @@ provides-extras = ["dev", "observatory", "trino"]
 
 [[package]]
 name = "phlo-postgres"
-version = "0.18.0"
+version = "0.18.1"
 source = { editable = "../../../packages/phlo-postgres" }
 dependencies = [
     { name = "phlo" },
@@ -3093,7 +3093,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-sling"
-version = "0.16.2"
+version = "0.16.3"
 source = { editable = "../../../packages/phlo-sling" }
 dependencies = [
     { name = "phlo" },
@@ -3113,7 +3113,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "phlo-trino"
-version = "0.18.0"
+version = "0.19.0"
 source = { editable = "../../../packages/phlo-trino" }
 dependencies = [
     { name = "pandas" },

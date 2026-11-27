@@ -7,13 +7,13 @@ requires = [
 
 [project]
 dependencies = [
-    "phlo>=0.19.0,<0.20",
+    "phlo>=0.20.0,<0.21",
     "fastapi>=0.127.0,<0.137",
     "httpx>=0.28.1",
     "anyio>=4.14.2",
     "psycopg2-binary>=2.9.11",
-    "phlo-pandera>=0.17.0,<0.18",
-    "phlo-postgres>=0.18.0,<0.19",
+    "phlo-pandera>=0.17.1,<0.18",
+    "phlo-postgres>=0.18.1,<0.19",
     "pydantic>=2.0",
     "pyyaml>=6.0.1",
     "sqlglot>=30.2.1,<31",
@@ -22,7 +22,7 @@ dependencies = [
 description = "Phlo API - Backend service exposing Phlo internals to Observatory"
 name = "phlo-api"
 requires-python = ">=3.12"
-version = "0.19.0"
+version = "0.20.0"
 
 [[project.authors]]
 email = "team@phlo.dev"
@@ -41,15 +41,9 @@ dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",
 ]
-dlt = ["phlo-dlt>=0.18.0,<0.19"]
-iceberg = ["phlo-iceberg>=0.18.0,<0.19"]
+dlt = ["phlo-dlt>=0.18.1,<0.19"]
+iceberg = ["phlo-iceberg>=0.18.1,<0.19"]
 lineage = ["phlo-lineage>=0.1.0"]
-# The API side of notebooks only: kernels run on the notebook kernel host image.
-notebooks = [
-    "croniter>=2.0",
-    "websockets>=15.0",
-]
-# What the notebook kernel host runs; its image pins exact versions.
 notebook-host = [
     "duckdb>=1.1",
     "ipykernel>=6.29",
@@ -57,8 +51,12 @@ notebook-host = [
     "matplotlib>=3.9",
     "pandas>=2.2",
 ]
-transform = ["phlo-transform>=0.2.0,<0.3"]
-trino = ["phlo-trino>=0.18.0,<0.19"]
+notebooks = [
+    "croniter>=2.0",
+    "websockets>=15.0",
+]
+transform = ["phlo-transform>=0.2.1,<0.3"]
+trino = ["phlo-trino>=0.19.0,<0.20"]
 
 [project.readme]
 content-type = "text/plain"
